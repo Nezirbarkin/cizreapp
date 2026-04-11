@@ -1,0 +1,1438 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/models/post_model.dart';
+import '../../../core/models/analytics_model.dart';
+import '../../../core/services/profile_view_service.dart';
+import '../../../core/services/post_view_service.dart';
+import '../../social/services/post_service.dart';
+import '../../social/services/story_service.dart';
+import '../../social/screens/post_likes_screen.dart';
+import '../../social/screens/post_detail_screen.dart';
+import '../../social/screens/story_viewer_screen.dart';
+import '../services/profile_service.dart';
+import 'edit_profile_screen.dart';
+import '../../social/screens/create_post_screen.dart';
+import 'blocked_users_screen.dart';
+import 'my_reports_screen.dart';
+
+class ProfileScreen extends StatefulWidget {
+  final String? userId;
+  
+  const ProfileScreen({super.key, this.userId});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _profileService = ProfileService();
+  final _postService = PostService();
+  final _storyService = StoryService();
+  final _profileViewService = ProfileViewService();
+  final _postViewService = PostViewService();
+  
+  Map<String, dynamic>? _profileData;
+  List<Post> _userPosts = [];
+  List<Story> _userStories = [];
+  bool _isLoading = true;
+  bool _isLoadingPosts = true;
+  bool _isFollowing = false;
+  // ignore: unused_field
+  bool _isOwnProfile = false;
+  int _followersCount = 0;
+  int _followingCount = 0;
+  Set<String> _likedPostIds = {};
+  CurrentMonthViewStats? _profileViewStats;
+  CurrentMonthViewStats? _postViewStats;
+  bool _isLoadingAnalytics = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+    _loadUserPosts();
+    _loadUserStories();
+    _checkIfFollowing();
+    _loadFollowCounts();
+    _loadAnalytics();
+  }
+
+  Future<void> _loadAnalytics() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    
+    if (targetUserId == null || currentUserId == null) {
+      setState(() => _isLoadingAnalytics = false);
+      return;
+    }
+
+    final isOwnProfile = targetUserId == currentUserId;
+    
+
+    // Sadece kendi profilinde istatistikleri göster
+    if (!isOwnProfile) {
+      setState(() => _isLoadingAnalytics = false);
+      return;
+    }
+
+    try {
+      setState(() => _isLoadingAnalytics = true);
+      
+      // Profil ziyaret ve post görüntüleme istatistiklerini al
+      final profileStats = await _profileViewService.getCurrentMonthStats(targetUserId);
+      
+      final postStats = await _postViewService.getCurrentMonthStats(targetUserId);
+      
+      setState(() {
+        _profileViewStats = profileStats;
+        _postViewStats = postStats;
+        _isLoadingAnalytics = false;
+      });
+      
+    } catch (e) {
+      setState(() => _isLoadingAnalytics = false);
+    }
+  }
+
+  Future<void> _loadFollowCounts() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    if (targetUserId == null) return;
+    
+    try {
+      final followersResponse = await Supabase.instance.client
+          .from('follows')
+          .select('id')
+          .eq('following_id', targetUserId);
+
+      final followingResponse = await Supabase.instance.client
+          .from('follows')
+          .select('id')
+          .eq('follower_id', targetUserId);
+
+      setState(() {
+        _followersCount = (followersResponse as List).length;
+        _followingCount = (followingResponse as List).length;
+      });
+    } catch (e) {
+      debugPrint('Takipçi sayıları yüklenirken hata: $e');
+    }
+  }
+
+  Future<void> _loadUserStories() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    if (targetUserId == null) return;
+    
+    try {
+      setState(() => _isLoadingPosts = true);
+      final stories = await _storyService.getUserStories(targetUserId);
+      setState(() {
+        _userStories = stories;
+        _isLoadingPosts = false;
+      });
+    } catch (e) {
+      debugPrint('Kullanıcı hikayeleri yüklenirken hata: $e');
+      setState(() => _isLoadingPosts = false);
+    }
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      final targetUserId = widget.userId ?? currentUserId;
+      
+      if (targetUserId == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      _isOwnProfile = targetUserId == currentUserId;
+      
+      final profile = await _profileService.getUserProfile(targetUserId);
+      setState(() {
+        _profileData = profile;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Profil yüklenirken hata: $e');
+      
+      // Kendi profilimizse ve profil bulunamadıysa, otomatik oluştur
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      final targetUserId = widget.userId ?? currentUserId;
+      
+      if (_isOwnProfile && targetUserId == currentUserId && currentUserId != null) {
+        await _createDefaultProfile(currentUserId);
+      } else {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+  
+  Future<void> _createDefaultProfile(String userId) async {
+    try {
+      debugPrint('🔧 Profil oluşturuluyor: $userId');
+      
+      final user = Supabase.instance.client.auth.currentUser;
+      final email = user?.email ?? '';
+      final username = email.split('@').first; // Email'den username oluştur
+      
+      // Varsayılan profil oluştur
+      await Supabase.instance.client.from('profiles').insert({
+        'id': userId,
+        'email': email,
+        'username': username,
+        'full_name': username,
+        'role': 'customer',
+        'status': 'active',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      
+      debugPrint('✅ Profil oluşturuldu, yeniden yükleniyor...');
+      
+      // Profili tekrar yükle
+      await _loadProfile();
+    } catch (e) {
+      debugPrint('❌ Profil oluşturulamadı: $e');
+      setState(() => _isLoading = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Profil oluşturulamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadUserPosts() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    if (targetUserId == null) return;
+    
+    try {
+      setState(() => _isLoadingPosts = true);
+      final posts = await _postService.getUserPosts(targetUserId);
+      
+      if (currentUserId != null && posts.isNotEmpty) {
+        final postIds = posts.map((p) => p.id).toList();
+        _likedPostIds = await _postService.getLikedPostIds(currentUserId, postIds);
+      }
+      
+      setState(() {
+        _userPosts = posts;
+        _isLoadingPosts = false;
+      });
+    } catch (e) {
+      debugPrint('Kullanıcı gönderileri yüklenirken hata: $e');
+      setState(() => _isLoadingPosts = false);
+    }
+  }
+
+  Future<void> _checkIfFollowing() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    if (currentUserId == null || targetUserId == null || currentUserId == targetUserId) return;
+
+    try {
+      final response = await Supabase.instance.client
+          .from('follows')
+          .select('id')
+          .eq('follower_id', currentUserId)
+          .eq('following_id', targetUserId)
+          .maybeSingle();
+
+      setState(() => _isFollowing = response != null);
+    } catch (e) {
+      debugPrint('Takip durumu kontrol edilirken hata: $e');
+    }
+  }
+
+  Future<void> _toggleFollow() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    if (currentUserId == null || targetUserId == null) return;
+
+    try {
+      if (_isFollowing) {
+        await Supabase.instance.client
+            .from('follows')
+            .delete()
+            .eq('follower_id', currentUserId)
+            .eq('following_id', targetUserId);
+      } else {
+        await Supabase.instance.client.from('follows').insert({
+          'follower_id': currentUserId,
+          'following_id': targetUserId,
+        });
+      }
+
+      setState(() => _isFollowing = !_isFollowing);
+      await _loadFollowCounts();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isFollowing ? 'Takip edilmeye başlandı' : 'Takip bırakıldı',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('İşlem başarısız: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deletePost(String postId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gönderiyi Sil'),
+        content: const Text('Bu gönderiyi silmek istediğinizden emin misiniz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _postService.deletePost(postId);
+      
+      setState(() {
+        _userPosts.removeWhere((post) => post.id == postId);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gönderi silindi')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Silme başarısız: $e')),
+        );
+      }
+    }
+  }
+
+  void _showLikes(String postId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PostLikesScreen(postId: postId),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading || _profileData == null) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final username = _profileData!['username'] ?? 'Kullanıcı';
+    final fullName = _profileData!['full_name'] ?? username;
+    final avatarUrl = _profileData!['avatar_url'];
+    final coverUrl = _profileData!['cover_url'];
+    final bio = _profileData!['bio'];
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    final isOwnProfile = targetUserId == currentUserId;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: !isOwnProfile ? IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ) : null,
+        title: Text(
+          username,
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        actions: [
+          if (isOwnProfile)
+            IconButton(
+              icon: const Icon(Icons.add_box_outlined, color: Colors.black),
+              onPressed: _createPost,
+              tooltip: 'Gönderi Oluştur',
+            ),
+          IconButton(
+            icon: const Icon(Icons.more_vert, color: Colors.black),
+            onPressed: () {
+              if (isOwnProfile) {
+                _showOwnProfileMenu();
+              }
+            },
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Profil bilgileri - Instagram tarzı
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Profil resmi - Story çemberi ile
+                  GestureDetector(
+                    onTap: _userStories.isNotEmpty ? () => _openStories() : () => _showFullScreenImage(avatarUrl),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: _userStories.isNotEmpty
+                            ? LinearGradient(
+                                colors: [
+                                  Colors.purple.shade400,
+                                  Colors.pink.shade400,
+                                  Colors.orange.shade400,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              )
+                            : null,
+                        color: _userStories.isEmpty ? Colors.grey.shade200 : null,
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: CircleAvatar(
+                        radius: 42,
+                        backgroundColor: Colors.white,
+                        child: CircleAvatar(
+                          radius: 40,
+                          backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                          backgroundColor: Colors.grey.shade300,
+                          child: avatarUrl == null
+                              ? Text(
+                                  username.isNotEmpty
+                                      ? username.substring(0, 1).toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 24),
+                  
+                  // İstatistikler
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildStat('${_userPosts.length}', 'Gönderi'),
+                        _buildStat('$_followersCount', 'Takipçi'),
+                        _buildStat('$_followingCount', 'Takip'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Profil bilgileri
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fullName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (bio != null && bio.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      bio,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                  ],
+                  if (_profileData!['website'] != null && _profileData!['website'].toString().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.language, size: 14, color: Colors.grey.shade600),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => _launchUrl(_profileData!['website'].toString()),
+                            child: Text(
+                              _profileData!['website'],
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.blue.shade700,
+                                decoration: TextDecoration.underline,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Takip Et / Mesaj Butonları
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  if (!isOwnProfile) ...[
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _toggleFollow,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isFollowing
+                              ? Colors.grey.shade200
+                              : Theme.of(context).colorScheme.primary,
+                          foregroundColor: _isFollowing ? Colors.black : Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          _isFollowing ? 'Takip Ediliyor' : 'Takip Et',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Mesajlaşma özelliği yakında eklenecek!'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Mesaj',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _editProfile,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Profili Düzenle',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.add, color: Colors.white, size: 20),
+                        onPressed: _createPost,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Analitik kartları (sadece kendi profilinde)
+            if (isOwnProfile && !_isLoadingAnalytics && (_profileViewStats != null || _postViewStats != null))
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Bu Ay İstatistiklerim',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        if (_profileViewStats != null)
+                          Expanded(
+                            child: _buildAnalyticsCard(
+                              icon: Icons.visibility_outlined,
+                              title: 'Profil Ziyaretleri',
+                              count: _profileViewStats!.totalViews,
+                              subtitle: '${_profileViewStats!.uniqueViewers} benzersiz',
+                              color: Colors.blue,
+                            ),
+                          ),
+                        if (_profileViewStats != null && _postViewStats != null)
+                          const SizedBox(width: 12),
+                        if (_postViewStats != null)
+                          Expanded(
+                            child: _buildAnalyticsCard(
+                              icon: Icons.auto_graph_outlined,
+                              title: 'Post Görüntüleme',
+                              count: _postViewStats!.totalViews,
+                              subtitle: '${_postViewStats!.uniqueViewers} benzersiz',
+                              color: Colors.purple,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 16),
+
+            // Kapak fotoğrafı
+            if (coverUrl != null && coverUrl.isNotEmpty)
+              GestureDetector(
+                onTap: () => _showFullScreenImage(coverUrl),
+                child: Container(
+                  width: double.infinity,
+                  height: 150,
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    image: DecorationImage(
+                      image: NetworkImage(coverUrl),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: double.infinity,
+                height: 150,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    size: 48,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 16),
+
+            // Tab bar - Gönderi grid ikonu
+            Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Colors.grey.shade200),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.black,
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.grid_on,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Gönderiler bölümü
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Gönderiler',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (isOwnProfile)
+                        IconButton(
+                          icon: const Icon(Icons.refresh),
+                          onPressed: _loadUserPosts,
+                          tooltip: 'Yenile',
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoadingPosts)
+                    const SizedBox(
+                      height: 200,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_userPosts.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade200),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.image_not_supported_outlined,
+                            size: 48,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Henüz gönderi yok',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _userPosts.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 16),
+                      itemBuilder: (context, index) {
+                        final post = _userPosts[index];
+                        return _buildPostCard(post, isOwnProfile);
+                      },
+                    ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStat(String count, String label) {
+    return Column(
+      children: [
+        Text(
+          count,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnalyticsCard({
+    required IconData icon,
+    required String title,
+    required int count,
+    required String subtitle,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            // ignore: deprecated_member_use
+            color.withOpacity(0.1),
+            // ignore: deprecated_member_use
+            color.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        // ignore: deprecated_member_use
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            count.toString(),
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostCard(Post post, bool isOwnProfile) {
+    final firstImage = post.images.isNotEmpty ? post.images.first : null;
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final username = _profileData!['username'] ?? 'Kullanıcı';
+    final avatarUrl = _profileData!['avatar_url'];
+    
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Profil başlığı - Instagram tarzı
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                // Profil resmi
+                CircleAvatar(
+                  radius: 18,
+                  backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                  backgroundColor: Colors.grey.shade300,
+                  child: avatarUrl == null
+                      ? Text(
+                          username.isNotEmpty
+                              ? username.substring(0, 1).toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                // Kullanıcı adı
+                Expanded(
+                  child: Text(
+                    username,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                // Daha fazla butonu
+                IconButton(
+                  icon: const Icon(Icons.more_horiz, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    // Daha fazla seçenek
+                  },
+                ),
+              ],
+            ),
+          ),
+          // Gönderi resmi (varsa) - Çift tıklama ile beğeni
+          if (firstImage != null)
+            _DoubleTapLikeImage(
+              imageUrl: firstImage,
+              onDoubleTap: currentUserId != null
+                  ? () => _toggleLike(post)
+                  : null,
+            ),
+
+          // Gönderi içeriği (metin)
+          if (post.content != null && post.content!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                post.content!,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ),
+  
+            // Beğeni ve yorum butonları
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                children: [
+                  // Beğeni butonu
+                  IconButton(
+                    icon: Icon(
+                      _likedPostIds.contains(post.id)
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      color: _likedPostIds.contains(post.id) ? Colors.red : Colors.grey,
+                    ),
+                    onPressed: currentUserId != null
+                        ? () => _toggleLike(post)
+                        : null,
+                  ),
+                  // Beğeni sayısı (tıklanabilir)
+                  InkWell(
+                    onTap: () => _showLikes(post.id),
+                    child: Text(
+                      '${post.likesCount}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 16),
+  
+                  // Yorum butonu
+                  IconButton(
+                    icon: const Icon(
+                      Icons.comment_outlined,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () => _navigateToPostDetail(post),
+                  ),
+                  // Yorum sayısı
+                  Text(
+                    '${post.commentsCount}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+  
+                  const Spacer(),
+  
+                  // Sil butonu (sadece kendi profili ise)
+                  if (isOwnProfile)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deletePost(post.id),
+                      tooltip: 'Sil',
+                    ),
+                ],
+              ),
+            ),
+
+          // Tarih
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              _formatDate(post.createdAt),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    // Veritabanındaki tarih zaten doğru saat diliminde (UTC+3), direkt kullan
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  Future<void> _toggleLike(Post post) async {
+    try {
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final isLiked = _likedPostIds.contains(post.id);
+
+      // UI'ı hemen güncelle
+      setState(() {
+        if (isLiked) {
+          _likedPostIds.remove(post.id);
+        } else {
+          _likedPostIds.add(post.id);
+        }
+      });
+
+      // Backend'e istek gönder
+      try {
+        if (isLiked) {
+          await _postService.unlikePost(post.id, currentUserId);
+        } else {
+          await _postService.likePost(post.id, currentUserId);
+        }
+        
+        // Beğeni sayısını güncelle
+        await _loadUserPosts();
+      } catch (e) {
+        // Hata olursa geri al
+        setState(() {
+          if (isLiked) {
+            _likedPostIds.add(post.id);
+          } else {
+            _likedPostIds.remove(post.id);
+          }
+        });
+        // ignore: use_rethrow_when_possible
+        throw e;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('İşlem başarısız: $e')),
+        );
+      }
+    }
+  }
+
+  void _navigateToPostDetail(Post post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PostDetailScreen(post: post),
+      ),
+    ).then((_) {
+      // Geri dönüldüğünde gönderileri yenile
+      _loadUserPosts();
+    });
+  }
+
+  void _openStories() {
+    if (_userStories.isEmpty) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StoryViewerScreen(
+          stories: _userStories,
+          initialIndex: 0,
+        ),
+      ),
+    ).then((_) {
+      // Geri dönüldüğünde story'leri yenile
+      _loadUserStories();
+    });
+  }
+
+  void _showFullScreenImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _FullScreenImageViewer(imageUrl: imageUrl),
+      ),
+    );
+  }
+
+  Future<void> _createPost() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const CreatePostScreen(),
+      ),
+    );
+    
+    if (result == true) {
+      _loadUserPosts();
+    }
+  }
+
+  void _editProfile() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const EditProfileScreen(),
+      ),
+    );
+    
+    if (result == true) {
+      _loadProfile();
+    }
+  }
+
+  Future<void> _launchUrl(String url) async {
+    try {
+      // URL'nin başında http:// veya https:// yoksa ekle
+      String formattedUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        formattedUrl = 'https://$url';
+      }
+      
+      final uri = Uri.parse(formattedUrl);
+      // URL'yi harici tarayıcıda aç (uygulama dışında)
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('URL açılamadı')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('URL açılırken hata: $e')),
+        );
+      }
+    }
+  }
+
+  void _showOwnProfileMenu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.block, color: Colors.red),
+              title: const Text('Engellenenler'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BlockedUsersScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag, color: Colors.orange),
+              title: const Text('Şikayetlerim'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MyReportsScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings, color: Colors.blue),
+              title: const Text('Hesap Ayarları'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/account-settings');
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.close, color: Colors.grey),
+              title: const Text('İptal'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Tam ekran görüntüleme widget'ı
+class _FullScreenImageViewer extends StatelessWidget {
+  final String imageUrl;
+
+  const _FullScreenImageViewer({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(
+                Icons.error_outline,
+                color: Colors.white,
+                size: 48,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Çift tıklama ile beğeni widget'ı
+class _DoubleTapLikeImage extends StatefulWidget {
+  final String imageUrl;
+  final VoidCallback? onDoubleTap;
+
+  const _DoubleTapLikeImage({
+    required this.imageUrl,
+    this.onDoubleTap,
+  });
+
+  @override
+  State<_DoubleTapLikeImage> createState() => _DoubleTapLikeImageState();
+}
+
+class _DoubleTapLikeImageState extends State<_DoubleTapLikeImage>
+    with SingleTickerProviderStateMixin {
+  bool _showHeart = false;
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.3)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.3, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_controller);
+
+    _opacityAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.0),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0),
+        weight: 30,
+      ),
+    ]).animate(_controller);
+
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        setState(() => _showHeart = false);
+        _controller.reset();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTap() {
+    if (widget.onDoubleTap != null) {
+      setState(() => _showHeart = true);
+      _controller.forward(from: 0.0);
+      widget.onDoubleTap!();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onDoubleTap: _handleDoubleTap,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(12),
+            ),
+            child: Image.network(
+              widget.imageUrl,
+              width: double.infinity,
+              height: 300,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  height: 300,
+                  color: Colors.grey.shade200,
+                  child: const Icon(Icons.error_outline, size: 48),
+                );
+              },
+            ),
+          ),
+          if (_showHeart)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _opacityAnimation.value,
+                    child: Transform.scale(
+                      scale: _scaleAnimation.value,
+                      child: const Icon(
+                        Icons.favorite,
+                        size: 120,
+                        color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black45,
+                            blurRadius: 20,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

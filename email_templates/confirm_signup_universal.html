@@ -1,0 +1,91 @@
+<!-- Supabase Email Verification Template -->
+<!-- Bu şablonu Supabase Dashboard > Authentication > Email Templates > Confirm Signup'a yapıştırın -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-posta Doğrulama</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+    
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0;">
+        
+        <!-- Header -->
+        <div style="background-color: #1ABC9C; padding: 30px 20px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 28px;">CizreApp</h1>
+            <p style="color: rgba(255,255,255,0.8); margin: 8px 0 0 0; font-size: 14px;">Cizre'nin Dijital Pazarı</p>
+        </div>
+        
+        <!-- Content -->
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #2C3E50; font-size: 22px; text-align: center; margin: 0 0 15px 0;">E-posta Doğrulama</h2>
+            
+            <p style="color: #666666; font-size: 16px; line-height: 1.6; text-align: center; margin: 0 0 30px 0;">
+                CizreApp hesabınızı aktif etmek için aşağıdaki butona tıklayın.
+            </p>
+            
+            <!-- Ana Buton - ConfirmationURL Supabase tarafından sağlanır -->
+            <!-- Gmail ve diğer mail sağlayıcıları için tıklanabilir link -->
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ .ConfirmationURL }}" style="height:48px;v-text-anchor:middle;width:200px;" arcsize="10%" stroke="f" fillcolor="#1ABC9C">
+              <w:anchorlock/>
+              <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">E-postamı Doğrula</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 auto;">
+                <tr>
+                    <td style="border-radius: 8px; background-color: #1ABC9C;">
+                        <a href="{{ .ConfirmationURL }}" target="_blank" style="background-color: #1ABC9C; padding: 16px 40px; border-radius: 8px; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; text-align: center; text-decoration: none; line-height: 1.5; -webkit-text-size-adjust: none; mso-hide: all;">
+                            &#10004; E-postamı Doğrula
+                        </a>
+                    </td>
+                </tr>
+            </table>
+            <!--<![endif]-->
+            
+            <p style="color: #999999; font-size: 13px; text-align: center; margin: 25px 0 0 0;">
+                Butona tıkladıktan sonra doğrulama sayfasına yönlendirileceksiniz.
+            </p>
+            
+            <!-- Buton çalışmazsa link -->
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 15px; margin-top: 25px;">
+                <p style="color: #666666; font-size: 13px; margin: 0 0 8px 0; text-align: center;">
+                    <strong>Buton çalışmıyorsa:</strong>
+                </p>
+                <p style="color: #3498DB; font-size: 12px; margin: 0; text-align: center; word-break: break-all;">
+                    <a href="{{ .ConfirmationURL }}" style="color: #3498DB; text-decoration: underline; word-break: break-all;">{{ .ConfirmationURL }}</a>
+                </p>
+            </div>
+            
+            <!-- Alternatif kopyalama metodu -->
+            <div style="background-color: #FFF3CD; border-radius: 8px; padding: 15px; margin-top: 15px;">
+                <p style="color: #856404; font-size: 12px; margin: 0; text-align: center;">
+                    <strong>Link otomatik açılmıyorsa:</strong><br>
+                    Linki kopyalayıp tarayıcınıza yapıştırın.<br>
+                    <code style="background: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; word-break: break-all;">{{ .ConfirmationURL }}</code>
+                </p>
+            </div>
+            
+            <!-- Uygulama indirme -->
+            <div style="background-color: #EBF5FB; border-radius: 8px; padding: 15px; margin-top: 15px;">
+                <p style="color: #2980B9; font-size: 13px; margin: 0; text-align: center;">
+                    <strong>Uygulamanız yok mu?</strong><br>
+                    <a href="https://play.google.com/store/apps/details?id=com.cizreapp.app" style="color: #007bff; text-decoration: underline;">Google Play'den İndirin</a>
+                </p>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div style="border-top: 1px solid #eeeeee; padding: 20px; text-align: center;">
+            <p style="color: #aaaaaa; font-size: 12px; margin: 0;">
+                Bu e-postayı siz talep etmediyseniz dikkate almayın.<br>
+                &copy; 2026 CizreApp. Tüm hakları saklıdır.
+            </p>
+        </div>
+        
+    </div>
+    
+</body>
+</html>

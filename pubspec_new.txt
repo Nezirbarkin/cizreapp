@@ -1,0 +1,121 @@
+name: cizreapp
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.1
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+
+  # ============ SUPABASE ============
+  supabase_flutter: ^2.12.0
+  
+  # ============ STATE MANAGEMENT ============
+  provider: ^6.0.0
+  
+  # ============ STORAGE & LOCAL DB ============
+  shared_preferences: ^2.2.0
+  hive: ^2.2.0
+  hive_flutter: ^1.1.0
+  
+  # ============ HTTP & API ============
+  http: ^1.1.0
+  dio: ^5.3.0
+  
+  # ============ JSON & SERIALIZATION ============
+  json_annotation: ^4.9.0
+  
+  # ============ IMAGE & FILE HANDLING ============
+  image_picker: ^1.0.0
+  flutter_image_compress: ^2.1.0
+  cached_network_image: ^3.3.0
+  video_player: ^2.7.0
+  video_thumbnail: ^0.5.3
+  
+  # ============ ENVIRONMENT & SECURITY ============
+  flutter_dotenv: ^5.1.0
+  
+  # ============ DATE & TIME ============
+  intl: ^0.20.2
+  
+  # ============ UI & ANIMATIONS ============
+  animated_stack_widget: ^0.0.3
+  flutter_animate: ^4.2.0
+  shimmer: ^3.0.0
+  
+  # ============ NAVIGATION & ROUTING ============
+  go_router: ^17.0.1
+  
+  # ============ LOCALIZATION ============
+  flutter_localizations:
+    sdk: flutter
+  
+  # ============ PERMISSIONS ============
+  permission_handler: ^12.0.1
+  
+  # ============ NOTIFICATIONS ============
+  firebase_core: ^4.4.0
+  firebase_messaging: ^16.1.1
+  
+  # ============ SOCIAL AUTH ============
+  google_sign_in: ^6.2.1
+  sign_in_with_apple: ^6.1.3
+  crypto: ^3.0.3
+  
+  # ============ PAYMENT ============
+  # iyzico will be added via REST API calls
+  webview_flutter: ^4.10.0
+  
+  # ============ LOGGING & DEBUGGING ============
+  logger: ^2.0.0
+  
+  # ============ CONNECTIVITY ============
+  connectivity_plus: ^7.0.0
+  
+  # ============ URL LAUNCHER ============
+  url_launcher: ^6.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  
+  flutter_lints: ^6.0.0
+  
+  # ============ CODE GENERATION ============
+  build_runner: ^2.4.0
+  json_serializable: ^6.8.0
+  hive_generator: ^2.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  assets:
+    - .env  # Development için. Production için ortam değişkenleri kullanın
+
+  
+    - assets/logos/app_logo.png  
+    - assets/logos/cizreapp_logo.jpg  
+- assets/logos/app_logo.png 
+- .env  # Development için. Production için ortam değişkenleri kullanın 
+ECHO is on.

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Doğrulandı - CizreApp</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: #1ABC9C;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: scaleIn 0.5s ease-out;
+        }
+        .icon svg { width: 40px; height: 40px; fill: white; }
+        h1 { color: #2C3E50; font-size: 24px; margin-bottom: 10px; }
+        p { color: #7F8C8D; line-height: 1.6; margin-bottom: 20px; }
+        .button {
+            display: inline-block;
+            background: #1ABC9C;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin: 5px;
+        }
+        .button:hover { background: #16A085; transform: translateY(-2px); }
+        .button.secondary { background: #3498DB; }
+        .button.secondary:hover { background: #2980B9; }
+        @keyframes scaleIn {
+            from { transform: scale(0); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+        </div>
+        <h1>✅ Email Doğrulandı!</h1>
+        <p>Hesabınız başarıyla aktif edildi. CizreApp mobil uygulamasına yönlendiriliyorsunuz...</p>
+        
+        <div id="buttons" style="margin-top: 20px;">
+            <a href="cizreapp://verify" class="button">📱 Uygulamayı Aç</a>
+            <a href="https://www.cizreapp.com" class="button secondary">🌐 Web Sitesine Git</a>
+        </div>
+        
+        <p style="font-size: 12px; margin-top: 30px; color: #BDC3C7;">
+            Uygulama otomatik açılmıyorsa yukarıdaki butona tıklayın.
+        </p>
+    </div>
+
+    <script>
+        // URL parametrelerini kontrol et
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        console.log('Email verification page loaded');
+        console.log('Search params:', window.location.search);
+        console.log('Hash params:', window.location.hash);
+        
+        // Supabase hata mesajı kontrolü (error_description parametresi)
+        const error = hashParams.get('error_description') || urlParams.get('error');
+        
+        if (error && error.includes('Geçersiz doğrulama linki')) {
+            console.error('Verification failed:', error);
+            document.querySelector('h1').textContent = '⚠️ Doğrulama Hatası';
+            document.querySelector('p').innerHTML = `
+                Email doğrulama linki kullanılmış veya süresi dolmuş.<br><br>
+                Çözümler:<br>
+                1. Giriş yapın ve otomatik açılmasını bekleyin<br>
+                2. Yeni bir doğrulama emaili isteyin
+            `;
+            document.getElementById('buttons').innerHTML = `
+                <a href="cizreapp://login" class="button">📱 Giriş Ekranına Git</a>
+            `;
+        } else {
+            console.log('Supabase successfully processed the token');
+            
+            // Başarılı doğrulama - uygulamayı aç
+            // Uygulama açıldığında mevcut oturumu kontrol edecek
+            setTimeout(() => {
+                console.log('Redirecting to app: cizreapp://verify');
+                window.location.href = 'cizreapp://verify';
+            }, 1000);
+        }
+    </script>
+</body>
+</html>

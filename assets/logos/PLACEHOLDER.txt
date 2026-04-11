@@ -1,0 +1,14 @@
+Bu klasöre aşağıdaki logo dosyalarını eklemelisiniz:
+ assets/logos/
+1. app_logo.png (512x512 px) - Ana uygulama logosu
+2. app_logo_white.png (512x512 px) - Beyaz arkaplan için
+3. app_logo_dark.png (512x512 px) - Koyu arkaplan için
+4. splash_logo.png (1024x1024 px) - Splash screen için
+
+Logo tasarımı için öneriler:
+- Şeffaf arkaplan (PNG formatı)
+- Modern ve minimalist
+- Yeşil tonları (AppTheme.primaryGreen ile uyumlu)
+- "CizreApp" veya "Cizre" yazısı içermeli
+
+Bu dosyaları ekledikten sonra bu PLACEHOLDER.txt dosyasını silebilirsiniz.

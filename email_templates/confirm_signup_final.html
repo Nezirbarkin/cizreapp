@@ -1,0 +1,52 @@
+<!-- Supabase Confirm Signup - FINAL VERSION -->
+<!-- Supabase {{ .ConfirmationURL }} kullanarak token doğrulaması Supabase tarafından yapılır -->
+<!-- Sonra redirect_to ile cizreapp.com/verify sayfasına yönlendirilir -->
+<!-- verify.html sayfası da uygulamayı açar -->
+
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff;">
+    <div style="text-align: center; padding: 30px 20px 10px;">
+        <h1 style="margin: 0; color: #1ABC9C; font-size: 32px; font-weight: 900;">CizreApp</h1>
+    </div>
+
+    <div style="padding: 20px 20px 10px;">
+        <h2 style="color: #2C3E50; font-size: 20px; text-align: center; margin: 0 0 16px;">Kayıt İşleminizi Onaylayın</h2>
+        <p style="color: #7F8C8D; line-height: 1.6; text-align: center; margin: 0 0 8px;">
+            CizreApp ailesine hoş geldiniz!
+        </p>
+        <p style="color: #7F8C8D; line-height: 1.6; text-align: center; margin: 0 0 24px;">
+            Hesabınızı aktifleştirmek için aşağıdaki butona tıklayın.
+        </p>
+
+        <!-- SUPABASE CONFIRMATION URL - Token doğrulaması Supabase yapar -->
+        <div style="text-align: center; padding: 20px 0;">
+            <a href="{{ .ConfirmationURL }}" 
+               target="_blank"
+               style="background-color: #1ABC9C; color: #ffffff; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; font-size: 16px; letter-spacing: 0.5px;">
+                Mailimi Onaylıyorum
+            </a>
+        </div>
+
+        <!-- Uyarı mesajı -->
+        <div style="background-color: #FEF5E7; border: 1px solid #F9E79F; border-radius: 8px; padding: 12px 16px; margin: 16px 0;">
+            <p style="color: #7D6608; font-size: 13px; margin: 0; line-height: 1.5;">
+                <strong>⏰ Önemli:</strong> Bu link <strong>1 saat</strong> içinde geçerlidir. Lütfen hemen tıklayın!
+            </p>
+        </div>
+
+        <p style="color: #BDC3C7; font-size: 12px; text-align: center; margin: 20px 0 8px;">
+            Butona tıklayamıyorsanız, aşağıdaki linki kopyalayıp tarayıcınıza yapıştırın:
+        </p>
+        <div style="background-color: #F8F9FA; padding: 10px; border-radius: 5px; word-break: break-all; font-size: 11px; color: #7F8C8D; text-align: center; border: 1px solid #E8E8E8;">
+            {{ .ConfirmationURL }}
+        </div>
+    </div>
+
+    <div style="border-top: 1px solid #EEEEEE; padding: 20px; text-align: center; margin-top: 20px;">
+        <p style="color: #BDC3C7; font-size: 11px; margin: 0;">
+            Bu işlemi siz yapmadıysanız, bu e-postayı dikkate almayın.
+        </p>
+        <p style="color: #BDC3C7; font-size: 11px; margin: 8px 0 0;">
+            © 2026 CizreApp. Tüm hakları saklıdır.
+        </p>
+    </div>
+</div>

@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CizreApp - E-posta Doğrulama</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1ABC9C 0%, #16A085 50%, #2C3E50 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 36px;
+            font-weight: 900;
+            color: #1ABC9C;
+            margin-bottom: 20px;
+        }
+        
+        .icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 40px;
+        }
+        
+        .icon.success {
+            background: #D4EFDF;
+        }
+        
+        .icon.error {
+            background: #FADBD8;
+        }
+        
+        .icon.warning {
+            background: #FEF5E7;
+        }
+        
+        .icon.info {
+            background: #EBF5FB;
+        }
+        
+        h1 {
+            color: #2C3E50;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+        
+        p {
+            color: #7F8C8D;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #E8F8F5;
+            border-top-color: #1ABC9C;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px 0;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .button {
+            display: inline-block;
+            background: #1ABC9C;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 16px;
+            transition: background 0.3s;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .button:hover {
+            background: #16A085;
+        }
+        
+        .button.secondary {
+            background: #95a5a6;
+        }
+        
+        .button.danger {
+            background: #e74c3c;
+        }
+        
+        .success {
+            color: #27ae60;
+            background: #d4efdf;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        
+        .error {
+            color: #e74c3c;
+            background: #fadbd8;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        
+        .warning {
+            color: #f39c12;
+            background: #fef5e7;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        
+        .info {
+            background: #EBF5FB;
+            padding: 12px;
+            border-radius: 8px;
+            color: #2874A6;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+        
+        .debug {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: left;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            color: #6c757d;
+        }
+        
+        .debug summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        
+        .debug-toggle {
+            background: none;
+            border: none;
+            color: #3498db;
+            cursor: pointer;
+            font-size: 12px;
+            text-decoration: underline;
+            margin-top: 8px;
+        }
+        
+        .steps {
+            text-align: left;
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        
+        .steps ol {
+            margin-left: 20px;
+            color: #2C3E50;
+        }
+        
+        .steps li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CizreApp</div>
+        <div class="icon" id="icon">✉️</div>
+        <h1 id="title">E-posta Doğrulama</h1>
+        <p id="message">Kontrol ediliyor...</p>
+        <div class="loading" id="loading"></div>
+        <div id="content"></div>
+        
+        <!-- Debug bilgileri -->
+        <button class="debug-toggle" onclick="toggleDebug()">Debug Bilgilerini Göster</button>
+        <details class="debug" id="debugInfo">
+            <summary>URL Parametreleri</summary>
+            <div id="debugContent"></div>
+        </details>
+    </div>
+
+    <script>
+        // Debug bilgilerini topla
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        // Her iki kaynaktan da parametreleri al
+        const allParams = {};
+        for (const [key, value] of urlParams.entries()) {
+            allParams[key] = value;
+        }
+        for (const [key, value] of hashParams.entries()) {
+            allParams[key] = value;
+        }
+        
+        // Debug bilgilerini göster
+        function showDebug() {
+            const debugContent = document.getElementById('debugContent');
+            let debugHtml = '<strong>URL Parametreleri:</strong><br>';
+            
+            if (Object.keys(allParams).length === 0) {
+                debugHtml += '<span style="color: #e74c3c;">⚠️ Hiç parametre yok! Bu bir hata.</span><br>';
+            } else {
+                for (const [key, value] of Object.entries(allParams)) {
+                    debugHtml += `<strong>${key}:</strong> ${value}<br>`;
+                }
+            }
+            
+            debugHtml += `<br><strong>Current URL:</strong><br>${window.location.href}<br><br>`;
+            debugHtml += `<strong>Timestamp:</strong><br>${new Date().toISOString()}<br>`;
+            
+            debugContent.innerHTML = debugHtml;
+        }
+        
+        function toggleDebug() {
+            const debugInfo = document.getElementById('debugInfo');
+            debugInfo.open = !debugInfo.open;
+        }
+        
+        // Sayfa yüklendiğinde debug bilgilerini göster
+        showDebug();
+        
+        // URL'deki parametreleri kontrol et
+        const error = urlParams.get('error') || hashParams.get('error');
+        const errorCode = urlParams.get('error_code') || hashParams.get('error_code');
+        const errorDescription = urlParams.get('error_description') || hashParams.get('error_description');
+        const type = urlParams.get('type') || hashParams.get('type');
+        const accessToken = urlParams.get('access_token') || hashParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token') || hashParams.get('refresh_token');
+
+        console.log('=== EMAIL VERIFICATION DEBUG ===');
+        console.log('Error:', error);
+        console.log('Error Code:', errorCode);
+        console.log('Error Description:', errorDescription);
+        console.log('Type:', type);
+        console.log('Access Token:', accessToken ? 'Found' : 'Not found');
+        console.log('Refresh Token:', refreshToken ? 'Found' : 'Not found');
+        console.log('URL:', window.location.href);
+
+        // Hata durumlarını değerlendir
+        if (error === 'access_denied' || errorCode === 'otp_expired') {
+            showExpiredError();
+        } else if (error) {
+            showGenericError(error, errorCode, errorDescription);
+        } else if (type === 'signup' && accessToken) {
+            // Başarılı doğrulama - token var
+            showSuccess();
+        } else if (type === 'signup') {
+            // Doğrulama işlemi devam ediyor
+            showProcessing();
+        } else if (Object.keys(allParams).length === 0) {
+            // Parametre yok - direkt sayfaya gelmiş
+            showNoParamsError();
+        } else {
+            // Durum belirsiz, ama parametre var
+            showAmbiguousState();
+        }
+
+        function showExpiredError() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '⏰';
+            document.getElementById('icon').className = 'icon warning';
+            document.getElementById('title').textContent = 'Link Süresi Dolmuş';
+            
+            let message = 'E-posta doğrulama linkinin süresi doldu.';
+            
+            if (errorCode === 'otp_expired') {
+                message = 'E-posta doğrulama linkinin süresi doldu. Bu link 1 saat içinde kullanılmalıdır.';
+            }
+            
+            document.getElementById('message').textContent = message;
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="warning">
+                    <strong>Neden oldu?</strong><br><br>
+                    • Link'e tıklamadan 1 saatten fazla zaman geçti<br>
+                    • Link daha önce kullanılmış olabilir<br>
+                    • Link formatı hatalı olabilir
+                </div>
+                
+                <div class="steps">
+                    <strong>Çözüm Adımları:</strong>
+                    <ol>
+                        <li>Yeni bir e-posta ile kayıt olun</li>
+                        <li>Gelen e-postadaki linke <strong>HEMEN</strong> tıklayın (1 saat içinde)</li>
+                        <li>Uygulama otomatik açılacak</li>
+                        <li>Hala sorun yaşıyorsanız, destek ile iletişime geçin</li>
+                    </ol>
+                </div>
+                
+                <div class="info" style="margin-top: 16px;">
+                    <strong>💡 İpucu:</strong><br>
+                    Link'e tıkladıktan sonra sayfa değişmeden çalışıyorsa, 
+                    link Supabase tarafından işleniyordur. Lütfen bekleyin.
+                </div>
+                
+                <a href="cizreapp://login" class="button">
+                    📱 Uygulamayı Aç
+                </a>
+                
+                <button onclick="window.location.href='https://www.cizreapp.com/login'" class="button secondary" style="margin-left: 8px;">
+                    🌐 Giriş Sayfasına Git
+                </button>
+            `;
+        }
+
+        function showGenericError(error, errorCode, errorDescription) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '⚠️';
+            document.getElementById('icon').className = 'icon error';
+            document.getElementById('title').textContent = 'Doğrulama Hatası';
+            document.getElementById('message').textContent = 'E-posta doğrulama sırasında bir hata oluştu.';
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="error">
+                    <strong>Hata Kodu:</strong> ${errorCode || error || 'Bilinmeyen'}<br>
+                    ${errorDescription ? `<strong>Açıklama:</strong> ${errorDescription}` : ''}
+                </div>
+                
+                <div class="steps">
+                    <strong>Çözüm Adımları:</strong>
+                    <ol>
+                        <li>Yeni bir kayıt deneyin</li>
+                        <li>Email adresinizi doğru girdiğinizden emin olun</li>
+                        <li>Spam klasörünü kontrol edin</li>
+                        <li>Link 1 saat içinde tıklayın</li>
+                    </ol>
+                </div>
+                
+                <a href="cizreapp://login" class="button">
+                    📱 Uygulamayı Aç
+                </a>
+                
+                <button onclick="window.location.reload()" class="button secondary" style="margin-left: 8px;">
+                    🔄 Tekrar Dene
+                </button>
+            `;
+        }
+
+        function showNoParamsError() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '❓';
+            document.getElementById('icon').className = 'icon info';
+            document.getElementById('title').textContent = 'Doğrulama Linki Bekleniyor';
+            document.getElementById('message').textContent = 'Bu sayfaya doğrulama linki üzerinden erişmelisiniz.';
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="info">
+                    <strong>Nasıl doğrulama yapabilirim?</strong><br><br>
+                    1. CizreApp uygulamasına kayıt olun<br>
+                    2. E-posta adresinize gelen doğrulama mailini açın<br>
+                    3. "Mailimi Onaylıyorum" butonuna tıklayın<br>
+                    4. Otomatik olarak bu sayfaya yönlendirileceksiniz
+                </div>
+                
+                <div class="warning" style="margin-top: 16px;">
+                    <strong>⚠️ Dikkat:</strong><br>
+                    Doğrulama linki olmadan bu sayfaya erişirseniz doğrulama yapılamaz.
+                </div>
+                
+                <a href="cizreapp://login" class="button">
+                    📱 Uygulamayı Aç
+                </a>
+                
+                <button onclick="window.location.href='https://www.cizreapp.com/register'" class="button secondary" style="margin-left: 8px;">
+                    📝 Kayıt Ol
+                </button>
+            `;
+        }
+
+        function showProcessing() {
+            document.getElementById('title').textContent = 'Doğrulama İşleniyor...';
+            document.getElementById('message').textContent = 'E-posta doğrulamanız Supabase tarafından işleniyor. Lütfen bekleyin...';
+            
+            // 5 saniye bekle, sonra kontrol et
+            setTimeout(() => {
+                // Supabase redirect yapacak mı kontrol et
+                const content = document.getElementById('content');
+                content.innerHTML = `
+                    <div class="info">
+                        <strong>Bekleniyor...</strong><br><br>
+                        Supabase doğrulamanızı tamamlıyor. Bu birkaç saniye sürebilir.
+                    </div>
+                `;
+                
+                // 10 saniye sonra hala buradaysak, hata göster
+                setTimeout(() => {
+                    if (document.getElementById('title').textContent === 'Doğrulama İşleniyor...') {
+                        showTimeoutError();
+                    }
+                }, 10000);
+            }, 5000);
+        }
+
+        function showTimeoutError() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '⏱️';
+            document.getElementById('icon').className = 'icon warning';
+            document.getElementById('title').textContent = 'İşlem Zaman Aşımı';
+            document.getElementById('message').textContent = 'Doğrulama işlemi çok uzun sürdü.';
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="warning">
+                    <strong>Olası Sebepler:</strong><br><br>
+                    • İnternet bağlantınız yavaş<br>
+                    • Supabase sunucuları yoğun<br>
+                    • Link zaten kullanılmış olabilir
+                </div>
+                
+                <div class="steps">
+                    <strong>Çözüm:</strong>
+                    <ol>
+                        <li>Uygulamayı açın ve giriş yapmayı deneyin</li>
+                        <li>Giriş yapamazsanız, yeni bir kayıt oluşturun</li>
+                        <li>Sorun devam ederse destek ile iletişime geçin</li>
+                    </ol>
+                </div>
+                
+                <a href="cizreapp://login" class="button">
+                    📱 Uygulamayı Aç ve Giriş Yap
+                </a>
+                
+                <button onclick="window.location.reload()" class="button secondary" style="margin-left: 8px;">
+                    🔄 Sayfayı Yenile
+                </button>
+            `;
+        }
+
+        function showAmbiguousState() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '🤔';
+            document.getElementById('icon').className = 'icon info';
+            document.getElementById('title').textContent = 'Durum Belirsiz';
+            document.getElementById('message').textContent = 'Doğrulama durumu belirlenemiyor.';
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="info">
+                    <strong>Bu sayfaya parametrelere ulaştık ama durum net değil.</strong><br><br>
+                    Lütfen debug bilgilerini kontrol edin.
+                </div>
+                
+                <a href="cizreapp://login" class="button">
+                    📱 Uygulamayı Aç
+                </a>
+                
+                <button onclick="window.location.href='https://www.cizreapp.com/login'" class="button secondary" style="margin-left: 8px;">
+                    🌐 Giriş Sayfasına Git
+                </button>
+            `;
+        }
+
+        function showSuccess() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('icon').innerHTML = '✅';
+            document.getElementById('icon').className = 'icon success';
+            document.getElementById('title').textContent = 'E-posta Doğrulandı!';
+            document.getElementById('message').textContent = 'Hesabınız başarıyla aktif edildi. Uygulamaya yönlendiriliyorsunuz...';
+            
+            // Uygulamayı aç
+            setTimeout(() => {
+                const deepLink = 'cizreapp://login?email_verified=true';
+                console.log('Açılıyor:', deepLink);
+                window.location.href = deepLink;
+                
+                // 2 saniye sonra açılmadıysa manuel buton göster
+                setTimeout(() => {
+                    const content = document.getElementById('content');
+                    content.innerHTML = `
+                        <div class="success">
+                            <strong>✅ E-posta başarıyla doğrulandı!</strong><br><br>
+                            Artık giriş yapabilirsiniz.
+                        </div>
+                        <a href="cizreapp://login?email_verified=true" class="button">
+                            📱 Uygulamayı Aç
+                        </a>
+                        <button onclick="window.location.href='https://www.cizreapp.com/login'" class="button secondary" style="margin-left: 8px;">
+                            🌐 Giriş Sayfasına Git
+                        </button>
+                    `;
+                }, 2000);
+            }, 1000);
+        }
+    </script>
+</body>
+</html>

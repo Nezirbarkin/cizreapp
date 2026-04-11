@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CizreApp - Şifre Sıfırlama</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .logo { font-size: 32px; font-weight: 900; color: #1ABC9C; margin-bottom: 30px; }
+        .icon-circle {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 40px;
+        }
+        .success { background: #E8F8F5; }
+        .warning { background: #FEF9E7; }
+        .error-bg { background: #FADBD8; }
+        h1 { font-size: 22px; margin-bottom: 10px; color: #2C3E50; }
+        .success-text { color: #1ABC9C; }
+        .warning-text { color: #F39C12; }
+        .error-text { color: #E74C3C; }
+        p { color: #7F8C8D; line-height: 1.6; margin-bottom: 20px; }
+        .button {
+            display: inline-block; background: #1ABC9C; color: white;
+            padding: 14px 32px; border-radius: 10px; text-decoration: none;
+            font-weight: bold; font-size: 16px; margin: 5px;
+            transition: all 0.3s;
+        }
+        .button:hover { background: #16A085; transform: translateY(-2px); }
+        .button.secondary { background: #3498DB; }
+        .button.secondary:hover { background: #2980B9; }
+        .info-box {
+            background: #EBF5FB; border-radius: 8px; padding: 15px;
+            margin-top: 20px; text-align: left;
+        }
+        .info-box p { color: #2980B9; font-size: 13px; margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CizreApp</div>
+        
+        <!-- Başarılı - Şifre yenileme için hazır -->
+        <div id="content">
+            <div class="icon-circle success">🔑</div>
+            <h1 class="success-text">Şifre Sıfırlama Onaylandı</h1>
+            <p>Kimliğiniz doğrulandı. Yeni şifrenizi belirlemek için uygulamayı açın.</p>
+            <!-- Android Chrome için intent:// formatı -->
+            <a href="intent://reset-password#Intent;scheme=cizreapp;package=com.cizreapp.app;end" class="button" id="open-app-btn">📱 Uygulamayı Aç</a>
+            <div class="info-box">
+                <p>📌 Uygulama açılmıyorsa, CizreApp uygulamasını manuel açın. Şifre yenileme ekranı otomatik gelecek.</p>
+            </div>
+        </div>
+
+        <!-- Süre dolmuş token -->
+        <div id="expired-content" style="display: none;">
+            <div class="icon-circle warning">⏰</div>
+            <h1 class="warning-text">Link Süresi Doldu</h1>
+            <p>Şifre sıfırlama linkinizin süresi doldu. Uygulamadan yeni bir şifre sıfırlama talebi oluşturun.</p>
+            <a href="intent://login#Intent;scheme=cizreapp;package=com.cizreapp.app;end" class="button secondary">📱 Uygulamaya Git</a>
+        </div>
+
+        <!-- Diğer hata -->
+        <div id="error-content" style="display: none;">
+            <div class="icon-circle error-bg">❌</div>
+            <h1 class="error-text">Geçersiz Link</h1>
+            <p>Bu şifre sıfırlama linki geçersiz. Lütfen uygulamadan yeni bir şifre sıfırlama talebi oluşturun.</p>
+            <a href="intent://login#Intent;scheme=cizreapp;package=com.cizreapp.app;end" class="button secondary">📱 Uygulamaya Git</a>
+        </div>
+    </div>
+
+    <script>
+        // URL'deki parametreleri kontrol et
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        const error = urlParams.get('error') || hashParams.get('error');
+        const errorCode = urlParams.get('error_code') || hashParams.get('error_code');
+        const errorDescription = urlParams.get('error_description') || hashParams.get('error_description');
+        
+        // access_token ve type kontrolü
+        const accessToken = urlParams.get('access_token') || hashParams.get('access_token');
+        const type = urlParams.get('type') || hashParams.get('type');
+        
+        console.log('Password recovery callback:', { error, errorCode, accessToken: !!accessToken, type });
+        
+        if (error) {
+            if (errorCode === 'otp_expired') {
+                document.getElementById('content').style.display = 'none';
+                document.getElementById('expired-content').style.display = 'block';
+            } else {
+                document.getElementById('content').style.display = 'none';
+                document.getElementById('error-content').style.display = 'block';
+            }
+        } else {
+            // Başarılı doğrulama - uygulamayı aç
+            setTimeout(() => {
+                window.location.href = 'cizreapp://reset-password';
+            }, 1500);
+        }
+    </script>
+</body>
+</html>

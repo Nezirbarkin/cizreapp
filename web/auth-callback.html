@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CizreApp - Yönlendiriliyor...</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1ABC9C 0%, #16A085 50%, #2C3E50 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container { text-align: center; color: white; padding: 20px; max-width: 400px; }
+        .logo { font-size: 48px; margin-bottom: 15px; }
+        h1 { font-size: 28px; margin-bottom: 8px; font-weight: 900; letter-spacing: 2px; }
+        .subtitle { font-size: 14px; opacity: 0.8; margin-bottom: 30px; }
+        .status { font-size: 16px; margin-bottom: 20px; }
+        .loader {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 15px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .btn {
+            display: inline-block;
+            margin-top: 25px;
+            padding: 14px 28px;
+            background: white;
+            color: #1ABC9C;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        .btn:active { transform: scale(0.95); }
+        .btn.secondary {
+            background: #e74c3c;
+            color: white;
+            margin-left: 10px;
+        }
+        .hidden { display: none; }
+        .error-msg {
+            background: rgba(231, 76, 60, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .success-msg {
+            background: rgba(39, 174, 96, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .info-msg {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🌿</div>
+        <h1>CizreApp</h1>
+        <div class="subtitle">Cizre'nin Dijital Pazarı</div>
+        
+        <p class="status" id="status">Yönlendiriliyorsunuz...</p>
+        <div class="loader" id="loader"></div>
+        
+        <a href="#" class="btn hidden" id="open-app-btn">📱 Uygulamayı Aç</a>
+        <a href="#" class="btn secondary hidden" id="resend-btn">📧 Yeni Link Gönder</a>
+        
+        <div class="error-msg hidden" id="error-msg">
+            <p id="error-text">Link süresi dolmuş veya geçersiz.</p>
+            <p style="margin-top: 10px; font-size: 12px;">
+                Yeni bir doğrulama e-postası isteyin veya uygulamayı açıp tekrar deneyin.
+            </p>
+        </div>
+        
+        <div class="success-msg hidden" id="success-msg">
+            <p>✅ E-posta başarıyla doğrulandı!</p>
+            <p style="margin-top: 10px;">Uygulamaya yönlendiriliyorsunuz...</p>
+        </div>
+        
+        <div class="info-msg hidden" id="info-msg">
+            <p>CizreApp yüklü değilse:</p>
+            <p style="margin-top: 10px;">
+                <a href="https://play.google.com/store/apps/details?id=com.cizreapp.app" style="color: white; text-decoration: underline;">Google Play</a> • 
+                <a href="https://apps.apple.com/app/idYOUR_APP_ID" style="color: white; text-decoration: underline;">App Store</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var statusEl = document.getElementById('status');
+            var loaderEl = document.getElementById('loader');
+            var btnEl = document.getElementById('open-app-btn');
+            var resendBtnEl = document.getElementById('resend-btn');
+            var errorEl = document.getElementById('error-msg');
+            var errorTextEl = document.getElementById('error-text');
+            var successEl = document.getElementById('success-msg');
+            var infoEl = document.getElementById('info-msg');
+            
+            // URL parametrelerini al
+            var urlParams = new URLSearchParams(window.location.search);
+            
+            // HATA PARAMETRELERİNİ KONTROL ET (ÖNEMLİ!)
+            var error = urlParams.get('error');
+            var errorCode = urlParams.get('error_code');
+            var errorDescription = urlParams.get('error_description');
+            
+            // Token parametreleri
+            var token = urlParams.get('token');
+            var tokenHash = urlParams.get('token_hash');
+            var type = urlParams.get('type');
+            
+            // Fragment (#) parametrelerini al
+            var fragmentParams = {};
+            if (window.location.hash) {
+                var hash = window.location.hash.substring(1);
+                hash.split('&').forEach(function(pair) {
+                    var parts = pair.split('=');
+                    if (parts.length === 2) {
+                        fragmentParams[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+                    }
+                });
+            }
+            
+            var accessToken = fragmentParams['access_token'];
+            var refreshToken = fragmentParams['refresh_token'];
+            var fragmentType = fragmentParams['type'];
+            
+            console.log('=== Auth Callback Debug ===');
+            console.log('Error:', error);
+            console.log('Error Code:', errorCode);
+            console.log('Error Description:', errorDescription);
+            console.log('Token:', token ? 'YES' : 'NO');
+            console.log('TokenHash:', tokenHash ? 'YES' : 'NO');
+            console.log('Type:', type);
+            
+            // HATA VARSA GÖSTER
+            if (error || errorCode) {
+                loaderEl.style.display = 'none';
+                errorEl.classList.remove('hidden');
+                infoEl.classList.remove('hidden');
+                btnEl.classList.remove('hidden');
+                btnEl.href = 'cizreapp://login';
+                
+                if (errorCode === 'otp_expired') {
+                    statusEl.textContent = 'Link Süresi Dolmuş';
+                    errorTextEl.innerHTML = '<strong>⏰ E-posta doğrulama linkinin süresi dolmuş.</strong><br><br>Bu link 1 saat içinde kullanılmalıdır. Lütfen yeni bir doğrulama e-postası isteyin.';
+                } else if (errorCode === 'access_denied') {
+                    statusEl.textContent = 'Erişim Reddedildi';
+                    errorTextEl.innerHTML = '<strong>🚫 Bu link artık geçerli değil.</strong><br><br>Link daha önce kullanılmış olabilir. Yeni bir hesap oluşturun veya giriş yapmayı deneyin.';
+                } else {
+                    statusEl.textContent = 'Doğrulama Hatası';
+                    errorTextEl.innerHTML = '<strong>❌ Doğrulama başarısız.</strong><br><br>' + (errorDescription || 'Bilinmeyen bir hata oluştu.');
+                }
+                return;
+            }
+            
+            // BAŞARILI - Uygulamayı aç
+            var appLink = '';
+            var finalType = type || fragmentType || 'recovery';
+            
+            if (finalType === 'recovery' || finalType === 'password_recovery') {
+                appLink = 'cizreapp://recovery';
+            } else if (finalType === 'signup' || finalType === 'email') {
+                appLink = 'cizreapp://verify';
+            } else {
+                appLink = 'cizreapp://login';
+            }
+            
+            // Parametreleri ekle
+            var params = [];
+            if (accessToken) params.push('access_token=' + encodeURIComponent(accessToken));
+            if (refreshToken) params.push('refresh_token=' + encodeURIComponent(refreshToken));
+            if (tokenHash) params.push('token_hash=' + encodeURIComponent(tokenHash));
+            if (token) params.push('token=' + encodeURIComponent(token));
+            if (finalType) params.push('type=' + encodeURIComponent(finalType));
+            
+            if (params.length > 0) {
+                appLink += '?' + params.join('&');
+            }
+            
+            console.log('App Link:', appLink);
+            
+            // Manuel buton linkini güncelle
+            btnEl.href = appLink;
+            
+            // Başarı mesajı göster
+            successEl.classList.remove('hidden');
+            
+            // Yönlendirme fonksiyonu
+            function redirectToApp() {
+                console.log('Redirecting to:', appLink);
+                window.location.href = appLink;
+            }
+            
+            function showManualButton() {
+                loaderEl.style.display = 'none';
+                btnEl.classList.remove('hidden');
+                infoEl.classList.remove('hidden');
+                statusEl.textContent = 'Uygulama açılmadı mı?';
+            }
+            
+            // Hemen yönlendir
+            setTimeout(redirectToApp, 300);
+            
+            // 2.5 saniye sonra manuel buton göster
+            setTimeout(showManualButton, 2500);
+        })();
+    </script>
+</body>
+</html>

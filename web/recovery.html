@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CizreApp - Şifre Sıfırlama</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1ABC9C 0%, #16A085 50%, #2C3E50 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 36px;
+            font-weight: 900;
+            color: #1ABC9C;
+            margin-bottom: 20px;
+        }
+        
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: #FADBD8;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 40px;
+        }
+        
+        h1 {
+            color: #2C3E50;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+        
+        p {
+            color: #7F8C8D;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #FADBD8;
+            border-top-color: #e74c3c;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px 0;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .button {
+            display: inline-block;
+            background: #e74c3c;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 16px;
+            transition: background 0.3s;
+        }
+        
+        .button:hover {
+            background: #c0392b;
+        }
+        
+        .info {
+            background: #EBF5FB;
+            padding: 12px;
+            border-radius: 8px;
+            color: #2874A6;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CizreApp</div>
+        <div class="icon">🔐</div>
+        <h1 id="title">Şifre Sıfırlama</h1>
+        <p id="message">Uygulamaya yönlendiriliyorsunuz...</p>
+        <div class="loading" id="loading"></div>
+        <div id="content"></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenHash = urlParams.get('token_hash');
+        const type = urlParams.get('type');
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+
+        let deepLink = 'cizreapp://recovery';
+        const params = [];
+        if (tokenHash) params.push(`token_hash=${tokenHash}`);
+        if (type) params.push(`type=${type}`);
+        if (accessToken) params.push(`access_token=${accessToken}`);
+        if (refreshToken) params.push(`refresh_token=${refreshToken}`);
+        
+        if (params.length > 0) {
+            deepLink += '?' + params.join('&');
+        }
+
+        let attemptCount = 0;
+        const maxAttempts = 3;
+        
+        function attemptAppOpen() {
+            attemptCount++;
+            window.location.href = deepLink;
+            
+            setTimeout(() => {
+                if (attemptCount < maxAttempts) {
+                    attemptAppOpen();
+                } else {
+                    showManualOptions();
+                }
+            }, 2000);
+        }
+
+        function showManualOptions() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('title').textContent = 'Uygulama Açılamadı';
+            document.getElementById('message').textContent = 'Mobil uygulamanız yüklü değil veya açılamadı.';
+            
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="info">
+                    CizreApp mobil uygulamasını indirin ve şifre sıfırlama işlemini tamamlayın.
+                </div>
+                <a href="${deepLink}" class="button" onclick="attemptAppOpen(); return false;">
+                    🔄 Uygulamayı Tekrar Aç
+                </a>
+            `;
+        }
+
+        window.addEventListener('load', () => {
+            setTimeout(attemptAppOpen, 500);
+        });
+    </script>
+</body>
+</html>

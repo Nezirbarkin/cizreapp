@@ -1,0 +1,42 @@
+<!-- 
+    CPanel/Direct Admin için Auth Handler Script
+    
+    Bu kodu sitenizin index.html dosyasının </body> etiketinden 
+    hemen önceki satıra yapıştırın (</body> etiketini silmeden önce)
+    
+    Örnek:
+    ...
+    [Sizin mevcut kodlarınız]
+    <script src="cpanel-auth-handler.js"></script>  <-- Bunu ekleyin
+    </body>
+    </html>
+-->
+
+<script>
+    // URL'deki hata parametrelerini kontrol et
+    (function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const error = urlParams.get('error');
+        const errorCode = urlParams.get('error_code');
+        const errorDescription = urlParams.get('error_description');
+        
+        console.log('Auth handler:', { error, errorCode, errorDescription });
+        
+        // Hata varsa uygun mesaj göster
+        if (error && errorCode === 'otp_expired') {
+            // Ana sayfanın içeriğini değiştir
+            document.addEventListener('DOMContentLoaded', function() {
+                document.body.innerHTML = `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); text-align: center;">
+                        <h1 style="color: #1ABC9C; font-size: 32px; margin: 0;">CizreApp</h1>
+                        <div style="width: 80px; height: 80px; background: #E8F8F5; border-radius: 50%; margin: 30px auto; display: flex; align-items: center; justify-content: center; font-size: 40px;">✅</div>
+                        <h2 style="color: #1ABC9C;">Hesabınız Doğrulandı!</h2>
+                        <p style="color: #7F8C8D;">E-posta adresiniz daha önce doğrulanmış.</p>
+                        <a href="cizreapp://verify" style="display: inline-block; background: #1ABC9C; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 5px;">📱 Uygulamayı Aç</a>
+                        <p style="color: #95A5A6; font-size: 13px; margin-top: 20px;">Uygulama açıldıktan sonra e-posta ve şifrenizle giriş yapın.</p>
+                    </div>
+                `;
+            });
+        }
+    })();
+</script>
