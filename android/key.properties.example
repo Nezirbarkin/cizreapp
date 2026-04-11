@@ -1,0 +1,19 @@
+# Android Signing Configuration
+# Bu dosyayı key.properties olarak yeniden adlandırın
+# ve gerçek değerlerinizi girin
+
+# Keystore parolası (keytool -genkey komutuyla oluşturduğunuz parola)
+storePassword=your_store_password_here
+
+# Key alias parolası
+keyPassword=your_key_password_here
+
+# Key alias (genellikle keytool ile oluşturulan isim)
+keyAlias=cizreapp
+
+# Keystore dosyasının tam yolu (mutlak path veya project root'tan göreli)
+# Örnek: /Users/username/cizreapp-release-key.jks
+# Örnek: C:\\Users\\username\\cizreapp-release-key.jks (Windows)
+storeFile=/path/to/your/cizreapp-release-key.jks
+
+# NOT: Bu dosyayı .gitignore'a eklediğinizden emin olun!

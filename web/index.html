@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  
+  <!-- Web için optimize edilmiş viewport -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <meta name="description" content="Cizre Bölgesi için alışveriş ve sosyal platform.">
+  
+  <!-- PWA ve mobil optimizasyonlar -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CizreApp">
+  <meta name="theme-color" content="#1ABC9C">
+  <meta name="format-detection" content="telephone=no">
+  
+  <!-- iOS meta tags & icons -->
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-startup-image" href="icons/Icon-512.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>CizreApp - Alışveriş Platformu</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Firebase SDK (Analytics + Cloud Messaging) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
+
+  <!-- Preload kritik kaynaklar -->
+  <link rel="preload" as="script" href="flutter_bootstrap.js">
+  <style>
+    /* Body ve html için tam ekran - scroll kaymasını engelle */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      position: fixed;
+      overscroll-behavior: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Flutter canvas container için */
+    #flutter-view {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    
+    /* Touch ve scroll davranışını kontrol et */
+    * {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -khtml-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    
+    /* Input ve textarea için seçimi aktif et */
+    input, textarea {
+      -webkit-user-select: text;
+      -khtml-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+    
+    /* Yükleme göstergesi */
+    #loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: linear-gradient(135deg, #1ABC9C 0%, #16A085 50%, #2C3E50 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #loading.hidden {
+      display: none;
+    }
+    .loading-logo {
+      font-size: 48px;
+      font-weight: 900;
+      color: white;
+      margin-bottom: 20px;
+      letter-spacing: 3px;
+    }
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-text {
+      color: rgba(255, 255, 255, 0.9);
+      margin-top: 20px;
+      font-size: 16px;
+    }
+    /* Hata mesajı */
+    #error {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #f8d7da;
+      color: #721c24;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      z-index: 9999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    #error.show {
+      display: flex;
+    }
+    #error h2 {
+      margin-bottom: 10px;
+    }
+    #error button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #721c24;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <!-- Yükleme Göstergesi -->
+  <div id="loading">
+    <div class="loading-logo">CizreApp</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Yükleniyor...</div>
+  </div>
+  
+  <!-- Hata Mesajı -->
+  <div id="error">
+    <h2>Uygulama Yüklenemedi</h2>
+    <p id="error-message">Bir hata oluştu. Lütfen sayfayı yenileyin.</p>
+    <button onclick="location.reload()">Yenile</button>
+  </div>
+
+  <!-- Service Worker Kaydı -->
+  <script>
+    // Firebase başlat (Analytics + Cloud Messaging) - Güvenli başlatma
+    function initFirebase() {
+      const firebaseConfig = {
+        apiKey: "AIzaSyBdAl0dWh-MtbNhBF7nbt_FPPvTpsllI-8",
+        authDomain: "cizreapp-3b9a4.firebaseapp.com",
+        projectId: "cizreapp-3b9a4",
+        storageBucket: "cizreapp-3b9a4.firebasestorage.app",
+        messagingSenderId: "224517445508",
+        appId: "1:224517445508:web:d906adc167aade41cbafd1",
+        measurementId: "G-37K9ZJDLFG"
+      };
+      
+      try {
+        if (typeof firebase === 'undefined') {
+          console.warn('[App] Firebase SDK yüklenmedi');
+          return;
+        }
+        
+        // Firebase'i başlat
+        firebase.initializeApp(firebaseConfig);
+        
+        // Firebase Analytics
+        firebase.analytics();
+        console.log('[App] Firebase Analytics başlatıldı');
+        
+        // Firebase Cloud Messaging (Web Push Notifications)
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          const messaging = firebase.messaging();
+          
+          // Bildirim izni iste ve FCM token al
+          async function requestNotificationPermission() {
+            try {
+              const permission = await Notification.requestPermission();
+              if (permission === 'granted') {
+                console.log('[App] Bildirim izni verildi');
+                
+                // FCM token al
+                const token = await messaging.getToken({
+                  vapidKey: "BPiXamS5JlPmGMD8HHW39SoxPdydUiL_JYlBmv54Ciacj2Q-HrcG3VlDDVcHDOuesMAf-QWuVHi7iesezxeM2XU"
+                });
+                
+                if (token) {
+                  console.log('[App] FCM Token:', token);
+                  localStorage.setItem('fcmToken', token);
+                  
+                  // Token değiştiğinde güncelle
+                  messaging.onTokenRefresh(async () => {
+                    const newToken = await messaging.getToken();
+                    console.log('[App] Yeni FCM Token:', newToken);
+                    localStorage.setItem('fcmToken', newToken);
+                  });
+                }
+              } else {
+                console.log('[App] Bildirim izni reddedildi');
+              }
+            } catch (error) {
+              console.warn('[App] FCM başlatılamadı:', error);
+            }
+          }
+          
+          // Foreground bildirimleri için
+          messaging.onMessage((payload) => {
+            console.log('[App] Foreround bildirim alındı:', payload);
+            
+            const notificationTitle = payload.notification?.title || 'CizreApp';
+            const notificationOptions = {
+              body: payload.notification?.body || '',
+              icon: '/icons/Icon-192.png',
+              badge: '/icons/Icon-192.png',
+              data: payload.data
+            };
+            
+            new Notification(notificationTitle, notificationOptions);
+          });
+          
+          // Sayfa yüklendiğinde bildirim izni iste
+          if (Notification.permission === 'default') {
+            console.log('[App] Bildirim izni için kullanıcı etkileşimi bekleniyor');
+          } else if (Notification.permission === 'granted') {
+            requestNotificationPermission();
+          }
+        } else {
+          console.warn('[App] Service Worker veya Push API desteklenmiyor');
+        }
+      } catch (e) {
+        console.warn('[App] Firebase başlatılamadı:', e);
+      }
+    }
+    
+    // Firebase'i sayfa yüklendikten sonra başlat (Flutter'ı engellemesin)
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFirebase);
+    } else {
+      initFirebase();
+    }
+    
+    // HTML iframe widget için platform view factory kayıt
+    function registerHtmlIframeFactory() {
+      // Flutter web platform view registry'sine eriş
+      if (typeof _flutter !== 'undefined' && _flutter.platformViewRegistry) {
+        // HTML iframe factory kaydet
+        const factory = (viewId) => {
+          const iframe = document.createElement('iframe');
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          iframe.style.border = 'none';
+          iframe.style.overflow = 'hidden';
+          return iframe;
+        };
+        
+        // View factory'yi kaydet
+        _flutter.platformViewRegistry.registerViewFactory('html-iframe', factory);
+        console.log('[App] HTML iframe factory registered');
+      }
+    }
+    
+    // Sayfa yüklendiğinde factory'yi kaydet
+    window.addEventListener('load', registerHtmlIframeFactory);
+    
+    // Yükleme göstergesini yönet
+    window.addEventListener('flutter-first-frame', function() {
+      document.getElementById('loading').classList.add('hidden');
+      
+      // Flutter canvas'ı yüklendikten sonra scroll kilitle
+      preventScrollOnFlutterView();
+    });
+    
+    // Flutter view üzerinde tarayıcı scrollunu engelle
+    function preventScrollOnFlutterView() {
+      // Ana document scroll'unu engelle
+      document.addEventListener('scroll', function(e) {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      }, { passive: false });
+      
+      // Touchmove ile tarayıcı scrollunu engelle (sadece body/html seviyesinde)
+      document.addEventListener('touchmove', function(e) {
+        // Flutter canvas içindeki scroll'lara dokunma
+        if (e.target.tagName === 'FLT-GLASS-PANE' ||
+            e.target.tagName === 'FLUTTER-VIEW' ||
+            e.target.closest('flutter-view') ||
+            e.target.closest('flt-glass-pane')) {
+          // Flutter'ın kendi scroll mekanizmasına izin ver
+          return true;
+        }
+      }, { passive: true });
+      
+      // Klavye açıldığında viewport kaymasını engelle
+      window.addEventListener('visualViewport', function() {
+        // Viewport değişikliklerini izle
+      });
+      
+      // Popstate ve hashchange'de scroll pozisyonunu sıfırla
+      window.addEventListener('popstate', function() {
+        window.scrollTo(0, 0);
+      });
+      window.addEventListener('hashchange', function() {
+        window.scrollTo(0, 0);
+      });
+      
+      // Resize sırasında scroll'u sıfırla
+      window.addEventListener('resize', function() {
+        window.scrollTo(0, 0);
+      });
+      
+      // Her frame'de scroll pozisyonunu kontrol et
+      setInterval(function() {
+        if (window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
+          window.scrollTo(0, 0);
+          document.documentElement.scrollTop = 0;
+          document.body.scrollTop = 0;
+        }
+      }, 100);
+    }
+    
+    // Hata yakalama - sadece kritik hatalarda göster
+    window.addEventListener('error', function(e) {
+      console.error('Global error:', e);
+      console.error('Error details:', {
+        message: e.message,
+        filename: e.filename,
+        lineno: e.lineno,
+        colno: e.colno,
+        error: e.error
+      });
+      // Firebase ve harici script hatalarını yut (bunlar uygulamanın çalışmasını engellememeli)
+      if (e.filename && (e.filename.includes('firebase') || e.filename.includes('http') || e.filename.includes('gstatic'))) {
+        console.warn('[App] Harici script hatası yoksayıldı:', e.message);
+        return;
+      }
+      // Script hataları için sadeceFlutter ana dosyası ise hata göster
+      if (e.filename && e.filename.includes('flutter_bootstrap.js')) {
+        console.error('[App] Flutter hatası:', e.message);
+        // Kritik Flutter hatalarında hata göster
+        if (e.message.includes('buildConfig') || e.message.includes('load')) {
+          document.getElementById('loading').classList.add('hidden');
+          document.getElementById('error-message').textContent = 'Flutter yüklenemedi: ' + e.message;
+          document.getElementById('error').classList.add('show');
+        }
+        return;
+      }
+      // Diğer hataları logla ama hata ekranı gösterme (uygulama yine de çalışabilir)
+      console.warn('[App] Script hatası:', e.message);
+    });
+
+    // Promise rejection hatalarını yakala
+    window.addEventListener('unhandledrejection', function(e) {
+      console.warn('[App] Unhandled promise rejection:', e.reason);
+      // Firebase hatalarını yut
+      if (String(e.reason).includes('Firebase') || String(e.reason).includes('firebase')) {
+        return;
+      }
+    });
+    
+    // Service worker kaydı
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js', {
+          scope: '/'
+        }).then((registration) => {
+          console.log('[App] Service Worker registered successfully');
+        }).catch((err) => {
+          console.warn('[App] Service Worker registration failed:', err);
+        });
+      }, { once: true });
+    }
+    
+    // Flutter yükleme timeout kontrolü
+    setTimeout(() => {
+      if (typeof _flutter === 'undefined' && !window._flutter_loaded) {
+        console.warn('Flutter yüklenmesi beklenenden uzun sürdü');
+        document.getElementById('loading').querySelector('.loading-text').textContent = 'Dosyalar yükleniyor...';
+      }
+    }, 10000);
+    
+    // 30 saniye sonra hata göster
+    setTimeout(() => {
+      if (!window._flutter_loaded && !window._flutter) {
+        console.error('Flutter yüklenemedi - JS dosyaları yüklenemedi');
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('error-message').textContent = 'Uygulama yüklenemedi. Lütfen sayfayı yenileyin veya tarayıcınızı güncelleyin.';
+        document.getElementById('error').classList.add('show');
+        
+        // Debug bilgileri
+        console.log('Debug bilgileri:');
+        console.log('- flutter_bootstrap.js yüklendi mi:', !!document.querySelector('script[src*="flutter_bootstrap.js"]'));
+        console.log('- Flutter objesi:', typeof _flutter);
+        console.log('- Script yüklenme hataları:', performance.getEntriesByType('resource').filter(r => r.name.includes('flutter')));
+      }
+    }, 30000);
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

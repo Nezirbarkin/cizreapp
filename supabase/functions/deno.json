@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-env --allow-net --allow-read supabase/functions/send-push-notification/index.ts"
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.168.0/",
+    "http/": "https://deno.land/std@0.168.0/http/"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true
+  }
+}

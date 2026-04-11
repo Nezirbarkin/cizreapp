@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Şifre Yenileme - CizreApp</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            color: white;
+            font-weight: bold;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            margin: 30px 0;
+            padding: 20px;
+            border-radius: 12px;
+            font-size: 16px;
+        }
+
+        .status.loading {
+            background: #f3f4f6;
+            color: #666;
+        }
+
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+        }
+
+        .checkmark-circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            stroke-width: 2;
+            stroke-miterlimit: 10;
+            stroke: #10b981;
+            fill: none;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+
+        .checkmark-check {
+            transform-origin: 50% 50%;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            stroke: #10b981;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+
+        @keyframes stroke {
+            100% {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .info {
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+            font-size: 11px;
+            color: #9ca3af;
+            text-align: left;
+            word-break: break-all;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">C</div>
+        <h1>Şifre Yenileme</h1>
+        
+        <div id="status" class="status loading">
+            <div class="spinner"></div>
+            <p>Yönlendiriliyor...</p>
+        </div>
+
+        <div id="content"></div>
+        <div id="debug" class="debug-info"></div>
+    </div>
+
+    <script>
+        // === Token'ları hem hash hem query parametrelerinden oku ===
+        
+        // 1. Hash parametreleri (#access_token=...&type=recovery)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        // 2. Query parametreleri (?access_token=...&type=recovery veya ?code=...)
+        const queryParams = new URLSearchParams(window.location.search);
+        
+        // 3. Tüm URL'den parametreleri al (bazı Supabase sürümleri farklı format kullanır)
+        const fullUrl = window.location.href;
+        
+        // Hash'ten veya query'den parametreleri al
+        const accessToken = hashParams.get('access_token') || queryParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token') || queryParams.get('refresh_token');
+        const type = hashParams.get('type') || queryParams.get('type');
+        const error = hashParams.get('error') || queryParams.get('error');
+        const errorDescription = hashParams.get('error_description') || queryParams.get('error_description');
+        const errorCode = hashParams.get('error_code') || queryParams.get('error_code');
+        
+        // PKCE flow: code parametresi
+        const code = queryParams.get('code');
+        
+        // Token expiry
+        const expiresIn = hashParams.get('expires_in') || queryParams.get('expires_in');
+        const tokenType = hashParams.get('token_type') || queryParams.get('token_type');
+
+        const statusDiv = document.getElementById('status');
+        const contentDiv = document.getElementById('content');
+        const debugDiv = document.getElementById('debug');
+
+        // Debug bilgisi (geliştirme sırasında yardımcı olur)
+        debugDiv.innerHTML = `
+            <strong>Debug:</strong><br>
+            URL: ${window.location.href}<br>
+            Hash: ${window.location.hash}<br>
+            Search: ${window.location.search}<br>
+            access_token: ${accessToken ? 'VAR (' + accessToken.substring(0, 20) + '...)' : 'YOK'}<br>
+            refresh_token: ${refreshToken ? 'VAR' : 'YOK'}<br>
+            type: ${type || 'YOK'}<br>
+            code: ${code ? 'VAR' : 'YOK'}<br>
+            error: ${error || 'YOK'}<br>
+            error_description: ${errorDescription || 'YOK'}
+        `;
+
+        function updateStatus(statusType, message) {
+            statusDiv.className = `status ${statusType}`;
+            statusDiv.innerHTML = message;
+        }
+
+        function redirectToWebApp() {
+            // Web platformunda kullanıcıyı doğrudan uygulamaya yönlendir
+            console.log('Web platform - ana sayfaya yönlendiriliyor');
+            window.location.href = '/?verified=true';
+        }
+
+        function openAppWithToken(token, rToken, tokenType) {
+            // Web platformda direkt web uygulamasına yönlendir
+            console.log('Web platform - token ile yönlendiriliyor');
+            // Token'ı localStorage'a kaydet (gerekirse)
+            if (token) {
+                localStorage.setItem('auth_token', token);
+            }
+            redirectToWebApp();
+        }
+
+        function openAppWithCode(authCode) {
+            // Web platformda PKCE code'u session storage'a kaydet ve yönlendir
+            console.log('Web platform - code ile yönlendiriliyor');
+            sessionStorage.setItem('auth_code', authCode);
+            redirectToWebApp();
+        }
+
+        // === Ana Mantık ===
+
+        // Hata varsa göster
+        if (error || errorDescription) {
+            const errorMsg = errorDescription 
+                ? decodeURIComponent(errorDescription.replace(/\+/g, ' '))
+                : 'Bir hata oluştu';
+            
+            updateStatus('error', `
+                <p><strong>Hata!</strong></p>
+                <p>${errorMsg}</p>
+            `);
+            contentDiv.innerHTML = `
+                <div class="info">
+                    <p>Link süresi dolmuş veya geçersiz olabilir.</p>
+                    <p>Lütfen uygulamadan tekrar şifre yenileme isteğinde bulunun.</p>
+                </div>
+            `;
+        }
+        // access_token ve recovery type varsa
+        else if (accessToken && (type === 'recovery' || type === 'magiclink')) {
+            updateStatus('success', `
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+                <p><strong>Doğrulama Başarılı!</strong></p>
+                <p>Uygulamaya yönlendiriliyorsunuz...</p>
+            `);
+            
+            // Uygulamayı aç
+            setTimeout(() => openAppWithToken(accessToken, refreshToken, type), 800);
+        }
+        // access_token var ama type yok (bazı Supabase sürümleri)
+        else if (accessToken && !type) {
+            updateStatus('success', `
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+                <p><strong>Doğrulama Başarılı!</strong></p>
+                <p>Uygulamaya yönlendiriliyorsunuz...</p>
+            `);
+            
+            // Type olmasa bile recovery olarak kabul et
+            setTimeout(() => openAppWithToken(accessToken, refreshToken, 'recovery'), 800);
+        }
+        // PKCE flow: code parametresi varsa
+        else if (code) {
+            updateStatus('success', `
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+                <p><strong>Doğrulama Başarılı!</strong></p>
+                <p>Uygulamaya yönlendiriliyorsunuz...</p>
+            `);
+            
+            setTimeout(() => openAppWithCode(code), 800);
+        }
+        // Hiçbir parametre yok
+        else {
+            // URL'de token bilgisi olabilecek herhangi bir şey var mı kontrol et
+            const hasAnyFragment = window.location.hash.length > 1;
+            const hasAnyQuery = window.location.search.length > 1;
+            
+            if (hasAnyFragment || hasAnyQuery) {
+                // Bilinmeyen parametreler var, debug bilgisi göster
+                updateStatus('error', `
+                    <p><strong>Link İşlenemedi</strong></p>
+                    <p>Şifre yenileme linki tanınmayan bir formatta.</p>
+                `);
+                debugDiv.style.display = 'block';
+            } else {
+                updateStatus('error', `
+                    <p><strong>Geçersiz Link</strong></p>
+                    <p>Şifre yenileme linki geçersiz veya süresi dolmuş.</p>
+                `);
+            }
+            
+            contentDiv.innerHTML = `
+                <div class="info">
+                    <p>Lütfen uygulamadan tekrar şifre yenileme isteğinde bulunun.</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

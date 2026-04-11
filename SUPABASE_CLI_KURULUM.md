@@ -1,0 +1,81 @@
+# Supabase CLI Kurulumu Adım Adım
+
+## Adım 1: Scoop Kur (Eğer yoksa)
+
+**PowerShell'i ADMIN olarak aç:**
+
+1. Windows Başlat Menüsü → "powershell" ara
+2. PowerShell'e sağ tıkla → "Yönetici olarak çalıştır"
+3. Şu komutu yapıştır ve Enter'e bas:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+irm get.scoop.sh | iex
+```
+
+Sonra:
+
+```powershell
+scoop install supabase
+```
+
+**Eğer sorun varsa, manuel indir:** https://scoop.sh/
+
+---
+
+## Adım 2: Kurulumu Kontrol Et
+
+**PowerShell'de çalıştır:**
+
+```powershell
+scoop list
+```
+
+Çıktıda "supabase" görünmeli.
+
+---
+
+## Adım 3: Supabase Giriş Yap
+
+**CMD veya PowerShell'de:**
+
+```bash
+supabase login
+```
+
+Tarayıcı açılacak, Supabase hesabınızla giriş yapın.
+
+---
+
+## Adım 4: Projeyi Bağla
+
+```bash
+cd C:\Users\lenovo\cizreapp
+supabase link --project-ref xsbukxkgtmdyickknqzf
+```
+
+---
+
+## Adım 5: Firebase Service Account JSON Ekle
+
+**Tek satırda çalıştır:**
+
+```bash
+supabase secrets set FIREBASE_SERVICE_ACCOUNT_JSON="{\"type\":\"service_account\",\"project_id\":\"cizreapp-3b9a4\",\"private_key_id\":\"eaeb8c8b80e708ce6bd30e649440f75bb8c797bc\",\"private_key\":\"-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDIDXAZGQahlZKb\\ne06UmJLggY3tOPtlow15SvnReRjUNNAYhlutEjzP24ILrtxkhGmdtXIoSJV9iXI/\\n2nBuAsZFUCdsZVbFDkSGnqndthSr8hePvgXCfCHwQF0SsIv3Q9hDpJnRKGFEvbFG\\nm1InxxaDFpiazO+knTmMc9rcoB6zqYIqpOUXwU6N1/7rzKsO/FeuhkWSa0G5ZmQi\\nG0lydR11KRKJafnJqAnFEAmPD0YiT9pOIvaM1Dj3p9CXKuOgUsbEccvTupyZ8j3Q\\nB4eE4jTLYDw2E9247Egwm5qB+m0DuSa40Rzg45F0f8Y3nYbz23hnEFcf1VQ7+bwy\\nFikfqjUXAgMBAAECggEAT9V5AjMH/+zKPG0ZX1iB6MEay+vc+2L16g0fI9aRL4JB\\n9z+LD0bDaOm+/H2UKzLiWRMDUwsgSSBULSI1ktldmWSSzwGj/nCirRxdSoKyvimW\\n+ICLGOFjw9ZTrjUxLgRvphLmZV8Zbg7LU5OBVilvlPGsBb659bXetOu5ECmABw7u\\nJZLYuzHC9o/ACPARFy5SagLTjzJvFroWyiNifsT71kNcW17puzX9ZM8OU1sY3XaX\\npCn2/LjGEPYedk074oT+FSISF9b8x6GKKiPpNmgCfSFv1Leh3rpm0th38fh1ZtWJ\\nihjSbxrK0K9tPPi2nHtqJX6mLGvGrbQDeBXKPpkcEQKBgQDlMjI97u1gR7IH+d4A\\nY+pckcuWaOyD5A+5m0oZk+8BYYhDKVdPAKShbIXs+8GTtBFBuXeRJ7P0LudrAPjt\\nNPwk7HX1XxfLiGwoGzTJDSrllQ2EYEp5B437Ichpszdlohs0fLR0yaKxLJ9X6r/r\\nh8ZIA0tAoNx2PMQ4CKIaYkFUJwKBgQDfcrlj94Oe3h2PdKopmzHCBfHIQRwNbQWu\\nkmekhALU/HtMxFFcUMkaKIrxO79Rc6rtf0fpGb0IC4pnquGGXVAY88G4070s8h6b\\n7XK7O//9MvJlZV9hLOATG74kkCHFi/tLUUGT+Lim9xiIm4QA7PYFiEIMpK/sXc6L\\nvfb7x+n9kQKBgQCKcZa9qGxEoyob/UenTrNLNVoXwctUI9eH0xCggKZ3XBW2E+vE\\nMexAAdCoBK66bKOb4s8hpCzkS8zH6u9yQXYpS5g5Hja+X+qNE1oAM+78fNuMYam6\\nj+ComJB5oKLOxmvOeaF7hiy6/uxFa+x/9iTEbRDwufpRhYU1H6njbARwMwKBgGuX\\nDfU4hMPGJ22fux91fqvxuM23rA465HV+QTFR7xsmxyfbj2Fn9K0HwH8PSbuqei8J\\nDlMK9Z4eEHKCMT1FSP/6vtiD+57cpihmWMwWw9fi5Bw2h4p+1RXeUdvBGsHH+SP2\\n6CCbri2W5NVCLHlVn9BiH4t+8MZbFMzslzP8uopBAoGBAMyAoNzS7ujqPsIGbN8j\\ngvpBTWoiXn2zwdDEx4HkDJdYo3w5ZjUQnj+7CCd5xflFIC9KPhOlhVKSFilFbJ6I\\n3XJkDMBxbg9uGXYyPcKZ3d/SSwEeef6VdlZ1eOAL+yiToNrLkF6Z5WnFt7fmD9e9\\nDkvfUiuo2PxvppL/8uIgyFJy\\n-----END PRIVATE KEY-----\\n\",\"client_email\":\"firebase-adminsdk-fbsvc@cizreapp-3b9a4.iam.gserviceaccount.com\",\"client_id\":\"104512470039956069367\",\"auth_uri\":\"https://accounts.google.com/o/oauth2/auth\",\"token_uri\":\"https://oauth2.googleapis.com/token\",\"auth_provider_x509_cert_url\":\"https://www.googleapis.com/oauth2/v1/certs\",\"client_x509_cert_url\":\"https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40cizreapp-3b9a4.iam.gserviceaccount.com\",\"universe_domain\":\"googleapis.com\"}"
+```
+
+---
+
+## Adım 6: Edge Function Deploy Et
+
+```bash
+supabase functions deploy send-push-notification
+```
+
+Başarı mesajı: `Deployed!`
+
+---
+
+## ✅ Bitti!
+
+Push notification sistemi çalışacak! 🎉

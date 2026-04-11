@@ -1,0 +1,1 @@
+    - assets/logos/cizreapp_logo.jpg  

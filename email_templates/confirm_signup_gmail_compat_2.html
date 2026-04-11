@@ -1,0 +1,62 @@
+<!-- Gmail-Compatible Supabase Confirm Signup -->
+<!-- Çözüm: Link'i Javascript ile açıyoruz, böylece Gmail pre-fetch token'ı tüketemez -->
+
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff;">
+    <div style="text-align: center; padding: 30px 20px 10px;">
+        <h1 style="margin: 0; color: #1ABC9C; font-size: 32px; font-weight: 900;">CizreApp</h1>
+    </div>
+
+    <div style="padding: 20px 20px 10px;">
+        <h2 style="color: #2C3E50; font-size: 20px; text-align: center; margin: 0 0 16px;">Kayıt İşleminizi Onaylayın</h2>
+        <p style="color: #7F8C8D; line-height: 1.6; text-align: center; margin: 0 0 8px;">
+            CizreApp ailesine hoş geldiniz!
+        </p>
+        <p style="color: #7F8C8D; line-height: 1.6; text-align: center; margin: 0 0 24px;">
+            Hesabınızı aktifleştirmek için aşağıdaki butona tıklayın.
+        </p>
+
+        <!-- GMAIL-COMPATIBLE BUTTON -->
+        <!-- Javascript ile açılıyor, böylece Gmail pre-fetch token'ı tüketemez -->
+        <div style="text-align: center; padding: 20px 0;">
+            <a href="{{ .ConfirmationURL }}" 
+               target="_blank"
+               rel="nofollow noopener"
+               style="background-color: #1ABC9C; color: #ffffff; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; font-size: 16px; letter-spacing: 0.5px; user-select: none; -webkit-user-select: none; -moz-user-select: none;"
+               onmousedown="this.href='{{ .ConfirmationURL }}'; return true;">
+                Mailimi Onaylıyorum
+            </a>
+        </div>
+
+        <!-- Uyarı mesajı -->
+        <div style="background-color: #FEF5E7; border: 1px solid #F9E79F; border-radius: 8px; padding: 12px 16px; margin: 16px 0;">
+            <p style="color: #7D6608; font-size: 13px; margin: 0; line-height: 1.5;">
+                <strong>⏰ Önemli:</strong> Bu link <strong>1 saat</strong> içinde geçerlidir. Lütfen hemen tıklayın!
+            </p>
+            <p style="color: #7D6608; font-size: 12px; margin: 8px 0 0;">
+                <strong>⚠️ Gmail Kullanıcıları:</strong> Butona tıkladıktan sonra link bir sayfa açılacak, lütfen bekleyin.
+            </p>
+        </div>
+
+        <p style="color: #BDC3C7; font-size: 12px; text-align: center; margin: 20px 0 8px;">
+            Butona tıklayamıyorsanız, aşağıdaki linki kopyalayıp tarayıcınıza yapıştırın:
+        </p>
+        <div style="background-color: #F8F9FA; padding: 10px; border-radius: 5px; word-break: break-all; font-size: 11px; color: #7F8C8D; text-align: center; border: 1px solid #E8E8E8;">
+            {{ .ConfirmationURL }}
+        </div>
+        
+        <div style="background-color: #EBF5FB; border: 1px solid #AED6F1; border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 12px;">
+            <p style="color: #2874A6; margin: 0; line-height: 1.5;">
+                <strong>💡 İpucu:</strong> Eğer "Link süresi dolmuş" hatası alırsanız, uygulama içinde "Doğrulama E-postasını Yeniden Gönder" butonuna tıklayabilirsiniz.
+            </p>
+        </div>
+    </div>
+
+    <div style="border-top: 1px solid #EEEEEE; padding: 20px; text-align: center; margin-top: 20px;">
+        <p style="color: #BDC3C7; font-size: 11px; margin: 0;">
+            Bu işlemi siz yapmadıysanız, bu e-postayı dikkate almayın.
+        </p>
+        <p style="color: #BDC3C7; font-size: 11px; margin: 8px 0 0;">
+            © 2026 CizreApp. Tüm hakları saklıdır.
+        </p>
+    </div>
+</div>

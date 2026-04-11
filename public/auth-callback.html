@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CizreApp - Doğrulama</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1ABC9C 0%, #16A085 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .logo { font-size: 28px; font-weight: 900; color: #1ABC9C; margin-bottom: 20px; }
+        .icon-circle {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px; font-size: 40px;
+        }
+        .success { background: #E8F8F5; }
+        .error-bg { background: #FADBD8; }
+        h1 { font-size: 22px; margin-bottom: 10px; color: #2C3E50; }
+        p { color: #7F8C8D; line-height: 1.6; margin-bottom: 20px; }
+        .button {
+            display: inline-block; background: #1ABC9C; color: white;
+            padding: 14px 32px; border-radius: 10px; text-decoration: none;
+            font-weight: bold; font-size: 16px; margin: 5px;
+            transition: all 0.3s; border: none; cursor: pointer; width: 100%;
+        }
+        .button:hover { background: #16A085; }
+        .button.secondary { background: #3498DB; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #f3f3f3; border-top: 4px solid #1ABC9C;
+            border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .form-group { margin-bottom: 15px; text-align: left; }
+        .form-group label { display: block; color: #2C3E50; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+        .form-group input {
+            width: 100%; padding: 12px 15px; border: 2px solid #E0E0E0;
+            border-radius: 8px; font-size: 14px; transition: border-color 0.3s;
+        }
+        .form-group input:focus { outline: none; border-color: #1ABC9C; }
+        .form-group input.error { border-color: #E74C3C; }
+        .error-text { color: #E74C3C; font-size: 12px; margin-top: 5px; display: none; }
+        .success-box { background: #D5F4E6; border-radius: 8px; padding: 20px; margin-top: 20px; }
+        .success-box p { color: #27AE60; margin: 0; font-size: 14px; }
+        .hint { background: #FEF5E7; border-radius: 8px; padding: 12px; margin-top: 10px; text-align: left; }
+        .hint p { color: #D68910; font-size: 12px; margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CizreApp</div>
+        
+        <div id="loading">
+            <div class="spinner"></div>
+            <p id="loading-text">Doğrulama yapılıyor...</p>
+            <p style="font-size: 12px; color: #95A5A6; margin-top: 10px;" id="loading-subtext"></p>
+        </div>
+
+        <div id="verify-success" style="display: none;">
+            <div class="icon-circle success">✅</div>
+            <h1>Email Doğrulandı!</h1>
+            <p>Hesabınız başarıyla aktif edildi.</p>
+            <a href="https://www.cizreapp.com" class="button">📱 Giriş Sayfasına Git</a>
+        </div>
+
+        <div id="recovery-form" style="display: none;">
+            <div class="icon-circle success">🔑</div>
+            <h1>Şifre Sıfırlama</h1>
+            <p>Yeni şifrenizi belirleyin.</p>
+            
+            <div id="password-form-container">
+                <div class="form-group">
+                    <label for="new-password">Yeni Şifre</label>
+                    <input type="password" id="new-password" placeholder="En az 6 karakter" minlength="6">
+                    <p class="error-text" id="password-error"></p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirm-password">Şifre Tekrar</label>
+                    <input type="password" id="confirm-password" placeholder="Şifrenizi tekrar girin" minlength="6">
+                    <p class="error-text" id="confirm-error"></p>
+                </div>
+                
+                <div class="hint"><p>📌 Şifre en az 6 karakter olmalıdır.</p></div>
+                
+                <button type="button" class="button" id="submit-btn" onclick="doUpdatePassword()">
+                    💾 Şifreyi Güncelle
+                </button>
+            </div>
+            
+            <div id="reset-success" class="success-box" style="display: none;">
+                <p>✅ Şifreniz başarıyla güncellendi!</p>
+                <a href="https://www.cizreapp.com" class="button" style="margin-top: 15px;">📱 Giriş Yap</a>
+            </div>
+        </div>
+
+        <div id="error" style="display: none;">
+            <div class="icon-circle error-bg">❌</div>
+            <h1 id="error-title">Doğrulama Hatası</h1>
+            <p id="error-message">Bir hata oluştu.</p>
+            <p style="font-size: 11px; color: #BDC3C7;" id="error-detail"></p>
+            <a href="https://www.cizreapp.com" class="button secondary" style="margin-top: 10px;">Ana Sayfaya Git</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://xsbukxkgtmdyickknqzf.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
+        
+        let sb = null;
+        
+        function showPage(id) {
+            ['loading','verify-success','recovery-form','error'].forEach(p => {
+                document.getElementById(p).style.display = 'none';
+            });
+            document.getElementById(id).style.display = 'block';
+        }
+        
+        function showError(title, msg, detail) {
+            document.getElementById('error-title').textContent = title || 'Hata';
+            document.getElementById('error-message').textContent = msg || 'Bilinmeyen hata';
+            document.getElementById('error-detail').textContent = detail || '';
+            showPage('error');
+        }
+        
+        function setLoading(main, sub) {
+            document.getElementById('loading-text').textContent = main;
+            if (sub) document.getElementById('loading-subtext').textContent = sub;
+        }
+        
+        async function doUpdatePassword() {
+            const newPass = document.getElementById('new-password').value;
+            const confirmPass = document.getElementById('confirm-password').value;
+            const passErr = document.getElementById('password-error');
+            const confirmErr = document.getElementById('confirm-error');
+            const btn = document.getElementById('submit-btn');
+            
+            passErr.style.display = 'none';
+            confirmErr.style.display = 'none';
+            
+            if (newPass.length < 6) {
+                passErr.textContent = 'Şifre en az 6 karakter olmalıdır';
+                passErr.style.display = 'block';
+                return;
+            }
+            
+            if (newPass !== confirmPass) {
+                confirmErr.textContent = 'Şifreler eşleşmiyor';
+                confirmErr.style.display = 'block';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ Güncelleniyor...';
+            
+            try {
+                console.log('Şifre güncelleniyor...');
+                const { data, error } = await sb.auth.updateUser({ password: newPass });
+                
+                if (error) throw error;
+                
+                console.log('Şifre başarıyla güncellendi');
+                document.getElementById('password-form-container').style.display = 'none';
+                document.getElementById('reset-success').style.display = 'block';
+                
+            } catch (err) {
+                console.error('Şifre güncelleme hatası:', err);
+                passErr.textContent = 'Hata: ' + (err.message || 'Bilinmeyen hata');
+                passErr.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '💾 Şifreyi Güncelle';
+            }
+        }
+        
+        // Ana fonksiyon - code parametresi ile otomatik session oluşur
+        (async function init() {
+            console.log('=== CizreApp Auth Callback ===');
+            console.log('Full URL:', window.location.href);
+            
+            try {
+                sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            } catch(e) {
+                showError('Sistem Hatası', 'Uygulama başlatılamadı', e.message);
+                return;
+            }
+            
+            // URL parametrelerini al
+            const hash = window.location.hash.substring(1);
+            const search = window.location.search.substring(1);
+            const hp = new URLSearchParams(hash);
+            const sp = new URLSearchParams(search);
+            
+            const access_token = hp.get('access_token') || sp.get('access_token');
+            const refresh_token = hp.get('refresh_token') || sp.get('refresh_token');
+            const type = hp.get('type') || sp.get('type');
+            const token_hash = hp.get('token') || sp.get('token');
+            const code = sp.get('code');
+            const error = hp.get('error_description') || sp.get('error_description');
+            
+            console.log('Parametreler:', { 
+                has_access_token: !!access_token, 
+                has_refresh_token: !!refresh_token,
+                type, 
+                has_token_hash: !!token_hash, 
+                has_code: !!code 
+            });
+            
+            if (error) {
+                showError('Link Hatası', error, 'Lütfen yeni bir talep oluşturun.');
+                return;
+            }
+            
+            // Supabase otomatik olarak session'ı oluşturur (cookie veya storage ile)
+            // Biraz bekleyip session'ı kontrol edelim
+            setLoading('Doğrulama yapılıyor...', 'Lütfen bekleyin...');
+            
+            // 2 saniye bekle - Supabase'in cookie'yi ayarlaması için
+            await new Promise(r => setTimeout(r, 2000));
+            
+            // Session kontrolü
+            try {
+                const { data: { session }, error: sessionError } = await sb.auth.getSession();
+                
+                if (sessionError) throw sessionError;
+                
+                if (session && session.user) {
+                    console.log('Session bulundu:', session.user.email);
+                    
+                    if (type === 'recovery') {
+                        showPage('recovery-form');
+                    } else {
+                        showPage('verify-success');
+                    }
+                } else {
+                    // Session yok - access_token varsa manuel session kur
+                    if (access_token && refresh_token) {
+                        setLoading('Oturum kuruluyor...');
+                        const { data, error } = await sb.auth.setSession({ 
+                            access_token, 
+                            refresh_token 
+                        });
+                        
+                        if (error) throw error;
+                        
+                        console.log('Session kurulumu başarılı');
+                        
+                        if (type === 'recovery') {
+                            showPage('recovery-form');
+                        } else {
+                            showPage('verify-success');
+                        }
+                    } else {
+                        showError(
+                            'Doğrulama Hatası',
+                            'Oturum oluşturulamadı.',
+                            'Lütfen yeni bir şifre sıfırlama talebi oluşturun.'
+                        );
+                    }
+                }
+            } catch (e) {
+                console.error('Session hatası:', e);
+                showError('Hata', e.message, 'Session kontrol edilemedi.');
+            }
+        })();
+    </script>
+</body>
+</html>

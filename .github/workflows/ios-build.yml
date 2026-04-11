@@ -1,0 +1,72 @@
+name: iOS Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+  workflow_dispatch:  # Manuel çalıştırma için (GitHub Actions sekmesinden)
+
+jobs:
+  build-ios:
+    name: Build iOS App (No Codesign)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          channel: 'stable'
+          cache: true
+
+      - name: Create .env file
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Pod Install
+        working-directory: ios
+        run: pod install
+
+      - name: Build iOS (No Codesign - Development Build)
+        run: flutter build ios --release --no-codesign
+
+      - name: Create IPA from Build
+        working-directory: ios
+        run: |
+          # Build dizininden IPA oluştur
+          mkdir -p build/ipa
+          
+          # Flutter build çıktısından IPA oluştur
+          cd build/Runner.app
+          zip -r ../../build/ipa/Runner.ipa .
+          cd ../..
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cizreapp-ios-${{ github.run_number }}
+          path: ios/build/ipa/*.ipa
+          retention-days: 30
+
+      - name: Build Summary
+        run: |
+          echo "## iOS Build Tamamlandı! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Detaylar:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Flutter: 3.38.3" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: No Codesign (Development)" >> $GITHUB_STEP_SUMMARY
+          echo "- Bundle ID: com.example.cizreapp" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Not:** Bu build TestFlight/App Store için uygun değildir. Geliştirme amaçlıdır." >> $GITHUB_STEP_SUMMARY

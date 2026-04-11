@@ -1,0 +1,36 @@
+<!-- Supabase Confirm Signup Email Template - Mobile Deep Link -->
+<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #2c3e50; margin: 0;">CizreApp</h1>
+    </div>
+
+    <div style="background-color: #ffffff; padding: 20px;">
+        <h2 style="color: #333; font-size: 20px; text-align: center;">Kayıt İşleminizi Onaylayın</h2>
+        <p style="color: #666; line-height: 1.6; text-align: center;">
+            CizreApp ailesine hoş geldiniz! Hesabınızı aktifleştirmek ve güvenli bir şekilde giriş yapmak için lütfen aşağıdaki butona tıklayın.
+        </p>
+
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+            <!-- Mobil Uygulama Deep Link - cizreapp://verify -->
+            <a href="cizreapp://verify?token_hash={{ .TokenHash }}&type=signup" style="background-color: #007bff; color: white; padding: 14px 28px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                Mailimi Onaylıyorum
+            </a>
+        </div>
+
+        <p style="color: #999; font-size: 12px; text-align: center;">
+            Eğer butona tıklayamıyorsanız bu bağlantıyı tarayıcınıza yapıştırın:<br>
+            <span style="color: #007bff; word-break: break-all;">cizreapp://verify?token_hash={{ .TokenHash }}&type=signup</span>
+        </p>
+
+        <p style="color: #aaa; font-size: 11px; text-align: center; margin-top: 20px;">
+            Alternatif olarak web üzerinden onaylamak için:<br>
+            <a href="{{ .ConfirmationURL }}" style="color: #007bff;">{{ .ConfirmationURL }}</a>
+        </p>
+    </div>
+
+    <div style="border-top: 1px solid #eeeeee; margin-top: 20px; padding-top: 20px; text-align: center;">
+        <p style="color: #aaa; font-size: 12px; margin: 0;">
+            © 2026 CizreApp. Tüm hakları saklıdır.
+        </p>
+    </div>
+</div>

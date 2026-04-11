@@ -1,0 +1,29 @@
+-- Supabase'de Token Süresi Ayarı (Manual)
+-- SQL ile yapılamaz, Dashboard'dan ayarlanmalı
+
+-- ============================================
+-- DOĞRU YÖNTEM: Dashboard'dan Ayarlama
+-- ============================================
+--
+-- Supabase Dashboard'da:
+-- 1. Authentication → Settings → Security
+-- 2. "Email Link Validity" veya benzeri ayarı bulun
+-- 3. Süreyi artırın (örn: 10 saat, 1 gün)
+--
+-- Not: Bu ayar tüm OTP token'larını etkiler:
+-- - Şifre sıfırlama
+-- - Email doğrulama
+-- - Magic link giriş
+
+-- ============================================
+-- ALTERNATİF: Kod ile Token Gönderme
+-- ============================================
+--
+-- Eğer dashboard'dan ayar yapamıyorsanız,
+-- Flutter kodunda farklı bir yaklaşım deneyin:
+--
+-- final response = await _supabase.auth.resetPasswordForEmail(
+--   email,
+--   redirectTo: 'https://www.cizreapp.com/auth-callback.html',
+--   // Not: Token süresi dashboard ayarından alınır
+-- );

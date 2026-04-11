@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-posta Onayı - CizreApp</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 48px 32px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .icon-container {
+            width: 80px;
+            height: 80px;
+            background: #E8F8F5;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            animation: scaleIn 0.5s ease-out;
+        }
+
+        .icon-container.success {
+            background: #E8F8F5;
+        }
+
+        .icon-container.error {
+            background: #FADBD8;
+        }
+
+        .icon-container.loading {
+            background: #E3F2FD;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        .checkmark {
+            width: 40px;
+            height: 40px;
+            stroke: #1ABC9C;
+            stroke-width: 3;
+            stroke-miterlimit: 10;
+            fill: none;
+            animation: draw 0.5s ease-out 0.5s forwards;
+        }
+
+        @keyframes draw {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .checkmark-circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+
+        .checkmark-check {
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+
+        @keyframes stroke {
+            100% {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .error-icon {
+            font-size: 40px;
+            color: #E74C3C;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2C3E50;
+            margin-bottom: 12px;
+        }
+
+        p {
+            font-size: 16px;
+            color: #7F8C8D;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            background: #3498DB;
+            color: white;
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background: #2980B9;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3);
+        }
+
+        .btn.success {
+            background: #1ABC9C;
+        }
+
+        .btn.success:hover {
+            background: #16A085;
+            box-shadow: 0 8px 20px rgba(26, 188, 156, 0.3);
+        }
+
+        .app-badge {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+
+        .app-badge img {
+            height: 44px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .app-badge img:hover {
+            transform: scale(1.05);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 32px 24px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            p {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Loading State -->
+        <div id="loading-state">
+            <div class="icon-container loading">
+                <div class="spinner"></div>
+            </div>
+            <h1>E-posta Onaylanıyor...</h1>
+            <p>Lütfen bekleyin.</p>
+        </div>
+
+        <!-- Success State -->
+        <div id="success-state" class="hidden">
+            <div class="icon-container success">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            </div>
+            <h1>E-posta Başarıyla Onaylandı!</h1>
+            <p>Hesabınız aktif edildi. Artık CizreApp'e giriş yapabilirsiniz.</p>
+            <button class="btn success" onclick="openApp()">Uygulamayı Aç</button>
+            
+            <div class="app-badge">
+                <a href="https://play.google.com/store" target="_blank">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/7/78/Google_Play_Store_badge_EN.svg" alt="Google Play">
+                </a>
+                <a href="https://www.apple.com/app-store/" target="_blank">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg" alt="App Store">
+                </a>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="hidden">
+            <div class="icon-container error">
+                <div class="error-icon">✕</div>
+            </div>
+            <h1>Doğrulama Başarısız</h1>
+            <p id="error-message">E-posta doğrulaması sırasında bir hata oluştu. Link geçersiz veya süresi dolmuş olabilir.</p>
+            <button class="btn" onclick="location.reload()">Tekrar Dene</button>
+        </div>
+    </div>
+
+    <script>
+        // URL parametrelerinden access_token al
+        const urlParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = urlParams.get('access_token');
+        const type = urlParams.get('type');
+        const errorParam = urlParams.get('error');
+        const errorDescription = urlParams.get('error_description');
+
+        // State elementleri
+        const loadingState = document.getElementById('loading-state');
+        const successState = document.getElementById('success-state');
+        const errorState = document.getElementById('error-state');
+        const errorMessage = document.getElementById('error-message');
+
+        // Doğrulama işlemi
+        async function verifyEmail() {
+            // Hata varsa
+            if (errorParam) {
+                showError(errorDescription || 'E-posta doğrulama başarısız oldu.');
+                return;
+            }
+
+            // Token yoksa
+            if (!accessToken) {
+                showError('Geçersiz doğrulama linki. Lütfen e-postanızdaki linki kullanın.');
+                return;
+            }
+
+            // Type kontrolü
+            if (type === 'signup') {
+                // Başarılı
+                setTimeout(() => {
+                    showSuccess();
+                }, 1000);
+            } else {
+                showError('Geçersiz doğrulama türü.');
+            }
+        }
+
+        function showSuccess() {
+            loadingState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            successState.classList.remove('hidden');
+        }
+
+        function showError(message) {
+            loadingState.classList.add('hidden');
+            successState.classList.add('hidden');
+            errorMessage.textContent = message;
+            errorState.classList.remove('hidden');
+        }
+
+        // Uygulamayı aç (deep link)
+        function openApp() {
+            // iOS/Mobil cihaz kontrolü
+            const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) && !window.MSStream;
+            
+            if (isMobile) {
+                // Mobil cihazda deep link dene
+                const deepLink = 'cizreapp://login';
+                
+                // iOS için Universal Link (önce web'e yönlendir)
+                if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                    // iOS için önce web uygulamasına yönlendir, oradan deep link
+                    window.location.href = 'https://www.cizreapp.com/?verified=true&open_app=true';
+                } else {
+                    // Android için direkt deep link
+                    window.location.href = deepLink;
+                }
+            } else {
+                // Web masaüstü - ana uygulamaya yönlendir
+                window.location.href = 'https://www.cizreapp.com/?verified=true';
+            }
+        }
+
+        // Sayfa yüklendiğinde doğrulama yap
+        verifyEmail();
+    </script>
+</body>
+</html>

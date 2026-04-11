@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kayıt Ol - CizreApp</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #3498DB 0%, #1ABC9C 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .logo {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 900;
+            color: #1ABC9C;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #7F8C8D;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            font-size: 24px;
+            color: #2C3E50;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            color: #2C3E50;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #E0E0E0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #1ABC9C;
+        }
+        .form-group input.error {
+            border-color: #E74C3C;
+        }
+        .error-text {
+            color: #E74C3C;
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+        .button {
+            width: 100%;
+            padding: 14px;
+            background: #1ABC9C;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        .button:hover:not(:disabled) {
+            background: #16A085;
+            transform: translateY(-2px);
+        }
+        .button:disabled {
+            background: #95A5A6;
+            cursor: not-allowed;
+        }
+        .button.secondary {
+            background: #3498DB;
+        }
+        .button.secondary:hover:not(:disabled) {
+            background: #2980B9;
+        }
+        .otp-container {
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .otp-inputs {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .otp-inputs input {
+            width: 50px;
+            height: 55px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border: 2px solid #E0E0E0;
+            border-radius: 10px;
+            transition: all 0.3s;
+        }
+        .otp-inputs input:focus {
+            outline: none;
+            border-color: #1ABC9C;
+            transform: scale(1.05);
+        }
+        .info-box {
+            background: #EBF5FB;
+            border-left: 4px solid #3498DB;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .info-box p {
+            color: #2980B9;
+            font-size: 13px;
+            margin: 0;
+        }
+        .success-box {
+            background: #D5F4E6;
+            border-left: 4px solid #1ABC9C;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+        .success-box p {
+            color: #27AE60;
+            font-size: 14px;
+            margin: 0;
+        }
+        .timer {
+            text-align: center;
+            color: #7F8C8D;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+        .resend-btn {
+            background: transparent;
+            color: #3498DB;
+            text-decoration: underline;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 5px;
+        }
+        .resend-btn:disabled {
+            color: #95A5A6;
+            cursor: not-allowed;
+        }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1ABC9C;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: #3498DB;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CizreApp</div>
+        <div class="subtitle">Hesap Oluştur</div>
+
+        <!-- Kayıt Formu -->
+        <div id="register-form">
+            <h1>🎉 Hemen Başlayın</h1>
+            
+            <div class="form-group">
+                <label for="first_name">Ad</label>
+                <input type="text" id="first_name" placeholder="Adınız" required>
+                <p class="error-text" id="first_name-error"></p>
+            </div>
+
+            <div class="form-group">
+                <label for="last_name">Soyad</label>
+                <input type="text" id="last_name" placeholder="Soyadınız" required>
+                <p class="error-text" id="last_name-error"></p>
+            </div>
+
+            <div class="form-group">
+                <label for="username">Kullanıcı Adı</label>
+                <input type="text" id="username" placeholder="@kullaniciadi" required>
+                <p class="error-text" id="username-error"></p>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="ornek@email.com" required>
+                <p class="error-text" id="email-error"></p>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Şifre</label>
+                <input type="password" id="password" placeholder="En az 6 karakter" minlength="6" required>
+                <p class="error-text" id="password-error"></p>
+            </div>
+
+            <div class="info-box">
+                <p>📧 Email adresinize 6 haneli doğrulama kodu gönderilecek.</p>
+            </div>
+
+            <button class="button" id="send-otp-btn" onclick="sendOTP()">
+                📨 Doğrulama Kodu Gönder
+            </button>
+
+            <div class="back-link">
+                <a href="https://www.cizreapp.com">← Ana Sayfaya Dön</a>
+            </div>
+        </div>
+
+        <!-- OTP Doğrulama -->
+        <div id="otp-container" class="otp-container">
+            <h1>✉️ Kodu Girin</h1>
+            
+            <p style="text-align: center; color: #7F8C8D; margin-bottom: 20px;">
+                <span id="email-display"></span> adresine gönderilen 6 haneli kodu girin.
+            </p>
+
+            <div class="otp-inputs">
+                <input type="text" maxlength="1" id="otp-1" oninput="moveToNext(this, 'otp-2')" onkeydown="handleBackspace(event, 'otp-1')">
+                <input type="text" maxlength="1" id="otp-2" oninput="moveToNext(this, 'otp-3')" onkeydown="handleBackspace(event, 'otp-2')">
+                <input type="text" maxlength="1" id="otp-3" oninput="moveToNext(this, 'otp-4')" onkeydown="handleBackspace(event, 'otp-3')">
+                <input type="text" maxlength="1" id="otp-4" oninput="moveToNext(this, 'otp-5')" onkeydown="handleBackspace(event, 'otp-4')">
+                <input type="text" maxlength="1" id="otp-5" oninput="moveToNext(this, 'otp-6')" onkeydown="handleBackspace(event, 'otp-5')">
+                <input type="text" maxlength="1" id="otp-6" oninput="verifyOTP()" onkeydown="handleBackspace(event, 'otp-6')">
+            </div>
+
+            <p class="error-text" id="otp-error" style="text-align: center;"></p>
+
+            <div class="timer" id="timer-text">
+                <span id="countdown"></span>
+            </div>
+
+            <div style="text-align: center; margin-top: 10px;">
+                <button class="resend-btn" id="resend-btn" onclick="resendOTP()" disabled>
+                    Kodu Tekrar Gönder
+                </button>
+            </div>
+
+            <button class="button secondary" onclick="backToForm()">
+                ← Geri Dön
+            </button>
+        </div>
+
+        <!-- Başarılı Kayıt -->
+        <div id="success-container" style="display: none;">
+            <div style="text-align: center; font-size: 80px; margin-bottom: 20px;">🎉</div>
+            <h1 style="color: #1ABC9C;">Kayıt Başarılı!</h1>
+            <div class="success-box" style="display: block;">
+                <p>✅ Hesabınız başarıyla oluşturuldu. Artık CizreApp'i kullanabilirsiniz!</p>
+            </div>
+            <a href="https://www.cizreapp.com" class="button">
+                🏠 Ana Sayfaya Git
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://xsbukxkgtmdyickknqzf.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        let userEmail = '';
+        let countdown = 300; // 5 dakika
+        let countdownInterval = null;
+        let formData = {};
+
+        function showSection(section) {
+            document.getElementById('register-form').style.display = 'none';
+            document.getElementById('otp-container').style.display = 'none';
+            document.getElementById('success-container').style.display = 'none';
+            document.getElementById(section).style.display = 'block';
+        }
+
+        function showError(fieldId, message) {
+            const errorEl = document.getElementById(fieldId + '-error');
+            const inputEl = document.getElementById(fieldId);
+            if (errorEl && inputEl) {
+                errorEl.textContent = message;
+                errorEl.style.display = 'block';
+                inputEl.classList.add('error');
+            }
+        }
+
+        function clearErrors() {
+            document.querySelectorAll('.error-text').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('input').forEach(el => el.classList.remove('error'));
+        }
+
+        function validateForm() {
+            clearErrors();
+            let isValid = true;
+
+            const firstName = document.getElementById('first_name').value.trim();
+            const lastName = document.getElementById('last_name').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!firstName) {
+                showError('first_name', 'Ad boş olamaz');
+                isValid = false;
+            }
+
+            if (!lastName) {
+                showError('last_name', 'Soyad boş olamaz');
+                isValid = false;
+            }
+
+            if (!username) {
+                showError('username', 'Kullanıcı adı boş olamaz');
+                isValid = false;
+            } else if (username.length < 3) {
+                showError('username', 'Kullanıcı adı en az 3 karakter olmalı');
+                isValid = false;
+            }
+
+            if (!email) {
+                showError('email', 'Email boş olamaz');
+                isValid = false;
+            } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                showError('email', 'Geçerli bir email adresi girin');
+                isValid = false;
+            }
+
+            if (!password) {
+                showError('password', 'Şifre boş olamaz');
+                isValid = false;
+            } else if (password.length < 6) {
+                showError('password', 'Şifre en az 6 karakter olmalı');
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        async function sendOTP() {
+            if (!validateForm()) return;
+
+            const btn = document.getElementById('send-otp-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Gönderiliyor...';
+
+            // Form verilerini sakla
+            formData = {
+                first_name: document.getElementById('first_name').value.trim(),
+                last_name: document.getElementById('last_name').value.trim(),
+                username: document.getElementById('username').value.trim(),
+                email: document.getElementById('email').value.trim().toLowerCase(),
+                password: document.getElementById('password').value
+            };
+
+            userEmail = formData.email;
+
+            try {
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/send-registration-otp`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                    },
+                    body: JSON.stringify({
+                        email: userEmail,
+                        username: formData.username,
+                        first_name: formData.first_name,
+                        last_name: formData.last_name
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'OTP gönderilemedi');
+                }
+
+                console.log('OTP gönderildi:', data);
+                
+                // OTP ekranına geç
+                document.getElementById('email-display').textContent = userEmail;
+                showSection('otp-container');
+                startCountdown();
+                
+                // İlk input'a focus
+                document.getElementById('otp-1').focus();
+
+            } catch (error) {
+                console.error('OTP gönderme hatası:', error);
+                showError('email', error.message || 'Bir hata oluştu');
+                btn.disabled = false;
+                btn.innerHTML = '📨 Doğrulama Kodu Gönder';
+            }
+        }
+
+        function startCountdown() {
+            countdown = 300;
+            updateCountdownDisplay();
+            
+            if (countdownInterval) clearInterval(countdownInterval);
+            
+            countdownInterval = setInterval(() => {
+                countdown--;
+                updateCountdownDisplay();
+                
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    document.getElementById('resend-btn').disabled = false;
+                }
+            }, 1000);
+        }
+
+        function updateCountdownDisplay() {
+            const minutes = Math.floor(countdown / 60);
+            const seconds = countdown % 60;
+            const display = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            document.getElementById('countdown').textContent = 
+                countdown > 0 ? `Kodu ${display} içinde girin` : 'Kod süresi doldu';
+        }
+
+        async function resendOTP() {
+            const btn = document.getElementById('resend-btn');
+            btn.disabled = true;
+            
+            await sendOTP();
+        }
+
+        function moveToNext(current, nextId) {
+            if (current.value.length === 1) {
+                const next = document.getElementById(nextId);
+                if (next) next.focus();
+            }
+        }
+
+        function handleBackspace(event, currentId) {
+            if (event.key === 'Backspace') {
+                const current = document.getElementById(currentId);
+                if (current.value === '') {
+                    // Önceki input'a geç
+                    const prevNum = parseInt(currentId.split('-')[1]) - 1;
+                    if (prevNum >= 1) {
+                        const prev = document.getElementById(`otp-${prevNum}`);
+                        if (prev) {
+                            prev.focus();
+                            prev.select();
+                        }
+                    }
+                }
+            }
+        }
+
+        async function verifyOTP() {
+            const otp = Array.from({length: 6}, (_, i) => 
+                document.getElementById(`otp-${i+1}`).value
+            ).join('');
+
+            if (otp.length !== 6) return;
+
+            const errorEl = document.getElementById('otp-error');
+            errorEl.style.display = 'none';
+
+            try {
+                // OTP doğrula
+                const { data: verifyData, error: verifyError } = await supabase.rpc(
+                    'verify_registration_otp',
+                    { 
+                        p_email: userEmail, 
+                        p_otp: otp 
+                    }
+                );
+
+                if (verifyError) throw verifyError;
+                if (!verifyData) throw new Error('Geçersiz veya süresi dolmuş kod');
+
+                console.log('OTP doğrulandı');
+
+                // Kullanıcıyı kaydet
+                const { data: authData, error: signUpError } = await supabase.auth.signUp({
+                    email: formData.email,
+                    password: formData.password,
+                    options: {
+                        data: {
+                            username: formData.username,
+                            first_name: formData.first_name,
+                            last_name: formData.last_name,
+                            full_name: `${formData.first_name} ${formData.last_name}`
+                        },
+                        emailRedirectTo: 'https://www.cizreapp.com/verify.html'
+                    }
+                });
+
+                if (signUpError) throw signUpError;
+
+                console.log('Kayıt başarılı:', authData);
+
+                // Countdown'u durdur
+                if (countdownInterval) clearInterval(countdownInterval);
+
+                // Başarı ekranını göster
+                showSection('success-container');
+
+            } catch (error) {
+                console.error('Doğrulama hatası:', error);
+                errorEl.textContent = error.message || 'Kod doğrulanamadı. Lütfen tekrar deneyin.';
+                errorEl.style.display = 'block';
+                
+                // OTP inputlarını temizle
+                for (let i = 1; i <= 6; i++) {
+                    document.getElementById(`otp-${i}`).value = '';
+                }
+                document.getElementById('otp-1').focus();
+            }
+        }
+
+        function backToForm() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            showSection('register-form');
+        }
+
+        // OTP inputlarına sadece rakam girişi
+        document.querySelectorAll('.otp-inputs input').forEach(input => {
+            input.addEventListener('keypress', (e) => {
+                if (!/[0-9]/.test(e.key)) {
+                    e.preventDefault();
+                }
+            });
+            
+            // Paste desteği
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const paste = (e.clipboardData || window.clipboardData).getData('text');
+                const digits = paste.replace(/\D/g, '').slice(0, 6);
+                
+                for (let i = 0; i < digits.length && i < 6; i++) {
+                    document.getElementById(`otp-${i+1}`).value = digits[i];
+                }
+                
+                if (digits.length === 6) {
+                    verifyOTP();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

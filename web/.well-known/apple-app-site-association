@@ -1,0 +1,27 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.cizreapp.app"],
+        "components": [
+          {
+            "/": "/verify/*",
+            "comment": "Email doğrulama linkleri"
+          },
+          {
+            "/": "/recovery/*",
+            "comment": "Şifre sıfırlama linkleri"
+          },
+          {
+            "/": "/auth/callback*",
+            "comment": "OAuth callback"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.com.cizreapp.app"]
+  }
+}

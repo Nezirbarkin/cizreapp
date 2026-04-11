@@ -1,0 +1,79 @@
+<!-- Supabase Confirm Signup - Simple Plain Link (Gmail/Outlook Compatible) -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px;">
+        
+        <!-- Header -->
+        <div style="text-align: center; padding: 30px 20px;">
+            <h1 style="margin: 0; color: #2c3e50;">CizreApp</h1>
+        </div>
+        
+        <!-- Content -->
+        <div style="padding: 20px;">
+            <h2 style="color: #333; font-size: 18px; text-align: center; margin: 0 0 16px;">Kayıt İşleminizi Onaylayın</h2>
+            <p style="color: #666; line-height: 1.6; text-align: center; margin: 0 0 24px;">
+                CizreApp ailesine hoş geldiniz! Hesabınızı aktifleştirmek için aşağıdaki linke tıklayın.
+            </p>
+            
+            <!-- PLAIN LINK - Gmail/Outlook Compatible -->
+            <div style="text-align: center; padding: 30px 0;">
+                <a href="https://www.cizreapp.com/verify?token_hash={{ .TokenHash }}&type=signup" 
+                   style="color: #007bff; text-decoration: underline; font-size: 18px; font-weight: bold;">
+                    https://www.cizreapp.com/verify?token_hash={{ .TokenHash }}&type=signup
+                </a>
+            </div>
+            
+            <!-- Alternative Button -->
+            <div style="text-align: center; padding: 20px 0;">
+                <a href="https://www.cizreapp.com/verify?token_hash={{ .TokenHash }}&type=signup" 
+                   style="background-color: #007bff; color: #ffffff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; border: 2px solid #007bff;">
+                    ✓ Mailimi Onaylıyorum
+                </a>
+            </div>
+            
+            <!-- Instructions -->
+            <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                <p style="color: #856404; margin: 0; font-size: 14px;">
+                    <strong>Nasıl onaylayacağım?</strong><br><br>
+                    1. Yukarıdaki mavi linke tıklayın<br>
+                    2. Tarayıcı açılacak ve CizreApp sayfası yüklenecek<br>
+                    3. Uygulama otomatik olarak açılacak<br>
+                    4. Hesabınız aktif edilecek!
+                </p>
+            </div>
+            
+            <!-- Manual Copy -->
+            <p style="color: #999; font-size: 12px; text-align: center; margin: 20px 0 8px;">
+                Eğer link tıklanamıyorsa, bu linki kopyalayıp tarayıcınıza yapıştırın:
+            </p>
+            <div style="background-color: #f0f0f0; padding: 10px; border-radius: 5px; word-break: break-all; font-size: 11px; color: #666;">
+                https://www.cizreapp.com/verify?token_hash={{ .TokenHash }}&type=signup
+            </div>
+            
+            <!-- App Download -->
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 15px; margin-top: 20px; text-align: center;">
+                <p style="color: #666; font-size: 13px; margin: 0 0 10px;">
+                    <strong>Uygulamanız yok mu?</strong>
+                </p>
+                <a href="https://play.google.com/store/apps/details?id=com.cizreapp.app" style="color: #007bff; text-decoration: none; margin: 0 10px;">
+                    Google Play
+                </a>
+                •
+                <a href="https://apps.apple.com/app/idYOUR_APP_ID" style="color: #007bff; text-decoration: none; margin: 0 10px;">
+                    App Store
+                </a>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div style="border-top: 1px solid #eeeeee; padding: 20px; text-align: center;">
+            <p style="color: #aaa; font-size: 12px; margin: 0;">© 2026 CizreApp. Tüm hakları saklıdır.</p>
+        </div>
+    </div>
+</body>
+</html>

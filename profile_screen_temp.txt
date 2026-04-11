@@ -1,0 +1,380 @@
+﻿                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.push_pin, size: 10, color: Colors.white),
+                          SizedBox(width: 2),
+                          Text('Sabitlendi', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+            ),
+          ),
+        );
+          },
+          childCount: _userPosts.length,
+        ),
+      ),
+    );
+  }
+
+  void _showPostMenu(String postId) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Gönderiyi Sil', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                _deletePost(postId);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.close, color: Colors.grey.shade600),
+              title: const Text('İptal'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+    
+    if (diff.inMinutes < 1) return 'Az önce';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}dk önce';
+    if (diff.inHours < 24) return '${diff.inHours}sa önce';
+    if (diff.inDays < 7) return '${diff.inDays}g önce';
+    
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '${date.day}/${date.month} $hour:$minute';
+  }
+
+  Future<void> _toggleLike(Post post) async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    final isLiked = _likedPostIds.contains(post.id);
+
+    // Optimistic update - UI'ı hemen güncelle
+    setState(() {
+      if (isLiked) {
+        _likedPostIds.remove(post.id);
+        // Post listesindeki likesCount'u güncelle
+        final index = _userPosts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          _userPosts[index] = _userPosts[index].copyWith(
+            likesCount: _userPosts[index].likesCount - 1,
+          );
+        }
+      } else {
+        _likedPostIds.add(post.id);
+        // Post listesindeki likesCount'u güncelle
+        final index = _userPosts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          _userPosts[index] = _userPosts[index].copyWith(
+            likesCount: _userPosts[index].likesCount + 1,
+          );
+        }
+      }
+    });
+
+    try {
+      if (isLiked) {
+        await _postService.unlikePost(post.id, currentUserId);
+      } else {
+        await _postService.likePost(post.id, currentUserId);
+      }
+    } catch (e) {
+      // Hata olursa geri al
+      setState(() {
+        if (isLiked) {
+          _likedPostIds.add(post.id);
+          final index = _userPosts.indexWhere((p) => p.id == post.id);
+          if (index != -1) {
+            _userPosts[index] = _userPosts[index].copyWith(
+              likesCount: _userPosts[index].likesCount + 1,
+            );
+          }
+        } else {
+          _likedPostIds.remove(post.id);
+          final index = _userPosts.indexWhere((p) => p.id == post.id);
+          if (index != -1) {
+            _userPosts[index] = _userPosts[index].copyWith(
+              likesCount: _userPosts[index].likesCount - 1,
+            );
+          }
+        }
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('İşlem başarısız: $e')),
+        );
+      }
+    }
+  }
+
+  void _navigateToPostDetail(Post post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PostDetailScreen(post: post),
+      ),
+    ).then((_) {
+      _loadUserPosts();
+    });
+  }
+
+  void _openStories() {
+    if (_userStories.isEmpty) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StoryViewerScreen(
+          stories: _userStories,
+          initialIndex: 0,
+        ),
+      ),
+    ).then((_) {
+      _loadUserStories();
+    });
+  }
+
+  void _showFullScreenImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            iconTheme: const IconThemeData(color: Colors.white),
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.error_outline,
+                    color: Colors.white,
+                    size: 48,
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createPost() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const CreatePostScreen(),
+      ),
+    );
+    
+    if (result == true) {
+      _loadUserPosts();
+    }
+  }
+
+  void _editProfile() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const EditProfileScreen(),
+      ),
+    );
+    
+    if (result == true) {
+      _loadProfile();
+    }
+  }
+
+  Future<void> _launchUrl(String url) async {
+    try {
+      String formattedUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        formattedUrl = 'https://$url';
+      }
+      
+      final uri = Uri.parse(formattedUrl);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('URL açılamadı')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('URL açılırken hata: $e')),
+        );
+      }
+    }
+  }
+
+  void _showSettingsMenu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.block, color: Colors.red.shade400, size: 20),
+              ),
+              title: const Text('Engellenenler', style: TextStyle(fontWeight: FontWeight.w600)),
+              trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BlockedUsersScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.flag_outlined, color: Colors.orange.shade400, size: 20),
+              ),
+              title: const Text('Şikayetlerim', style: TextStyle(fontWeight: FontWeight.w600)),
+              trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MyReportsScreen(),
+                  ),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.close, color: Colors.grey.shade500, size: 20),
+              ),
+              title: const Text('İptal'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startChat() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final targetUserId = widget.userId ?? currentUserId;
+    
+    if (currentUserId == null || targetUserId == null || currentUserId == targetUserId) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Konuşma başlatılamadı')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final conversation = await _chatService.getOrCreateConversation(targetUserId);
+      
+      if (conversation != null && mounted) {
+        final otherUser = conversation.otherUser;
+        final fullName = otherUser?['full_name'] as String? ?? 'Kullanıcı';
+        final avatarUrl = otherUser?['avatar_url'] as String?;
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatDetailScreen(
+              conversationId: conversation.id,
+              otherUserId: targetUserId,
+              otherUserName: fullName,
+              otherUserAvatar: avatarUrl,
+            ),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Konuşma başlatılamadı')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Konuşma başlatılırken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Konuşma başlatılamadı: $e')),
+        );
+      }
+    }
+  }
+}
