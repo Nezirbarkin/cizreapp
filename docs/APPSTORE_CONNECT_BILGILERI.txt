@@ -1,0 +1,189 @@
+# App Store Connect - Doldurulacak Bilgiler
+
+## App Information (Uygulama Bilgileri)
+
+### Temel Bilgiler
+- **Bundle ID**: com.cizreapp.app
+- **SKU**: cizreapp-001
+- **Primary Category**: Shopping (Alışveriş)
+- **Secondary Category**: Social Networking (Sosyal Ağ)
+
+### Age Rating (Yaş Derecelendirmesi)
+Apple'ın sorularını şu şekilde yanılayın:
+- **Catalog of Harmful Examples**: No
+- **Mock Injury/Damage**: No
+- **Realistic Violence**: No
+- **Violence**: None
+- **Nudity**: No
+- **Sexual Content**: No
+- **Drugs**: No
+- **Gambling**: No
+- **Horror**: No
+- **Profanity**: No
+- **Sensitive Subject**: No
+- **User-Generated Content**: Yes (Kullanıcı tarafından oluşturulan içerikler var)
+
+---
+
+## App Privacy (Uygulama Gizliliği)
+
+### Privacy Policy URL (Zorunlu)
+Bu URL'yi girin (dosyayı web sunucunuza yükledikten sonra):
+```
+https://www.cizreapp.com/privacy
+```
+
+### Data Types (Veri Türleri)
+
+#### Data Not Collected (Toplanmayan Veriler)
+- Browsing History
+- Purchases
+- Financial Info
+- Health Info
+- Precise Location
+- Coarse Location
+- Contact Info
+- Contacts
+- Messages
+- Emails
+- Photos or Videos (sadece kullanıcı seçerse)
+- Files
+- Calendar
+- Calls
+- Voicemails
+- App Activity
+- Web Browsing
+- App Clips Data
+
+#### Data Linked to You (Sizinle Bağlantılı Veriler)
+Seçin:
+- **Name** ✓
+- **Email Address** ✓
+- **User IDs** ✓
+- **Photos or Videos** (sadece profil fotosu) ✓
+
+#### Data Not Linked to You (Bağlantısız Veriler)
+Seçin:
+- **Device ID** ✓
+- **Crash Data** ✓
+- **Performance Data** ✓
+- **Other Diagnostic Data** ✓
+
+---
+
+## Turkish - App Store Listing (Türkçe Mağaza Bilgileri)
+
+### Description (Açıklama - Zorunlu)
+```
+CizreApp, Cizre'nin dijital pazarı ve sosyal medya platformudur.
+
+🎯 ÖZELLİKLERİMİZ:
+
+🛒 Pazar Yeri
+• Yerel mağazalardan alışveriş yapın
+• Ürünleri filtreleyin ve karşılaştırın
+• Güvenli ödeme seçenekleri
+• Hızlı teslimat takibi
+
+👥 Sosyal Ağ
+• Arkadaşlarınızı bulun ve takip edin
+• Fotoğraf ve video paylaşın
+• Hikayeler oluşturun
+• Canlı yayınlar yapın
+
+💬 Mesajlaşma
+• Özel mesajlar gönderin
+• Grup sohbetleri oluşturun
+• Sesli ve görüntülü arama
+• Paylaşılan konum
+
+📍 Konum Bazlı
+• Yakındaki mağazaları keşfedin
+• Mağaza değerlendirmelerini görün
+• Yorum ve puanlama sistemi
+
+🔐 Güvenlik
+• Kişisel verileriniz güvende
+• Şifre ile korunan hesaplar
+• Bildirimler ile güncel kalın
+
+Cizre'de alışveriş ve sosyalleşmek için hemen indirin!
+```
+
+### Keywords (Anahtar Kelimeler - Zorunlu)
+```
+cizre, pazar, alışveriş, mağaza, sosyal medya, mesajlaşma, arkadaş,
+takip, fotoğraf, video, hikaye, canlı yayın, konum, yerel, türk,
+market, e-ticaret, chat, mesaj
+```
+(Karakter sınırı: 100 karakter - virgülle ayırarak)
+
+### Support URL (Destek URL'si - Zorunlu)
+```
+https://www.cizreapp.com/support
+```
+
+### Marketing URL (Pazarlama URL'si - Opsiyonel)
+```
+https://www.cizreapp.com
+```
+
+---
+
+## Screenshots (Ekran Görüntüleri)
+
+### Gerekli Boyutlar:
+| Cihaz | Boyut | Adet |
+|-------|-------|------|
+| iPhone 6.5" (Max/Plus) | 1284 x 2778 px | Min 1 |
+| iPhone 6.7" (Pro Max) | 1290 x 2796 px | Min 1 |
+| iPhone 5.5" (Plus) | 1242 x 2208 px | Min 1 |
+
+### Önerilen Screenshots:
+1. Ana ekran (Sosyal feed)
+2. Pazar yeri / Ürün listesi
+3. Mesajlaşma ekranı
+4. Profil ekranı
+5. Bildirimler / Aktiviteler
+
+### App Preview Video (Opsiyonel):
+- 15-30 saniye
+- Uygulamanın temel özelliklerini gösterin
+- iPhone 6.7" boyutunda
+
+---
+
+## Content Rights (İçerik Hakları)
+
+### "Does your app use the Advertising Identifier (IDFA)?" → No
+(Ads kullanmıyorsanız)
+
+### "Does your app contain, show, or access third-party content?" → Yes
+Seçin:
+- **User-generated content** ✓
+- **Publicly available information** ✓
+
+---
+
+## Build Seçimi
+
+Uygulamayı göndermeden önce bir build yüklemeniz gerekiyor:
+1. Xcode'da archive edin
+2. App Store Connect'e yükleyin
+3. Ardından build'i seçin
+
+---
+
+## Hızlı Kontrol Listesi
+
+- [ ] App Information dolduruldu
+- [ ] Age Rating ayarlandı
+- [ ] Privacy Policy URL eklendi
+- [ ] Privacy seçenekleri işaretlendi
+- [ ] Turkish Description yazıldı
+- [ ] Turkish Keywords eklendi
+- [ ] Support URL girildi
+- [ ] Screenshots yüklendi
+- [ ] Content Rights ayarlandı
+- [ ] Build seçildi
+- [ ] Add for Review tıklandı
