@@ -3,7 +3,7 @@ platform :ios, '15.0'
 
 # Load Flutter pod configuration
 flutter_application_path = File.join(File.dirname(__FILE__), '.symlinks', '..')
-load File.join(flutter_application_path, '.symlinks', 'Flutter', 'Podfile')
+load File.join(flutter_application_path, 'Flutter', 'Podfile')
 
 # Target configuration
 target 'Runner' do
