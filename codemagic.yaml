@@ -7,6 +7,15 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Set up Podfile with minimum iOS 15.0
+        script: |
+          cd ios
+          if ! grep -q "platform :ios, '15.0'" Podfile; then
+            echo 'platform :ios, "15.0"' > Podfile.tmp
+            cat Podfile >> Podfile.tmp
+            mv Podfile.tmp Podfile
+          fi
+          cd ..
       - name: Get Flutter dependencies
         script: |
           flutter pub get
@@ -17,7 +26,7 @@ workflows:
       - name: Build iOS
         script: |
           flutter build ipa --release \
-            --export-options-plist=/Users/builder/export_options.plist \
+            --export-options-plist=ios/export_options.plist \
             --no-codesign
     artifacts:
       - build/ios/ipa/*.ipa
