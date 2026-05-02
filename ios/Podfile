@@ -3,7 +3,7 @@ platform :ios, '15.0'
 
 # CocoaPods plugins for Flutter
 flutter_application_path = File.join(File.dirname(__FILE__), '.symlinks', '..')
-load File.join(flutter_application_path, 'ios', 'Flutter', 'Podfile')
+load File.join(flutter_application_path, 'Flutter', 'Podfile')
 
 target 'Runner' do
   use_frameworks!
