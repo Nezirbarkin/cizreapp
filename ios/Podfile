@@ -1,15 +1,10 @@
 # Flutter iOS Podfile
 platform :ios, '15.0'
 
-# Load Flutter pod configuration
-flutter_application_path = File.join(File.dirname(__FILE__), '.symlinks', '..')
-load File.join(flutter_application_path, 'Flutter', 'Podfile')
-
 # Target configuration
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 # Post-install configuration
