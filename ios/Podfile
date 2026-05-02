@@ -1,19 +1,14 @@
-# Uncomment this line to define a global platform for this project
+# Flutter iOS Podfile
 platform :ios, '15.0'
 
-# CocoaPods configuration for Flutter
+# Load Flutter pod configuration
 flutter_application_path = File.join(File.dirname(__FILE__), '.symlinks', '..')
-load File.join(flutter_application_path, 'ios', 'Flutter', 'Podfile')
-
-# Workspace configuration
-workspace 'Runner.xcworkspace'
+load File.join(flutter_application_path, '.symlinks', 'Flutter', 'Podfile')
 
 # Target configuration
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-
-  # Flutter pod installation
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
