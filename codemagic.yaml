@@ -6,6 +6,11 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      vars:
+        APP_STORE_CONNECT_KEY_ID: P3D22DWV9P
+        APP_STORE_CONNECT_ISSUER_ID: 7f99861d-5fdd-4a80-a22c-652f43960eae
+      groups:
+        - appstore
     triggering:
       branch_patterns:
         - pattern: main
