@@ -17,7 +17,3 @@ workflows:
             --export-options-plist=ios/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
-    publishing:
-      app_store_connect:
-        key_id: P3D22DWV9P
-        issuer_id: 7f99861d-5fdd-4a80-a22c-652f43960eae
