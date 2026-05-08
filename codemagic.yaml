@@ -25,7 +25,9 @@ workflows:
 
       - name: Fetch signing files
         script: |
-          app-store-connect fetch-signing-files "$APP_ID" \
+          app-store-connect fetch-signing-files com.cizreapp.app \
+            --issuer-id 7f99861d-5fdd-4a80-a22c-652f43960eae \
+            --key-id 4RC8R99NC7 \
             --type IOS_APP_STORE \
             --create
 
