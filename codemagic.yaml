@@ -8,9 +8,6 @@ workflows:
       cocoapods: default
       vars:
         APP_ID: com.cizreapp.app
-        APP_STORE_CONNECT_KEY_ID: 4RC8R99NC7
-      groups:
-        - appstore
     triggering:
       branch_patterns:
         - pattern: main
