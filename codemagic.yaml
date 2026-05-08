@@ -1,19 +1,53 @@
 workflows:
   ios-appstore:
-    name: iOS App Store
+    name: iOS App Store Dağıtım
     max_build_duration: 120
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      vars:
+        APP_ID: com.cizreapp.app
     triggering:
       branch_patterns:
         - pattern: main
           include: true
+      events:
+        - push
     scripts:
-      - name: Build iOS
+      - name: Flutter pub get
+        script: |
+          flutter pub get
+
+      - name: Set up keychain and code signing
+        script: |
+          # Initialize keychain
+          keychain initialize --platform ios
+
+          # Fetch signing files from App Store Connect
+          app-store-connect fetch-signing-files "$APP_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+          # Add signing keys to keychain
+          keychain add-signing-keys --platform ios
+
+          # Use profiles in Xcode project
+          xcode-project use-profiles --platform ios
+
+      - name: iOS Dependencies
+        script: |
+          cd ios && pod install --repo-update && cd ..
+
+      - name: Build iOS IPA
         script: |
           flutter build ipa --release \
             --export-options-plist=ios/export_options.plist
+
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/ipa/*.dSYM
+
+    publishing:
+      app_store_connect:
+        auth: integration
