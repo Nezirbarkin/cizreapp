@@ -8,6 +8,9 @@ workflows:
       cocoapods: default
       vars:
         APP_ID: com.cizreapp.app
+        APP_STORE_CONNECT_KEY_ID: 4RC8R99NC7
+      groups:
+        - appstore
     triggering:
       branch_patterns:
         - pattern: main
@@ -19,12 +22,15 @@ workflows:
         script: |
           flutter pub get
 
-      - name: Set up keychain and code signing
+      - name: Set up keychain
         script: |
-          keychain initialize --platform ios
-          app-store-connect fetch-signing-files "$APP_ID" --type IOS_APP_STORE --create
-          keychain add-signing-keys --platform ios
-          xcode-project use-profiles --platform ios
+          keychain initialize
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$APP_ID" \
+            --type IOS_APP_STORE \
+            --create
 
       - name: iOS Dependencies
         script: |
