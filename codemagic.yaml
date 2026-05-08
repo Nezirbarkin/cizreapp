@@ -21,18 +21,9 @@ workflows:
 
       - name: Set up keychain and code signing
         script: |
-          # Initialize keychain
           keychain initialize --platform ios
-
-          # Fetch signing files from App Store Connect
-          app-store-connect fetch-signing-files "$APP_ID" \
-            --type IOS_APP_STORE \
-            --create
-
-          # Add signing keys to keychain
+          app-store-connect fetch-signing-files "$APP_ID" --type IOS_APP_STORE --create
           keychain add-signing-keys --platform ios
-
-          # Use profiles in Xcode project
           xcode-project use-profiles --platform ios
 
       - name: iOS Dependencies
@@ -41,13 +32,8 @@ workflows:
 
       - name: Build iOS IPA
         script: |
-          flutter build ipa --release \
-            --export-options-plist=ios/export_options.plist
+          flutter build ipa --release --export-options-plist=ios/export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/ipa/*.dSYM
-
-    publishing:
-      app_store_connect:
-        auth: integration
