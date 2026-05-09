@@ -1,4 +1,4 @@
-name: iOS Build
+name: iOS Simulator Build
 
 on:
   push:
@@ -17,13 +17,21 @@ jobs:
       with:
         flutter-version: 'stable'
         channel: 'stable'
+        cache: true
     
     - name: Install dependencies
       run: flutter pub get
     
     - name: iOS Dependencies
       run: |
-        cd ios && pod install && cd ..
+        cd ios
+        # Remove any existing Pods to avoid conflicts
+        rm -rf Pods Podfile.lock
+        # Get flutter dependencies which will handle pod install
+        flutter pub get
+        # Run pod install
+        pod install --repo-update
+        cd ..
     
     - name: Build iOS Simulator
       run: flutter build ios --simulator --no-codesign
@@ -33,3 +41,4 @@ jobs:
       with:
         name: ios-simulator-build
         path: build/ios/iphonesimulator/
+        retention-days: 5
