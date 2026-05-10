@@ -7,7 +7,7 @@ workflows:
       xcode: latest
       cocoapods: default
       variables:
-        APP_ID: '6453901378'  # App Store Connect App ID
+        APP_ID: '6453901378'
     triggering:
       branch_patterns:
         - pattern: main
@@ -16,11 +16,6 @@ workflows:
       events:
         - push
         - tag
-    inputs:
-      - key: APP_STORE_CONNECT_ISSUER_ID
-        value: 7d7a2de9-1c9c-4c8e-9f0e-1234567890ab  # Replace with your App Store Connect Issuer ID
-      - key: APP_STORE_CONNECT_KEY_ID
-        value: 4RC8R99NC7  # Your API Key ID
     scripts:
       - name: Install dependencies
         script: |
@@ -41,6 +36,5 @@ workflows:
       app_store_connect:
         auth: integration
         app_id: $APP_ID
-        android_key: $APP_STORE_CONNECT_KEY_ID
         ios_signing_status: automatic
         skip_build_number: false
