@@ -46,15 +46,29 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	
-	<!-- Permissions -->
+	<!-- Permissions - Camera -->
 	<key>NSCameraUsageDescription</key>
 	<string>Fotoğraf çekmek için kamera erişimi gereklidir</string>
+	
+	<!-- Permissions - Photo Library -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Fotoğraf yüklemek için galeri erişimi gereklidir</string>
+	
+	<!-- Permissions - Microphone -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Video çekmek için mikrofon erişimi gereklidir</string>
+	
+	<!-- Permissions - Location -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Yakındaki mağazaları görmek için konum bilgisi gereklidir</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Yakındaki mağazaları görmek ve sipariş takibi için konum bilgisi gereklidir</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Yakındaki mağazaları görmek ve sipariş takibi için konum bilgisi gereklidir</string>
+	
+	<!-- Permissions - Notifications -->
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Sipariş güncellemeleri ve mesaj bildirimleri için bildirim izni gereklidir</string>
 	
 	<!-- Deep Link - Email Doğrulama ve Şifre Yenileme -->
 	<key>CFBundleURLTypes</key>
