@@ -4,7 +4,7 @@ description: "Cizre'nin Dijital Pazarı & Sosyal Medya Ağı"
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.1.4+6
+version: 1.1.4+7
 
 environment:
   sdk: ^3.10.1
