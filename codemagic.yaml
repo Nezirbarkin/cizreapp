@@ -1,25 +1,46 @@
 workflows:
-  ios-simulator:
-    name: iOS Simulator Build
-    max_build_duration: 60
+  ios-appstore:
+    name: iOS App Store
+    max_build_duration: 120
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      variables:
+        APP_ID: '6453901378'  # App Store Connect App ID
     triggering:
       branch_patterns:
         - pattern: main
           include: true
+          source: false
       events:
         - push
+        - tag
+    inputs:
+      - key: APP_STORE_CONNECT_ISSUER_ID
+        value: 7d7a2de9-1c9c-4c8e-9f0e-1234567890ab  # Replace with your App Store Connect Issuer ID
+      - key: APP_STORE_CONNECT_KEY_ID
+        value: 4RC8R99NC7  # Your API Key ID
     scripts:
-      - name: Flutter pub get
+      - name: Install dependencies
         script: |
           flutter pub get
-
-      - name: Build iOS for Simulator
+      - name: Set up code signing
         script: |
-          flutter build ios --simulator --no-codesign
-
+          keychain initialize
+          app-store-connect fetch-signing-files "com.cizreapp.app" --type IOS_APP_STORE --key-id $APP_STORE_CONNECT_KEY_ID --issuer-id $APP_STORE_CONNECT_ISSUER_ID --output-dir './build/ios'
+          keychain add-certificates --keychain default.keychain
+          xcode-project use-profiles --keychain default.keychain
+      - name: Build iOS App Store
+        script: |
+          flutter build ios --release --no-codesign
     artifacts:
+      - build/ios/iphoneos/*.ipa
       - build/ios/iphonesimulator/*.app
+    publishing:
+      app_store_connect:
+        auth: integration
+        app_id: $APP_ID
+        android_key: $APP_STORE_CONNECT_KEY_ID
+        ios_signing_status: automatic
+        skip_build_number: false
