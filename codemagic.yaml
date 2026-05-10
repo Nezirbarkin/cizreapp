@@ -23,18 +23,16 @@ workflows:
       - name: Set up code signing
         script: |
           keychain initialize
-          app-store-connect fetch-signing-files "com.cizreapp.app" --type IOS_APP_STORE --key-id $APP_STORE_CONNECT_KEY_ID --issuer-id $APP_STORE_CONNECT_ISSUER_ID --output-dir './build/ios'
+          app-store-connect fetch-signing-files "com.cizreapp.app" --type IOS_APP_STORE --platform IOS --key-id $APP_STORE_CONNECT_KEY_ID --issuer-id $APP_STORE_CONNECT_ISSUER_ID --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY --certificate-key @env:CERTIFICATE_KEY --output-dir './build/ios'
           keychain add-certificates --keychain default.keychain
           xcode-project use-profiles --keychain default.keychain
       - name: Build iOS App Store
         script: |
-          flutter build ios --release --no-codesign
+          flutter build ipa --release
     artifacts:
-      - build/ios/iphoneos/*.ipa
-      - build/ios/iphonesimulator/*.app
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
         auth: integration
         app_id: $APP_ID
-        ios_signing_status: automatic
-        skip_build_number: false
