@@ -22,18 +22,8 @@ jobs:
     - name: Install dependencies
       run: |
         flutter pub get
-        flutter pub upgrade
-    
-    - name: Remove stale pods
-      run: |
-        cd ios
-        rm -rf Pods/
-        rm -f Podfile.lock
-        cd ..
     
     - name: Build iOS Simulator
-      env:
-        FLUTTER_SUPPRESS_ANALYTICS: true
       run: |
         flutter build ios --simulator --no-codesign
     

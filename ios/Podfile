@@ -5,6 +5,9 @@ platform :ios, '15.0'
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
+
+  # Flutter plugins
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__)) if defined?(flutter_install_all_ios_pods)
 end
 
 # Post-install configuration
