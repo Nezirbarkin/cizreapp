@@ -1,5 +1,5 @@
 workflows:
-  ios-appstore:
+  ios-workflow:
     name: iOS App Store
     max_build_duration: 120
     environment:
@@ -9,20 +9,15 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
     triggering:
+      events:
+        - push
       branch_patterns:
         - pattern: main
           include: true
-          source: false
-      events:
-        - push
-        - tag
     scripts:
       - name: Install dependencies
-        script: |
-          flutter pub get
-      - name: Build iOS App Store
-        script: |
-          flutter build ipa --release \
-            --export-method app-store
+        script: flutter pub get
+      - name: Build IPA
+        script: flutter build ipa --release --export-method app-store
     artifacts:
       - build/ios/ipa/*.ipa
