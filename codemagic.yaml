@@ -8,6 +8,7 @@ workflows:
       cocoapods: default
       variables:
         APP_ID: '6453901378'
+        ENGINE: xcode
     triggering:
       branch_patterns:
         - pattern: main
