@@ -46,6 +46,10 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	
+	<!-- App Tracking Transparency -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Size kişiselleştirilmiş içerik göstermek için izninize ihtiyacımız var</string>
+	
 	<!-- Permissions - Camera -->
 	<key>NSCameraUsageDescription</key>
 	<string>Fotoğraf çekmek için kamera erişimi gereklidir</string>
@@ -65,10 +69,6 @@
 	<string>Yakındaki mağazaları görmek ve sipariş takibi için konum bilgisi gereklidir</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Yakındaki mağazaları görmek ve sipariş takibi için konum bilgisi gereklidir</string>
-	
-	<!-- Permissions - Notifications -->
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>Sipariş güncellemeleri ve mesaj bildirimleri için bildirim izni gereklidir</string>
 	
 	<!-- Deep Link - Email Doğrulama ve Şifre Yenileme -->
 	<key>CFBundleURLTypes</key>
