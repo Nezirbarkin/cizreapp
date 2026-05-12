@@ -5,10 +5,10 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: default
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
+        create_profile: true
     triggering:
       branch_patterns:
         - pattern: main
@@ -21,9 +21,14 @@ workflows:
       - name: Install dependencies
         script: |
           flutter pub get
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "com.cizreapp.app" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
       - name: Build iOS App Store
         script: |
           flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
