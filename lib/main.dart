@@ -401,31 +401,35 @@ class _CizreAppState extends State<CizreApp> {
   void _initDeepLinkHandling() {
     if (kIsWeb) return; // Web'de deep link gerekmez
     
-    final appLinks = AppLinks();
-    
-    // Uygulama zaten açıkken gelen deep link
-    _appLinksSubscription = appLinks.uriLinkStream.listen((uri) {
-      print('🔗 Deep link alındı (app açık): $uri');
-      _handleDeepLink(uri);
-    }, onError: (err) {
-      print('⚠️ Deep link stream hatası: $err');
-    });
-    
-    // Uygulama kapalıyken deep link ile açılma (timeout ekli)
-    appLinks.getInitialLink().timeout(
-      const Duration(seconds: 2),
-      onTimeout: () => null,
-    ).then((uri) {
-      if (uri != null) {
-        print('🔗 Initial deep link alındı: $uri');
-        // Kısa gecikme ile işle (uygulama tamamen başlamadan önce)
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) _handleDeepLink(uri);
-        });
-      }
-    }).catchError((err) {
-      print('⚠️ Initial deep link hatası: $err');
-    });
+    try {
+      final appLinks = AppLinks();
+      
+      // Uygulama zaten açıkken gelen deep link
+      _appLinksSubscription = appLinks.uriLinkStream.listen((uri) {
+        print('🔗 Deep link alındı (app açık): $uri');
+        _handleDeepLink(uri);
+      }, onError: (err) {
+        print('⚠️ Deep link stream hatası: $err');
+      });
+      
+      // Uygulama kapalıyken deep link ile açılma (timeout ekli)
+      appLinks.getInitialLink().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      ).then((uri) {
+        if (uri != null && mounted) {
+          print('🔗 Initial deep link alındı: $uri');
+          // Kısa gecikme ile işle (uygulama tamamen başlamadan önce)
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) _handleDeepLink(uri);
+          });
+        }
+      }).catchError((err) {
+        print('⚠️ Initial deep link hatası: $err');
+      });
+    } catch (e) {
+      print('⚠️ Deep link handling başlatılamadı: $e');
+    }
   }
 
   // Web için şifre yenileme URL kontrolü
