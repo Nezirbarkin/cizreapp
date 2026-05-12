@@ -6,9 +6,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      variables:
-        APP_ID: '6453901378'
-        ENGINE: xcode
     triggering:
       branch_patterns:
         - pattern: main
@@ -36,4 +33,3 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        app_id: $APP_ID
