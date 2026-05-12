@@ -8,7 +8,6 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
-        create_profile: true
     triggering:
       branch_patterns:
         - pattern: main
