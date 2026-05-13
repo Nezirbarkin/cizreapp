@@ -68,9 +68,4 @@ workflows:
       - build/ios/ipa/*.ipa
     publishing:
       app_store_connect:
-        auth:
-          key_id: 4RC8R99NC7
-          issuer_id: 7f99861d-5fdd-4a80-a22c-652f43960eae
-        submit_to_review:
-          submit: true
-          release_on_approval: false
+        auth: integration
