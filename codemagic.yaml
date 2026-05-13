@@ -11,6 +11,8 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
+      ios_signing:
+        distribution_type: app_store
     triggering:
       events:
         - push
@@ -40,29 +42,15 @@ workflows:
             COMPILER_INDEX_STORE_ENABLE=NO \
             archive
           cd ..
-      - name: Create export options
-        script: |
-          mkdir -p /Users/builder
-          cat > /Users/builder/export_options.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>7RY64FSMUS</string>
-          </dict>
-          </plist>
-          EOF
       - name: Export IPA
         script: |
-          cd ios
           xcodebuild -exportArchive \
-            -archivePath ../build/ios/archive/Runner.xcarchive \
-            -exportOptionsPlist /Users/builder/export_options.plist \
-            -exportPath ../build/ios/ipa \
+            -archivePath build/ios/archive/Runner.xcarchive \
+            -exportOptionsPlist ios/Flutter/ExportOptions.plist \
+            -exportPath build/ios/ipa \
             -allowProvisioningUpdates
-          cd ..
     artifacts:
-      - build/ios/ipa/*.ipa
+      - build/ios/ipa/Runner.ipa
+    publishing:
+      app_store_connect:
+        auth: api_key
