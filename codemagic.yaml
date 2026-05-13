@@ -8,9 +8,6 @@ workflows:
       vars:
         BUNDLE_ID: com.cizreapp.app
         TEAM_ID: 7RY64FSMUS
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cizreapp.app
     triggering:
       events:
         - push
@@ -21,72 +18,9 @@ workflows:
       - name: Install dependencies
         script: |
           flutter pub get
-      - name: Set up provisioning profile
-        script: |
-          echo "=== Checking for provisioning profiles ==="
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || echo "No profiles in default location"
-          
-          # Find the provisioning profile
-          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
-          
-          if [ -z "$PROFILE_PATH" ]; then
-            echo "ERROR: No provisioning profile found!"
-            echo "Codemagic ios_signing should have provided one."
-            echo "Checking CM_PROVISIONING_PROFILE..."
-            echo "CM_PROVISIONING_PROFILE = $CM_PROVISIONING_PROFILE"
-            echo "CM_PROVISIONING_PROFILE_UUID = $CM_PROVISIONING_PROFILE_UUID"
-            echo "CM_CERTIFICATE = $CM_CERTIFICATE"
-            exit 1
-          fi
-          
-          echo "Found provisioning profile: $PROFILE_PATH"
-          
-          # Extract UUID and name from profile
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-          
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Name: $PROFILE_NAME"
-          
-          # Update Xcode project to use this provisioning profile
-          cd ios
-          
-          # Set provisioning profile in all build configurations
-          /usr/libexec/PlistBuddy -c "Delete :objects:249021D4217E4FDB00AE95B9:buildSettings:PROVISIONING_PROFILE_SPECIFIER" Runner.xcodeproj/project.pbxproj 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :objects:249021D4217E4FDB00AE95B9:buildSettings:PROVISIONING_PROFILE_SPECIFIER string $PROFILE_UUID" Runner.xcodeproj/project.pbxproj 2>/dev/null || true
-          
-          echo "Updated Xcode project with provisioning profile"
-          cd ..
       - name: Create export options
         script: |
-          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
-          
-          if [ -n "$PROFILE_PATH" ]; then
-            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-            echo "Using provisioning profile UUID: $PROFILE_UUID"
-            
-            cat > /Users/builder/export_options.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>7RY64FSMUS</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.cizreapp.app</key>
-              <string>$PROFILE_UUID</string>
-            </dict>
-          </dict>
-          </plist>
-          EOF
-          else
-            echo "WARNING: No provisioning profile found, using automatic signing"
-            cat > /Users/builder/export_options.plist << EOF
+          cat > /Users/builder/export_options.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -100,13 +34,8 @@ workflows:
           </dict>
           </plist>
           EOF
-          fi
-          
-          echo "Export options created:"
-          cat /Users/builder/export_options.plist
       - name: Build IPA
         script: |
-          flutter build ipa --release \
-            --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
