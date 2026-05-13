@@ -11,8 +11,8 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
-      integrations:
-        app_store_connect: 4RC8R99NC7
+    integrations:
+      app_store_connect: 4RC8R99NC7
     triggering:
       events:
         - push
@@ -71,4 +71,3 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: false
