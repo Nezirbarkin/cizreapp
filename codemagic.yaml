@@ -5,9 +5,8 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cizreapp.app
+      vars:
+        BUNDLE_ID: com.cizreapp.app
     triggering:
       events:
         - push
