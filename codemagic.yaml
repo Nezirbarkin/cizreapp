@@ -61,11 +61,8 @@ workflows:
           xcodebuild -exportArchive \
             -archivePath ../build/ios/archive/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
-            -exportPath ../build/ipa \
+            -exportPath ../build/ios/ipa \
             -allowProvisioningUpdates
           cd ..
     artifacts:
       - build/ios/ipa/*.ipa
-    publishing:
-      app_store_connect:
-        submit_to_testflight: false
