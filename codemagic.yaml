@@ -20,6 +20,7 @@ workflows:
           flutter pub get
       - name: Create export options
         script: |
+          mkdir -p /Users/builder
           cat > /Users/builder/export_options.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,8 +35,10 @@ workflows:
           </dict>
           </plist>
           EOF
-      - name: Build IPA
+          echo "Export options created:"
+          cat /Users/builder/export_options.plist
+      - name: Build IPA with export options
         script: |
-          flutter build ipa --release
+          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
