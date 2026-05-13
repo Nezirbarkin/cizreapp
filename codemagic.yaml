@@ -6,7 +6,11 @@ workflows:
       flutter: stable
       xcode: latest
       vars:
-        APP_ID: '6453901378'
+        APP_STORE_CONNECT_ISSUER_ID: 7f99861d-5fdd-4a80-a22c-652f43960eae
+        APP_STORE_CONNECT_KEY_ID: 4RC8R99NC7
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.cizreapp.app
     triggering:
       events:
         - push
