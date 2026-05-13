@@ -5,6 +5,8 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
+      vars:
+        APP_ID: '6453901378'
     triggering:
       events:
         - push
