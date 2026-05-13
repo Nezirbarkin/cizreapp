@@ -21,56 +21,50 @@ workflows:
       - name: Install dependencies
         script: |
           flutter pub get
-      - name: Set up code signing
+      - name: Set up provisioning profile
         script: |
+          echo "=== Checking for provisioning profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || echo "No profiles in default location"
+          
           # Find the provisioning profile
-          echo "Looking for provisioning profiles..."
-          ls -la /Users/builder/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found in default location"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found in home location"
-          # Extract provisioning profile info
           PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
-          if [ -n "$PROFILE_PATH" ]; then
-            echo "Found provisioning profile: $PROFILE_PATH"
-            # Extract UUID from profile
-            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-            echo "Profile UUID: $PROFILE_UUID"
-            # Extract profile name
-            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-            echo "Profile Name: $PROFILE_NAME"
-          else
-            echo "WARNING: No provisioning profile found!"
+          
+          if [ -z "$PROFILE_PATH" ]; then
+            echo "ERROR: No provisioning profile found!"
+            echo "Codemagic ios_signing should have provided one."
+            echo "Checking CM_PROVISIONING_PROFILE..."
+            echo "CM_PROVISIONING_PROFILE = $CM_PROVISIONING_PROFILE"
+            echo "CM_PROVISIONING_PROFILE_UUID = $CM_PROVISIONING_PROFILE_UUID"
+            echo "CM_CERTIFICATE = $CM_CERTIFICATE"
+            exit 1
           fi
-      - name: Build IPA without code signing
-        script: |
-          # Build xcarchive first
-          flutter build ipa --release --no-codesign \
-            --export-options-plist=/Users/builder/export_options.plist || true
-          # If --no-codesign doesn't work, try xcodebuild directly
-          if [ ! -d build/ios/archive/Runner.xcarchive ]; then
-            echo "Trying xcodebuild approach..."
-            cd ios
-            xcodebuild archive \
-              -workspace Runner.xcworkspace \
-              -scheme Runner \
-              -configuration Release \
-              -archivePath ../build/ios/archive/Runner.xcarchive \
-              -sdk iphoneos \
-              CODE_SIGN_IDENTITY="Apple Distribution" \
-              CODE_SIGN_STYLE=Manual \
-              DEVELOPMENT_TEAM="$TEAM_ID" \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              COMPILER_INDEX_STORE_ENABLE=NO \
-              | xcpretty || true
-            cd ..
-          fi
+          
+          echo "Found provisioning profile: $PROFILE_PATH"
+          
+          # Extract UUID and name from profile
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Name: $PROFILE_NAME"
+          
+          # Update Xcode project to use this provisioning profile
+          cd ios
+          
+          # Set provisioning profile in all build configurations
+          /usr/libexec/PlistBuddy -c "Delete :objects:249021D4217E4FDB00AE95B9:buildSettings:PROVISIONING_PROFILE_SPECIFIER" Runner.xcodeproj/project.pbxproj 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :objects:249021D4217E4FDB00AE95B9:buildSettings:PROVISIONING_PROFILE_SPECIFIER string $PROFILE_UUID" Runner.xcodeproj/project.pbxproj 2>/dev/null || true
+          
+          echo "Updated Xcode project with provisioning profile"
+          cd ..
       - name: Create export options
         script: |
-          mkdir -p /Users/builder
-          # Get provisioning profile UUID
           PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
+          
           if [ -n "$PROFILE_PATH" ]; then
             PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
             echo "Using provisioning profile UUID: $PROFILE_UUID"
+            
             cat > /Users/builder/export_options.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -107,19 +101,12 @@ workflows:
           </plist>
           EOF
           fi
+          
           echo "Export options created:"
           cat /Users/builder/export_options.plist
-      - name: Export IPA
+      - name: Build IPA
         script: |
-          if [ -d build/ios/archive/Runner.xcarchive ]; then
-            xcodebuild -exportArchive \
-              -archivePath build/ios/archive/Runner.xcarchive \
-              -exportOptionsPlist /Users/builder/export_options.plist \
-              -exportPath build/ios/ipa \
-              -allowProvisioningUpdates
-          else
-            echo "No archive found, trying flutter build again..."
-            flutter build ipa --release
-          fi
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
