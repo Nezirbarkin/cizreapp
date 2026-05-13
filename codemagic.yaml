@@ -19,9 +19,22 @@ workflows:
         - pattern: main
           include: true
     scripts:
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_ID" \
+            --create
       - name: Install dependencies
         script: |
           flutter pub get
+      - name: Set up code signing
+        script: |
+          keychain add-certificates
       - name: Build iOS App Store
         script: |
           flutter build ipa --release
