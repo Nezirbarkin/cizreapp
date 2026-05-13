@@ -7,6 +7,7 @@ workflows:
       xcode: latest
       vars:
         BUNDLE_ID: com.cizreapp.app
+        TEAM_ID: 7RY64FSMUS
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
@@ -20,8 +21,105 @@ workflows:
       - name: Install dependencies
         script: |
           flutter pub get
-      - name: Build iOS App Store
+      - name: Set up code signing
         script: |
-          flutter build ipa --release
+          # Find the provisioning profile
+          echo "Looking for provisioning profiles..."
+          ls -la /Users/builder/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found in default location"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found in home location"
+          # Extract provisioning profile info
+          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
+          if [ -n "$PROFILE_PATH" ]; then
+            echo "Found provisioning profile: $PROFILE_PATH"
+            # Extract UUID from profile
+            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+            echo "Profile UUID: $PROFILE_UUID"
+            # Extract profile name
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+            echo "Profile Name: $PROFILE_NAME"
+          else
+            echo "WARNING: No provisioning profile found!"
+          fi
+      - name: Build IPA without code signing
+        script: |
+          # Build xcarchive first
+          flutter build ipa --release --no-codesign \
+            --export-options-plist=/Users/builder/export_options.plist || true
+          # If --no-codesign doesn't work, try xcodebuild directly
+          if [ ! -d build/ios/archive/Runner.xcarchive ]; then
+            echo "Trying xcodebuild approach..."
+            cd ios
+            xcodebuild archive \
+              -workspace Runner.xcworkspace \
+              -scheme Runner \
+              -configuration Release \
+              -archivePath ../build/ios/archive/Runner.xcarchive \
+              -sdk iphoneos \
+              CODE_SIGN_IDENTITY="Apple Distribution" \
+              CODE_SIGN_STYLE=Manual \
+              DEVELOPMENT_TEAM="$TEAM_ID" \
+              PROVISIONING_PROFILE_SPECIFIER="" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
+              | xcpretty || true
+            cd ..
+          fi
+      - name: Create export options
+        script: |
+          mkdir -p /Users/builder
+          # Get provisioning profile UUID
+          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
+          if [ -n "$PROFILE_PATH" ]; then
+            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+            echo "Using provisioning profile UUID: $PROFILE_UUID"
+            cat > /Users/builder/export_options.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>7RY64FSMUS</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.cizreapp.app</key>
+              <string>$PROFILE_UUID</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+          else
+            echo "WARNING: No provisioning profile found, using automatic signing"
+            cat > /Users/builder/export_options.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>7RY64FSMUS</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+          fi
+          echo "Export options created:"
+          cat /Users/builder/export_options.plist
+      - name: Export IPA
+        script: |
+          if [ -d build/ios/archive/Runner.xcarchive ]; then
+            xcodebuild -exportArchive \
+              -archivePath build/ios/archive/Runner.xcarchive \
+              -exportOptionsPlist /Users/builder/export_options.plist \
+              -exportPath build/ios/ipa \
+              -allowProvisioningUpdates
+          else
+            echo "No archive found, trying flutter build again..."
+            flutter build ipa --release
+          fi
     artifacts:
       - build/ios/ipa/*.ipa
