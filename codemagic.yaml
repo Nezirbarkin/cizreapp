@@ -11,8 +11,6 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
-      ios_signing:
-        distribution_type: app_store
     triggering:
       events:
         - push
@@ -53,4 +51,4 @@ workflows:
       - build/ios/ipa/Runner.ipa
     publishing:
       app_store_connect:
-        auth: api_key
+        auth: integration
