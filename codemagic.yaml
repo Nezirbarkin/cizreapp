@@ -7,6 +7,9 @@ workflows:
       xcode: latest
       vars:
         BUNDLE_ID: com.cizreapp.app
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.cizreapp.app
     triggering:
       events:
         - push
