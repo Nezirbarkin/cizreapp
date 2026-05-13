@@ -8,6 +8,8 @@ workflows:
       vars:
         APP_STORE_CONNECT_ISSUER_ID: 7f99861d-5fdd-4a80-a22c-652f43960eae
         APP_STORE_CONNECT_KEY_ID: 4RC8R99NC7
+        TEAM_ID: 7RY64FSMUS
+        BUNDLE_ID: com.cizreapp.app
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
@@ -18,9 +20,42 @@ workflows:
         - pattern: main
           include: true
     scripts:
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "com.cizreapp.app" \
+            --type APP_STORE \
+            --issuer-id $APP_STORE_CONNECT_ISSUER_ID \
+            --key-id $APP_STORE_CONNECT_KEY_ID \
+            --team-id $TEAM_ID
       - name: Install dependencies
         script: |
           flutter pub get
+      - name: Set up code signing
+        script: |
+          keychain add-certificates
+          flutter build ipa \
+            --release \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --no-codesign
+      - name: Create export options
+        script: |
+          cat > /Users/builder/export_options.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamId</key>
+            <string>7RY64FSMUS</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
       - name: Build iOS App Store
         script: |
           flutter build ipa --release
