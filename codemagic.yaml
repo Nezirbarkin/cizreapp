@@ -12,7 +12,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.cizreapp.app
     integrations:
-      app_store_connect: 4RC8R99NC7
+      app_store_connect: api_key
     triggering:
       events:
         - push
@@ -53,4 +53,4 @@ workflows:
       - build/ios/ipa/Runner.ipa
     publishing:
       app_store_connect:
-        auth: integration
+        auth: api_key
