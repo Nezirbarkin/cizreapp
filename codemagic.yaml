@@ -9,6 +9,10 @@ workflows:
       vars:
         BUNDLE_ID: com.cizreapp.app
         TEAM_ID: 7RY64FSMUS
+      secure:
+        APP_STORE_CONNECT_API_KEY: ""
+        APP_STORE_CONNECT_KEY_ID: "4RC8R99NC7"
+        APP_STORE_CONNECT_ISSUER_ID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     triggering:
       events:
         - push
