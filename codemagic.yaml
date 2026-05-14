@@ -5,47 +5,39 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
+      cocoapods: default
       vars:
         BUNDLE_ID: com.cizreapp.app
         TEAM_ID: 7RY64FSMUS
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cizreapp.app
     triggering:
       events:
         - push
+        - tag
       branch_patterns:
         - pattern: main
           include: true
     scripts:
-      - name: Install dependencies
+      - name: Install Flutter dependencies
         script: |
           flutter pub get
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      - name: Set up provisioning profiles
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE
+      - name: Build iOS
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=ios/Flutter/ExportOptions.plist \
+            --codesign=false
       - name: Install iOS Pods
         script: |
-          cd ios
-          pod install
-          cd ..
-      - name: Build with xcodebuild
-        script: |
-          cd ios
-          xcodebuild -workspace Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -archivePath ../build/ios/archive/Runner.xcarchive \
-            -sdk iphoneos \
-            CODE_SIGN_STYLE=Automatic \
-            DEVELOPMENT_TEAM=$TEAM_ID \
-            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            archive
-          cd ..
-      - name: Export IPA
-        script: |
-          xcodebuild -exportArchive \
-            -archivePath build/ios/archive/Runner.xcarchive \
-            -exportOptionsPlist ios/Flutter/ExportOptions.plist \
-            -exportPath build/ios/ipa \
-            -allowProvisioningUpdates
+          cd ios && pod install && cd ..
     artifacts:
-      - build/ios/ipa/Runner.ipa
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_API_KEY
+        key_id: $APP_STORE_CONNECT_KEY_ID
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID

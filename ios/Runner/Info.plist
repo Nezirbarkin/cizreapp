@@ -84,5 +84,9 @@
 			</array>
 		</dict>
 	</array>
+	
+	<!-- Export Compliance - Required for App Store -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
