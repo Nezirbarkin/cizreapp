@@ -1,0 +1,4 @@
+app:
+  ios:
+    app_id: com.cizreapp.app
+    track: production
