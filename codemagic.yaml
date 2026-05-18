@@ -5,6 +5,10 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.cizreapp.app
+        TEAM_ID: 7RY64FSMUS
     triggering:
       events:
         - push
@@ -17,6 +21,12 @@ workflows:
         script: |
           flutter pub get
           cd ios && pod install && cd ..
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      - name: Set up provisioning profiles
+        script: |
+          app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE
       - name: Build iOS
         script: |
           flutter build ipa --release --export-options-plist=ios/Flutter/ExportOptions.plist
