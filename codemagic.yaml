@@ -1,6 +1,6 @@
 workflows:
-  ios-app-store:
-    name: iOS App Store
+  ios-shorebird:
+    name: iOS Shorebird
     max_build_duration: 120
     environment:
       flutter: stable
@@ -29,8 +29,8 @@ workflows:
       - name: Set up provisioning profiles
         script: |
           app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE
-      - name: Build iOS
+      - name: Build iOS with Shorebird
         script: |
-          flutter build ipa --release --export-options-plist=ios/Flutter/ExportOptions.plist
+          shorebird release ios --export-options-plist=ios/Flutter/ExportOptions.plist
     artifacts:
       - build/ios/ipa/*.ipa
