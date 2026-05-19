@@ -9,8 +9,6 @@ workflows:
       vars:
         BUNDLE_ID: com.cizreapp.app
         TEAM_ID: 7RY64FSMUS
-      groups:
-        - cizreapp
     triggering:
       events:
         - push
