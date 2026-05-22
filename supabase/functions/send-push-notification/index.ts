@@ -13,10 +13,11 @@ let cachedAccessToken: string | null = null
 let tokenExpiry: number = 0
 
 interface SendPushRequest {
-  user_id: string
+  user_id?: string
   title: string
   body: string
   data?: Record<string, string>
+  topic?: string  // Firebase topic for broadcasting
 }
 
 // PEM to ArrayBuffer conversion (fixes ASN.1 DER error)
@@ -149,16 +150,47 @@ async function getFCMTokens(supabase: any, userId: string): Promise<string[]> {
   return [...new Set(tokens)]
 }
 
-// FCM push gönder
+// FCM push gönder (token veya topic bazlı)
 async function sendFCMPush(
   accessToken: string,
   projectId: string,
-  token: string,
+  token: string | null,
   title: string,
   body: string,
-  data: Record<string, string>
+  data: Record<string, string>,
+  topic?: string
 ): Promise<{ success: boolean; error?: string; unregistered?: boolean }> {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
+
+  // Mesaj yapısı - topic veya token bazlı
+  const message: any = {
+    notification: { title, body },
+    data,
+    android: {
+      priority: 'high',
+      notification: {
+        sound: 'default',
+        channel_id: 'high_importance_channel',
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default',
+          badge: 1,
+        },
+      },
+    },
+  }
+
+  // Topic bazlı veya token bazlı gönderim
+  if (topic) {
+    message.topic = topic
+  } else if (token) {
+    message.token = token
+  } else {
+    return { success: false, error: 'No topic or token specified' }
+  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -166,37 +198,16 @@ async function sendFCMPush(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      message: {
-        token,
-        notification: { title, body },
-        data,
-        android: {
-          priority: 'high',
-          notification: {
-            sound: 'default',
-            channel_id: 'high_importance_channel',
-          },
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              badge: 1,
-            },
-          },
-        },
-      },
-    }),
+    body: JSON.stringify({ message }),
   })
 
   if (!response.ok) {
     const error = await response.text()
-    console.error(`❌ FCM error for token ${token.substring(0, 20)}...: ${error}`)
+    console.error(`❌ FCM error: ${error}`)
     
     // UNREGISTERED hatası - token artık geçersiz
     const isUnregistered = error.includes('UNREGISTERED') || error.includes('NOT_FOUND')
-    if (isUnregistered) {
+    if (isUnregistered && token) {
       console.log(`🗑️ Token UNREGISTERED, silinecek: ${token.substring(0, 20)}...`)
     }
     
@@ -204,8 +215,20 @@ async function sendFCMPush(
   }
 
   const result = await response.json()
-  console.log(`✅ Push sent to ${token.substring(0, 20)}... Result:`, result)
+  console.log(`✅ Push sent${topic ? ` to topic "${topic}"` : ` to ${token?.substring(0, 20)}...`}`)
   return { success: true }
+}
+
+// Topic bazlı push gönder
+async function sendTopicPush(
+  accessToken: string,
+  projectId: string,
+  topic: string,
+  title: string,
+  body: string,
+  data: Record<string, string>
+): Promise<{ success: boolean; error?: string }> {
+  return await sendFCMPush(accessToken, projectId, null, title, body, data, topic)
 }
 
 // Geçersiz FCM token'ı veritabanından sil
@@ -227,7 +250,7 @@ async function removeInvalidToken(supabase: any, token: string): Promise<void> {
   }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   try {
     if (req.method === 'OPTIONS') {
       return new Response('ok', {
@@ -245,16 +268,15 @@ serve(async (req) => {
       })
     }
 
-    const { user_id, title, body, data = {} }: SendPushRequest = await req.json()
+    const { user_id, title, body, data = {}, topic }: SendPushRequest = await req.json()
 
-    if (!user_id || !title || !body) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: user_id, title, body' }), {
+    // Topic varsa title ve body yeterli, user_id opsiyonel
+    if (!title || !body) {
+      return new Response(JSON.stringify({ error: 'Missing required fields: title, body' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-
-    console.log(`📤 Sending push to user ${user_id}: ${title}`)
 
     // Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -275,6 +297,38 @@ serve(async (req) => {
 
     // Access token al
     const accessToken = await getAccessToken(serviceAccount)
+
+    // Topic bazlı push gönderim (admin bildirimleri için)
+    if (topic) {
+      console.log(`📤 Sending push to topic "${topic}": ${title}`)
+      
+      const result = await sendTopicPush(accessToken, serviceAccount.project_id, topic, title, body, data)
+      
+      if (result.success) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: `Push notification sent to topic "${topic}"`,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      } else {
+        return new Response(
+          JSON.stringify({ success: false, error: result.error }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
+    // Token bazlı push gönderim (bireysel kullanıcılar için)
+    if (!user_id) {
+      return new Response(JSON.stringify({ error: 'user_id required when no topic specified' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    console.log(`📤 Sending push to user ${user_id}: ${title}`)
 
     // FCM token'ları al
     const tokens = await getFCMTokens(supabase, user_id)

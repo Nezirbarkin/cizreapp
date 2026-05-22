@@ -1412,7 +1412,39 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                           }
                           sentCount = 1;
                         } else {
-                          // Bulk notification - hedef kitleye göre kullanıcıları bul
+                          // Bulk notification - Firebase Topic ile gönder (giriş yapmamış kullanıcılar da dahil)
+                          
+                          // Hangi topic'e gönderilecek
+                          String topicName;
+                          switch (targetAudience) {
+                            case 'customers':
+                              topicName = 'customers';
+                              break;
+                            case 'sellers':
+                              topicName = 'sellers';
+                              break;
+                            case 'all':
+                            default:
+                              topicName = 'all_users';
+                          }
+                          
+                          // Topic bazlı push gönder (Firebase üzerinden)
+                          try {
+                            await _client.functions.invoke(
+                              'send-push-notification',
+                              body: {
+                                'title': titleController.text.trim(),
+                                'body': bodyController.text.trim(),
+                                'data': {'type': 'admin_notification', 'icon_type': selectedIconType, 'target': targetAudience},
+                                'topic': topicName,
+                              },
+                            );
+                            debugPrint('✅ Topic "$topicName" üzerinden push gönderildi');
+                          } catch (e) {
+                            debugPrint('⚠️ Topic push gönderilemedi, veritabanı bildirimleri deneniyor: $e');
+                          }
+                          
+                          // Veritabanına da ekle (bildirim geçmişi için)
                           List<Map<String, dynamic>> users;
                           
                           if (targetAudience == 'customers') {
@@ -1422,42 +1454,26 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                             final response = await _client.from('profiles').select('id').eq('role', 'seller');
                             users = List<Map<String, dynamic>>.from(response);
                           } else {
-                            // 'all' için filtre yok
+                            // 'all' için tüm profilleri al
                             final response = await _client.from('profiles').select('id');
                             users = List<Map<String, dynamic>>.from(response);
                           }
                           
-                          if (users.isNotEmpty) {
-                            // Her kullanıcı için bildirim oluştur
-                            for (final user in users) {
-                              try {
-                                await _client.from('notifications').insert({
-                                  'user_id': user['id'],
-                                  'type': 'order',
-                                  'title': titleController.text.trim(),
-                                  'content': bodyController.text.trim(),
-                                  'is_read': false,
-                                  'entity_id': 'admin_icon:$selectedIconType',
-                                });
-                                
-                                // FCM push gönderimi
-                                try {
-                                  await _client.functions.invoke(
-                                    'send-push',
-                                    body: {
-                                      'user_id': user['id'],
-                                      'title': titleController.text.trim(),
-                                      'body': bodyController.text.trim(),
-                                      'data': {'type': 'order', 'icon_type': selectedIconType},
-                                    },
-                                  );
-                                } catch (e) {
-                                  debugPrint('Push gönderim hatası: $e');
-                                }
-                                sentCount++;
-                              } catch (e) {
-                                debugPrint('Kullanıcıya bildirim gönderilemedi: $e');
-                              }
+                          sentCount = users.length;
+                          
+                          // Her giriş yapmış kullanıcı için bildirim kaydı oluştur
+                          for (final user in users) {
+                            try {
+                              await _client.from('notifications').insert({
+                                'user_id': user['id'],
+                                'type': 'order',
+                                'title': titleController.text.trim(),
+                                'content': bodyController.text.trim(),
+                                'is_read': false,
+                                'entity_id': 'admin_icon:$selectedIconType',
+                              });
+                            } catch (e) {
+                              debugPrint('Kullanıcıya bildirim kaydı oluşturulamadı: $e');
                             }
                           }
                         }

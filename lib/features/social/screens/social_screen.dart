@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -971,19 +972,22 @@ class _SocialScreenState extends State<SocialScreen> {
   }
 
   Future<void> _addStory() async {
-    // Direkt media picker'ı aç (image ve video birlikte)
-    // Not: maxWidth/maxHeight kaldırıldı - orijinal aspect ratio korunsun
-    final XFile? media = await _imagePicker.pickMedia();
+    // Instagram tarzı story oluşturma bottom sheet'i aç
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _InstagramStoryCreator(
+        imagePicker: _imagePicker,
+        onMediaSelected: (media, mediaType) async {
+          // Seçilen medyayı yükle
+          await _uploadAndCreateStory(media, mediaType);
+        },
+      ),
+    );
+  }
 
-    if (media == null) return;
-
-    // Dosya uzantısından media type'ı belirle
-    // Web'de media.path blob URL olabilir, media.name daha güvenilir
-    final fileName = kIsWeb ? media.name : media.path;
-    final ext = fileName.split('.').last.toLowerCase();
-    final videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'];
-    final mediaType = videoExtensions.contains(ext) ? 'video' : 'image';
-
+  Future<void> _uploadAndCreateStory(XFile media, String mediaType) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
@@ -1015,7 +1019,7 @@ class _SocialScreenState extends State<SocialScreen> {
         );
 
         // Fotoğrafı sıkıştır ve yükle (Web ve Mobile uyumlu)
-        debugPrint('🖼️ Story fotoğrafı işleniyor...');
+        debugPrint('Story fotoğrafı işleniyor...');
         
         Uint8List imageBytes;
         String fileExt;
@@ -1030,7 +1034,7 @@ class _SocialScreenState extends State<SocialScreen> {
           );
           imageBytes = compressedBytes ?? await media.readAsBytes();
           fileExt = media.name.split('.').last.toLowerCase();
-          debugPrint('📏 Web story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
+          debugPrint('Web story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
         } else {
           // Mobile: XFile üzerinden sıkıştır
           final compressedBytes = await ImageCompressionHelper.compressXFile(
@@ -1041,7 +1045,7 @@ class _SocialScreenState extends State<SocialScreen> {
           );
           imageBytes = compressedBytes ?? await media.readAsBytes();
           fileExt = media.name.split('.').last.toLowerCase();
-          debugPrint('📏 Mobile story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
+          debugPrint('Mobile story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
         }
 
         // Fotoğrafı yükle
@@ -1055,7 +1059,7 @@ class _SocialScreenState extends State<SocialScreen> {
         );
         mediaUrl = Supabase.instance.client.storage.from('stories').getPublicUrl(filePath);
         
-        debugPrint('✅ Story fotoğrafı yüklendi: $mediaUrl');
+        debugPrint('Story fotoğrafı yüklendi: $mediaUrl');
         
         if (mounted) Navigator.pop(context); // Progress dialog'u kapat
       } else {
@@ -1600,6 +1604,573 @@ class _SocialScreenState extends State<SocialScreen> {
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+}
+
+// Instagram tarzı story oluşturma widget'ı
+class _InstagramStoryCreator extends StatefulWidget {
+  final ImagePicker imagePicker;
+  final Function(XFile, String) onMediaSelected;
+
+  const _InstagramStoryCreator({
+    required this.imagePicker,
+    required this.onMediaSelected,
+  });
+
+  @override
+  State<_InstagramStoryCreator> createState() => _InstagramStoryCreatorState();
+}
+
+class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
+  XFile? _selectedMedia;
+  String? _mediaType; // 'image' veya 'video'
+  bool _isUploading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      height: screenSize.height * 0.92,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Üst kısım: Kapat butonu, başlık, İleri butonu
+          _buildTopBar(isDark),
+          // Ana alan: Önizleme veya kamera/galeri placeholder
+          Expanded(
+            child: _buildPreviewArea(isDark),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopBar(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.black.withValues(alpha: 0.6),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Kapat (X) butonu
+            IconButton(
+              onPressed: _isUploading ? null : () => Navigator.pop(context),
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(),
+            ),
+            // Başlık
+            const Text(
+              'Hikaye Oluştur',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
+            ),
+            // İleri butonu
+            IconButton(
+              onPressed: _selectedMedia != null && !_isUploading ? _onNext : null,
+              icon: Icon(
+                Icons.arrow_forward,
+                color: _selectedMedia != null && !_isUploading
+                    ? Colors.white
+                    : Colors.white38,
+                size: 28,
+              ),
+              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreviewArea(bool isDark) {
+    if (_selectedMedia != null) {
+      return _buildMediaPreview(isDark);
+    }
+
+    // Varsayılan durum: Kamera/galeri placeholder
+    return Container(
+      color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFF1A1A2E),
+      child: Stack(
+        children: [
+          // Arka plan gradient
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF667eea).withValues(alpha: 0.3),
+                  const Color(0xFF764ba2).withValues(alpha: 0.3),
+                  const Color(0xFFf093fb).withValues(alpha: 0.2),
+                ],
+              ),
+            ),
+          ),
+          // Şeffaf gradient overlay (üst kısım)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 120,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.4),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // İçerik
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Büyük kamera ikonu
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white30, width: 2),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.15),
+                        Colors.white.withValues(alpha: 0.05),
+                      ],
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.camera_alt_outlined,
+                    color: Colors.white70,
+                    size: 48,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Hikaye Oluştur',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Fotoğraf veya video seçerek başla',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 40),
+                // Hızlı seçim butonları
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildQuickOption(
+                      icon: Icons.photo_library_outlined,
+                      label: 'Galeri',
+                      onTap: () => _pickFromGallery(),
+                      isDark: isDark,
+                    ),
+                    const SizedBox(width: 24),
+                    if (!kIsWeb) ...[
+                      _buildQuickOption(
+                        icon: Icons.camera_alt,
+                        label: 'Kamera',
+                        onTap: () => _pickFromCamera(),
+                        isDark: isDark,
+                      ),
+                      const SizedBox(width: 24),
+                    ],
+                    _buildQuickOption(
+                      icon: Icons.videocam_outlined,
+                      label: 'Video',
+                      onTap: () => _pickVideo(),
+                      isDark: isDark,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Alt gradient overlay
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 100,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return GestureDetector(
+      onTap: _isUploading ? null : onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.12),
+              border: Border.all(color: Colors.white24, width: 1.5),
+            ),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMediaPreview(bool isDark) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Medya önizlemesi
+        Container(
+          color: Colors.black,
+          child: kIsWeb
+              ? _buildWebPreview()
+              : _buildMobilePreview(),
+        ),
+        // Üst gradient overlay
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 80,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.5),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Alt gradient overlay
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 120,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.5),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Medya türü badge'i
+        Positioned(
+          top: 16,
+          left: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white24, width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _mediaType == 'video' ? Icons.videocam : Icons.photo,
+                  color: Colors.white,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _mediaType == 'video' ? 'Video' : 'Fotoğraf',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Değiştir butonu
+        Positioned(
+          bottom: 100,
+          right: 16,
+          child: GestureDetector(
+            onTap: _isUploading ? null : _clearSelection,
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black54,
+                border: Border.all(color: Colors.white24),
+              ),
+              child: const Icon(
+                Icons.refresh,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+        ),
+        // Yükleniyor overlay
+        if (_isUploading)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Colors.white),
+                  SizedBox(height: 16),
+                  Text(
+                    'Yükleniyor...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildWebPreview() {
+    // Web'de dosya yolu blob URL olabilir
+    return FutureBuilder<Uint8List>(
+      future: _selectedMedia!.readAsBytes(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          if (_mediaType == 'video') {
+            // Web'de video önizlemesi için placeholder
+            return Container(
+              color: Colors.black87,
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.videocam, color: Colors.white70, size: 64),
+                  SizedBox(height: 16),
+                  Text(
+                    'Video Önizleme',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return Image.memory(
+            snapshot.data!,
+            fit: BoxFit.contain,
+          );
+        }
+        return const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        );
+      },
+    );
+  }
+
+  Widget _buildMobilePreview() {
+    if (_mediaType == 'video') {
+      // Video için küçük resim
+      return Container(
+        color: Colors.black87,
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.play_circle_outline, color: Colors.white70, size: 80),
+            SizedBox(height: 16),
+            Text(
+              'Video Önizleme',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Image.file(
+      File(_selectedMedia!.path),
+      fit: BoxFit.contain,
+    );
+  }
+
+  // ---- Medya seçim metodları ----
+
+  Future<void> _pickFromGallery() async {
+    try {
+      final XFile? image = await widget.imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1080,
+        maxHeight: 1920,
+        imageQuality: 92,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedMedia = image;
+          _mediaType = 'image';
+        });
+      }
+    } catch (e) {
+      debugPrint('Galeriden fotoğraf seçme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fotoğraf seçilemedi: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromCamera() async {
+    if (kIsWeb) return; // Web'de kamera desteği yok
+    try {
+      final XFile? photo = await widget.imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1080,
+        maxHeight: 1920,
+        imageQuality: 92,
+      );
+      if (photo != null) {
+        setState(() {
+          _selectedMedia = photo;
+          _mediaType = 'image';
+        });
+      }
+    } catch (e) {
+      debugPrint('Kamera çekim hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Kamera çekimi başarısız: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    try {
+      final XFile? video = await widget.imagePicker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(seconds: 30),
+      );
+      if (video != null) {
+        setState(() {
+          _selectedMedia = video;
+          _mediaType = 'video';
+        });
+      }
+    } catch (e) {
+      debugPrint('Video seçme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Video seçilemedi: $e')),
+        );
+      }
+    }
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedMedia = null;
+      _mediaType = null;
+    });
+  }
+
+  Future<void> _onNext() async {
+    if (_selectedMedia == null) return;
+
+    setState(() => _isUploading = true);
+
+    // Bottom sheet'i kapat
+    Navigator.pop(context);
+
+    // Mevcut story oluşturma akışını başlat
+    widget.onMediaSelected(_selectedMedia!, _mediaType ?? 'image');
   }
 }
 

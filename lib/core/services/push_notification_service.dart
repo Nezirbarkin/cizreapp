@@ -81,6 +81,8 @@ class PushNotificationService {
       // 7. FCM token al ve kaydet (Web'de optional)
       if (!kIsWeb) {
         await _setupFCMToken();
+        // 8. Firebase Topics - Tüm kullanıcılar bildirim alsın (giriş yapmış/yapmamış fark etmez)
+        await _subscribeToTopics();
       } else {
         debugPrint('ℹ️ Web platformunda FCM token atlanıyor');
       }
@@ -199,6 +201,27 @@ class PushNotificationService {
       });
     } catch (e) {
       debugPrint('❌ FCM token setup hatası: $e');
+    }
+  }
+
+  /// Firebase Topics'e abone ol - Admin push bildirimleri için
+  /// Bu sayede giriş yapmamış kullanıcılar da bildirim alabilir
+  static Future<void> _subscribeToTopics() async {
+    try {
+      debugPrint('🔥 Firebase Topics\'e abone olunuyor...');
+      
+      // Tüm kullanıcıları "all_users" topic'ine abone et
+      await _firebaseMessaging.subscribeToTopic('all_users');
+      debugPrint('✅ "all_users" topic\'ine abone olundu');
+      
+      // Giriş yapmış kullanıcıları "logged_in_users" topic'ine abone et
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        await _firebaseMessaging.subscribeToTopic('logged_in_users');
+        debugPrint('✅ "logged_in_users" topic\'ine abone olundu');
+      }
+    } catch (e) {
+      debugPrint('❌ Topic abonelik hatası: $e');
     }
   }
 
@@ -506,7 +529,7 @@ class PushNotificationService {
     }
   }
 
-  /// Kullanıcı giriş yaptıktan sonra FCM token'ı güncelle
+  /// Kullanıcı giriş yaptıktan sonra FCM token'ı güncelle ve topic'lere abone et
   static Future<void> updateTokenAfterLogin() async {
     if (kIsWeb) return;
     
@@ -516,6 +539,8 @@ class PushNotificationService {
         debugPrint('🔄 Login sonrası FCM token güncelleniyor...');
         await _saveFCMToken(token);
       }
+      // Giriş yapınca topic'lere tekrar abone ol
+      await _subscribeToTopics();
     } catch (e) {
       debugPrint('❌ Login sonrası token güncelleme hatası: $e');
     }

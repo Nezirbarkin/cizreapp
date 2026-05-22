@@ -23,10 +23,11 @@ let cachedAccessToken: string | null = null
 let tokenExpiry: number = 0
 
 interface SendPushRequest {
-  user_id: string
+  user_id?: string
   title: string
   body: string
   data?: Record<string, string>
+  topic?: string  // Firebase topic for broadcasting
 }
 
 // Firebase OAuth2 Access Token al
@@ -156,26 +157,49 @@ async function getFCMTokens(supabase: any, userId: string): Promise<string[]> {
   return [...new Set(tokens)] // Duplicate'ları kaldır
 }
 
-// FCM HTTP v1 API ile push gönder
+// FCM HTTP v1 API ile push gönder (token veya topic bazlı)
 async function sendFCMPush(
   accessToken: string,
   projectId: string,
-  token: string,
+  token: string | null,
   title: string,
   body: string,
-  data: Record<string, string>
+  data: Record<string, string>,
+  topic?: string
 ): Promise<{ success: boolean; error?: string; shouldDeleteToken?: boolean }> {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
 
-  const message = {
-    message: {
-      token,
-      notification: {
-        title,
-        body,
-      },
-      data,
+  // Mesaj yapısı - topic veya token bazlı
+  const message: any = {
+    notification: {
+      title,
+      body,
     },
+    data,
+    android: {
+      priority: 'high' as const,
+      notification: {
+        sound: 'default' as const,
+        channel_id: 'high_importance_channel' as const,
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default' as const,
+          badge: 1,
+        },
+      },
+    },
+  }
+
+  // Topic bazlı veya token bazlı gönderim
+  if (topic) {
+    message.topic = topic
+  } else if (token) {
+    message.token = token
+  } else {
+    return { success: false, error: 'No topic or token specified' }
   }
 
   const response = await fetch(url, {
@@ -184,12 +208,12 @@ async function sendFCMPush(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(message),
+    body: JSON.stringify({ message }),
   })
 
   if (!response.ok) {
     const errorText = await response.text()
-    console.error(`❌ FCM error for token ${token.substring(0, 20)}...: ${errorText}`)
+    console.error(`❌ FCM error: ${errorText}`)
     
     // Hata detayını kontrol et - UNREGISTERED token'ları sil
     let shouldDelete = false
@@ -198,7 +222,7 @@ async function sendFCMPush(
       if (errorData.error?.code === 404 ||
           errorData.error?.details?.[0]?.errorCode === 'UNREGISTERED') {
         shouldDelete = true
-        console.log(`🗑️ Token is UNREGISTERED, should be deleted: ${token.substring(0, 20)}...`)
+        console.log(`🗑️ Token is UNREGISTERED, should be deleted${token ? `: ${token.substring(0, 20)}...` : ''}`)
       }
     } catch (e) {
       // JSON parse hatası - detay alınamadı
@@ -207,7 +231,7 @@ async function sendFCMPush(
     return { success: false, error: errorText, shouldDeleteToken: shouldDelete }
   }
 
-  console.log(`✅ Push sent to ${token.substring(0, 20)}...`)
+  console.log(`✅ Push sent${topic ? ` to topic "${topic}"` : ` to ${token?.substring(0, 20)}...`}`)
   return { success: true }
 }
 
@@ -232,7 +256,7 @@ async function deleteInvalidToken(supabase: any, token: string): Promise<void> {
   }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   try {
     // CORS headers
     if (req.method === 'OPTIONS') {
@@ -248,16 +272,15 @@ serve(async (req) => {
     }
 
     // Request body
-    const { user_id, title, body, data = {} }: SendPushRequest = await req.json()
+    const { user_id, title, body, data = {}, topic }: SendPushRequest = await req.json()
 
-    if (!user_id || !title || !body) {
-      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+    // Topic varsa title ve body yeterli, user_id opsiyonel
+    if (!title || !body) {
+      return new Response(JSON.stringify({ error: 'Missing required fields: title, body' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-
-    console.log(`📤 Sending push to user ${user_id}: ${title}`)
 
     // Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -265,13 +288,6 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Firebase service account
-    const { data: vaultData } = await supabase
-      .from('vault')
-      .select('decrypted_secrets')
-      .eq('name', 'firebase_service_account')
-      .single()
-
-    // Vault erişimi yoksa, alternatif: Environment variable
     const firebaseServiceAccountJson = Deno.env.get('FIREBASE_SERVICE_ACCOUNT')
 
     if (!firebaseServiceAccountJson) {
@@ -294,6 +310,38 @@ serve(async (req) => {
 
     // Access token al
     const accessToken = await getAccessToken(serviceAccount)
+
+    // Topic bazlı push gönderim (admin bildirimleri için)
+    if (topic) {
+      console.log(`📤 Sending push to topic "${topic}": ${title}`)
+      
+      const result = await sendFCMPush(accessToken, projectId, null, title, body, data, topic)
+      
+      if (result.success) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: `Push notification sent to topic "${topic}"`,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      } else {
+        return new Response(
+          JSON.stringify({ success: false, error: result.error }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
+    // Token bazlı push gönderim (bireysel kullanıcılar için)
+    if (!user_id) {
+      return new Response(JSON.stringify({ error: 'user_id required when no topic specified' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    console.log(`📤 Sending push to user ${user_id}: ${title}`)
 
     // FCM token'ları al
     const tokens = await getFCMTokens(supabase, user_id)
@@ -349,7 +397,8 @@ serve(async (req) => {
     )
   } catch (error) {
     console.error('❌ Edge function error:', error)
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
         headers: { 'Content-Type': 'application/json' },
     })
