@@ -16,7 +16,15 @@ class SellerOrdersScreen extends StatefulWidget {
 
 class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     with SingleTickerProviderStateMixin {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   late final OrderService _orderService;
 
   bool _isLoading = true;

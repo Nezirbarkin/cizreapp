@@ -11,7 +11,15 @@ class SellerReviewsScreen extends StatefulWidget {
 }
 
 class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final _reviewService = ShopReviewService();
   
   bool _isLoading = true;

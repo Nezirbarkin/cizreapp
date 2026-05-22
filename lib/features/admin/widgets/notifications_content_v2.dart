@@ -17,7 +17,15 @@ class NotificationsContentV2 extends StatefulWidget {
 }
 
 class _NotificationsContentV2State extends State<NotificationsContentV2> {
-  final SupabaseClient _client = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _client {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   bool _isLoading = true;
   
   // İstatistikler
@@ -688,15 +696,14 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               ),
               const SizedBox(height: 12),
               
-              // Body
+              // Body - tam metin gösterimi (maxLines sınırı yok)
               Text(
                 notif['body'] ?? '-',
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey.shade700,
+                  height: 1.4,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 12),
               
@@ -797,6 +804,16 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
   }
 
   void _showNotificationDetails(Map<String, dynamic> notif) {
+    // entity_id'den ikon tipini al
+    final entityId = notif['entity_id'] as String? ?? '';
+    String? iconType;
+    if (entityId.startsWith('admin_icon:')) {
+      iconType = entityId.replaceFirst('admin_icon:', '');
+    }
+    final hasCustomIcon = iconType != null && iconType.isNotEmpty;
+    final notifIcon = hasCustomIcon ? getAdminNotificationIcon(iconType) : Icons.notifications_rounded;
+    final notifIconColor = hasCustomIcon ? getAdminNotificationColor(iconType) : Colors.blue;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -805,9 +822,21 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         ),
         title: Row(
           children: [
-            Icon(Icons.info_outline, color: Colors.blue.shade600),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: notifIconColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(notifIcon, color: notifIconColor, size: 20),
+            ),
             const SizedBox(width: 12),
-            Expanded(child: Text(notif['title'] ?? '-')),
+            Expanded(
+              child: Text(
+                notif['title'] ?? '-',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
           ],
         ),
         content: SingleChildScrollView(
@@ -815,11 +844,28 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(notif['body'] ?? '-'),
+              // Bildirim içeriği - tam metin (maxLines yok)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  notif['body'] ?? '-',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+              ),
               const SizedBox(height: 20),
               const Divider(),
               const SizedBox(height: 12),
               _buildDetailRow('Durum', _getStatusLabel(notif['status'])),
+              if (hasCustomIcon)
+                _buildDetailRow('İkon', _getIconTypeLabel(iconType)),
               _buildDetailRow('Toplam Alıcı', '${notif['total_recipients'] ?? 0}'),
               _buildDetailRow('Gönderilen', '${notif['sent_count'] ?? 0}'),
               _buildDetailRow('Teslim Edilen', '${notif['delivered_count'] ?? 0}'),
@@ -840,6 +886,32 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         ],
       ),
     );
+  }
+
+  /// İkon tipi etiketini döndür
+  String _getIconTypeLabel(String? iconType) {
+    switch (iconType) {
+      case 'announcement':
+        return 'Duyuru';
+      case 'discount':
+        return 'İndirim';
+      case 'campaign':
+        return 'Kampanya';
+      case 'news':
+        return 'Haber';
+      case 'event':
+        return 'Etkinlik';
+      case 'update':
+        return 'Güncelleme';
+      case 'warning':
+        return 'Uyarı';
+      case 'gift':
+        return 'Hediye';
+      case 'info':
+        return 'Bilgi';
+      default:
+        return 'Varsayılan';
+    }
   }
 
   Widget _buildDetailRow(String label, String value) {

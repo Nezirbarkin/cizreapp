@@ -12,7 +12,16 @@ class CommissionDashboardScreen extends StatefulWidget {
 }
 
 class _CommissionDashboardScreenState extends State<CommissionDashboardScreen> {
-  final CommissionService _commissionService = CommissionService(Supabase.instance.client);
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabaseClient {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
+  CommissionService get _commissionService => CommissionService(_supabaseClient);
   
   bool _isLoading = true;
   AdminCommissionReport? _report;

@@ -6,7 +6,15 @@ import '../../../core/services/notification_service.dart';
 /// profile_is_public = false olan hesaplara takip isteği gönderir.
 /// İstek onaylanınca otomatik olarak follows tablosuna eklenir (SQL trigger ile).
 class FollowRequestService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   // ignore: unused_field
   final NotificationService _notificationService = NotificationService();
 

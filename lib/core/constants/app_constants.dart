@@ -7,21 +7,29 @@ class AppConstants {
   static const String appName = 'CizreApp';
   static const String appVersion = '1.0.0';
   
-  // Supabase Config - Web için doğrudan değerler
+  // Supabase Config - Web için doğrudan değerler, mobilde .env'den oku (fallback ile)
+  static const String _supabaseUrlFallback = 'https://xsbukxkgtmdyickknqzf.supabase.co';
+  static const String _supabaseAnonKeyFallback = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
+  static const String _baseApiUrlFallback = 'https://www.cizreapp.com/api';
+  
   static String get supabaseUrl {
-    if (kIsWeb) return 'https://xsbukxkgtmdyickknqzf.supabase.co';
-    return dotenv.env['SUPABASE_URL'] ?? 'https://xsbukxkgtmdyickknqzf.supabase.co';
+    if (kIsWeb) return _supabaseUrlFallback;
+    // dotenv başlatılmamışsa (NotInitializedError) fallback kullan
+    if (!dotenv.isInitialized) return _supabaseUrlFallback;
+    return dotenv.env['SUPABASE_URL'] ?? _supabaseUrlFallback;
   }
   
   static String get supabaseAnonKey {
-    if (kIsWeb) return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
-    return dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
+    if (kIsWeb) return _supabaseAnonKeyFallback;
+    if (!dotenv.isInitialized) return _supabaseAnonKeyFallback;
+    return dotenv.env['SUPABASE_ANON_KEY'] ?? _supabaseAnonKeyFallback;
   }
   
   // API Endpoints
   static String get baseApiUrl {
-    if (kIsWeb) return 'https://www.cizreapp.com/api';
-    return dotenv.env['BASE_API_URL'] ?? 'https://www.cizreapp.com/api';
+    if (kIsWeb) return _baseApiUrlFallback;
+    if (!dotenv.isInitialized) return _baseApiUrlFallback;
+    return dotenv.env['BASE_API_URL'] ?? _baseApiUrlFallback;
   }
   
   // Pagination

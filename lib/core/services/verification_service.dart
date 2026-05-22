@@ -6,7 +6,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Kapıda ödemelerde sipariş öncesi email ile doğrulama kodu gönderir
 /// Kayıt sırasında email doğrulama için de kullanılır
 class VerificationService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   
   // Rate limiting: Son istek zamanı ve cooldown süresi
   static DateTime? _lastRequestTime;
@@ -386,6 +394,7 @@ class VerificationService {
         'verification_id': data['verification_id'],
         'expires_in_seconds': data['expires_in_seconds'] ?? 300,
         'message': data['message'] ?? 'Onay kodu bildirim olarak gönderildi',
+        'code': data['code']?.toString(),  // Kodu da döndür (push bildirimi gelmese bile ekranda göstermek için)
       };
     } catch (e) {
       debugPrint('❌ VERIFICATION: Hata - $e');

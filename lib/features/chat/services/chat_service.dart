@@ -1,11 +1,20 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/conversation_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/utils/app_logger.dart';
 
 class ChatService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   // Konuşma al veya oluştur
   Future<Conversation?> getOrCreateConversation(String otherUserId) async {

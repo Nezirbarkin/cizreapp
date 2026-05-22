@@ -434,6 +434,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<bool?> _showVerificationDialog() async {
     String verificationCode = '';
     String? verificationId;
+    String? displayedCode; // Ekranda gösterilecek kod
     DateTime? codeSentTime;
     int expiresInSeconds = 300;
     bool isSending = false;
@@ -468,6 +469,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   expiresInSeconds = result['expires_in_seconds'] ?? 300;
                   codeSentTime = DateTime.now();
                   isSending = false;
+                  // Kodu al ve ekranda göster
+                  displayedCode = result['code']?.toString();
                 });
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -507,6 +510,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   'Güvenlik için size gönderilen 6 haneli kodu girin.',
                   style: TextStyle(fontSize: 14),
                 ),
+                // Kod ekranda gösteriliyorsa prominent şekilde göster
+                if (displayedCode != null && displayedCode!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.shade300, width: 2),
+                    ),
+                    child: Column(
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.sms, color: Colors.green, size: 20),
+                            SizedBox(width: 6),
+                            Text(
+                              'Onay Kodunuz',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          displayedCode!,
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 8,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 
                 // Kod input alanı
@@ -549,6 +594,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 expiresInSeconds = result['expires_in_seconds'] ?? 300;
                                 codeSentTime = DateTime.now();
                                 isSending = false;
+                                // Yeni kodu al ve ekranda göster
+                                displayedCode = result['code']?.toString();
                               });
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(

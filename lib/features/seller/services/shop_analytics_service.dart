@@ -3,7 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Mağaza analitik verileri servisi
 class ShopAnalyticsService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// shop_views tablosunun mevcut olup olmadığını kontrol et
   Future<bool> _tableExists(String tableName) async {

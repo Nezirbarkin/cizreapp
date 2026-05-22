@@ -43,6 +43,7 @@ import 'core/services/analytics_service.dart';
 import 'core/services/performance_monitoring_service.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/permission_service.dart';
 import 'core/models/cached_post_model.dart';
 
 void main() async {
@@ -160,15 +161,26 @@ void main() async {
       log('❌ Firebase initialization failed: $e');
     }
 
-    // Supabase başlat
+    // Supabase başlat - KRİTİK
     try {
-      await Supabase.initialize(
-        url: AppConstants.supabaseUrl,
-        anonKey: AppConstants.supabaseAnonKey,
-        debug: false,
-      );
-      supabaseInitialized = true;
-      log('✅ Supabase initialized');
+      final supabaseUrl = AppConstants.supabaseUrl;
+      final supabaseAnonKey = AppConstants.supabaseAnonKey;
+      
+      log('🔍 Supabase URL: ${supabaseUrl.isNotEmpty ? "AYARLI (${supabaseUrl.length} karakter)" : "BOŞ!"}');
+      log('🔍 Supabase Anon Key: ${supabaseAnonKey.isNotEmpty ? "AYARLI (${supabaseAnonKey.length} karakter)" : "BOŞ!"}');
+      
+      if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+        log('❌ Supabase başlatılamıyor: URL veya Anon Key boş!');
+        supabaseInitialized = false;
+      } else {
+        await Supabase.initialize(
+          url: supabaseUrl,
+          anonKey: supabaseAnonKey,
+          debug: false,
+        );
+        supabaseInitialized = true;
+        log('✅ Supabase initialized');
+      }
       
       // Supabase'e bağımlı servisleri paralel başlat
       if (!kIsWeb) {
@@ -192,9 +204,28 @@ void main() async {
             return null;
           }),
         ]);
+        
+        // İzinleri kontrol et (kamera, galeri, bildirimler)
+        try {
+          final permissionService = PermissionService();
+          final permissionResults = await permissionService.checkAndRequestAllPermissions();
+          log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
+          
+          // Kalıcı reddedilen izinleri logla
+          for (final entry in permissionResults.entries) {
+            if (entry.value.isPermanentlyDenied) {
+              log('⚠️ ${entry.key} izni kalıcı olarak reddedildi - Ayarlardan açılması gerekebilir');
+            }
+          }
+        } catch (e) {
+          log('⚠️ İzin kontrolü hatası: $e');
+          // İzin hatası uygulama başlatılmasını engellemesin
+        }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       log('⚠️ Supabase initialization failed: $e');
+      log('⚠️ Error type: ${e.runtimeType}');
+      log('⚠️ Stack trace: $stackTrace');
       supabaseInitialized = false;
     }
     
@@ -823,6 +854,12 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _checkVersion() async {
     if (kIsWeb) {
       _log('Versiyon kontrolü web\'de atlanıyor');
+      return;
+    }
+
+    // Supabase başlatılmamışsa versiyon kontrolü yapma
+    if (!widget.supabaseInitialized) {
+      _log('⚠️ Versiyon kontrolü atlanıyor: Supabase başlatılmamış');
       return;
     }
 

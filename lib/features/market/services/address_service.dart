@@ -3,7 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/address_model.dart';
 
 class AddressService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   // Kullanıcının adreslerini getir
   Future<List<Address>> getUserAddresses(String userId) async {

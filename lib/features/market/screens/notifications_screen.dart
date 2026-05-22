@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, unused_local_variable
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -891,6 +891,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ),
       ),
       child: ListTile(
+        onTap: () => _showBroadcastDetails(broadcast, icon, color),
         leading: Container(
           width: 50,
           height: 50,
@@ -917,14 +918,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 2),
-            Text(
-              content,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade700,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    content,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (content.length > 60)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(
+                      Icons.open_in_new,
+                      size: 14,
+                      color: Colors.blue.shade400,
+                    ),
+                  ),
+              ],
             ),
             if (createdAt != null) ...[
               const SizedBox(height: 4),
@@ -939,6 +955,81 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ],
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+    );
+  }
+
+  /// Broadcast detaylarını göster
+  void _showBroadcastDetails(Map<String, dynamic> broadcast, IconData icon, Color color) {
+    final title = broadcast['title'] as String? ?? 'Duyuru';
+    final content = broadcast['content'] as String? ?? '';
+    final createdAt = broadcast['created_at'] as String?;
+    final iconType = broadcast['icon_type'] as String? ?? 'announcement';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (content.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    content,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              if (createdAt != null)
+                Text(
+                  _formatBroadcastTime(createdAt),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
       ),
     );
   }
@@ -1195,14 +1286,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               children: [
                 const SizedBox(height: 4),
                 if (notification.body != null && notification.body!.isNotEmpty)
-                  Text(
-                    notification.body!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
+                  GestureDetector(
+                    onTap: () => _showFullNotificationContent(notification),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            notification.body!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (notification.body!.length > 60)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Icon(
+                              Icons.open_in_new,
+                              size: 14,
+                              color: Colors.blue.shade400,
+                            ),
+                          ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 const SizedBox(height: 4),
                 Text(
@@ -1231,6 +1340,78 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 : null,
           ),
         ),
+      ),
+    );
+  }
+
+  /// Bildirimin tam içeriğini dialog ile göster
+  void _showFullNotificationContent(model.NotificationModel notification) {
+    final icon = _getIconForNotification(notification);
+    final color = _getColorForNotification(notification);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                notification.title ?? 'Bildirim',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (notification.body != null && notification.body!.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    notification.body!,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Text(
+                _formatDate(notification.createdAt),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
       ),
     );
   }

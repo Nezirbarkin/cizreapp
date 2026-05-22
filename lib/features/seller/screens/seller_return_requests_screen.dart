@@ -12,7 +12,15 @@ class SellerReturnRequestsScreen extends StatefulWidget {
 
 class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen> {
   final ReturnRequestService _returnRequestService = ReturnRequestService();
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   
   bool _isLoading = true;
   List<ReturnRequest> _returnRequests = [];

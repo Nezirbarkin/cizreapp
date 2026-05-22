@@ -21,7 +21,15 @@ class ShopDetailAdminScreen extends StatefulWidget {
 }
 
 class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   
   Map<String, dynamic>? _shop;
   Map<String, dynamic>? _shopOwner;

@@ -65,19 +65,19 @@ class DefaultFirebaseOptions {
     messagingSenderId: '224517445508',
     projectId: 'cizreapp-3b9a4',
     storageBucket: 'cizreapp-3b9a4.firebasestorage.app',
-    iosBundleId: 'com.cizreapp.app',
+    iosBundleId: 'com.cizreapp.com',
   );
 
   // Firebase Web Configuration
   // Firebase Console → Project Settings → General → Your apps → Web app kısmından alınmıştır
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBjHPmfsQrpXAgikxcP8fjWvHhP6q5Ynm0',
-    appId: '1:224517445508:web:abc123def456',
+    apiKey: 'AIzaSyBdAl0dWh-MtbNhBF7nbt_FPPvTpsllI-8',
+    appId: '1:224517445508:web:c5af101447f7c325cbafd1',
     messagingSenderId: '224517445508',
     projectId: 'cizreapp-3b9a4',
     storageBucket: 'cizreapp-3b9a4.firebasestorage.app',
     authDomain: 'cizreapp-3b9a4.firebaseapp.com',
-    measurementId: 'G-XXXXXXXXXX',
+    measurementId: 'G-60S0T75L9S',
     databaseURL: 'https://cizreapp-3b9a4-default-rtdb.firebaseio.com',
   );
 }

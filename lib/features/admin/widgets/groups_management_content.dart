@@ -10,7 +10,15 @@ class GroupsManagementContent extends StatefulWidget {
 }
 
 class _GroupsManagementContentState extends State<GroupsManagementContent> with SingleTickerProviderStateMixin {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   late TabController _tabController;
   List<Map<String, dynamic>> _groups = [];
   List<Map<String, dynamic>> _joinRequests = [];

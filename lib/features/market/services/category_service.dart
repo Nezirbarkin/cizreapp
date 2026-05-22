@@ -1,8 +1,17 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../../../core/models/category_model.dart';
 
 class CategoryService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   // Tüm aktif kategorileri getir
   Future<List<Category>> getCategories() async {

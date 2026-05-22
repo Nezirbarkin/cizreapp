@@ -19,7 +19,15 @@ class CouponsScreen extends StatefulWidget {
 }
 
 class _CouponsScreenState extends State<CouponsScreen> {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   List<Map<String, dynamic>> _coupons = [];
   bool _isLoading = true;
   String? _shopId;

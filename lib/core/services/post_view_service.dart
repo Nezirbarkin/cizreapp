@@ -5,7 +5,15 @@ import '../models/analytics_model.dart';
 /// Post görüntüleme takip servisi
 /// Her postun kimlerin görüntülediğini ve aylık istatistiklerini takip eder
 class PostViewService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Post görüntülemesini kaydet (günde 1 kez sayılır)
   /// [postId] - Görüntülenen post

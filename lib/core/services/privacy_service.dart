@@ -1,9 +1,19 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
 
 class PrivacyService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  /// Null döner çünkü bu servis uygulama yaşam döngüsü sırasında Supabase başlatılmadan önce çağrılabilir
+  SupabaseClient? get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      return null;
+    }
+  }
 
   /// Heartbeat timer - periyodik olarak last_seen günceller
   Timer? _heartbeatTimer;
@@ -18,7 +28,12 @@ class PrivacyService {
   /// Kullanıcının çevrimiçi durumunu güncelle
   Future<bool> updateOnlineStatus(bool isOnline) async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
+      final supabase = _supabase;
+      if (supabase == null) {
+        AppLogger.error('updateOnlineStatus: Supabase not initialized');
+        return false;
+      }
+      final userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         AppLogger.error('updateOnlineStatus: userId is null');
         return false;
@@ -27,7 +42,7 @@ class PrivacyService {
       AppLogger.debug('Updating online status to: $isOnline for user: $userId');
 
       final now = DateTime.now().toUtc().toIso8601String();
-      await _supabase.from('profiles').update({
+      await supabase.from('profiles').update({
         'is_online': isOnline,
         'last_seen': now,
         'updated_at': now,
@@ -45,7 +60,12 @@ class PrivacyService {
   /// Kullanıcının hayalet modunu güncelle
   Future<bool> updateGhostMode(bool isGhostMode) async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
+      final supabase = _supabase;
+      if (supabase == null) {
+        AppLogger.error('updateGhostMode: Supabase not initialized');
+        return false;
+      }
+      final userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         AppLogger.error('updateGhostMode: userId is null');
         return false;
@@ -53,7 +73,7 @@ class PrivacyService {
 
       AppLogger.debug('Updating ghost mode to: $isGhostMode for user: $userId');
 
-      await _supabase.from('profiles').update({
+      await supabase.from('profiles').update({
         'is_ghost_mode': isGhostMode,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', userId);
@@ -70,13 +90,15 @@ class PrivacyService {
   /// Kullanıcının mevcut çevrimiçi durumunu al
   Future<bool> getOnlineStatus() async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
+      final supabase = _supabase;
+      if (supabase == null) return false;
+      final userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         AppLogger.error('getOnlineStatus: userId is null');
         return false;
       }
 
-      final response = await _supabase
+      final response = await supabase
           .from('profiles')
           .select('is_online')
           .eq('id', userId)
@@ -93,13 +115,15 @@ class PrivacyService {
   /// Kullanıcının mevcut hayalet modunu al
   Future<bool> getGhostMode() async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
+      final supabase = _supabase;
+      if (supabase == null) return false;
+      final userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         AppLogger.error('getGhostMode: userId is null');
         return false;
       }
 
-      final response = await _supabase
+      final response = await supabase
           .from('profiles')
           .select('is_ghost_mode')
           .eq('id', userId)
@@ -116,11 +140,13 @@ class PrivacyService {
   /// Heartbeat gönder - sadece last_seen günceller (hafif sorgu)
   Future<void> _sendHeartbeat() async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
+      final supabase = _supabase;
+      if (supabase == null) return;
+      final userId = supabase.auth.currentUser?.id;
       if (userId == null) return;
 
       final now = DateTime.now().toUtc().toIso8601String();
-      await _supabase.from('profiles').update({
+      await supabase.from('profiles').update({
         'last_seen': now,
       }).eq('id', userId);
 

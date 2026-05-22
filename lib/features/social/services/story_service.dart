@@ -9,7 +9,15 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/utils/image_compression_helper.dart';
 
 class StoryService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final NotificationService _notificationService = NotificationService();
 
   // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder

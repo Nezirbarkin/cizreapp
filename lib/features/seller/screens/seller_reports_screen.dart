@@ -14,7 +14,15 @@ class SellerReportsScreen extends StatefulWidget {
 
 class _SellerReportsScreenState extends State<SellerReportsScreen>
     with SingleTickerProviderStateMixin {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final _analyticsService = ShopAnalyticsService();
   
   bool _isLoading = true;

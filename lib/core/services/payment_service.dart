@@ -4,7 +4,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Online Ödeme Servisi (iyzico)
 /// iyzico Edge Functions ile iletişim kurar
 class PaymentService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// iyzico ödeme başlatma
   /// 

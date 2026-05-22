@@ -14,7 +14,15 @@ class NotificationsContent extends StatefulWidget {
 }
 
 class _NotificationsContentState extends State<NotificationsContent> {
-  final SupabaseClient _client = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy)
+  SupabaseClient get _client {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   bool _isLoading = true;
   
   // İstatistikler

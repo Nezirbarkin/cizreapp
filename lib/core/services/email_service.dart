@@ -4,7 +4,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Email Servisi
 /// Supabase Edge Function üzerinden email gönderir
 class EmailService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Teslim bildirim emaili gönder
   Future<bool> sendDeliveryNotificationEmail({

@@ -3,7 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Yorum ve postlarda @mention (etiketleme) işlemleri için servis
 class MentionService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Metindeki @kullaniciadi mention'larını parse et
   /// Örnek: "Harika @mehmet ve @ayşe!" -> ["mehmet", "ayşe"]

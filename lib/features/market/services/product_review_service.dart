@@ -3,7 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_review_model.dart';
 
 class ProductReviewService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Ürün için tüm yorumları getir (user bilgisi ile birlikte)
   Future<List<ProductReview>> getProductReviews(String productId, {int limit = 50, int offset = 0}) async {

@@ -125,6 +125,7 @@ serve(async (req: Request) => {
         message: "Onay kodu bildirim olarak gönderildi",
         verification_id: verificationData.id,
         expires_in_seconds: 300,
+        code: code,  // KODU DÖNDÜR - UI'da gösterilmek için
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

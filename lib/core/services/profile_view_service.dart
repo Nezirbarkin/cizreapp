@@ -5,7 +5,15 @@ import '../models/analytics_model.dart';
 /// Profil ziyaret takip servisi
 /// Her kullanıcının profilini kimlerin ziyaret ettiğini ve aylık istatistiklerini takip eder
 class ProfileViewService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Profil ziyareti kaydet (günde 1 kez sayılır)
   /// [profileId] - Ziyaret edilen profil

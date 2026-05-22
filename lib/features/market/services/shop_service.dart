@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
 
@@ -14,7 +15,15 @@ class ShopCacheResult<T> {
 }
 
 class ShopService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   
   // Simple memory cache - is_acceptingOrders için kısa cache (30 saniye)
   // Çünkü satıcılar sipariş almayı açıp kapatıyor, bu değişikliği hemen görmek önemli

@@ -6,7 +6,15 @@ import '../services/notification_service.dart';
 /// Kurye Talep Servisi
 /// Satıcıların kurye taleplerini yönetir
 class CourierRequestService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final NotificationService _notificationService = NotificationService();
 
   /// Kurye talebi oluştur (Satıcı)

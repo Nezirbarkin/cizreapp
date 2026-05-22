@@ -213,7 +213,12 @@ class PushNotificationService {
 
       debugPrint('📬 Foreground bildirim gösteriliyor: ${notification.title}');
 
-      const androidDetails = AndroidNotificationDetails(
+      // icon_type'a göre özel ikon rengini al
+      final iconType = message.data['icon_type'] as String?;
+      final Color iconColor = _getIconColor(iconType);
+      
+      // İkon tipine göre küçük renk göstergesi için badge rengi ayarla
+      final androidDetails = AndroidNotificationDetails(
         'high_importance_channel',
         'Önemli Bildirimler',
         channelDescription: 'Bu kanal önemli bildirimler için kullanılır.',
@@ -223,30 +228,64 @@ class PushNotificationService {
         playSound: true,
         enableVibration: true,
         icon: '@mipmap/ic_launcher',
+        color: iconColor,
       );
 
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        threadIdentifier: 'cizreapp_notifications',
       );
 
-      const notificationDetails = NotificationDetails(
+      final notificationDetails = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
 
+      // Başlık ve içerik
+      final String title = notification.title ?? 'Yeni Bildirim';
+      final String body = notification.body ?? '';
+      
+      debugPrint('📱 Bildirim gösteriliyor - Başlık: $title, İkon: $iconType, Renk: $iconColor');
+
       await _localNotifications.show(
         notification.hashCode, // Unique ID
-        notification.title ?? 'Yeni Bildirim',
-        notification.body ?? '',
+        title,
+        body,
         notificationDetails,
         payload: message.data.toString(),
       );
 
-      debugPrint('✅ Local bildirim gösterildi');
+      debugPrint('✅ Local bildirim gösterildi (icon_type: $iconType)');
     } catch (e) {
       debugPrint('❌ Local bildirim gösterme hatası: $e');
+    }
+  }
+
+  /// İkon tipine göre bildirim rengini döndür
+  static Color _getIconColor(String? iconType) {
+    switch (iconType) {
+      case 'announcement':
+        return const Color(0xFF2196F3); // Mavi
+      case 'discount':
+        return const Color(0xFFF44336); // Kırmızı
+      case 'campaign':
+        return const Color(0xFFFF9800); // Turuncu
+      case 'news':
+        return const Color(0xFF009688); // Teal
+      case 'event':
+        return const Color(0xFF9C27B0); // Mor
+      case 'update':
+        return const Color(0xFF4CAF50); // Yeşil
+      case 'warning':
+        return const Color(0xFFFFC107); // Amber
+      case 'gift':
+        return const Color(0xFFE91E63); // Pembe
+      case 'info':
+        return const Color(0xFF3F51B5); // Indigo
+      default:
+        return const Color(0xFF2196F3); // Varsayılan mavi
     }
   }
 

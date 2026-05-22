@@ -95,7 +95,15 @@ class ReturnRequest {
 
 /// İade talebi servisi
 class ReturnRequestService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
 
   /// Yeni iade talebi oluştur
   Future<ReturnRequest> createReturnRequest({

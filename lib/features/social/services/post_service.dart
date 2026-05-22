@@ -11,7 +11,15 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/utils/app_logger.dart';
 
 class PostService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final NotificationService _notificationService = NotificationService();
   final MentionService _mentionService = MentionService();
   final CacheService _cacheService = CacheService();

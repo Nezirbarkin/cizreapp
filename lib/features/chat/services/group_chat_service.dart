@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/group_model.dart';
 import '../../../core/models/group_message_model.dart';
@@ -7,7 +6,15 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/utils/app_logger.dart';
 
 class GroupChatService {
-  final _supabase = Supabase.instance.client;
+  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
+      rethrow;
+    }
+  }
   final _notificationService = NotificationService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;

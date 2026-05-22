@@ -1,4 +1,4 @@
-package com.cizreapp.app
+package com.cizreapp.com
 
 import io.flutter.embedding.android.FlutterActivity
 

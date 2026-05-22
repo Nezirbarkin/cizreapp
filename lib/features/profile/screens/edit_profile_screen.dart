@@ -1,11 +1,19 @@
+// ignore_for_file: use_build_context_synchronously
+
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/profile_service.dart';
 import '../../../core/utils/image_compression_helper.dart';
+import '../../../core/services/permission_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -66,8 +74,154 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  /// İzin reddedildiğinde gösterilecek dialog
+  void _showPermissionDeniedDialog(PermissionResult result) {
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.photo_library_outlined, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            const Text('İzin Gerekli'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Fotoğraf seçmek için ${result.permission} izni gerekiyor.',
+              style: const TextStyle(fontSize: 15),
+            ),
+            const SizedBox(height: 12),
+            if (result.isPermanentlyDenied) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'İzin ayarlardan etkinleştirilmeli.',
+                        style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          if (!result.isPermanentlyDenied)
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('İptal'),
+            ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (result.isPermanentlyDenied) {
+                // Ayarları aç
+                PermissionService().openPermissionSettings();
+              }
+            },
+            child: Text(result.isPermanentlyDenied ? 'Ayarları Aç' : 'İzin Ver'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// HEIC/HEIF dosyalarını JPEG formatına dönüştürür.
+  /// Android'in BitmapFactory'si HEIC formatını desteklemediği için
+  /// image_cropper bu dosyaları açarken hata veriyor.
+  /// Bu metod HEIC dosyalarını önce JPEG'e çevirir, diğer formatları olduğu gibi döndürür.
+  Future<String?> _convertHeicToJpegIfNeeded(String filePath) async {
+    if (kIsWeb) return filePath; // Web'de dönüşüm gerekmez
+
+    final extension = path.extension(filePath).toLowerCase();
+    // HEIC/HEIF dosyaları mı kontrol et
+    if (extension != '.heic' && extension != '.heif') {
+      return filePath; // HEIC değilse, dönüşüm gerekmez
+    }
+
+    try {
+      debugPrint('🔄 HEIC dosya tespit edildi, JPEG\'e dönüştürülüyor: $filePath');
+
+      final tempDir = await getTemporaryDirectory();
+      final targetPath = path.join(
+        tempDir.path,
+        'heic_converted_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+
+      final compressedFile = await FlutterImageCompress.compressAndGetFile(
+        filePath,
+        targetPath,
+        quality: 95,
+        format: CompressFormat.jpeg,
+        keepExif: true,
+      );
+
+      if (compressedFile == null) {
+        debugPrint('❌ HEIC → JPEG dönüşümü başarısız oldu');
+        return null;
+      }
+
+      debugPrint('✅ HEIC → JPEG dönüşümü başarılı: ${compressedFile.path}');
+      return compressedFile.path;
+    } catch (e) {
+      debugPrint('❌ HEIC dönüşüm hatası: $e');
+      return null;
+    }
+  }
+
   Future<void> _pickAndCropAvatar() async {
     try {
+      // Web'de kırpma yok, doğrudan kullan
+      if (kIsWeb) {
+        final picker = ImagePicker();
+        final pickedFile = await picker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1200,
+          maxHeight: 1200,
+          imageQuality: 100,
+        );
+
+        if (pickedFile == null) return;
+        if (!mounted) return;
+
+        final bytes = await pickedFile.readAsBytes();
+        setState(() {
+          _avatarXFile = pickedFile;
+          _avatarBytes = bytes;
+        });
+        return;
+      }
+
+      // Mobil için izin kontrolü
+      final permissionService = PermissionService();
+      final isGranted = await permissionService.isPhotosGranted();
+      if (!isGranted) {
+        if (!mounted) return;
+        final result = await permissionService.checkAndRequestAllPermissions();
+        final photosResult = result['photos'];
+        if (photosResult != null && !photosResult.isGranted) {
+          if (!mounted) return;
+          _showPermissionDeniedDialog(photosResult);
+          return;
+        }
+      }
+
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
         source: ImageSource.gallery,
@@ -79,10 +233,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (pickedFile == null) return;
       if (!mounted) return;
 
+      // HEIC/HEIF dosyalarını JPEG'e dönüştür (Android uyumluluğu için)
+      String sourcePath = pickedFile.path;
+      final convertedPath = await _convertHeicToJpegIfNeeded(pickedFile.path);
+      if (convertedPath != null) {
+        sourcePath = convertedPath;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('HEIC formatındaki fotoğraf işlenemedi. Lütfen JPEG veya PNG formatında bir fotoğraf seçin.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       // Kırpma ekranını aç
       final primaryColor = Theme.of(context).colorScheme.primary;
       final croppedFile = await ImageCropper().cropImage(
-        sourcePath: pickedFile.path,
+        sourcePath: sourcePath,
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'Profil Fotoğrafı Kırp',
@@ -105,7 +277,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (croppedFile == null) return;
       if (!mounted) return;
 
-      // Kırpılan dosyadan bytes oku (hem web hem mobile)
+      // Kırpılan dosyadan bytes oku
       final bytes = await croppedFile.readAsBytes();
       final xFile = XFile(croppedFile.path);
 
@@ -130,6 +302,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _pickAndCropCover() async {
     try {
+      // Web'de kırpma yok, doğrudan kullan
+      if (kIsWeb) {
+        final picker = ImagePicker();
+        final pickedFile = await picker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1920,
+          maxHeight: 1080,
+          imageQuality: 100,
+        );
+
+        if (pickedFile == null) return;
+        if (!mounted) return;
+
+        final bytes = await pickedFile.readAsBytes();
+        setState(() {
+          _coverXFile = pickedFile;
+          _coverBytes = bytes;
+        });
+        return;
+      }
+
+      // Mobil için izin kontrolü
+      final permissionService = PermissionService();
+      final isGranted = await permissionService.isPhotosGranted();
+      if (!isGranted) {
+        if (!mounted) return;
+        final result = await permissionService.checkAndRequestAllPermissions();
+        final photosResult = result['photos'];
+        if (photosResult != null && !photosResult.isGranted) {
+          if (!mounted) return;
+          _showPermissionDeniedDialog(photosResult);
+          return;
+        }
+      }
+
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
         source: ImageSource.gallery,
@@ -141,10 +348,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (pickedFile == null) return;
       if (!mounted) return;
 
+      // HEIC/HEIF dosyalarını JPEG'e dönüştür (Android uyumluluğu için)
+      String sourcePath = pickedFile.path;
+      final convertedPath = await _convertHeicToJpegIfNeeded(pickedFile.path);
+      if (convertedPath != null) {
+        sourcePath = convertedPath;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('HEIC formatındaki fotoğraf işlenemedi. Lütfen JPEG veya PNG formatında bir fotoğraf seçin.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       // Kırpma ekranını aç
       final primaryColor = Theme.of(context).colorScheme.primary;
       final croppedFile = await ImageCropper().cropImage(
-        sourcePath: pickedFile.path,
+        sourcePath: sourcePath,
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'Kapak Fotoğrafı Kırp',
@@ -156,10 +381,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           IOSUiSettings(
             title: 'Kapak Fotoğrafı Kırp',
             aspectRatioLockEnabled: true,
-          ),
-          WebUiSettings(
-            context: context,
-            presentStyle: WebPresentStyle.dialog,
           ),
         ],
       );
