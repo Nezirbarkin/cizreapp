@@ -47,8 +47,9 @@
 	<true/>
 	
 	<!-- App Tracking Transparency -->
+	<!-- Not: Uygulama Firebase Cloud Messaging için cihaz token'ı kullanır, kullanıcı izleme amaçlı değildir -->
 	<key>NSUserTrackingUsageDescription</key>
-	<string>Size kişiselleştirilmiş içerik göstermek için izninize ihtiyacımız var</string>
+	<string>Bu uygulama, push bildirimleri göndermek için cihaz token'ı kullanmaktadır. Kullanıcı etkinliği izlenmemektedir.</string>
 	
 	<!-- Permissions - Camera -->
 	<key>NSCameraUsageDescription</key>
