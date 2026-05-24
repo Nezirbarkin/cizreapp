@@ -46,11 +46,6 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	
-	<!-- App Tracking Transparency -->
-	<!-- Not: Uygulama Firebase Cloud Messaging için cihaz token'ı kullanır, kullanıcı izleme amaçlı değildir -->
-	<key>NSUserTrackingUsageDescription</key>
-	<string>CizreApp, size sipariş güncellemeleri ve kampanya bildirimleri gönderebilmek için cihaz token'ı kullanır. Örneğin: Siparişiniz kargoya verildiğinde bildirim alırsınız. Kullanıcı etkinliği veya davranışı izlenmez.</string>
-	
 	<!-- Permissions - Camera -->
 	<key>NSCameraUsageDescription</key>
 	<string>CizreApp, ürün fotoğrafı çekmek, profil fotoğrafı güncellemek ve gönderi paylaşmak için kamera erişimi kullanır. Örneğin: Satmak istediğiniz ürünün fotoğrafını çekebilirsiniz.</string>
