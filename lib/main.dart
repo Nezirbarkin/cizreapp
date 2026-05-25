@@ -295,6 +295,13 @@ class _CizreAppState extends State<CizreApp> {
         if (!kIsWeb) {
           PushNotificationService.setNavigatorKey(_navigatorKey);
         }
+        
+        // Otomatik tema değişimi - uygulama her açıldığında tema otomatik değişsin
+        ThemeProvider.applyAutoThemeOnLaunch().then((_) {
+          // Tema değiştiğinde UI'ı güncelle
+          final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+          themeProvider.reloadTheme();
+        });
       }
     });
     

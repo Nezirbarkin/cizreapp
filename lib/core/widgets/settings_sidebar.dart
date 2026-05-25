@@ -917,60 +917,114 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     showDialog(
       context: parentContext,
       builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Tema Seç',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildThemeOption(
-                      themeProvider: themeProvider,
-                      color: Colors.green.shade600,
-                      label: 'Yeşil',
-                      onTap: () {
-                        themeProvider.setTheme(Colors.green.shade600);
-                        Navigator.pop(context);
-                      },
+                    const Text(
+                      'Tema Seç',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
                     ),
-                    _buildThemeOption(
-                      themeProvider: themeProvider,
-                      color: Colors.blue.shade600,
-                      label: 'Mavi',
-                      onTap: () {
-                        themeProvider.setTheme(Colors.blue.shade600);
-                        Navigator.pop(context);
-                      },
+                    const SizedBox(height: 12),
+                    
+                    // Otomatik tema değişimi anahtarı
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            color: themeProvider.primaryColor,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Otomatik Tema Değişimi',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Switch(
+                            value: themeProvider.autoThemeEnabled,
+                            activeColor: themeProvider.primaryColor,
+                            onChanged: (value) {
+                              themeProvider.setAutoTheme(value);
+                              setDialogState(() {});
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    _buildThemeOption(
-                      themeProvider: themeProvider,
-                      color: Colors.pink.shade600,
-                      label: 'Pembe',
-                      onTap: () {
-                        themeProvider.setTheme(Colors.pink.shade600);
-                        Navigator.pop(context);
-                      },
+                    
+                    if (themeProvider.autoThemeEnabled)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, left: 12),
+                        child: Text(
+                          'Uygulama her açıldığında tema otomatik değişir',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildThemeOption(
+                          themeProvider: themeProvider,
+                          color: Colors.green.shade600,
+                          label: 'Yeşil',
+                          onTap: () {
+                            themeProvider.setTheme(Colors.green.shade600);
+                            Navigator.pop(context);
+                          },
+                        ),
+                        _buildThemeOption(
+                          themeProvider: themeProvider,
+                          color: Colors.blue.shade600,
+                          label: 'Mavi',
+                          onTap: () {
+                            themeProvider.setTheme(Colors.blue.shade600);
+                            Navigator.pop(context);
+                          },
+                        ),
+                        _buildThemeOption(
+                          themeProvider: themeProvider,
+                          color: Colors.pink.shade600,
+                          label: 'Pembe',
+                          onTap: () {
+                            themeProvider.setTheme(Colors.pink.shade600);
+                            Navigator.pop(context);
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
