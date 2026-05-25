@@ -928,10 +928,6 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
           ),
           const SizedBox(height: 14),
 
-          // Cinsiyet seçimi
-          _buildGenderSelector(),
-          const SizedBox(height: 14),
-
           _buildField(
             controller: _emailController,
             hint: 'E-posta',
