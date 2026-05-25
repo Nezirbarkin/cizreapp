@@ -527,17 +527,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     Row(
                       children: [
                         Text(
-                          '₺${product.price.toStringAsFixed(2)}',
+                          '₺${product.effectivePrice.toStringAsFixed(2)}',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: Colors.orange.shade700,
                           ),
                         ),
-                        if (product.hasDiscount) ...[
+                        if (product.displayOldPrice != null) ...[
                           const SizedBox(width: 8),
                           Text(
-                            '₺${product.oldPrice?.toStringAsFixed(2)}',
+                            '₺${product.displayOldPrice!.toStringAsFixed(2)}',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey.shade500,

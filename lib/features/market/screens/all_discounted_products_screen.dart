@@ -396,7 +396,7 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                       children: [
                         Flexible(
                           child: Text(
-                            '₺${product.effectivePrice.toStringAsFixed(0)}',
+                            '₺${product.effectivePrice.toStringAsFixed(2)}',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 11,
@@ -405,11 +405,11 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (product.hasDiscount) ...[
+                        if (product.displayOldPrice != null) ...[
                           const SizedBox(width: 3),
                           Flexible(
                             child: Text(
-                              '₺${product.price.toStringAsFixed(0)}',
+                              '₺${product.displayOldPrice!.toStringAsFixed(2)}',
                               style: TextStyle(
                                 decoration: TextDecoration.lineThrough,
                                 color: Colors.grey.shade400,
