@@ -974,22 +974,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ? 'Gönderi şikayetinize yanıt geldi: ${newResponse.substring(0, newResponse.length > 50 ? 50 : newResponse.length)}${newResponse.length > 50 ? '...' : ''}'
                           : 'Gönderi şikayetinizin durumu güncellendi: ${_getPostReportStatusText(selectedStatus)}';
                       
-                      await Supabase.instance.client
-                          .from('notifications')
-                          .insert({
-                            'user_id': reporter['id'],
-                            'type': 'post_report_response',
-                            'title': 'Şikayetinize Yanıt Geldi',
-                            'message': notificationMessage,
-                            'data': {
-                              'report_id': report['id'],
-                              'status': selectedStatus,
-                              'admin_response': newResponse,
-                              'report_type': 'post_report',
-                            },
-                            'is_read': false,
-                            'created_at': DateTime.now().toIso8601String(),
-                          });
+                      if (reporter['id'] != null) {
+                        await Supabase.instance.client
+                            .from('notifications')
+                            .insert({
+                              'user_id': reporter['id'],
+                              'type': 'admin_notification',
+                              'title': 'Şikayetinize Yanıt Geldi',
+                              'content': notificationMessage,
+                              'data': {
+                                'report_id': report['id'],
+                                'status': selectedStatus,
+                                'admin_response': newResponse,
+                                'report_type': 'post_report',
+                              },
+                              'is_read': false,
+                              'created_at': DateTime.now().toIso8601String(),
+                            });
+                      }
                       debugPrint('✅ Gönderi şikayeti bildirimi gönderildi: $notificationMessage');
                     } catch (notifError) {
                       debugPrint('⚠️ Bildirim gönderilemedi: $notifError');
@@ -13204,15 +13206,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           .from('notifications')
                           .insert({
                             'user_id': report['reporter_id'],
-                            'type': 'report_response',
+                            'type': 'admin_notification',
                             'title': 'Şikayet Güncellemesi',
-                            'message': notificationMessage,
+                            'content': notificationMessage,
                             'data': {
                               'report_id': report['id'],
                               'status': selectedStatus,
                               'admin_response': newResponse,
+                              'report_type': 'user_report',
                             },
-                            'read': false,
+                            'is_read': false,
                             'created_at': DateTime.now().toIso8601String(),
                           });
                       debugPrint('✅ Bildirim gönderildi: $notificationMessage');
