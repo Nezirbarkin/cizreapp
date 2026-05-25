@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,7 @@ import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../services/post_service.dart';
 import '../services/story_service.dart';
+import '../services/post_report_service.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
 import 'create_post_screen.dart';
@@ -29,6 +32,7 @@ class SocialScreen extends StatefulWidget {
 class _SocialScreenState extends State<SocialScreen> {
   final PostService _postService = PostService();
   final StoryService _storyService = StoryService();
+  final PostReportService _postReportService = PostReportService();
   final ImagePicker _imagePicker = ImagePicker();
   final NotificationService _notificationService = NotificationService();
   late ScrollController _scrollController;
@@ -282,6 +286,192 @@ class _SocialScreenState extends State<SocialScreen> {
         );
       }
     }
+  }
+
+  /// Gönderi Şikayet Dialog - Apple Guideline 1.2
+  void _showPostReportDialog(Post post) {
+    String? selectedReason;
+    final descriptionController = TextEditingController();
+    bool isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.flag_rounded, color: Colors.orange.shade700),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text('Gönderiyi Şikayet Et', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        post.content ?? 'Görsel içerik',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Şikayet Nedeni', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 10),
+                    ...PostReportService.reportReasons.entries.map((entry) {
+                      return RadioListTile<String>(
+                        value: entry.key,
+                        groupValue: selectedReason,
+                        onChanged: (v) => setSheetState(() => selectedReason = v),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(entry.value, style: const TextStyle(fontSize: 14)),
+                        activeColor: Colors.orange,
+                      );
+                    }),
+                    const SizedBox(height: 16),
+                    const Text('Açıklama (opsiyonel)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: descriptionController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        hintText: 'Daha fazla bilgi verin...',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        contentPadding: const EdgeInsets.all(12),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Şikayetiniz ekibimiz tarafından incelenecek.',
+                              style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('İptal'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: selectedReason == null || isSubmitting
+                                ? null
+                                : () async {
+                                    setSheetState(() => isSubmitting = true);
+                                    final result = await _postReportService.reportPost(
+                                      reportedPostId: post.id,
+                                      reason: selectedReason!,
+                                      description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
+                                    );
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (result == 'success') {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Şikayetiniz alındı. Teşekkürler!'), backgroundColor: Colors.green),
+                                      );
+                                    } else if (result == 'duplicate') {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Bu gönderiyi zaten şikayet etmişsiniz.'), backgroundColor: Colors.orange),
+                                      );
+                                    } else {
+                                      // Hata detayını göster
+                                      final errorMsg = result.toString().replaceAll('error: ', '');
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Şikayet gönderilemedi: $errorMsg'), backgroundColor: Colors.red, duration: const Duration(seconds: 5)),
+                                      );
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: isSubmitting
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('Şikayet Et'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _toggleLike(Post post) async {
@@ -1432,19 +1622,32 @@ class _SocialScreenState extends State<SocialScreen> {
                         ),
                       ),
                       const Spacer(),
-                      if (isOwnPost)
-                        PopupMenuButton<String>(
-                          icon: Icon(
-                            Icons.more_horiz,
-                            color: Colors.grey.shade500,
-                            size: 18,
-                          ),
-                          onSelected: (value) {
-                            if (value == 'delete') {
-                              _deletePost(post.id);
-                            }
-                          },
-                          itemBuilder: (context) => [
+                      PopupMenuButton<String>(
+                        icon: Icon(
+                          Icons.more_horiz,
+                          color: Colors.grey.shade500,
+                          size: 18,
+                        ),
+                        onSelected: (value) {
+                          if (value == 'delete') {
+                            _deletePost(post.id);
+                          } else if (value == 'report') {
+                            _showPostReportDialog(post);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          if (!isOwnPost)
+                            const PopupMenuItem(
+                              value: 'report',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.flag_outlined, color: Colors.orange, size: 20),
+                                  SizedBox(width: 12),
+                                  Text('Şikayet Et'),
+                                ],
+                              ),
+                            ),
+                          if (isOwnPost)
                             const PopupMenuItem(
                               value: 'delete',
                               child: Row(
@@ -1455,14 +1658,8 @@ class _SocialScreenState extends State<SocialScreen> {
                                 ],
                               ),
                             ),
-                          ],
-                        )
-                      else
-                        Icon(
-                          Icons.more_horiz,
-                          color: Colors.grey.shade500,
-                          size: 18,
-                        ),
+                        ],
+                      )
                     ],
                   ),
 

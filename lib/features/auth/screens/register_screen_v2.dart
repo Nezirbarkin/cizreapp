@@ -40,6 +40,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   bool _isCheckingUsername = false;
   bool _isUsernameAvailable = true;
   bool _kvkkAccepted = false;
+  bool _termsAccepted = false; // EULA/Kullanım Koşulları kabul
   String? _selectedGender;
   
   // OTP state
@@ -96,6 +97,10 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
     if (!_formKey.currentState!.validate()) return false;
     if (!_kvkkAccepted) {
       _showError('KVKK aydınlatma metnini kabul etmeniz gerekiyor');
+      return false;
+    }
+    if (!_termsAccepted) {
+      _showError('Kullanım Koşullarını kabul etmeniz gerekiyor');
       return false;
     }
     return true;
@@ -605,6 +610,214 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
     );
   }
 
+  /// Kullanım Koşulları ve Gizlilik Politikası Dialog - Apple Guideline 1.2
+  void _showTermsDialog() async {
+    // Settings'den terms ve privacy'yi çek
+    String termsContent = '''
+CizreApp Kullanım Koşulları
+
+Son Güncelleme: Mart 2026
+
+1. Kabul
+CizreApp uygulamasını kullanarak bu kullanım koşullarını kabul etmiş sayılırsınız.
+
+2. Hizmet Açıklaması
+CizreApp, Cizre bölgesinde faaliyet gösteren bir sosyal medya ve pazar yeri platformudur. Platform üzerinden:
+- Mağaza ve ürün satışı
+- Gönderi paylaşımı ve sosyal etkileşim
+- Grup sohbeti ve mesajlaşma
+- Hikaye ve canlı yayın özellikleri
+sunulmaktadır.
+
+3. Kullanıcı Yükümlülükleri
+- 18 yaşından büyük olmalısınız
+- Geçerli bir e-posta adresi kullanmalısınız
+- Hesabınızı başkalarıyla paylaşmamalısınız
+- Yasa dışı veya zararlı içerik paylaşmamalısınız
+
+4. İçerik Kuralları
+Aşağıdaki içerikler yasaktır:
+- Uygunsuz veya taciz içerikli paylaşımlar
+- Spam ve reklam içeriği
+- Yanlış bilgi ve aldatıcı içerik
+- Şiddet içeren paylaşımlar
+- Telif hakkı ihlali
+
+5. Hesap Güvenliği
+- Şifrenizi güvenli tutun
+- Hesabınızdaki tüm aktivitelerden siz sorumlusunuz
+- Yetkisiz erişimi derhal bildirin
+
+6. Platform Hakları
+CizreApp, aşağıdaki durumlarda hesabınızı askıya alabilir veya kapatabilir:
+- Kullanım koşullarının ihlali
+- Yasadışı içerik tespiti
+- Dolandırıcılık faaliyetleri
+- Diğer kullanıcılardan gelen şikayetler
+
+7. Sorumluluk Sınırlaması
+CizreApp, platform üzerindeki kullanıcı etkileşimlerinden sorumlu değildir. Kullanıcılar arasındaki anlaşmazlıklarda platform arabuluculuk yapabilir.
+
+8. Gizlilik
+Kişisel verilerinizin nasıl toplandığı ve kullanıldığı hakkında detaylı bilgi için Gizlilik Politikamızı inceleyebilirsiniz.
+
+9. Değişiklikler
+Bu kullanım koşulları güncellenebilir. Önemli değişiklikler uygulama üzerinden duyurulacaktır.
+
+10. İletişim
+Sorularınız için support@cizreapp.com adresinden bize ulaşabilirsiniz.
+''';
+
+    String privacyContent = '''
+CizreApp Gizlilik Politikası
+
+Son Güncelleme: Mart 2026
+
+1. Veri Sorumlusu
+CizreApp platformunun işletmecisi veri sorumlusudur.
+
+2. Toplanan Veriler
+- Kimlik bilgileri (ad, soyad, kullanıcı adı)
+- İletişim bilgileri (e-posta)
+- Profil bilgileri (fotoğraf, bio)
+- Konum bilgileri (adres, konum)
+- Kullanım verileri (aktiviteler, tercihler)
+- İşlem güvenliği (IP, cihaz bilgileri)
+
+3. Veri Kullanım Amaçları
+- Hizmet sunumu
+- Hesap güvenliği
+- Yasal yükümlülükler
+- Platform iyileştirmesi
+
+4. Veri Paylaşımı
+Verileriniz üçüncü taraflarla yasal zorunluluklar dışında paylaşılmaz.
+
+5. Veri Saklama
+Verileriniz hesabınız aktif olduğu sürece saklanır. Hesap silme talepleriniz 30 gün içinde işlenir.
+
+6. Haklarınız
+KVKK kapsamında aşağıdaki haklara sahipsiniz:
+- Veri erişim hakkı
+- Veri düzeltme hakkı
+- Veri silme hakkı
+- Veri işlemeye itiraz hakkı
+
+7. İletişim
+Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
+''';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.description_outlined, color: Color(0xFF3498DB), size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Kullanım Koşulları ve Gizlilik Politikası',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Kullanım Koşulları
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F4FC),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '📋 Kullanım Koşulları',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF2C3E50)),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      termsContent,
+                      style: const TextStyle(fontSize: 11, height: 1.5, color: Color(0xFF34495E)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Gizlilik Politikası
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F8F0),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔒 Gizlilik Politikası',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF2C3E50)),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      privacyContent,
+                      style: const TextStyle(fontSize: 11, height: 1.5, color: Color(0xFF34495E)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Color(0xFFE65100)),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Kayıt olarak bu koşulları kabul etmiş sayılırsınız.',
+                        style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              setState(() => _termsAccepted = true);
+            },
+            icon: const Icon(Icons.check_circle_outline, size: 20),
+            label: const Text('Kabul Ediyorum', style: TextStyle(fontWeight: FontWeight.w600)),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF27AE60),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('İptal'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -832,13 +1045,84 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               ],
             ),
           ),
+          const SizedBox(height: 14),
+
+          // Kullanım Koşulları Onay Kutucuğu - EULA
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _termsAccepted ? const Color(0xFFE8F0F8) : const Color(0xFFF8F9FA),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _termsAccepted ? const Color(0xFF3498DB) : const Color(0xFFE0E0E0),
+                width: 1.2,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: Checkbox(
+                        value: _termsAccepted,
+                        onChanged: (v) => setState(() => _termsAccepted = v ?? false),
+                        activeColor: const Color(0xFF3498DB),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showTermsDialog(),
+                        child: RichText(
+                          text: const TextSpan(
+                            style: TextStyle(fontSize: 13, color: Color(0xFF34495E), height: 1.4),
+                            children: [
+                              TextSpan(
+                                text: 'Kullanım Koşulları ve Gizlilik Politikası\'nı ',
+                                style: TextStyle(color: Color(0xFF3498DB), fontWeight: FontWeight.w700, decoration: TextDecoration.underline),
+                              ),
+                              TextSpan(text: 'okudum, anladım ve kabul ediyorum.'),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_termsAccepted) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 32),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.check_circle, size: 14, color: Color(0xFF3498DB)),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Kullanım Koşulları ve Gizlilik Politikası\'nı kabul ettiniz',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF3498DB), fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           const SizedBox(height: 20),
 
           SizedBox(
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
-              onPressed: (_isLoading || !_kvkkAccepted) ? null : _sendOtp,
+              onPressed: (_isLoading || !_kvkkAccepted || !_termsAccepted) ? null : _sendOtp,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF3498DB),
                 foregroundColor: Colors.white,

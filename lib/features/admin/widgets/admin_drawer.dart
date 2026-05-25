@@ -133,8 +133,8 @@ class AdminDrawer extends StatelessWidget {
             _buildDrawerItem(
               context: context,
               icon: Icons.flag_rounded,
-              title: 'Raporlar',
-              section: 'reports',
+              title: 'Şikayetler',
+              section: 'Şikayetler',
             ),
             _buildDrawerItem(
               context: context,
