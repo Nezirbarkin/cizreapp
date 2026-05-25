@@ -488,6 +488,13 @@ class _PostCard extends StatelessWidget {
                               color: Colors.grey[600],
                             ),
                       ),
+                      const Spacer(),
+                      Text(
+                        _formatDate(post.createdAt),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey[500],
+                            ),
+                      ),
                     ],
                   ),
                 ],
@@ -497,5 +504,28 @@ class _PostCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    
+    String dateStr;
+    if (dateOnly == today) {
+      dateStr = 'Bugün';
+    } else if (dateOnly == yesterday) {
+      dateStr = 'Dün';
+    } else if (date.year == now.year) {
+      const aylar = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+      dateStr = '${date.day} ${aylar[date.month - 1]}';
+    } else {
+      dateStr = '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+    }
+    
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$dateStr $hour:$minute';
   }
 }

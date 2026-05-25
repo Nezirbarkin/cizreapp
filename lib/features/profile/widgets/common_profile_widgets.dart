@@ -687,9 +687,28 @@ class PostCard extends StatelessWidget {
   }
 
   String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    
+    String dateStr;
+    if (dateOnly == today) {
+      dateStr = 'Bugün';
+    } else if (dateOnly == yesterday) {
+      dateStr = 'Dün';
+    } else if (date.year == now.year) {
+      // Aynı yıl ise gün ve ay göster
+      const aylar = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+      dateStr = '${date.day} ${aylar[date.month - 1]}';
+    } else {
+      // Farklı yıl ise tam tarih
+      dateStr = '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+    }
+    
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
+    return '$dateStr $hour:$minute';
   }
 }
 
