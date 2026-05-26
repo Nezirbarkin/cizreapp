@@ -48,23 +48,23 @@
 	
 	<!-- Permissions - Camera -->
 	<key>NSCameraUsageDescription</key>
-	<string>CizreApp, ürün fotoğrafı çekmek, profil fotoğrafı güncellemek ve gönderi paylaşmak için kamera erişimi kullanır. Örneğin: Satmak istediğiniz ürünün fotoğrafını çekebilirsiniz.</string>
+	<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
 	
 	<!-- Permissions - Photo Library -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CizreApp, galerinizden ürün veya gönderi fotoğrafı seçmek için fotoğraf kitaplığına erişir. Örneğin: Galerinizden bir ürün fotoğrafı seçip mağazanıza yükleyebilirsiniz.</string>
+	<string>CizreApp'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.</string>
 	
 	<!-- Permissions - Microphone -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>CizreApp, video gönderileri ve hikayeleri için mikrofon erişimi kullanır. Örneğin: Ürün tanıtım videosu çekebilirsiniz.</string>
+	<string>CizreApp'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.</string>
 	
 	<!-- Permissions - Location -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>CizreApp, yakınınızdaki mağazaları ve ürünleri göstermek için konum bilginizi kullanır. Örneğin: Cizre'deki satıcıları ve kampanyaları harita üzerinde görebilirsiniz.</string>
+	<string>CizreApp, yakınıınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece size en yakın satıcıları, kampanyaları ve mağazaları haritada görebilirsiniz.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>CizreApp, siparişlerinizi takip etmek ve yakınınızdaki kampanyalardan haberdar olmak için konum bilginizi kullanır. Örneğin: Size en yakın mağazalardaki indirimlerden haberdar olabilirsiniz.</string>
+	<string>CizreApp, sipariş teslimat durumunuzu takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar; böylece siparişinizi gerçek zamanlı takip edebilir ve size en yakın mağazalardaki indirimleri görebilirsiniz.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>CizreApp, siparişlerinizi takip etmek ve yakınınızdaki kampanyalardan haberdar olmak için arka planda konum bilginizi kullanır.</string>
+	<string>CizreApp, sipariş teslimat durumunuzu arka planda takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar.</string>
 	
 	<!-- Deep Link - Email Doğrulama ve Şifre Yenileme -->
 	<key>CFBundleURLTypes</key>
