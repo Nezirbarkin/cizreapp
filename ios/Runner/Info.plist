@@ -1,88 +1,84 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleDisplayName</key>
-	<string>Cizreapp</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>cizreapp</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(FLUTTER_BUILD_NAME)</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	
-	<!-- Permissions - Camera -->
-	<key>NSCameraUsageDescription</key>
-	<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
-	
-	<!-- Permissions - Photo Library -->
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CizreApp'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.</string>
-	
-	<!-- Permissions - Microphone -->
-	<key>NSMicrophoneUsageDescription</key>
-	<string>CizreApp'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.</string>
-	
-	<!-- Permissions - Location -->
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>CizreApp, yakınıınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece size en yakın satıcıları, kampanyaları ve mağazaları haritada görebilirsiniz.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>CizreApp, sipariş teslimat durumunuzu takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar; böylece siparişinizi gerçek zamanlı takip edebilir ve size en yakın mağazalardaki indirimleri görebilirsiniz.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>CizreApp, sipariş teslimat durumunuzu arka planda takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar.</string>
-	
-	<!-- Deep Link - Email Doğrulama ve Şifre Yenileme -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>com.cizreapp.app</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>cizreapp</string>
-			</array>
-		</dict>
-	</array>
-	
-	<!-- Export Compliance - Required for App Store -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-</dict>
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>Cizreapp</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>cizreapp</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<!-- Permissions - Camera -->
+		<key>NSCameraUsageDescription</key>
+		<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
+		<!-- Permissions - Photo Library -->
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>CizreApp'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.</string>
+		<!-- Permissions - Microphone -->
+		<key>NSMicrophoneUsageDescription</key>
+		<string>CizreApp'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.</string>
+		<!-- Permissions - Location -->
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>CizreApp, yakınıınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece size en yakın satıcıları, kampanyaları ve mağazaları haritada görebilirsiniz.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>CizreApp, sipariş teslimat durumunuzu takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar; böylece siparişinizi gerçek zamanlı takip edebilir ve size en yakın mağazalardaki indirimleri görebilirsiniz.</string>
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>CizreApp, sipariş teslimat durumunuzu arka planda takip etmek ve yakınıınızdaki kampanyalardan haberdar etmek için konum bilginize ihtiyaç duyar.</string>
+		<!-- Deep Link - Email Doğrulama ve Şifre Yenileme -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>com.cizreapp.app</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>cizreapp</string>
+				</array>
+			</dict>
+		</array>
+		<!-- Export Compliance - Required for App Store -->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
+		<key>UIStatusBarHidden</key>
+		<false/>
+	</dict>
 </plist>

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/permission_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../services/post_service.dart';
@@ -2299,8 +2300,87 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
 
   // ---- Medya seçim metodları ----
 
+  /// Fotoğraf galerisi izni reddedildiğinde gösterilecek dialog
+  void _showPhotosPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.photo_library, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Fotoğraf Galerisi İzni Gerekli')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.',
+              style: const TextStyle(fontSize: 15, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Kamera izni reddedildiğinde gösterilecek dialog
+  void _showCameraPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.camera_alt, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Kamera İzni Gerekli')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.',
+              style: const TextStyle(fontSize: 15, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickFromGallery() async {
     try {
+      // İzin kontrolü
+      final permissionService = PermissionService();
+      final isGranted = await permissionService.isPhotosGranted();
+      if (!isGranted) {
+        if (!mounted) return;
+        final result = await permissionService.checkAndRequestAllPermissions();
+        final photosResult = result['photos'];
+        if (photosResult != null && !photosResult.isGranted) {
+          if (mounted) {
+            _showPhotosPermissionDialog();
+          }
+          return;
+        }
+      }
+      
       final XFile? image = await widget.imagePicker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1080,
@@ -2326,6 +2406,21 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
   Future<void> _pickFromCamera() async {
     if (kIsWeb) return; // Web'de kamera desteği yok
     try {
+      // İzin kontrolü
+      final permissionService = PermissionService();
+      final isGranted = await permissionService.isCameraGranted();
+      if (!isGranted) {
+        if (!mounted) return;
+        final result = await permissionService.checkAndRequestAllPermissions();
+        final cameraResult = result['camera'];
+        if (cameraResult != null && !cameraResult.isGranted) {
+          if (mounted) {
+            _showCameraPermissionDialog();
+          }
+          return;
+        }
+      }
+      
       final XFile? photo = await widget.imagePicker.pickImage(
         source: ImageSource.camera,
         maxWidth: 1080,
@@ -2350,6 +2445,21 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
 
   Future<void> _pickVideo() async {
     try {
+      // İzin kontrolü (video seçmek için galeri izni gerekli)
+      final permissionService = PermissionService();
+      final isGranted = await permissionService.isPhotosGranted();
+      if (!isGranted) {
+        if (!mounted) return;
+        final result = await permissionService.checkAndRequestAllPermissions();
+        final photosResult = result['photos'];
+        if (photosResult != null && !photosResult.isGranted) {
+          if (mounted) {
+            _showPhotosPermissionDialog();
+          }
+          return;
+        }
+      }
+      
       final XFile? video = await widget.imagePicker.pickVideo(
         source: ImageSource.gallery,
         maxDuration: const Duration(seconds: 30),

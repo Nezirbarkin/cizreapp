@@ -78,14 +78,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void _showPermissionDeniedDialog(PermissionResult result) {
     if (!mounted) return;
     
+    // İzin açıklamasını al
+    String title;
+    String description;
+    IconData icon;
+    
+    if (result.permission.toLowerCase().contains('kamera') || result.permission.toLowerCase().contains('camera')) {
+      title = 'Kamera İzni Gerekli';
+      description = 'CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.';
+      icon = Icons.camera_alt;
+    } else {
+      title = 'Fotoğraf Galerisi İzni Gerekli';
+      description = 'CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.';
+      icon = Icons.photo_library;
+    }
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.photo_library_outlined, color: Theme.of(context).colorScheme.primary),
+            Icon(icon, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
-            const Text('İzin Gerekli'),
+            Expanded(child: Text(title)),
           ],
         ),
         content: Column(
@@ -93,10 +108,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Fotoğraf seçmek için ${result.permission} izni gerekiyor.',
-              style: const TextStyle(fontSize: 15),
+              description,
+              style: const TextStyle(fontSize: 15, height: 1.4),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             if (result.isPermanentlyDenied) ...[
               Container(
                 padding: const EdgeInsets.all(12),
@@ -111,7 +126,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'İzin ayarlardan etkinleştirilmeli.',
+                        'Bu izin daha önce reddedildi. Lütfen uygulama ayarlarından izin verin.',
                         style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
                       ),
                     ),

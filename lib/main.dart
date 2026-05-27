@@ -600,9 +600,11 @@ class _CizreAppState extends State<CizreApp> {
   }
 
   /// Web'de initial screen'i URL'ye göre belirle
+  /// Splash ekranı tamamen kaldırıldı - direkt MainScreen'e gidilir
   Widget _getInitialScreen() {
     if (!kIsWeb) {
-      return SplashScreen(supabaseInitialized: widget.supabaseInitialized);
+      // Mobil'de splash atlanır, direkt MainScreen'e gidilir
+      return const MainScreen();
     }
     
     final path = Uri.base.path;
@@ -626,9 +628,9 @@ class _CizreAppState extends State<CizreApp> {
       }
     }
     
-    // Ana sayfa veya bilinmeyen rotalar
-    print('🏠 Loading splash/main screen');
-    return SplashScreen(supabaseInitialized: widget.supabaseInitialized);
+    // Web'de MainScreen
+    print('🏠 Loading main screen');
+    return const MainScreen();
   }
 
   @override
@@ -667,11 +669,11 @@ class _CizreAppState extends State<CizreApp> {
             final uri = Uri.tryParse(routeName);
             if (uri == null) return null;
             
-            // Ana sayfa - SplashScreen
+            // Ana sayfa - MainScreen (splash kaldırıldı)
             if (routeName == '/' || routeName.isEmpty) {
               return MaterialPageRoute(
                 settings: settings,
-                builder: (context) => SplashScreen(supabaseInitialized: widget.supabaseInitialized),
+                builder: (context) => const MainScreen(),
               );
             }
             
@@ -682,7 +684,7 @@ class _CizreAppState extends State<CizreApp> {
               print('🔗 Deep link detected (custom scheme): ${settings.name}');
               // Supabase auth callback'i otomatik olarak işler
               return MaterialPageRoute(
-                builder: (context) => SplashScreen(supabaseInitialized: widget.supabaseInitialized),
+                builder: (context) => const MainScreen(),
               );
             }
             
@@ -692,7 +694,7 @@ class _CizreAppState extends State<CizreApp> {
                 (uri.path.contains('/verify') || uri.path.contains('/recovery'))) {
               print('🔗 Universal Link detected: ${settings.name}');
               return MaterialPageRoute(
-                builder: (context) => SplashScreen(supabaseInitialized: widget.supabaseInitialized),
+                builder: (context) => const MainScreen(),
               );
             }
             
@@ -787,373 +789,7 @@ class WebDemoScreen extends StatelessWidget {
   }
 }
 
-// Splash Screen - Başlangıç ekranı
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, required this.supabaseInitialized});
-  final bool supabaseInitialized;
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  bool _hasError = false;
-  String _errorMessage = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _initialize();
-  }
-
-  // Release modda da çalışan logger
-  void _log(String message) {
-    print('🚀 CizreApp: $message');
-  }
-
-  Future<void> _initialize() async {
-    _log('SplashScreen: Başlatılıyor...');
-    
-    try {
-      // Versiyon kontrolü
-      await _checkVersion();
-      
-      // Hızlı başlangıç için süreyi kısalttık
-      await Future.delayed(const Duration(milliseconds: 800));
-      
-      _log('SplashScreen: Gecikme tamamlandı, yönlendirilecek...');
-      
-      if (!mounted) {
-        _log('SplashScreen: Widget mounted değil, iptal ediliyor');
-        return;
-      }
-      
-      // Mevcut route'u kontrol et - özel route varsa (profil, shop vb.) yönlendirme yapma
-      final currentRoute = ModalRoute.of(context)?.settings.name;
-      _log('SplashScreen: Mevcut route: $currentRoute');
-      
-      // Özel route'lar varsa (profil, shop gibi) ana sayfaya yönlendirme
-      if (currentRoute != null && currentRoute != '/' && currentRoute != '/main') {
-        _log('SplashScreen: Özel route tespit edildi ($currentRoute), yönlendirme yapılmıyor');
-        return;
-      }
-      
-      // Ana ekrana yönlendir (web'de loginsiz, mobil'de login ile)
-      _log('SplashScreen: /main rotasına yönlendiriliyor...');
-      
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/main');
-        _log('SplashScreen: Yönlendirme tamamlandı');
-      }
-    } catch (e, stackTrace) {
-      _log('❌ SplashScreen HATASI: $e');
-      _log('Stack: $stackTrace');
-      
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = 'Başlatma hatası: $e';
-        });
-      }
-    }
-  }
-
-  Future<void> _checkVersion() async {
-    if (kIsWeb) {
-      _log('Versiyon kontrolü web\'de atlanıyor');
-      return;
-    }
-
-    // Supabase başlatılmamışsa versiyon kontrolü yapma
-    if (!widget.supabaseInitialized) {
-      _log('⚠️ Versiyon kontrolü atlanıyor: Supabase başlatılmamış');
-      return;
-    }
-
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
-      final currentBuildCode = int.tryParse(packageInfo.buildNumber) ?? 0;
-
-      _log('📱 Mevcut Versiyon: $currentVersion (build: $currentBuildCode)');
-
-      final result = await Supabase.instance.client.rpc(
-        'check_app_version',
-        params: {
-          'p_current_version': currentVersion,
-          'p_current_build_code': currentBuildCode,
-        },
-      );
-
-      if (result == null) {
-        _log('⚠️ Versiyon kontrolü başarısız, varsayılan olarak devam ediliyor');
-        return;
-      }
-
-      final checkResult = result as Map<String, dynamic>;
-      final needsUpdate = checkResult['needs_update'] as bool? ?? false;
-      final isForced = checkResult['is_forced'] as bool? ?? false;
-      final minVersion = checkResult['min_version'] as String? ?? '0.0.0';
-
-      _log('📊 Versiyon Kontrolü: needsUpdate=$needsUpdate, isForced=$isForced');
-
-      if (needsUpdate && mounted) {
-        _showUpdateDialog(
-          isForced: isForced,
-          minVersion: minVersion,
-          currentVersion: currentVersion,
-        );
-      }
-    } catch (e) {
-      _log('⚠️ Versiyon kontrolü hatası: $e');
-    }
-  }
-
-  void _showUpdateDialog({
-    required bool isForced,
-    required String minVersion,
-    required String currentVersion,
-  }) {
-    showDialog(
-      context: context,
-      barrierDismissible: !isForced,
-      builder: (context) => WillPopScope(
-        onWillPop: () async => !isForced,
-        child: AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.system_update, color: isForced ? Colors.red : Colors.orange),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isForced ? 'Zorunlu Güncelleme' : 'Güncelleme Mevcut',
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isForced
-                    ? 'Uygulamanın yeni versiyonu çıkarılmıştır. Devam etmek için lütfen güncelleyin.'
-                    : 'Yeni bir versiyon mevcut. Daha iyi deneyim için güncellemenizi öneririz.',
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Mevcut: $currentVersion',
-                style: TextStyle(color: Colors.grey.shade600),
-              ),
-              Text(
-                'Gerekli: $minVersion',
-                style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          actions: [
-            if (!isForced)
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Daha Sonra'),
-              ),
-            ElevatedButton(
-              onPressed: () {
-                // Store'a yönlendir (Google Play veya App Store)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Lütfen uygulama mağazasından güncelleyin')),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isForced ? Colors.red : Colors.green,
-              ),
-              child: Text(isForced ? 'Şimdi Güncelle' : 'Güncelle'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_hasError) {
-      return Scaffold(
-        backgroundColor: Colors.red.shade100,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.error_outline, size: 80, color: Colors.red.shade700),
-                const SizedBox(height: 24),
-                Text('Bir hata oluştu', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                Text(_errorMessage, textAlign: TextAlign.center),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _hasError = false;
-                      _errorMessage = '';
-                    });
-                    _initialize();
-                  },
-                  child: Text('Tekrar Dene'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1ABC9C), // Turkuaz
-              Color(0xFF16A085), // Koyu turkuaz
-              Color(0xFF2C3E50), // Koyu mavi-gri
-            ],
-            stops: [0.0, 0.5, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // CizreApp Başlığı
-                  Text(
-                    'CizreApp',
-                    style: TextStyle(
-                      fontSize: 52,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 3,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black.withOpacity(0.2),
-                          offset: Offset(0, 4),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Açıklama
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Text(
-                      'Cizre\'nin Dijital Pazarı & Sosyal Medya Ağı',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.white.withOpacity(0.95),
-                        letterSpacing: 0.5,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 60),
-                  
-                  // İkonlar Grid - 2x3
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 20,
-                    crossAxisSpacing: 20,
-                    childAspectRatio: 1,
-                    children: [
-                      _buildModernIcon(Icons.shopping_cart_outlined, 'Pazar'),
-                      _buildModernIcon(Icons.storefront_outlined, 'Mağazalar'),
-                      _buildModernIcon(Icons.delivery_dining_outlined, 'Teslimat'),
-                      _buildModernIcon(Icons.sentiment_satisfied_alt_outlined, 'Sosyal'),
-                      _buildModernIcon(Icons.chat_bubble_outline, 'Sohbet'),
-                      _buildModernIcon(Icons.card_giftcard_outlined, 'Kampanyalar'),
-                    ],
-                  ),
-                  const SizedBox(height: 50),
-                  
-                  // Yükleniyor göstergesi
-                  SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      strokeWidth: 2.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernIcon(IconData icon, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 65,
-          height: 65,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.3),
-              width: 2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 32,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.85),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.3,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-}
+// SplashScreen tamamen kaldırıldı - Uygulama direkt MainScreen'den başlar
 
 // ===== WEB PROFİL ROUTING HELPER SCREENS =====
 

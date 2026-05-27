@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Splash screen tamamen devre dışı - windowDisablePreview ile başlatma önizlemesi kapatıldı -->
+    <!-- Splash screen tamamen devre dışı -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowDisablePreview">true</item>
     </style>
-    <!-- Theme applied to the Android Window as soon as the process has started.
-         This Theme is only used starting with V2 of Flutter's Android embedding. -->
+    <!-- Theme applied to the Android Window as soon as the process has started. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>

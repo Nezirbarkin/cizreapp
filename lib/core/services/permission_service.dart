@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -12,6 +13,57 @@ class PermissionService {
 
   /// İzin durumlarını sakla
   final Map<Permission, PermissionStatus> _permissionStatus = {};
+
+  /// İzin açıklama metinleri
+  static final Map<Permission, String> _permissionDescriptions = {
+    Permission.camera:
+        'CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.',
+    Permission.photos:
+        'CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.',
+    Permission.storage:
+        'CizreApp\'in cihazınızdaki fotoğraflara ve dosyalara erişmesi gerekiyor; böylece medya içeriklerinizi yükleyebilir ve paylaşabilirsiniz.',
+    Permission.notification:
+        'CizreApp, size önemli bildirimler gönderebilmek için bildirim iznine ihtiyaç duyar; böylece yeni mesajlarınızdan, sipariş durumlarından ve güncellemelerden haberdar olabilirsiniz.',
+    Permission.location:
+        'CizreApp, yakınınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece çevrenizdeki satıcıları ve fırsatları keşfedebilirsiniz.',
+    Permission.microphone:
+        'CizreApp\'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.',
+  };
+
+  /// İzin kısa isimleri
+  static final Map<Permission, String> _permissionNames = {
+    Permission.camera: 'Kamera',
+    Permission.photos: 'Fotoğraf Galerisi',
+    Permission.storage: 'Depolama',
+    Permission.notification: 'Bildirimler',
+    Permission.location: 'Konum',
+    Permission.microphone: 'Mikrofon',
+  };
+
+  /// İzin ikonları
+  static final Map<Permission, IconData> _permissionIcons = {
+    Permission.camera: Icons.camera_alt,
+    Permission.photos: Icons.photo_library,
+    Permission.storage: Icons.folder,
+    Permission.notification: Icons.notifications,
+    Permission.location: Icons.location_on,
+    Permission.microphone: Icons.mic,
+  };
+
+  /// İzin açıklama metnini al
+  static String getDescription(Permission permission) {
+    return _permissionDescriptions[permission] ?? _permissionNames[permission] ?? 'Bu izin';
+  }
+
+  /// İzin kısa adını al
+  static String getName(Permission permission) {
+    return _permissionNames[permission] ?? permission.toString();
+  }
+
+  /// İzin ikonunu al
+  static IconData getIcon(Permission permission) {
+    return _permissionIcons[permission] ?? Icons.security;
+  }
 
   /// Tüm gerekli izinleri kontrol et ve talep et
   /// Bu metod uygulama açıldığında çağrılmalı

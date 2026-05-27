@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- İzin Açıklamaları (Permission Descriptions) -->
+    <!-- permission_handler kütüphanesi bu açıklamaları sistem diyaloglarında kullanır -->
+    
+    <!-- Kamera İzni -->
+    <string name="permission_camera_rationale">CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
+    
+    <!-- Fotoğraf Galerisi İzni -->
+    <string name="permission_photos_rationale">CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.</string>
+    
+    <!-- Depolama İzni (Android 12 ve altı) -->
+    <string name="permission_storage_rationale">CizreApp\'in cihazınızdaki fotoğraflara ve dosyalara erişmesi gerekiyor; böylece medya içeriklerinizi yükleyebilir ve paylaşabilirsiniz.</string>
+    
+    <!-- Bildirim İzni -->
+    <string name="permission_notification_rationale">CizreApp, size önemli bildirimler gönderebilmek için bildirim iznine ihtiyaç duyar; böylece yeni mesajlarınızdan, sipariş durumlarından ve güncellemelerden haberdar olabilirsiniz.</string>
+    
+    <!-- Konum İzni -->
+    <string name="permission_location_rationale">CizreApp, yakınınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece çevrenizdeki satıcıları ve fırsatları keşfedebilirsiniz.</string>
+    
+    <!-- Mikrofon İzni -->
+    <string name="permission_microphone_rationale">CizreApp\'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.</string>
+</resources>
