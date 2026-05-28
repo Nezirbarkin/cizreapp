@@ -26,7 +26,7 @@ class ChatDetailScreen extends StatefulWidget {
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends State<ChatDetailScreen> {
+class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -36,15 +36,40 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isInitialLoad = true; // İlk yükleme flag'i - jumpTo için
   RealtimeChannel? _messagesChannel;
   final Map<String, bool> _pendingMessages = {}; // Temp ID -> bool (isFailed)
+  String? _currentUserId; // Cache current user ID
+  bool _isAtBottom = true; // Kullanıcı en altta mı?
+  DateTime? _lastReadTime; // Son okundu işaretleme zamanı (debounce)
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _currentUserId = Supabase.instance.client.auth.currentUser?.id;
     _markSenderMessagesAsRead();
     _loadMessages();
     _subscribeToMessages();
     // Mesajları okundu olarak işaretle (bana gelen mesajlar)
     _chatService.markMessagesAsRead(widget.conversationId);
+    
+    // Scroll pozisyonunu takip et
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    // En alt 50px içindeyse "en altta" say
+    _isAtBottom = (maxScroll - currentScroll) < 50;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Uygulama ön plana geldiğinde mesajları okundu işaretle
+    if (state == AppLifecycleState.resumed && mounted) {
+      _chatService.markMessagesAsRead(widget.conversationId);
+      _chatService.markSenderMessagesAsRead(widget.conversationId);
+    }
   }
 
   /// Karşı tarafın gönderdiği mesajları okundu olarak işaretle
@@ -55,6 +80,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
     _messagesChannel?.unsubscribe();
@@ -79,12 +106,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       widget.conversationId,
       (messages) {
         if (mounted) {
+          // Sadece mesaj listesi değiştiyse setState çağır
+          bool hasChanged = _messages.length != messages.length;
+          if (!hasChanged && _messages.isNotEmpty && messages.isNotEmpty) {
+            // Son mesajın ID'sini kontrol et
+            hasChanged = _messages.last.id != messages.last.id;
+          }
+          if (!hasChanged) return; // Değişiklik yoksa gereksiz rebuild'i önle
+          
           setState(() {
             _messages = messages;
           });
-          _scrollToBottom();
-          // Yeni mesaj geldiğinde okundu olarak işaretle
-          _chatService.markMessagesAsRead(widget.conversationId);
+          // Sadece kullanıcı en alttaysa scroll yap
+          if (_isAtBottom) {
+            _scrollToBottom();
+          }
+          // Okundu işaretle - debounce ile (her değişiklikte değil)
+          final now = DateTime.now();
+          if (_lastReadTime == null || now.difference(_lastReadTime!).inSeconds >= 2) {
+            _lastReadTime = now;
+            _chatService.markMessagesAsRead(widget.conversationId);
+          }
         }
       },
     );
@@ -98,12 +140,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
           _isInitialLoad = false;
         } else {
-          // Sonraki mesajlarda animasyonlu scroll
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
+          // Sonraki mesajlarda animasyonlu scroll - sadece kullanıcı en alttaysa
+          if (_isAtBottom) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+            );
+          }
         }
       }
     });
@@ -113,8 +157,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final content = _messageController.text.trim();
     if (content.isEmpty || _isSending) return;
 
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null) return;
+    if (_currentUserId == null) {
+      _currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (_currentUserId == null) return;
+    }
 
     setState(() => _isSending = true);
     _messageController.clear();
@@ -122,15 +168,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     // Optimistic: Geçici mesaj ekle
     final tempMessage = Message.createTemp(
       conversationId: widget.conversationId,
-      senderId: currentUserId,
+      senderId: _currentUserId!,
       content: content,
     );
 
     setState(() {
       _messages.add(tempMessage);
       _pendingMessages[tempMessage.id] = false; // Failed değil
-      _scrollToBottom();
     });
+    _scrollToBottom();
 
     // Mesajı gönder
     final message = await _chatService.sendMessage(
@@ -159,7 +205,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Mesaj gönderilemdi. İnternet bağlantınızı kontrol edin.'),
+              content: Text('Mesaj gönderilemedi. İnternet bağlantınızı kontrol edin.'),
               duration: Duration(seconds: 3),
             ),
           );
@@ -170,11 +216,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Cache current user ID if not set
+    _currentUserId ??= Supabase.instance.client.auth.currentUser?.id;
     final theme = Theme.of(context);
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         backgroundColor: theme.primaryColor,
@@ -231,96 +278,114 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _messages.isEmpty
                     ? _buildEmptyState()
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          final message = _messages[index];
-                          final isMe = message.senderId == currentUserId;
-                          final showDate = index == 0 ||
-                              !_isSameDay(
-                                _messages[index - 1].createdAt,
-                                message.createdAt,
-                              );
-
-                          return Column(
-                            children: [
-                              if (showDate) _buildDateDivider(message.createdAt),
-                              _buildMessageBubble(message, isMe),
-                            ],
-                          );
-                        },
-                      ),
+                    : _buildOptimizedMessageList(),
           ),
 
-          // Mesaj gönderme alanı
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  offset: const Offset(0, -2),
-                  blurRadius: 8,
-                  color: Colors.black.withOpacity(0.05),
-                ),
-              ],
-            ),
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 8,
-              top: 8,
-              bottom: MediaQuery.of(context).padding.bottom + 8,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: const InputDecoration(
-                        hintText: 'Mesaj yazın...',
-                        border: InputBorder.none,
+          // Mesaj gönderme alanı - SafeArea ile cihazın alt navigasyon barı için padding ekle
+          SafeArea(
+            top: false,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: const [
+                  BoxShadow(
+                    offset: Offset(0, -2),
+                    blurRadius: 8,
+                    color: Color(0x0D000000), // Siyah %5 opacity
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      maxLines: null,
-                      textCapitalization: TextCapitalization.sentences,
-                      onSubmitted: (_) => _sendMessage(),
+                      child: TextField(
+                        controller: _messageController,
+                        decoration: const InputDecoration(
+                          hintText: 'Mesaj yazın...',
+                          border: InputBorder.none,
+                        ),
+                        maxLines: null,
+                        textCapitalization: TextCapitalization.sentences,
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurple,
-                    shape: BoxShape.circle,
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.deepPurple,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: _isSending
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send, color: Colors.white),
+                      onPressed: _isSending ? null : _sendMessage,
+                    ),
                   ),
-                  child: IconButton(
-                    icon: _isSending
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.send, color: Colors.white),
-                    onPressed: _isSending ? null : _sendMessage,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Optimizasyonlu mesaj listesi - gereksiz rebuild'leri önler
+  Widget _buildOptimizedMessageList() {
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      itemCount: _messages.length,
+      // PERFORMANCE: Cache ve repaint optimizasyonları
+      cacheExtent: 300.0, // Ekran dışında 300px cache
+      addRepaintBoundaries: true, // Gereksiz repaint'leri önle
+      addAutomaticKeepAlives: false, // Bellek tasarrufu için kapat
+      itemBuilder: (context, index) {
+        // PERFORMANCE: RepaintBoundary ile sar
+        return RepaintBoundary(
+          child: Hero(
+            tag: 'msg_${_messages[index].id}',
+            child: Material(
+              type: MaterialType.transparency,
+              child: _buildMessageItem(index),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Performans için mesaj öğesi oluşturucu
+  Widget _buildMessageItem(int index) {
+    final message = _messages[index];
+    final isMe = message.senderId == _currentUserId;
+    final showDate = index == 0 ||
+        !_isSameDay(
+          _messages[index - 1].createdAt,
+          message.createdAt,
+        );
+
+    return Column(
+      children: [
+        if (showDate) _buildDateDivider(message.createdAt),
+        _buildMessageBubble(message, isMe),
+      ],
     );
   }
 
@@ -399,15 +464,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildMessageBubble(Message message, bool isMe) {
-    // Türkiye saati (UTC+3)
+    // PERFORMANCE: TimeOfDay yerine direkt hesaplama (daha hafif)
     final turkeyTime = message.createdAt.toUtc().add(const Duration(hours: 3));
-    final time = TimeOfDay.fromDateTime(turkeyTime);
-    final timeString = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final timeString = '${turkeyTime.hour.toString().padLeft(2, '0')}:${turkeyTime.minute.toString().padLeft(2, '0')}';
 
     // Paylaşılan gönderi mi kontrol et
     if (message.isSharedPost) {
       return _buildSharedPostBubble(message, isMe, timeString);
     }
+
+    // PERFORMANCE: MediaQuery'i bir kez al
+    final screenWidth = MediaQuery.of(context).size.width;
+    // PERFORMANCE: Renk ve stil değerlerini önceden hesapla (withOpacity tekrarlarını önle)
+    final bubbleColor = isMe ? Colors.deepPurple : Colors.white;
+    final textColor = isMe ? Colors.white : Colors.grey[900]!;
+    final timeColor = isMe ? Colors.white70 : Colors.grey[600]!;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -415,21 +486,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
+          maxWidth: screenWidth * 0.75,
         ),
         decoration: BoxDecoration(
-          color: isMe ? Colors.deepPurple : Colors.white,
+          color: bubbleColor,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
             bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
             bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
           ),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
-              offset: const Offset(0, 1),
+              offset: Offset(0, 1),
               blurRadius: 2,
-              color: Colors.black.withOpacity(0.1),
+              color: Color(0x1A000000), // Siyah %10 opacity (withOpacity yerine)
             ),
           ],
         ),
@@ -440,7 +511,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               message.content,
               style: TextStyle(
                 fontSize: 15,
-                color: isMe ? Colors.white : Colors.grey[900],
+                color: textColor,
               ),
             ),
             const SizedBox(height: 4),
@@ -451,7 +522,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   timeString,
                   style: TextStyle(
                     fontSize: 11,
-                    color: isMe ? Colors.white.withOpacity(0.7) : Colors.grey[600],
+                    color: timeColor,
                   ),
                 ),
                 if (isMe) ...[

@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,13 +29,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   final NotificationService _notificationService = NotificationService();
   final PrivacyService _privacyService = PrivacyService();
-  // ignore: unused_field
   int _unreadNotificationCount = 0;
+  
+  // PERFORMANCE: Screens listesi - once oluştur, tekrar tekrar oluşturma
+  late final List<Widget> _screens;
+  DateTime? _lastNotificationLoad; // Debounce bildirim yüklemesi
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    
+    // PERFORMANCE: Screens'i bir kez oluştur
+    _screens = const [
+      MarketScreen(),
+      ProductsScreen(),
+      CartScreen(isMainTab: true),
+      SocialScreen(),
+      ProfileScreen(),
+    ];
+    
     // Uygulama açıldığında çevrimiçi durumunu güncelle ve heartbeat başlat
     _privacyService.onAppResumed();
     // Uygulama yüklendikten sonra pending reviews kontrolü yap
@@ -174,8 +189,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Sayfa değiştiğinde bildirim sayısını güncelle
-    _loadNotificationCount();
+    // PERFORMANCE: Bildirim sayısını güncelle - debounce ile gereksiz yüklemeleri önle
+    final now = DateTime.now();
+    if (_lastNotificationLoad == null || now.difference(_lastNotificationLoad!).inSeconds >= 5) {
+      _lastNotificationLoad = now;
+      _loadNotificationCount();
+    }
   }
 
   Future<void> _loadNotificationCount() async {
@@ -204,15 +223,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         builder: (context) {
           final cartProvider = context.watch<CartProvider>();
           
-          // Ekranları her seferinde oluştur (late initialization hatası önleme)
-          final List<Widget> screens = [
-            const MarketScreen(),
-            const ProductsScreen(),
-            const CartScreen(isMainTab: true),
-            const SocialScreen(),
-            const ProfileScreen(),
-          ];
-
+          // PERFORMANCE: _screens önceden oluşturuldu, her build'de yeniden oluşturma
           final theme = Theme.of(context);
           final primaryColor = theme.colorScheme.primary;
           final cartCount = cartProvider.itemCount;
@@ -220,7 +231,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return Scaffold(
             resizeToAvoidBottomInset: false,
             extendBody: true,
-            body: screens[_selectedIndex],
+            body: IndexedStack(
+              index: _selectedIndex,
+              children: _screens,
+            ),
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
               children: [

@@ -9,6 +9,7 @@ import '../services/group_chat_service.dart';
 import 'chat_detail_screen.dart';
 import 'chat_privacy_settings_screen.dart';
 import 'group_list_screen.dart';
+import 'members_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -74,6 +75,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   }
 
   Future<void> _loadActiveUsers() async {
+    if (_isLoadingActiveUsers) return; // Prevent duplicate loads
     setState(() => _isLoadingActiveUsers = true);
     try {
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
@@ -82,47 +84,37 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
         return;
       }
 
-      // Tüm kullanıcıları getir (is_ghost_mode=false olanları)
-      // is_online alanını da çekiyoruz
+      // PERFORMANCE: Sadece gerekli alanları çek ve limiti düşür
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('id, full_name, username, avatar_url, last_seen, status, is_ghost_mode, is_online')
+          .select('id, full_name, avatar_url, last_seen, is_online')
           .neq('id', currentUserId)
           .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
-          .limit(200);
+          .limit(50); // PERFORMANCE: Sadece ilk 50 aktif kullanıcıyı al
 
       if (mounted) {
         final users = (response as List).cast<Map<String, dynamic>>();
-        
-        // Gerçek aktif kullanıcıları öne al, ardından son görülme tarihine göre sırala
-        users.sort((a, b) {
-          final aOnline = a['is_online'] as bool? ?? false;
-          final bOnline = b['is_online'] as bool? ?? false;
-          final aLastSeen = _parseDateTime(a['last_seen']);
-          final bLastSeen = _parseDateTime(b['last_seen']);
-          
-          // Önce gerçek aktif olanlar (is_online=true VE last_seen son 3 dk içinde)
-          final aActive = PrivacyService.isUserTrulyActive(aOnline, aLastSeen);
-          final bActive = PrivacyService.isUserTrulyActive(bOnline, bLastSeen);
-          
-          if (aActive != bActive) {
-            return aActive ? -1 : 1;
-          }
-          
-          // Son görülme tarihine göre sırala
-          
-          if (aLastSeen != null && bLastSeen != null) {
-            return bLastSeen.compareTo(aLastSeen);
-          } else if (aLastSeen != null) {
-            return -1;
-          } else if (bLastSeen != null) {
-            return 1;
-          }
-          return 0;
-        });
+
+        // Aktiflik durumunu hesapla
+        for (var user in users) {
+          final isOnline = user['is_online'] as bool? ?? false;
+          final lastSeen = _parseDateTime(user['last_seen']);
+          user['_isActive'] = PrivacyService.isUserTrulyActive(isOnline, lastSeen);
+        }
+
+        // Aktif ve inaktif kullanıcıları ayır
+        final activeUsers = users.where((u) => u['_isActive'] == true).toList();
+        final inactiveUsers = users.where((u) => u['_isActive'] != true).toList();
+
+        // Her grubu kendi içinde rastgele sırala
+        activeUsers.shuffle();
+        inactiveUsers.shuffle();
+
+        // Aktifler öne, inaktifler arkaya - rastgele sıralı
+        final sortedUsers = [...activeUsers, ...inactiveUsers];
 
         setState(() {
-          _activeUsers = users;
+          _activeUsers = sortedUsers;
           _isLoadingActiveUsers = false;
         });
       }
@@ -146,9 +138,12 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   }
 
   Future<void> _refreshConversations() async {
-    await _loadConversations();
-    await _loadUnreadCount();
-    await _loadGroupUnreadCount();
+    // PERFORMANCE: Paralel olarak yükle
+    await Future.wait([
+      _loadConversations(),
+      _loadUnreadCount(),
+      _loadGroupUnreadCount(),
+    ]);
   }
 
   @override
@@ -224,6 +219,19 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
           ],
         ),
         actions: [
+          // Arkadaş Ekle
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MembersScreen(),
+                ),
+              );
+            },
+            tooltip: 'Arkadaş Ekle',
+          ),
           // Gizlilik Ayarları
           IconButton(
             icon: const Icon(Icons.settings),
@@ -266,100 +274,100 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   Widget _buildChatsTab(bool isDarkMode) {
     return Column(
       children: [
-        // Kullanıcılar Bölümü (aktif olanlar en başta)
+        // Kullanıcılar Bölümü (aktif olanlar en başta) - PERFORMANCE: RepaintBoundary
         if (!_isLoadingActiveUsers && _activeUsers.isNotEmpty)
-          Container(
-            height: 100,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: isDarkMode ? Colors.grey[850] : Colors.white,
-              border: Border(
-                bottom: BorderSide(color: Colors.grey[300]!),
+          RepaintBoundary(
+            child: Container(
+              height: 100,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: isDarkMode ? Colors.grey[850] : Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey[300]!),
+                ),
               ),
-            ),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _activeUsers.length,
-              itemBuilder: (context, index) {
-                final user = _activeUsers[index];
-                final avatarUrl = user['avatar_url'] as String?;
-                final fullName = user['full_name'] as String? ?? 'Kullanıcı';
-                final status = user['status'] as String? ?? 'offline';
-                final isOnline = user['is_online'] as bool? ?? false;
-                
-                // last_seen DateTime'a çevir
-                final lastSeen = _parseDateTime(user['last_seen']);
-                 
-                // Kullanıcının aktif olup olmadığını kontrol et
-                // is_online=true ise veya son 5 dakika içinde aktifse yeşil göster
-                final isActive = _isUserActive(isOnline, lastSeen);
-                
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: GestureDetector(
-                    onTap: () => _openUserProfile(user['id'] as String),
-                    onLongPress: () => _startChat(user, fullName, avatarUrl),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Stack(
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: _activeUsers.length,
+                // PERFORMANCE: Cache extent
+                cacheExtent: 300.0,
+                itemBuilder: (context, index) {
+                  final user = _activeUsers[index];
+                  final avatarUrl = user['avatar_url'] as String?;
+                  final fullName = user['full_name'] as String? ?? 'Kullanıcı';
+                  // Aktiflik durumu _loadActiveUsers'te hesaplanıyor
+                  final isActive = user['_isActive'] as bool? ?? false;
+                  
+                  // PERFORMANCE: Her kullanıcı öğesini RepaintBoundary ile sar
+                  return RepaintBoundary(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: GestureDetector(
+                        onTap: () => _openUserProfile(user['id'] as String),
+                        onLongPress: () => _startChat(user, fullName, avatarUrl),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            CircleAvatar(
-                              radius: 26,
-                              backgroundColor: Colors.deepPurple[100],
-                              backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                              child: avatarUrl == null
-                                  ? Text(
-                                      fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.deepPurple[700],
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor: Colors.deepPurple[100],
+                                  backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                                  child: avatarUrl == null
+                                      ? Text(
+                                          fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.deepPurple[700],
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                if (isActive)
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 14,
+                                      height: 14,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.green,
+                                        shape: BoxShape.circle,
+                                        border: Border.fromBorderSide(
+                                          BorderSide(color: Colors.white, width: 2),
+                                        ),
                                       ),
-                                    )
-                                  : null,
-                            ),
-                            if (isActive)
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 14,
-                                  height: 14,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.green,
-                                    shape: BoxShape.circle,
-                                    border: Border.fromBorderSide(
-                                      BorderSide(color: Colors.white, width: 2),
                                     ),
                                   ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            SizedBox(
+                              width: 60,
+                              child: Text(
+                                fullName,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[700],
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
                               ),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          width: 60,
-                          child: Text(
-                            fullName,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[700],
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
-        // Konuşmalar Listesi
+        // Konuşmalar Listesi - PERFORMANCE: RepaintBoundary ve cache
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -370,8 +378,13 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       child: ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: _conversations.length,
+                        // PERFORMANCE: Cache extent
+                        cacheExtent: 400.0,
                         itemBuilder: (context, index) {
-                          return _buildConversationTile(_conversations[index]);
+                          // PERFORMANCE: Her tile'ı ayrı bir RepaintBoundary ile sar
+                          return RepaintBoundary(
+                            child: _buildConversationTile(_conversations[index]),
+                          );
                         },
                       ),
                     ),

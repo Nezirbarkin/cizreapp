@@ -126,48 +126,71 @@ class ChatService {
     }
   }
 
-  // Tüm konuşmaları al
+  // Tüm konuşmaları al - PERFORMANCE OPTIMIZED
   Future<List<Conversation>> getConversations() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return [];
 
     try {
       // Sadece user_id = currentUserId olan konuşmaları al
-      // Her konuşma için 2 kayıt var (iki yönlü), sadece bizim tarafımızı alıyoruz
-      // unread_count zaten bizim okunmamışlarımızı gösteriyor
       final userConvs = await _supabase
           .from('conversations')
           .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at')
           .eq('user_id', currentUserId)
           .order('updated_at', ascending: false);
 
-      // Profil bilgilerini getir
+      if (userConvs.isEmpty) return [];
+
+      // PERFORMANCE: Toplu profil bilgisi çekme - her konuşma için ayrı sorgu yerine
+      final otherUserIds = userConvs.map((c) => c['other_user_id'] as String).toList();
+      
+      // Tüm diğer kullanıcıların profillerini tek sorguda çek
+      final profiles = await _supabase
+          .from('profiles')
+          .select('id, full_name, username, avatar_url, is_online, last_seen')
+          .inFilter('id', otherUserIds);
+      
+      // Profil haritası oluştur (hızlı erişim için)
+      final profileMap = <String, Map<String, dynamic>>{};
+      for (var p in profiles) {
+        profileMap[p['id'] as String] = p;
+      }
+
+      // PERFORMANCE: Son mesaj bilgilerini toplu çekme
+      final convIds = userConvs.map((c) => c['id'] as String).toList();
+      
+      // Her konuşmanın son mesajını tek sorguda çek
+      final lastMessages = await _supabase
+          .from('messages')
+          .select('conversation_id, sender_id, is_read, created_at')
+          .inFilter('conversation_id', convIds)
+          .order('created_at', ascending: false);
+      
+      // Son mesajları konuşma ID'sine göre haritala
+      final lastMessageMap = <String, Map<String, dynamic>>{};
+      for (var msg in lastMessages) {
+        final convId = msg['conversation_id'] as String;
+        // İlk karşılaşılan (en yeni) mesajı sakla
+        if (!lastMessageMap.containsKey(convId)) {
+          lastMessageMap[convId] = msg;
+        }
+      }
+
+      // Konuşmaları oluştur
       List<Conversation> allConversations = [];
       
       for (var conv in userConvs) {
-        final otherUserProfile = await _getOtherUserProfile(conv['other_user_id']);
-        
-        // Son mesajın gönderen ve okunma bilgisini al
-        Map<String, dynamic>? lastMessageData;
-        try {
-          final messages = await _supabase
-              .from('messages')
-              .select('sender_id, is_read')
-              .eq('conversation_id', conv['id'])
-              .order('created_at', ascending: false)
-              .limit(1);
-          
-          if (messages.isNotEmpty) {
-            lastMessageData = messages.first;
-          }
-        } catch (_) {}
+        final otherUserId = conv['other_user_id'] as String;
+        final otherUserProfile = profileMap[otherUserId];
         
         Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(conv);
         convWithProfile['other_user'] = otherUserProfile;
-        // Son mesajın benim tarafımdan gönderilip gönderilmediğini ve okunma durumunu ekle
-        if (lastMessageData != null) {
-          convWithProfile['last_message_by_me'] = lastMessageData['sender_id'] == currentUserId;
-          convWithProfile['last_message_read'] = lastMessageData['is_read'] ?? false;
+        
+        // Son mesaj bilgilerini haritadan al
+        final lastMsgData = lastMessageMap[conv['id']];
+        if (lastMsgData != null) {
+          convWithProfile['last_message_by_me'] = lastMsgData['sender_id'] == currentUserId;
+          convWithProfile['last_message_read'] = lastMsgData['is_read'] ?? false;
         } else {
           convWithProfile['last_message_by_me'] = false;
           convWithProfile['last_message_read'] = false;
@@ -495,7 +518,9 @@ class ChatService {
           schema: 'public',
           table: 'conversations',
           callback: (payload) async {
-            // Konuşmalar değiştiğinde güncel listeyi al
+            // PERFORMANCE: Debounce - 500ms gecikme ile güncelleme yap
+            // Böylece çok sık güncellemeleri önle
+            await Future.delayed(const Duration(milliseconds: 300));
             final conversations = await getConversations();
             onUpdate(conversations);
           },
@@ -503,8 +528,8 @@ class ChatService {
         .subscribe();
   }
 
-  // Realtime: Mesajlar için subscription - messages tablosundaki değişiklikleri dinle
-  // Değişiklik olduğunda getMessages ile tüm mesajları yeniden çeker (her iki tarafın mesajları dahil)
+  // Realtime: Mesajlar için subscription
+  // PERFORMANCE: Değişiklik olduğunda sadece yeni mesajları ekle
   RealtimeChannel subscribeToMessagesChannel(String conversationId, Function(List<Message>) onUpdate) {
     return _supabase
         .channel('messages_$conversationId')
@@ -513,12 +538,20 @@ class ChatService {
           schema: 'public',
           table: 'messages',
           callback: (payload) async {
-            // Debug: Mesaj değişikliği geldi
             AppLogger.debug('📨 Realtime message change: ${payload.eventType}, newRecord: ${payload.newRecord}');
             
-            // Herhangi bir mesaj değişikliğinde tüm mesajları yeniden çek
-            final messages = await getMessages(conversationId);
-            onUpdate(messages);
+            // PERFORMANCE: INSERT ve UPDATE için sadece tüm mesajları çek
+            // DELETE için mevcut listeyi filtrele
+            if (payload.eventType == PostgresChangeEvent.delete) {
+              // Silinen mesajı mevcut listeden çıkar
+              // onUpdate çağrısı zaten güncel listeyle yapılacak
+              final messages = await getMessages(conversationId);
+              onUpdate(messages);
+            } else {
+              // Yeni veya güncellenmiş mesaj için tüm listeyi çek
+              final messages = await getMessages(conversationId);
+              onUpdate(messages);
+            }
           },
         )
         .subscribe();

@@ -19,7 +19,7 @@ class GroupChatScreen extends StatefulWidget {
   State<GroupChatScreen> createState() => _GroupChatScreenState();
 }
 
-class _GroupChatScreenState extends State<GroupChatScreen> {
+class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingObserver {
   final GroupChatService _groupChatService = GroupChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -33,6 +33,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   RealtimeChannel? _readReceiptsChannel;
   late ChatGroup _currentGroup;
   int _pendingRequestCount = 0;
+  String? _currentUserId; // Cache current user ID
+  bool _isAtBottom = true; // Kullanıcı en altta mı?
+  DateTime? _lastReadTime; // Son okundu işaretleme zamanı (debounce)
 
   // Reply state
   GroupMessage? _replyToMessage;
@@ -40,17 +43,40 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentGroup = widget.group;
+    _currentUserId = Supabase.instance.client.auth.currentUser?.id;
     _loadMessages();
     _loadMembers();
     _subscribeToMessages();
     _subscribeToReadReceipts();
     _loadPendingRequests();
     _groupChatService.markGroupMessagesReadReceipts(widget.group.id);
+    
+    // Scroll pozisyonunu takip et
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    // En alt 50px içindeyse "en altta" say
+    _isAtBottom = (maxScroll - currentScroll) < 50;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Uygulama ön plana geldiğinde mesajları okundu işaretle
+    if (state == AppLifecycleState.resumed && mounted) {
+      _groupChatService.markGroupMessagesReadReceipts(widget.group.id);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
@@ -84,9 +110,21 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       _currentGroup.id,
       (messages) {
         if (mounted) {
+          // Sadece mesaj listesi değiştiyse setState çağır
+          bool hasChanged = _messages.length != messages.length;
+          if (!hasChanged && _messages.isNotEmpty && messages.isNotEmpty) {
+            hasChanged = _messages.last.id != messages.last.id;
+          }
+          if (!hasChanged) return; // Değişiklik yoksa gereksiz rebuild'i önle
+          
           setState(() => _messages = messages);
-          _scrollToBottom();
-          _groupChatService.markGroupMessagesReadReceipts(_currentGroup.id);
+          if (_isAtBottom) _scrollToBottom();
+          // Debounce okundu işaretleme
+          final now = DateTime.now();
+          if (_lastReadTime == null || now.difference(_lastReadTime!).inSeconds >= 2) {
+            _lastReadTime = now;
+            _groupChatService.markGroupMessagesReadReceipts(_currentGroup.id);
+          }
         }
       },
     );
@@ -108,11 +146,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           // İlk yüklemede anında en alta atla (animasyon yok)
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
           _isInitialLoad = false;
-        } else {
-          // Sonraki mesajlarda animasyonlu scroll
+        } else if (_isAtBottom) {
+          // Sadece kullanıcı en alttaysa scroll yap
           _scrollController.animateTo(
             _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 250),
             curve: Curves.easeOut,
           );
         }
@@ -124,8 +162,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final content = _messageController.text.trim();
     if (content.isEmpty || _isSending) return;
 
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null) return;
+    if (_currentUserId == null) {
+      _currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (_currentUserId == null) return;
+    }
 
     setState(() => _isSending = true);
     _messageController.clear();
@@ -135,7 +175,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final tempMessage = GroupMessage.createTemp(
       groupId: _currentGroup.id,
-      senderId: currentUserId,
+      senderId: _currentUserId!,
       content: content,
       replyToId: replyTo?.id,
       replyToContent: replyTo?.content,
@@ -144,8 +184,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     setState(() {
       _messages.add(tempMessage);
-      _scrollToBottom();
     });
+    _scrollToBottom();
 
     final message = await _groupChatService.sendGroupMessage(
       groupId: _currentGroup.id,
@@ -329,7 +369,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Cache current user ID
+    _currentUserId ??= Supabase.instance.client.auth.currentUser?.id;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -348,9 +389,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         controller: _scrollController,
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                         itemCount: _messages.length,
+                        // PERFORMANCE: Cache extent artır
+                        cacheExtent: 200.0,
                         itemBuilder: (context, index) {
                           final message = _messages[index];
-                          final isMe = message.senderId == currentUserId;
+                          final isMe = message.senderId == _currentUserId;
                           final showDate = index == 0 ||
                               !_isSameDay(_messages[index - 1].createdAt, message.createdAt);
                           final showSender = !isMe &&
@@ -361,7 +404,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                               if (showDate) _buildDateChip(message.createdAt, isDark),
                               _SwipeToReply(
                                 onReply: () => _setReplyToMessage(message),
-                                child: _buildMessageBubble(message, isMe, showSender, isDark, currentUserId),
+                                child: _buildMessageBubble(message, isMe, showSender, isDark, _currentUserId),
                               ),
                             ],
                           );
@@ -787,58 +830,58 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   // ─── Mesaj Input ───
   Widget _buildMessageInput(bool isDark) {
-    return Container(
-      color: isDark ? const Color(0xFF1F2C33) : Colors.white,
-      padding: EdgeInsets.only(
-        left: 8,
-        right: 8,
-        top: 6,
-        bottom: MediaQuery.of(context).padding.bottom + 6,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 120),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF2A3942) : Colors.grey[100],
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: TextField(
-                focusNode: _messageFocusNode,
-                controller: _messageController,
-                decoration: InputDecoration(
-                  hintText: 'Mesaj yazın...',
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  hintStyle: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[600]),
+    // SafeArea ile cihazın alt navigasyon barı için padding ekle
+    // resizeToAvoidBottomInset varsayılan true - klavye otomatik hallediyor
+    return SafeArea(
+      top: false,
+      child: Container(
+        color: isDark ? const Color(0xFF1F2C33) : Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 120),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF2A3942) : Colors.grey[100],
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
-                maxLines: null,
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => _sendMessage(),
+                child: TextField(
+                  focusNode: _messageFocusNode,
+                  controller: _messageController,
+                  decoration: InputDecoration(
+                    hintText: 'Mesaj yazın...',
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    hintStyle: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[600]),
+                  ),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
+                  maxLines: null,
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: (_) => _sendMessage(),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF00A884),
-              shape: BoxShape.circle,
+            const SizedBox(width: 6),
+            Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF00A884),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: _isSending
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.send, color: Colors.white, size: 22),
+                onPressed: _isSending ? null : _sendMessage,
+              ),
             ),
-            child: IconButton(
-              icon: _isSending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.send, color: Colors.white, size: 22),
-              onPressed: _isSending ? null : _sendMessage,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
