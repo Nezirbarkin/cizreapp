@@ -11,6 +11,7 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/push_notification_service.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../market/services/category_service.dart';
 import '../widgets/admin_drawer.dart';
@@ -563,6 +564,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 style: TextStyle(color: Colors.white),
               ),
               onTap: () async {
+                await PushNotificationService.clearTokenOnLogout();
                 await Supabase.instance.client.auth.signOut();
                 if (context.mounted) {
                   Navigator.pushReplacementNamed(context, '/login');

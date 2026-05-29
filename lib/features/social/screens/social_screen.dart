@@ -58,7 +58,11 @@ class _SocialScreenState extends State<SocialScreen> {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _loadData();
-    _loadNotificationCount();
+    
+    // ⚡ iOS PERFORMANCE: Bildirim sayısını paralel yükle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadNotificationCount().catchError((_) {});
+    });
   }
 
   @override
@@ -92,10 +96,16 @@ class _SocialScreenState extends State<SocialScreen> {
         return;
       }
 
-      // Feed ve stories yükle - pagination için
-      final posts = await _postService.getFeed(limit: _pageSize, offset: 0);
-      final allStories = await _storyService.getStories();
-      final userStories = await _storyService.getUserStories(userId);
+      // ⚡ iOS PERFORMANCE: Feed, stories ve userStories'yi PARALEL yükle
+      final results = await Future.wait([
+        _postService.getFeed(limit: _pageSize, offset: 0),
+        _storyService.getStories(),
+        _storyService.getUserStories(userId),
+      ]);
+      
+      final posts = results[0] as List<Post>;
+      final allStories = results[1] as List<Story>;
+      final userStories = results[2] as List<Story>;
 
       // HasMore kontrolü - eğer dönen veri pageSize'dan azsa, başka sayfa yok
       _hasMore = posts.length >= _pageSize;
@@ -112,34 +122,42 @@ class _SocialScreenState extends State<SocialScreen> {
         userIds.add(story.userId);
       }
 
-      // Batch olarak profilleri yükle
-      final profiles = <String, Map<String, dynamic>>{};
-      try {
-        final profilesData = await Supabase.instance.client
+      // ⚡ iOS PERFORMANCE: Profiller ve beğeni durumlarını PARALEL yükle
+      final profileAndLikes = await Future.wait([
+        // Profilleri yükle
+        Supabase.instance.client
             .from('profiles')
             .select('id, username, full_name, avatar_url')
-            .inFilter('id', userIds.toList());
+            .inFilter('id', userIds.toList())
+            .catchError((e) {
+              debugPrint('Profiller yüklenirken hata: $e');
+              return <Map<String, dynamic>>[];
+            }),
+        // Beğeni durumlarını yükle
+        posts.isNotEmpty
+            ? _postService.getLikedPostIds(userId, posts.map((p) => p.id).toList())
+                .catchError((e) {
+                  debugPrint('Beğeni durumları yüklenirken hata: $e');
+                  return <String>{};
+                })
+            : Future.value(<String>{}),
+      ]);
 
-        for (var profileData in profilesData) {
-          profiles[profileData['id']] = profileData;
-          // Mevcut kullanıcının profilini sakla
-          if (profileData['id'] == userId) {
-            _currentUserProfile = profileData;
-          }
+      // Profilleri işle
+      final profiles = <String, Map<String, dynamic>>{};
+      final profilesData = profileAndLikes[0] as List;
+      for (var profileData in profilesData) {
+        profiles[profileData['id']] = profileData;
+        if (profileData['id'] == userId) {
+          _currentUserProfile = profileData;
         }
-      } catch (e) {
-        debugPrint('Profiller yüklenirken hata: $e');
       }
 
-      // ⚡ OPTİMİZE: Beğeni durumlarını tek sorguda kontrol et (N+1 query yerine 1 query)
+      // Beğeni durumlarını işle
       final likedStatus = <String, bool>{};
-      if (posts.isNotEmpty) {
-        final postIds = posts.map((p) => p.id).toList();
-        final likedPostIds = await _postService.getLikedPostIds(userId, postIds);
-        
-        for (var post in posts) {
-          likedStatus[post.id] = likedPostIds.contains(post.id);
-        }
+      final likedPostIds = profileAndLikes[1] as List;
+      for (var post in posts) {
+        likedStatus[post.id] = likedPostIds.contains(post.id);
       }
 
       setState(() {

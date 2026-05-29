@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
 import '../models/user_model.dart';
 import '../services/privacy_service.dart';
+import '../services/push_notification_service.dart';
 import '../../features/favorites/screens/favorites_screen.dart';
 import '../../features/market/screens/address_management_screen.dart';
 import '../../features/market/screens/order_history_screen.dart';
@@ -657,6 +658,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
 
                                     if (confirm == true && mounted) {
                                       try {
+                                        // Önce FCM token'ı temizle (signOut'dan ÖNCE!)
+                                        await PushNotificationService.clearTokenOnLogout();
                                         await Supabase.instance.client.auth.signOut();
                                         // Ana ekrana yönlendir (misafir modu)
                                         if (mounted) {

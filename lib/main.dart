@@ -140,93 +140,93 @@ void main() async {
       log('ℹ️ Hive & services skipped on web platform');
     }
 
-    // Firebase ve Supabase'i paralel başlat - KRİTİK servisler
-    // Servisleri ayrı ayrı başlat (Future.wait tipler uyumsuz)
+    // ⚡ iOS PERFORMANCE: Firebase ve Supabase'i PARALEL başlat
+    final supabaseUrl = AppConstants.supabaseUrl;
+    final supabaseAnonKey = AppConstants.supabaseAnonKey;
+    
+    log('🔍 Supabase URL: ${supabaseUrl.isNotEmpty ? "AYARLI (${supabaseUrl.length} karakter)" : "BOŞ!"}');
+    log('🔍 Supabase Anon Key: ${supabaseAnonKey.isNotEmpty ? "AYARLI (${supabaseAnonKey.length} karakter)" : "BOŞ!"}');
+    
+    // Firebase ve Supabase'i paralel başlat
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-      log('✅ Firebase initialized');
-      
-      // Firebase background handler (Web hariç)
-      if (!kIsWeb) {
-        try {
-          FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-          log('✅ Firebase background handler set');
-        } catch (e) {
-          log('⚠️ Firebase background handler failed: $e');
-        }
-      }
-    } catch (e) {
-      log('❌ Firebase initialization failed: $e');
-    }
-
-    // Supabase başlat - KRİTİK
-    try {
-      final supabaseUrl = AppConstants.supabaseUrl;
-      final supabaseAnonKey = AppConstants.supabaseAnonKey;
-      
-      log('🔍 Supabase URL: ${supabaseUrl.isNotEmpty ? "AYARLI (${supabaseUrl.length} karakter)" : "BOŞ!"}');
-      log('🔍 Supabase Anon Key: ${supabaseAnonKey.isNotEmpty ? "AYARLI (${supabaseAnonKey.length} karakter)" : "BOŞ!"}');
-      
-      if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-        log('❌ Supabase başlatılamıyor: URL veya Anon Key boş!');
-        supabaseInitialized = false;
-      } else {
-        await Supabase.initialize(
-          url: supabaseUrl,
-          anonKey: supabaseAnonKey,
-          debug: false,
-        );
-        supabaseInitialized = true;
-        log('✅ Supabase initialized');
-      }
-      
-      // Supabase'e bağımlı servisleri paralel başlat
-      if (!kIsWeb) {
-        await Future.wait([
-          // Storage Service
-          StorageService().loadS3SettingsFromDatabase().then((value) {
-            final storageService = StorageService();
-            log('✅ Storage service initialized (${storageService.isS3Enabled ? "S3" : "Supabase"})');
-          }).catchError((e) {
-            log('⚠️ Storage service initialization failed: $e');
-            return null;
-          }),
-          // Push Notifications
-          PushNotificationService.initialize().then((value) {
-            log('✅ Push notification service initialized');
-            // Navigator key'i set et (bildirime tıklandığında yönlendirme için)
-            // Not: navigatorKey'in build metodunda oluşturulması gerekiyor
-            // Bu yüzden initState'da set edemeyiz, postFrameCallback kullanacağız
-          }).catchError((e) {
-            log('⚠️ Push notification service failed: $e');
-            return null;
-          }),
-        ]);
-        
-        // İzinleri kontrol et (kamera, galeri, bildirimler)
-        try {
-          final permissionService = PermissionService();
-          final permissionResults = await permissionService.checkAndRequestAllPermissions();
-          log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
-          
-          // Kalıcı reddedilen izinleri logla
-          for (final entry in permissionResults.entries) {
-            if (entry.value.isPermanentlyDenied) {
-              log('⚠️ ${entry.key} izni kalıcı olarak reddedildi - Ayarlardan açılması gerekebilir');
+      await Future.wait([
+        // Firebase başlat
+        Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        ).then((_) {
+          log('✅ Firebase initialized');
+          // Firebase background handler (Web hariç)
+          if (!kIsWeb) {
+            try {
+              FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+              log('✅ Firebase background handler set');
+            } catch (e) {
+              log('⚠️ Firebase background handler failed: $e');
             }
           }
+        }).catchError((e) {
+          log('❌ Firebase initialization failed: $e');
+        }),
+        // Supabase başlat
+        () async {
+          if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+            log('❌ Supabase başlatılamıyor: URL veya Anon Key boş!');
+            supabaseInitialized = false;
+          } else {
+            await Supabase.initialize(
+              url: supabaseUrl,
+              anonKey: supabaseAnonKey,
+              debug: false,
+            );
+            supabaseInitialized = true;
+            log('✅ Supabase initialized');
+          }
+        }(),
+      ]);
+    } catch (e) {
+      log('⚠️ Initialization error: $e');
+    }
+    
+    // Supabase'e bağımlı servisleri paralel başlat
+    if (!kIsWeb && supabaseInitialized) {
+      await Future.wait([
+        // Storage Service
+        StorageService().loadS3SettingsFromDatabase().then((value) {
+          final storageService = StorageService();
+          log('✅ Storage service initialized (${storageService.isS3Enabled ? "S3" : "Supabase"})');
+        }).catchError((e) {
+          log('⚠️ Storage service initialization failed: $e');
+          return null;
+        }),
+        // Push Notifications
+        PushNotificationService.initialize().then((value) {
+          log('✅ Push notification service initialized');
+        }).catchError((e) {
+          log('⚠️ Push notification service failed: $e');
+          return null;
+        }),
+      ]);
+      
+      // ⚡ iOS PERFORMANCE: İzinleri ARKA PLANDA kontrol et (başlatmayı engellemesin)
+      // İzin istemek iOS'ta system dialog gösterir ve kullanıcıyı bekletir
+      // Bu yüzden uygulamayı açtıktan sonra arka planda kontrol et
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          final permissionService = PermissionService();
+          permissionService.checkAndRequestAllPermissions().then((permissionResults) {
+            log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
+            for (final entry in permissionResults.entries) {
+              if (entry.value.isPermanentlyDenied) {
+                log('⚠️ ${entry.key} izni kalıcı olarak reddedildi - Ayarlardan açılması gerekebilir');
+              }
+            }
+          }).catchError((e) {
+            log('⚠️ İzin kontrolü hatası: $e');
+          });
         } catch (e) {
           log('⚠️ İzin kontrolü hatası: $e');
-          // İzin hatası uygulama başlatılmasını engellemesin
         }
-      }
-    } catch (e, stackTrace) {
-      log('⚠️ Supabase initialization failed: $e');
-      log('⚠️ Error type: ${e.runtimeType}');
-      log('⚠️ Stack trace: $stackTrace');
-      supabaseInitialized = false;
+      });
     }
     
     log('🎉 Initialization completed, launching app...');

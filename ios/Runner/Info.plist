@@ -45,6 +45,9 @@
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<!-- ⚡ iOS PERFORMANCE: Prefers rendering at full resolution for sharper UI -->
+		<key>UIRequiresFullScreen</key>
+		<false/>
 		<!-- Permissions - Camera -->
 		<key>NSCameraUsageDescription</key>
 		<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
@@ -80,5 +83,10 @@
 		<false/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<!-- Background Modes - Push Notifications için GEREKLİ -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
 	</dict>
 </plist>

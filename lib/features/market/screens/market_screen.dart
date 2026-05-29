@@ -91,11 +91,21 @@ class _MarketScreenState extends State<MarketScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
-    _loadFavorites();
-    _loadNotificationCount();
-    _loadChatUnreadCount();
     _scrollController.addListener(_onScroll);
+    
+    // ⚡ iOS PERFORMANCE: Başlatma işlemlerini PARALEL yap
+    _loadData();
+    
+    // Arka planda yükle - kullanıcıyı bekletmez
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Bağımsız yükleme işlemlerini paralel yap
+      await Future.wait([
+        _loadFavorites().catchError((_) {}),
+        _loadNotificationCount().catchError((_) {}),
+        _loadChatUnreadCount().catchError((_) {}),
+      ]);
+    });
+    
     // Geri sayım için timer başlat (her saniye güncelle)
     _dealTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -245,43 +255,58 @@ class _MarketScreenState extends State<MarketScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Global sipariş durumunu yükle
-      try {
-        final settingsResponse = await Supabase.instance.client
+      // ⚡ iOS PERFORMANCE: Tüm bağımsız veri yükleme işlemlerini PARALEL yap
+      final results = await Future.wait([
+        // 1. Global sipariş durumu
+        Supabase.instance.client
             .from('app_about_settings')
             .select('global_orders_enabled')
-            .maybeSingle();
-        
-        if (settingsResponse != null) {
-          _globalOrdersEnabled = settingsResponse['global_orders_enabled'] as bool? ?? true;
-        }
-      } catch (e) {
-        debugPrint('Global sipariş durumu yüklenirken hata: $e');
-        _globalOrdersEnabled = true;
+            .maybeSingle()
+            .catchError((e) {
+              debugPrint('Global sipariş durumu yüklenirken hata: $e');
+              return null;
+            }),
+        // 2. Kategoriler
+        _categoryService.getCategories().catchError((e) => <Category>[]),
+        // 3. Dükkanlar
+        _shopService.getShops().catchError((e) => <Shop>[]),
+        // 4. Hikayeler
+        _storyService.getStories().catchError((e) => <Story>[]),
+        // 5. İndirimli ürünler
+        _productService.getDiscountedProducts().catchError((e) => <Product>[]),
+        // 6. Kategori dükkan sayıları
+        _shopService.getShopsCountByCategory().catchError((e) => <String, int>{}),
+        // 7. Fırsat kartları
+        _dailyDealService.getActiveDeals().catchError((e) {
+          debugPrint('Fırsat kartları yüklenirken hata: $e');
+          return <DailyDeal>[];
+        }),
+        // 8. Son gönderiler
+        _postService.getFeed(limit: 5, offset: 0, useCache: false).catchError((e) {
+          debugPrint('Recent Posts yüklenirken hata: $e');
+          return <Post>[];
+        }),
+      ]);
+      
+      // Sonuçları çıkar
+      final settingsResponse = results[0] as Map<String, dynamic>?;
+      final categories = results[1] as List<Category>;
+      final shops = results[2] as List<Shop>;
+      final stories = results[3] as List<Story>;
+      final discountedProducts = results[4] as List<Product>;
+      final categoryShopCounts = results[5] as Map<String, int>;
+      final deals = results[6] as List<DailyDeal>;
+      final recentPosts = results[7] as List<Post>;
+      
+      // Global sipariş durumunu ayarla
+      if (settingsResponse != null) {
+        _globalOrdersEnabled = settingsResponse['global_orders_enabled'] as bool? ?? true;
       }
       
-      final categories = await _categoryService.getCategories();
-      final shops = await _shopService.getShops();
-      final stories = await _storyService.getStories();
-      final discountedProducts = await _productService.getDiscountedProducts();
-      final categoryShopCounts = await _shopService.getShopsCountByCategory();
-      
-      // Fırsat kartlarını yükle
-      List<DailyDeal> deals = [];
-      try {
-        deals = await _dailyDealService.getActiveDeals();
-      } catch (e) {
-        debugPrint('Fırsat kartları yüklenirken hata: $e');
-      }
-      
-      // Son gönderileri yükle (5 adet)
-      List<Post> recentPosts = [];
+      // Son gönderilerin kullanıcı bilgilerini yükle
       Map<String, Map<String, dynamic>> postUsersMap = {};
-      try {
-        recentPosts = await _postService.getFeed(limit: 5, offset: 0, useCache: false);
-        
-        // Kullanıcı bilgilerini çek
-        if (recentPosts.isNotEmpty) {
+      if (recentPosts.isNotEmpty) {
+        try {
           final userIds = recentPosts.map((p) => p.userId).toSet().toList();
           final usersResponse = await Supabase.instance.client
               .from('profiles')
@@ -291,9 +316,9 @@ class _MarketScreenState extends State<MarketScreen> {
           for (var user in usersResponse) {
             postUsersMap[user['id']] = user;
           }
+        } catch (e) {
+          debugPrint('Post kullanıcı bilgileri yüklenirken hata: $e');
         }
-      } catch (e) {
-        debugPrint('Recent Posts yüklenirken hata: $e');
       }
 
       // Her yenilemede farklı sıralama için ürünleri karıştır (dükkanlar karıştırılmaz - sponsorlar en üstte)

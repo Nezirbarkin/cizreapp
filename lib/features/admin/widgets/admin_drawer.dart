@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/push_notification_service.dart';
 
 class AdminDrawer extends StatelessWidget {
   final String selectedSection;
@@ -212,6 +213,7 @@ class AdminDrawer extends StatelessWidget {
                   );
 
                   if (shouldLogout == true && context.mounted) {
+                    await PushNotificationService.clearTokenOnLogout();
                     await Supabase.instance.client.auth.signOut();
                     if (context.mounted) {
                       Navigator.of(context).pushReplacementNamed('/login');

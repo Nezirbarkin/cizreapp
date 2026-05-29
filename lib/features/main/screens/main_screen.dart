@@ -31,23 +31,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final PrivacyService _privacyService = PrivacyService();
   int _unreadNotificationCount = 0;
   
-  // PERFORMANCE: Screens listesi - once oluştur, tekrar tekrar oluşturma
-  late final List<Widget> _screens;
+  // ⚡ iOS PERFORMANCE: Sadece aktif sekmeyi oluştur, diğerlerini lazy yükle
+  final Map<int, Widget> _cachedScreens = {};
   DateTime? _lastNotificationLoad; // Debounce bildirim yüklemesi
+
+  Widget _getScreen(int index) {
+    return _cachedScreens.putIfAbsent(index, () {
+      switch (index) {
+        case 0: return const MarketScreen();
+        case 1: return const ProductsScreen();
+        case 2: return const CartScreen(isMainTab: true);
+        case 3: return const SocialScreen();
+        case 4: return const ProfileScreen();
+        default: return const MarketScreen();
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    
-    // PERFORMANCE: Screens'i bir kez oluştur
-    _screens = const [
-      MarketScreen(),
-      ProductsScreen(),
-      CartScreen(isMainTab: true),
-      SocialScreen(),
-      ProfileScreen(),
-    ];
     
     // Uygulama açıldığında çevrimiçi durumunu güncelle ve heartbeat başlat
     _privacyService.onAppResumed();
@@ -231,10 +235,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return Scaffold(
             resizeToAvoidBottomInset: false,
             extendBody: true,
-            body: IndexedStack(
-              index: _selectedIndex,
-              children: _screens,
-            ),
+            // ⚡ iOS PERFORMANCE: IndexedStack yerine lazy loading
+            // Sadece aktif ekranı oluşturur, bellek tasarrufu sağlar
+            body: _getScreen(_selectedIndex),
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
               children: [

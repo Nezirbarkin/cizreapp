@@ -556,6 +556,31 @@ class PushNotificationService {
     }
   }
 
+  /// FCM token'ı temizle (çıkış yaparken çağrılmalı)
+  /// NOT: Bu metodu signOut() çağrısından ÖNCE çalıştırın!
+  static Future<void> clearTokenOnLogout() async {
+    if (kIsWeb) return;
+    
+    try {
+      // Kullanıcı çıkış yaparken FCM token'ını veritabanından sil
+      // Böylece bildirimler artık bu cihaza gönderilmez
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        debugPrint('⚠️ Kullanıcı zaten çıkış yapmış, token temizleme atlanıyor');
+        return;
+      }
+      
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'fcm_token': null})
+          .eq('id', userId);
+      
+      debugPrint('✅ Çıkışta FCM token temizlendi (userId: $userId)');
+    } catch (e) {
+      debugPrint('❌ Çıkışta FCM token temizleme hatası: $e');
+    }
+  }
+
   /// Test bildirimi gönder
   static Future<void> sendTestNotification(String userId) async {
     try {
