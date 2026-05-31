@@ -155,7 +155,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
       // Beğeni durumlarını işle
       final likedStatus = <String, bool>{};
-      final likedPostIds = profileAndLikes[1] as List;
+      final likedPostIds = profileAndLikes[1] as Set<String>;
       for (var post in posts) {
         likedStatus[post.id] = likedPostIds.contains(post.id);
       }
@@ -168,7 +168,9 @@ class _SocialScreenState extends State<SocialScreen> {
         _likedPosts = likedStatus;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('❌ SocialScreen _loadData hatası: $e');
+      debugPrint('Stack trace: $stackTrace');
       setState(() => _isLoading = false);
       if (mounted) {
         // Kullanıcı dostu hata mesajı

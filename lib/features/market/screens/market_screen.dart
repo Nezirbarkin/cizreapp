@@ -577,6 +577,13 @@ class _MarketScreenState extends State<MarketScreen> {
             show: true,
             unreadCount: _unreadChatCount,
             onTap: () {
+              // Kullanıcı giriş yapmış mı kontrol et
+              final currentUser = Supabase.instance.client.auth.currentUser;
+              if (currentUser == null) {
+                // Giriş yapmamışsa direkt giriş ekranına yönlendir
+                Navigator.pushNamed(context, '/login');
+                return;
+              }
               Navigator.push(
                 context,
                 MaterialPageRoute(

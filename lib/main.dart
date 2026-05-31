@@ -28,6 +28,7 @@ import 'features/main/screens/main_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
+import 'features/courier/screens/courier_panel_screen.dart';
 
 // Mobile/Desktop specific imports - using deferred imports
 import 'package:app_links/app_links.dart';
@@ -735,6 +736,7 @@ class _CizreAppState extends State<CizreApp> {
             '/reset-password-confirm': (context) => const ResetPasswordConfirmScreen(),
             '/main': (context) => const MainScreen(),
             '/admin': (context) => const AdminDashboardScreen(),
+            '/courier': (context) => const CourierPanelScreen(),
           },
           showPerformanceOverlay: false,
         );

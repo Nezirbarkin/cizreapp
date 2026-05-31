@@ -754,7 +754,11 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
-              title: Text(_shop!.name),
+              title: Text(
+                _shop!.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               background: _shop!.bannerUrl != null
                   ? Image.network(
                       _shop!.bannerUrl!,

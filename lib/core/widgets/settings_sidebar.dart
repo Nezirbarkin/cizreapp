@@ -16,6 +16,7 @@ import '../../features/profile/screens/account_settings_screen.dart';
 import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
+import '../../features/courier/screens/courier_panel_screen.dart';
 
 class SettingsSidebar extends StatefulWidget {
   const SettingsSidebar({super.key});
@@ -401,7 +402,24 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     );
                                   },
                                 ),
-                              if (_userRole == UserRole.admin || _userRole == UserRole.seller)
+                              if (_userRole == UserRole.courier)
+                                _buildPanelButton(
+                                  context: context,
+                                  icon: Icons.two_wheeler,
+                                  title: 'Kurye Paneli',
+                                  subtitle: 'Teslimat Yönetimi',
+                                  color: Colors.teal,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const CourierPanelScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              if (_userRole == UserRole.admin || _userRole == UserRole.seller || _userRole == UserRole.courier)
                                 const SizedBox(height: 24),
                               
                               // Hesabım bölümü

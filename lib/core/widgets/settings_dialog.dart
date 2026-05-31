@@ -15,6 +15,7 @@ import '../../features/profile/screens/notification_settings_screen.dart';
 import '../../features/profile/screens/account_settings_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
+import '../../features/courier/screens/courier_panel_screen.dart';
 
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
@@ -168,7 +169,23 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         );
                       },
                     ),
-                  if (_userRole == UserRole.admin || _userRole == UserRole.seller)
+                  if (_userRole == UserRole.courier)
+                    _buildPanelButton(
+                      context: context,
+                      icon: Icons.two_wheeler,
+                      title: 'Kurye Paneli',
+                      color: Colors.teal,
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const CourierPanelScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  if (_userRole == UserRole.admin || _userRole == UserRole.seller || _userRole == UserRole.courier)
                     const SizedBox(height: 8),
                   _buildMenuItem(
                     context: context,

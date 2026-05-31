@@ -150,14 +150,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 Text('Sipariş Onay Kodu'),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Güvenlik için size gönderilen 6 haneli kodu girin.',
-                  style: TextStyle(fontSize: 14),
-                ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Güvenlik için size gönderilen 6 haneli kodu girin.',
+                    style: TextStyle(fontSize: 14),
+                  ),
                 // Kod ekranda gösteriliyorsa prominent şekilde göster
                 if (displayedCode != null && displayedCode!.isNotEmpty) ...[
                   const SizedBox(height: 16),
@@ -288,7 +289,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
-              ],
+                ],
+              ),
             ),
             actions: [
               TextButton(

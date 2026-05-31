@@ -406,113 +406,279 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       OrderStatus.delivered,
     ];
 
+    final statusIcons = {
+      OrderStatus.pending: Icons.receipt_long,
+      OrderStatus.confirmed: Icons.check_circle,
+      OrderStatus.preparing: Icons.inventory_2,
+      OrderStatus.ready: Icons.inventory,
+      OrderStatus.onTheWay: Icons.local_shipping,
+      OrderStatus.delivered: Icons.done_all,
+    };
+
+    final statusDescriptions = {
+      OrderStatus.pending: 'Siparişiniz alındı',
+      OrderStatus.confirmed: 'Dükkan siparişi onayladı',
+      OrderStatus.preparing: 'Siparişiniz hazırlanıyor',
+      OrderStatus.ready: 'Siparişiniz paketlendi',
+      OrderStatus.onTheWay: 'Kurye siparişinizi aldı',
+      OrderStatus.delivered: 'Siparişiniz teslim edildi',
+    };
+
     final currentIndex = statuses.indexOf(_currentOrder.status);
+    final progress = currentIndex >= 0 ? (currentIndex + 1) / statuses.length : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Sipariş Durumu',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
+        // Başlık ve durum özeti
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Sipariş Durumu',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: _getStatusColor(_currentOrder.status),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _currentOrder.status.label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: List.generate(
-                statuses.length,
-                (index) {
-                  final status = statuses[index];
-                  final isCompleted = index < currentIndex;
-                  final isActive = index == currentIndex;
-
-                  return Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: isCompleted || isActive
-                                  ? Colors.green
-                                  : Colors.grey.shade300,
-                              shape: BoxShape.circle,
+        
+        // Animasyonlu ilerleme çubuğu
+        Container(
+          height: 6,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            color: Colors.grey.shade200,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Stack(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeInOut,
+                    width: constraints.maxWidth * progress,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(3),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.green.shade400,
+                          Colors.green.shade600,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24),
+        
+        // Durum adımları
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: List.generate(statuses.length, (index) {
+              final status = statuses[index];
+              final isCompleted = index < currentIndex;
+              final isActive = index == currentIndex;
+              final isLast = index == statuses.length - 1;
+              
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Sol taraf: İkon ve çizgi
+                    Column(
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 400),
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: isCompleted
+                                ? Colors.green
+                                : isActive
+                                    ? _getStatusColor(status)
+                                    : Colors.grey.shade300,
+                            shape: BoxShape.circle,
+                            boxShadow: isActive
+                                ? [
+                                    BoxShadow(
+                                      color: _getStatusColor(status).withValues(alpha: 0.4),
+                                      blurRadius: 12,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Icon(
+                            isCompleted ? Icons.check : statusIcons[status]!,
+                            color: isCompleted || isActive
+                                ? Colors.white
+                                : Colors.grey.shade500,
+                            size: 22,
+                          ),
+                        ),
+                        if (!isLast)
+                          Expanded(
+                            child: Container(
+                              width: 3,
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isCompleted
+                                    ? Colors.green
+                                    : Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(1.5),
+                              ),
                             ),
-                            child: Center(
-                              child: isCompleted
-                                  ? const Icon(Icons.check, color: Colors.white)
-                                  : Text(
-                                      '${index + 1}',
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    
+                    // Sağ taraf: Başlık ve açıklama
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: isLast ? 16 : 24),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? _getStatusColor(status).withValues(alpha: 0.1)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isActive
+                                  ? _getStatusColor(status)
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                status.label,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: isCompleted || isActive
+                                      ? Colors.black
+                                      : Colors.grey.shade500,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                statusDescriptions[status] ?? '',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              if (isActive) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: _getStatusColor(status),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Şu an',
                                       style: TextStyle(
-                                        color: isCompleted || isActive
-                                            ? Colors.white
-                                            : Colors.grey.shade600,
+                                        fontSize: 11,
+                                        color: _getStatusColor(status),
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  status.label,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: isActive
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.black,
-                                  ),
+                                  ],
                                 ),
-                                if (isCompleted && status == OrderStatus.delivered && _currentOrder.deliveredAt != null)
-                                  Text(
-                                    _formatDateTime(_currentOrder.deliveredAt!),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  )
-                                else if (status == OrderStatus.pending)
-                                  Text(
+                              ],
+                              // Zaman bilgisi
+                              if (status == OrderStatus.pending)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
                                     _formatDateTime(_currentOrder.createdAt),
                                     style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (index < statuses.length - 1)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 20, top: 8, bottom: 8),
-                          child: Container(
-                            width: 2,
-                            height: 20,
-                            color: isCompleted
-                                ? Colors.green
-                                : Colors.grey.shade300,
+                                )
+                              else if (status == OrderStatus.delivered &&
+                                  _currentOrder.deliveredAt != null &&
+                                  isCompleted)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    _formatDateTime(_currentOrder.deliveredAt!),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                    ],
-                  );
-                },
-              ),
-            ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ),
         ),
       ],
     );
+  }
+
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return Colors.orange;
+      case OrderStatus.confirmed:
+        return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.purple;
+      case OrderStatus.ready:
+        return Colors.cyan;
+      case OrderStatus.onTheWay:
+        return Colors.green;
+      case OrderStatus.delivered:
+        return Colors.green.shade700;
+      case OrderStatus.cancelled:
+        return Colors.red;
+    }
   }
 
   Widget _buildOrderInfoCard() {

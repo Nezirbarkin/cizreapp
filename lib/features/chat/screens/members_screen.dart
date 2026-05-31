@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/privacy_service.dart';
@@ -33,13 +35,14 @@ class _MembersScreenState extends State<MembersScreen> {
         return;
       }
 
-      // Tüm kullanıcıları getir (ghost mode olmayanlar)
+      // Tüm kullanıcıları getir (ghost mode dahil)
+      // Sıralama: En yeni kullanıcılar önce
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('id, full_name, username, avatar_url, last_seen, is_online, is_ghost_mode')
+          .select('id, full_name, username, avatar_url, last_seen, is_online, is_ghost_mode, created_at, bio')
           .neq('id', currentUserId)
-          .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
-          .limit(200);
+          .order('created_at', ascending: false) // En yeni kullanıcılar önce
+          .limit(500); // Daha fazla kullanıcı getir
 
       // Takip edilen kullanıcıları getir
       final followingResponse = await Supabase.instance.client
@@ -65,7 +68,7 @@ class _MembersScreenState extends State<MembersScreen> {
       final activeUsers = users.where((u) => u['_isActive'] == true).toList();
       final inactiveUsers = users.where((u) => u['_isActive'] != true).toList();
 
-      // Her grubu kendi içinde rastgele sırala
+      // Her grubu içinde rastgele sırala (yenilendiğinde sıralama değişsin)
       activeUsers.shuffle();
       inactiveUsers.shuffle();
 
@@ -264,6 +267,7 @@ class _MembersScreenState extends State<MembersScreen> {
     final avatarUrl = user['avatar_url'] as String?;
     final fullName = user['full_name'] as String? ?? 'Kullanıcı';
     final username = user['username'] as String?;
+    final bio = user['bio'] as String?;
     final isActive = user['_isActive'] as bool? ?? false;
     final isFollowing = _followingIds.contains(userId);
     final isFollowLoading = _isLoadingFollow[userId] == true;
@@ -356,6 +360,19 @@ class _MembersScreenState extends State<MembersScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                  if (bio != null && bio.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      bio,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontStyle: FontStyle.italic,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
               ),
             ),

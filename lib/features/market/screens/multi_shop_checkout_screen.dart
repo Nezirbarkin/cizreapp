@@ -330,10 +330,11 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                 Text('Sipariş Onay Kodu'),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 const Text(
                   'Güvenlik için size gönderilen 6 haneli kodu girin.',
                   style: TextStyle(fontSize: 14),
@@ -468,7 +469,8 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
-              ],
+                ],
+              ),
             ),
             actions: [
               TextButton(
