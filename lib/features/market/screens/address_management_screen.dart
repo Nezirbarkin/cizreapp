@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/address_model.dart';
 import '../providers/address_provider.dart';
+import 'address_picker_screen.dart';
 
 class AddressManagementScreen extends StatelessWidget {
   const AddressManagementScreen({super.key});
@@ -365,6 +366,25 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
     super.dispose();
   }
 
+  Future<void> _openMapPicker(BuildContext context) async {
+    final result = await Navigator.push<Address>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AddressPickerScreen(),
+      ),
+    );
+    
+    if (result != null) {
+      // Haritadan seçilen adresi forma doldur
+      setState(() {
+        _addressLine1Controller.text = result.addressLine1;
+        if (result.district != null) {
+          _districtController.text = result.district!;
+        }
+      });
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -547,13 +567,31 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
                 ),
                 const SizedBox(height: 16),
 
+                // Haritadan Seç Butonu
+                OutlinedButton.icon(
+                  onPressed: () => _openMapPicker(context),
+                  icon: const Icon(Icons.map),
+                  label: const Text('Haritadan Konum Seç'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: const BorderSide(color: Colors.purple),
+                    foregroundColor: Colors.purple,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 // Adres Satır 1
                 TextFormField(
                   controller: _addressLine1Controller,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Adres',
                     hintText: 'Mahalle, Sokak, No',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.map_outlined, color: Colors.purple),
+                      onPressed: () => _openMapPicker(context),
+                      tooltip: 'Haritadan seç',
+                    ),
                   ),
                   maxLines: 2,
                   validator: (value) => value?.isEmpty == true ? 'Zorunlu' : null,

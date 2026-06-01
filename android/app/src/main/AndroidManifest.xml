@@ -36,6 +36,10 @@
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true">
+        <!-- Google Maps API Key -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyBi120_sBg5IEgzaugQ-FgRAbZaW18267I"/>
         <!-- FileProvider for ImageCropper -->
         <provider
             android:name="androidx.core.content.FileProvider"

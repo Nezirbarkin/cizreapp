@@ -30,6 +30,9 @@ class AppAboutSettings {
   final String startupAnnouncementButtonText;
   final DateTime? startupAnnouncementUpdatedAt;
   
+  // API Keys
+  final String? googleMapsApiKey;
+  
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -58,6 +61,7 @@ class AppAboutSettings {
     this.startupAnnouncementType = 'info',
     this.startupAnnouncementButtonText = 'Tamam',
     this.startupAnnouncementUpdatedAt,
+    this.googleMapsApiKey,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -100,6 +104,7 @@ class AppAboutSettings {
       startupAnnouncementUpdatedAt: json['startup_announcement_updated_at'] != null
           ? DateTime.parse(json['startup_announcement_updated_at'] as String)
           : null,
+      googleMapsApiKey: json['google_maps_api_key'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -131,6 +136,7 @@ class AppAboutSettings {
       'startup_announcement_type': startupAnnouncementType,
       'startup_announcement_button_text': startupAnnouncementButtonText,
       'startup_announcement_updated_at': startupAnnouncementUpdatedAt?.toIso8601String(),
+      'google_maps_api_key': googleMapsApiKey,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -160,6 +166,7 @@ class AppAboutSettings {
     String? startupAnnouncementType,
     String? startupAnnouncementButtonText,
     DateTime? startupAnnouncementUpdatedAt,
+    String? googleMapsApiKey,
   }) {
     return AppAboutSettings(
       id: id,
@@ -186,6 +193,7 @@ class AppAboutSettings {
       startupAnnouncementType: startupAnnouncementType ?? this.startupAnnouncementType,
       startupAnnouncementButtonText: startupAnnouncementButtonText ?? this.startupAnnouncementButtonText,
       startupAnnouncementUpdatedAt: startupAnnouncementUpdatedAt ?? this.startupAnnouncementUpdatedAt,
+      googleMapsApiKey: googleMapsApiKey ?? this.googleMapsApiKey,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

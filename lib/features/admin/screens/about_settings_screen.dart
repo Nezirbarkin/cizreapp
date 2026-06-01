@@ -39,6 +39,9 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
   late TextEditingController _twitterController;
   late TextEditingController _facebookController;
   late TextEditingController _youtubeController;
+  
+  // API Key controller
+  late TextEditingController _mapsApiKeyController;
 
   @override
   void initState() {
@@ -62,6 +65,7 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     _twitterController = TextEditingController();
     _facebookController = TextEditingController();
     _youtubeController = TextEditingController();
+    _mapsApiKeyController = TextEditingController();
   }
 
   @override
@@ -83,6 +87,7 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     for (var controller in _featureControllers) {
       controller.dispose();
     }
+    _mapsApiKeyController.dispose();
     super.dispose();
   }
 
@@ -125,6 +130,9 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     _twitterController.text = links['twitter'] ?? '';
     _facebookController.text = links['facebook'] ?? '';
     _youtubeController.text = links['youtube'] ?? '';
+    
+    // Populate API Keys
+    _mapsApiKeyController.text = settings.googleMapsApiKey ?? '';
   }
 
   Future<void> _saveSettings() async {
@@ -156,6 +164,9 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
           'facebook': _facebookController.text.trim(),
           'youtube': _youtubeController.text.trim(),
         },
+        googleMapsApiKey: _mapsApiKeyController.text.trim().isEmpty
+            ? null
+            : _mapsApiKeyController.text.trim(),
       );
 
       final success = await _aboutService.updateAboutSettings(updatedSettings);
@@ -308,6 +319,43 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
                       label: 'Telefon (Opsiyonel)',
                       icon: Icons.phone,
                       keyboardType: TextInputType.phone,
+                    ),
+                  ]),
+
+                  const SizedBox(height: 24),
+
+                  _buildSectionHeader('API Anahtarları', Icons.vpn_key),
+                  const SizedBox(height: 12),
+                  _buildCard([
+                    _buildTextField(
+                      controller: _mapsApiKeyController,
+                      label: 'Google Maps API Key',
+                      icon: Icons.map,
+                      required: false,
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber, color: Colors.orange.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'API Key almak için: console.cloud.google.com > API & Services > Credentials',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ]),
 

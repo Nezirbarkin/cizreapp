@@ -3,6 +3,7 @@ import UIKit
 import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
+import GoogleMaps
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -14,6 +15,9 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    
+    // Google Maps API Key
+    GMSServices.provideAPIKey("AIzaSyBi120_sBg5IEgzaugQ-FgRAbZaW18267I")
     
     // iOS PERFORMANCE: Uygulama başlatma optimizasyonu
     // Arka plan bildirimleri için kontrol

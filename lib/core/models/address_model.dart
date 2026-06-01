@@ -9,6 +9,9 @@ class Address {
   final String city;
   final String? district;
   final String? postalCode;
+  final double? latitude; // Harita koordinatı
+  final double? longitude; // Harita koordinatı
+  final String? placeId; // Google Places ID
   final bool isDefault;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -24,6 +27,9 @@ class Address {
     required this.city,
     this.district,
     this.postalCode,
+    this.latitude,
+    this.longitude,
+    this.placeId,
     this.isDefault = false,
     required this.createdAt,
     required this.updatedAt,
@@ -41,6 +47,9 @@ class Address {
       city: json['city'] as String,
       district: json['district'] as String?,
       postalCode: json['postal_code'] as String?,
+      latitude: json['latitude'] as double?,
+      longitude: json['longitude'] as double?,
+      placeId: json['place_id'] as String?,
       isDefault: json['is_default'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -59,6 +68,9 @@ class Address {
       'city': city,
       'district': district,
       'postal_code': postalCode,
+      'latitude': latitude,
+      'longitude': longitude,
+      'place_id': placeId,
       'is_default': isDefault,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -82,6 +94,17 @@ class Address {
     return '$title - $city, $district';
   }
 
+  // Harita için konum var mı?
+  bool get hasLocation => latitude != null && longitude != null;
+
+  // Google Maps URL'si
+  String get mapsUrl {
+    if (hasLocation) {
+      return 'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
+    }
+    return 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(fullAddress)}';
+  }
+
   Address copyWith({
     String? id,
     String? userId,
@@ -93,6 +116,9 @@ class Address {
     String? city,
     String? district,
     String? postalCode,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     bool? isDefault,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -108,6 +134,9 @@ class Address {
       city: city ?? this.city,
       district: district ?? this.district,
       postalCode: postalCode ?? this.postalCode,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      placeId: placeId ?? this.placeId,
       isDefault: isDefault ?? this.isDefault,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
