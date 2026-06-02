@@ -157,18 +157,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       await _orderService.updateOrderStatus(order.id, newStatus);
       debugPrint('✅ Sipariş durumu güncellendi: ${order.id} -> ${newStatus.name}');
       
-      // Sipariş confirmed durumuna geçtiğinde otomatik kurye ataması yap
-      // ready durumunda sadece bildirim gönder (atama zaten yapılmış olabilir)
-      if (newStatus == OrderStatus.confirmed) {
-        debugPrint('📤 Kurye bildirimi ve otomatik atama (confirmed)...');
-        await _notifyCouriersForNewOrder(order, orderStatus: 'confirmed');
-        // Kuryesi olmayan satıcılar için otomatik kurye ataması
-        await _autoAssignCourierToOrder(order);
-      } else if (newStatus == OrderStatus.ready) {
-        debugPrint('📤 Kurye bildirimi (ready)...');
-        await _notifyCouriersForNewOrder(order, orderStatus: 'ready');
-        // NOT: ready durumunda otomatik atama yapma, confirmed'da yapıldı
-      }
+      // NOT: Kurye bildirimi ve atama işlemi artık satıcı "Kurye Çağır"
+      // butonuna bastığında yapılıyor - otomatik atama kaldırıldı
       
       await _loadOrders();
       if (mounted) {
