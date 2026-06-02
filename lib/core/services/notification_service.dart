@@ -36,6 +36,7 @@ class NotificationService {
           .from('notifications')
           .select()
           .eq('user_id', userId)
+          .order('is_read', ascending: true)
           .order('created_at', ascending: false)
           .limit(limit);
 

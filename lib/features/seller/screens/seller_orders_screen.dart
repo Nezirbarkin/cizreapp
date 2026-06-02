@@ -31,6 +31,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   bool _isLoading = true;
   List<Order> _orders = [];
   String? _shopId;
+  bool _hasOwnCourier = true; // Varsayılan olarak true, bilgi yüklenene kadar kurye çağırma butonu gizli
 
   late TabController _tabController;
 
@@ -74,7 +75,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       final shopResponse = await _supabase
           .from('shops')
-          .select('id')
+          .select('id, has_own_courier')
           .eq('owner_id', userId)
           .maybeSingle();
 
@@ -84,6 +85,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       }
 
       _shopId = shopResponse['id'];
+      _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? true;
       await _loadOrders();
     } catch (e) {
       debugPrint('Hata: $e');
@@ -1341,6 +1343,12 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   }
 
   Widget _buildStatusActions(Order order) {
+    // Kuryesi olmayan satıcılar için kurye çağır butonu
+    final showCallCourierButton = !_hasOwnCourier &&
+        (order.status == OrderStatus.confirmed ||
+         order.status == OrderStatus.preparing ||
+         order.status == OrderStatus.ready);
+
     switch (order.status) {
       case OrderStatus.pending:
         return _buildActionButton(
@@ -1351,27 +1359,54 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         );
 
       case OrderStatus.confirmed:
-        return _buildActionButton(
-          icon: Icons.restaurant_menu,
-          label: 'Hazırla',
-          color: const Color(0xFF8B5CF6),
-          onTap: () => _updateOrderStatus(order, OrderStatus.preparing),
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildActionButton(
+              icon: Icons.restaurant_menu,
+              label: 'Hazırla',
+              color: const Color(0xFF8B5CF6),
+              onTap: () => _updateOrderStatus(order, OrderStatus.preparing),
+            ),
+            if (showCallCourierButton) ...[
+              const SizedBox(width: 8),
+              _buildCallCourierButton(order),
+            ],
+          ],
         );
 
       case OrderStatus.preparing:
-        return _buildActionButton(
-          icon: Icons.inventory_2,
-          label: 'Hazır',
-          color: const Color(0xFF14B8A6),
-          onTap: () => _updateOrderStatus(order, OrderStatus.ready),
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildActionButton(
+              icon: Icons.inventory_2,
+              label: 'Hazır',
+              color: const Color(0xFF14B8A6),
+              onTap: () => _updateOrderStatus(order, OrderStatus.ready),
+            ),
+            if (showCallCourierButton) ...[
+              const SizedBox(width: 8),
+              _buildCallCourierButton(order),
+            ],
+          ],
         );
 
       case OrderStatus.ready:
-        return _buildActionButton(
-          icon: Icons.two_wheeler,
-          label: 'Yola Çıkar',
-          color: const Color(0xFF6366F1),
-          onTap: () => _updateOrderStatus(order, OrderStatus.onTheWay),
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildActionButton(
+              icon: Icons.two_wheeler,
+              label: 'Yola Çıkar',
+              color: const Color(0xFF6366F1),
+              onTap: () => _updateOrderStatus(order, OrderStatus.onTheWay),
+            ),
+            if (showCallCourierButton) ...[
+              const SizedBox(width: 8),
+              _buildCallCourierButton(order),
+            ],
+          ],
         );
 
       case OrderStatus.onTheWay:
@@ -1384,6 +1419,100 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       default:
         return const SizedBox.shrink();
+    }
+  }
+
+  /// Kurye çağır butonu - kuryesi olmayan satıcılar için
+  Widget _buildCallCourierButton(Order order) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _callCourierForOrder(order),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange, Colors.orange.shade700],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.two_wheeler, size: 18, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                'Kurye Çağır',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Kurye çağırma işlemi
+  Future<void> _callCourierForOrder(Order order) async {
+    try {
+      final courierNotificationService = CourierNotificationService();
+
+      // Önce müsait kuryelere bildirim gönder
+      await courierNotificationService.notifyCouriersForNewOrder(
+        orderId: order.id,
+        shopId: order.shopId,
+        shopName: (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan',
+        totalAmount: order.totalAmount,
+        orderStatus: 'ready',
+      );
+
+      // Kurye ataması yap
+      await courierNotificationService.autoAssignCourierToOrder(
+        orderId: order.id,
+        shopId: order.shopId,
+        orderTotal: order.totalAmount,
+        orderStatus: order.status.name,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Kuryelere bildirim gönderildi!'),
+              ],
+            ),
+            backgroundColor: Colors.orange.shade600,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Kurye çağırma hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Kurye çağırma hatası: $e'),
+            backgroundColor: Colors.red.shade400,
+          ),
+        );
+      }
     }
   }
 
