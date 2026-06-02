@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shop/services/order_service.dart';
 import '../../../core/models/order_model.dart';
+import '../../../core/services/courier_notification_service.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
 class SellerOrdersScreen extends StatefulWidget {
@@ -135,7 +136,23 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     }
 
     try {
+      debugPrint('🔄 Sipariş durumu güncelleniyor: ${order.id} -> ${newStatus.name}');
       await _orderService.updateOrderStatus(order.id, newStatus);
+      debugPrint('✅ Sipariş durumu güncellendi: ${order.id} -> ${newStatus.name}');
+      
+      // Sipariş confirmed durumuna geçtiğinde otomatik kurye ataması yap
+      // ready durumunda sadece bildirim gönder (atama zaten yapılmış olabilir)
+      if (newStatus == OrderStatus.confirmed) {
+        debugPrint('📤 Kurye bildirimi ve otomatik atama (confirmed)...');
+        await _notifyCouriersForNewOrder(order, orderStatus: 'confirmed');
+        // Kuryesi olmayan satıcılar için otomatik kurye ataması
+        await _autoAssignCourierToOrder(order);
+      } else if (newStatus == OrderStatus.ready) {
+        debugPrint('📤 Kurye bildirimi (ready)...');
+        await _notifyCouriersForNewOrder(order, orderStatus: 'ready');
+        // NOT: ready durumunda otomatik atama yapma, confirmed'da yapıldı
+      }
+      
       await _loadOrders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -152,6 +169,71 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red.shade400),
         );
       }
+    }
+  }
+
+  /// Sipariş confirmed veya ready olduğunda kuryelere bildirim gönder
+  Future<void> _notifyCouriersForNewOrder(Order order, {String orderStatus = 'ready'}) async {
+    try {
+      debugPrint('📤 _notifyCouriersForNewOrder başladı - orderId: ${order.id}, shopId: ${order.shopId}, status: $orderStatus');
+      
+      final courierNotificationService = CourierNotificationService();
+      
+      // Dükkan bilgilerini al
+      final shopResponse = await _supabase
+          .from('shops')
+          .select('id, name, has_own_courier')
+          .eq('id', order.shopId)
+          .maybeSingle();
+      
+      debugPrint('📤 Dükkan bilgisi: $shopResponse');
+      
+      if (shopResponse == null) {
+        debugPrint('❌ Dükkan bulunamadı: ${order.shopId}');
+        return;
+      }
+      
+      // Dükkanın kendi kuryesi varsa bildirim gönderme
+      if (shopResponse['has_own_courier'] == true) {
+        debugPrint('📦 Dükkanın kendi kuryesi var, kurye bildirimi gönderilmedi');
+        return;
+      }
+      
+      final shopName = shopResponse['name'] ?? 'Dükkan';
+      debugPrint('📤 Bildirim gönderiliyor - Dükkan: $shopName, Tutar: ${order.totalAmount}');
+      
+      await courierNotificationService.notifyCouriersForNewOrder(
+        orderId: order.id,
+        shopId: order.shopId,
+        shopName: shopName,
+        totalAmount: order.totalAmount,
+        orderStatus: orderStatus,
+      );
+      
+      debugPrint('✅ Kuryelere bildirim gönderildi (durum: $orderStatus)');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Kurye bildirimi hatası: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
+      // Sipariş durumu güncellendi, bildirim hatası kritik değil
+    }
+  }
+
+  /// Kuryesi olmayan satıcıların siparişlerini otomatik kuryeye ata
+  Future<void> _autoAssignCourierToOrder(Order order) async {
+    try {
+      final courierNotificationService = CourierNotificationService();
+      
+      await courierNotificationService.autoAssignCourierToOrder(
+        orderId: order.id,
+        shopId: order.shopId,
+        orderTotal: order.totalAmount,
+        orderStatus: order.status.name,
+      );
+      
+      debugPrint('✅ Otomatik kurye ataması tamamlandı');
+    } catch (e) {
+      debugPrint('❌ Otomatik kurye atama hatası: $e');
+      // Sipariş durumu güncellendi, atama hatası kritik değil
     }
   }
 

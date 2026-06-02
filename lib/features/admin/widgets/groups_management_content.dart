@@ -63,52 +63,25 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
   Future<void> _loadJoinRequests() async {
     setState(() => _isLoadingRequests = true);
     try {
-      // RPC ile admin olarak tüm istekleri getir
-      final response = await _supabase.rpc('admin_get_all_join_requests');
-      if (response != null) {
-        // RPC'den gelen veriyi dönüştür
-        final list = (response as List).map((r) {
-          final map = Map<String, dynamic>.from(r);
-          // profiles ve groups alt objelerini oluştur (uyumluluk için)
-          map['profiles'] = {
-            'full_name': map['user_full_name'],
-            'avatar_url': map['user_avatar_url'],
-            'username': map['user_username'],
-          };
-          map['groups'] = {
-            'name': map['group_name'],
-            'avatar_url': map['group_avatar_url'],
-            'is_private': map['group_is_private'],
-          };
-          return map;
-        }).toList();
-        setState(() { _joinRequests = list; _isLoadingRequests = false; });
-      } else {
-        setState(() { _joinRequests = []; _isLoadingRequests = false; });
-      }
-    } catch (e) {
-      AppLogger.error('Admin join requests RPC error: $e');
-      // Fallback - FK olmadığı için ayrı sorgular
-      try {
-        final response = await _supabase.from('group_join_requests')
-            .select('*, groups(name, avatar_url, is_private)')
-            .eq('status', 'pending').order('created_at', ascending: false);
-        final list = List<Map<String, dynamic>>.from(response);
-        for (var i = 0; i < list.length; i++) {
-          try {
-            final profile = await _supabase.from('profiles')
-                .select('full_name, avatar_url, username')
-                .eq('id', list[i]['user_id']).maybeSingle();
-            list[i]['profiles'] = profile ?? {};
-          } catch (_) {
-            list[i]['profiles'] = {};
-          }
+      // Doğrudan group_join_requests tablosundan sorgula
+      final response = await _supabase.from('group_join_requests')
+          .select('*, groups(name, avatar_url, is_private)')
+          .eq('status', 'pending').order('created_at', ascending: false);
+      final list = List<Map<String, dynamic>>.from(response);
+      for (var i = 0; i < list.length; i++) {
+        try {
+          final profile = await _supabase.from('profiles')
+              .select('full_name, avatar_url, username')
+              .eq('id', list[i]['user_id']).maybeSingle();
+          list[i]['profiles'] = profile ?? {};
+        } catch (_) {
+          list[i]['profiles'] = {};
         }
-        setState(() { _joinRequests = list; _isLoadingRequests = false; });
-      } catch (e2) {
-        AppLogger.error('Admin join requests fallback error: $e2');
-        setState(() => _isLoadingRequests = false);
       }
+      setState(() { _joinRequests = list; _isLoadingRequests = false; });
+    } catch (e) {
+      AppLogger.error('Admin join requests error: $e');
+      setState(() { _joinRequests = []; _isLoadingRequests = false; });
     }
   }
 

@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import '../../admin/screens/admin_dashboard_screen.dart';
+import '../../seller/screens/seller_dashboard_screen.dart';
+import '../../courier/screens/courier_panel_screen.dart';
+import '../../main/screens/main_screen.dart';
 
 class LoginScreenV2 extends StatefulWidget {
   const LoginScreenV2({super.key});
@@ -71,7 +75,10 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
         password: _passwordController.text,
       );
       
-      if (mounted) Navigator.of(context).pushReplacementNamed('/main');
+      // Rol kontrolü yap ve uygun panele yönlendir
+      if (mounted) {
+        await _navigateBasedOnRole();
+      }
     } on AuthException catch (e) {
       if (mounted) {
         // Email doğrulama hatası kontrolü
@@ -87,6 +94,53 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Kullanıcı rolüne göre uygun panele yönlendir
+  Future<void> _navigateBasedOnRole() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        if (mounted) Navigator.of(context).pushReplacementNamed('/main');
+        return;
+      }
+
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final role = response?['role'] as String? ?? 'customer';
+      debugPrint('🔄 Kullanıcı rolü: $role');
+
+      if (!mounted) return;
+
+      switch (role) {
+        case 'admin':
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+            (route) => false,
+          );
+          break;
+        case 'seller':
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const SellerDashboardScreen()),
+            (route) => false,
+          );
+          break;
+        case 'courier':
+          // Kurye normal kullanıcı gibi MainScreen'i kullanır
+          // Kurye özelliklerine ayarlardan veya kurye panelinden erişir
+          Navigator.of(context).pushReplacementNamed('/main');
+          break;
+        default:
+          Navigator.of(context).pushReplacementNamed('/main');
+      }
+    } catch (e) {
+      debugPrint('❌ Rol kontrolü hatası: $e');
+      if (mounted) Navigator.of(context).pushReplacementNamed('/main');
     }
   }
 

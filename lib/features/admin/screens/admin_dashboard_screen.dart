@@ -433,6 +433,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.delivery_dining,
+                    title: 'Kurye Yönetimi',
+                    isSelected: _selectedMenu == 'Kurye Yönetimi',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Kurye Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.notifications_active_rounded,
                     title: 'Bildirimler',
                     isSelected: _selectedMenu == 'Bildirimler',
@@ -641,6 +650,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildShopsContent();
       case 'Siparişler':
         return _buildOrdersContent();
+      case 'Kurye Yönetimi':
+        return _buildCourierManagementContent();
       case 'Gruplar':
         return const GroupsManagementContent();
       case 'Bildirimler':
@@ -1123,6 +1134,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         final totalUsers = allUsers.length;
         final adminCount = allUsers.where((u) => u['role'] == 'admin').length;
         final sellerCount = allUsers.where((u) => u['role'] == 'seller').length;
+        final courierCount = allUsers.where((u) => u['role'] == 'courier').length;
         final bannedCount = 0; // is_banned kolonu veritabanında mevcut değil
         
         return RefreshIndicator(
@@ -1170,9 +1182,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 const SizedBox(height: 16),
                 
                 // İstatistik Kartları
-                Row(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
                       child: _buildStatCard(
                         icon: Icons.people,
                         title: 'Toplam',
@@ -1181,8 +1196,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         gradient: [Colors.blue.shade400, Colors.blue.shade600],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
                       child: _buildStatCard(
                         icon: Icons.admin_panel_settings,
                         title: 'Admin',
@@ -1191,8 +1206,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         gradient: [Colors.purple.shade400, Colors.purple.shade600],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
                       child: _buildStatCard(
                         icon: Icons.store,
                         title: 'Satıcı',
@@ -1201,14 +1216,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         gradient: [Colors.orange.shade400, Colors.orange.shade600],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
                       child: _buildStatCard(
-                        icon: Icons.block,
-                        title: 'Banlı',
-                        value: '$bannedCount',
-                        color: Colors.red,
-                        gradient: [Colors.red.shade400, Colors.red.shade600],
+                        icon: Icons.delivery_dining,
+                        title: 'Kurye',
+                        value: '$courierCount',
+                        color: Colors.teal,
+                        gradient: [Colors.teal.shade400, Colors.teal.shade600],
                       ),
                     ),
                   ],
@@ -1406,6 +1421,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         icon = Icons.store;
         label = 'Satıcı';
         break;
+      case 'courier':
+        color = Colors.teal;
+        icon = Icons.delivery_dining;
+        label = 'Kurye';
+        break;
       default:
         color = Colors.blue;
         icon = Icons.person;
@@ -1542,6 +1562,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   ],
                 ),
                 value: 'seller',
+                groupValue: selectedRole,
+                onChanged: (value) {
+                  setDialogState(() => selectedRole = value!);
+                },
+              ),
+              RadioListTile<String>(
+                title: Row(
+                  children: [
+                    Icon(Icons.delivery_dining, color: Colors.teal, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Kurye'),
+                  ],
+                ),
+                value: 'courier',
                 groupValue: selectedRole,
                 onChanged: (value) {
                   setDialogState(() => selectedRole = value!);
@@ -5683,7 +5717,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Row(
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -5700,7 +5736,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
@@ -5716,7 +5751,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 6),
                             // Komisyon Durum Etiketi
                             Builder(builder: (context) {
                               final adminCredit = (shop['admin_credit'] as num?)?.toDouble() ?? 0;
@@ -5918,19 +5952,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         Expanded(
                           child: _buildShopStat(
-                            icon: Icons.account_balance_wallet,
-                            label: 'Net Kazanç',
-                            value: '₺${netEarnings.toStringAsFixed(0)}',
-                            color: Colors.teal,
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: Colors.grey.shade300,
-                        ),
-                        Expanded(
-                          child: _buildShopStat(
                             icon: Icons.percent,
                             label: 'Komisyon',
                             value: '%${commission.toStringAsFixed(0)}',
@@ -5939,6 +5960,66 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    // Net Kazanc (Kurye + Komisyon Kesilmis)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.teal.shade400, Colors.teal.shade600],
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.account_balance_wallet, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Net Kazanc',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
+                                if (!hasOwnCourier && (shop['courier_deduction'] as num?)?.toDouble() != 0) ...[
+                                  Text(
+                                    'Kurye: -₺${((shop['courier_deduction'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} | Komisyon: -₺${(totalEarnings * (commission / 100)).toStringAsFixed(0)}',
+                                    style: TextStyle(color: Colors.white70, fontSize: 10),
+                                  ),
+                                ] else ...[
+                                  Text(
+                                    'Komisyon: -₺${(totalEarnings * (commission / 100)).toStringAsFixed(0)}',
+                                    style: TextStyle(color: Colors.white70, fontSize: 10),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '₺${netEarnings.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (hasOwnCourier) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.delivery_dining, size: 14, color: Colors.blue),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Kendi Kuryesi Var',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Divider(height: 1, color: Colors.grey.shade300),
                     const SizedBox(height: 12),
@@ -6115,6 +6196,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             id,
             name,
             slug,
+            description,
+            logo_url,
+            category_id,
             owner_id,
             commission_rate,
             is_verified,
@@ -6193,15 +6277,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             }
           }
           
-          // Komisyon hesaplaması
+          // Komisyon hesaplamasi
           final commissionRate = (shop['commission_rate'] as num?)?.toDouble() ?? 10.0;
           final adminCommission = totalEarnings * (commissionRate / 100);
-          final netEarnings = totalEarnings - adminCommission;
+          
+          // Kurye teslimat ucreti (kuryesi olmayan satıcılar icin)
+          final hasOwnCourier = shop['has_own_courier'] as bool? ?? true;
+          double courierDeduction = 0.0;
+          if (!hasOwnCourier) {
+            // Kuryesi olmayan satıcının teslim edilen siparişlerinden kurye ucretini hesapla
+            final courierFee = await _getCourierFee();
+            courierDeduction = deliveredOrders * courierFee;
+          }
+          
+          // Net kazanc = Toplam kazanc - Komisyon - Kurye ucreti
+          final netEarnings = totalEarnings - adminCommission - courierDeduction;
           
           shop['total_earnings'] = totalEarnings;
           shop['weekly_earnings'] = weeklyEarnings;
           shop['monthly_earnings'] = monthlyEarnings;
           shop['admin_commission_total'] = adminCommission;
+          shop['courier_deduction'] = courierDeduction;
           shop['net_earnings'] = netEarnings;
           shop['total_orders'] = totalOrders;
           shop['delivered_orders'] = deliveredOrders;
@@ -7926,13 +8022,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     try {
       debugPrint('🔍 Kategoriler yükleniyor...');
       
-      // TEK sorguda kategorileri ve dükkan sayılarını getir
-      // Supabase RPC kullanarak daha verimli sorgu
-      final response = await Supabase.instance.client.rpc(
-        'get_categories_with_shop_count',
-      );
+      // Kategorileri getir
+      final categoriesResponse = await Supabase.instance.client
+          .from('categories')
+          .select()
+          .order('display_order', ascending: true);
       
-      final categoriesList = List<Map<String, dynamic>>.from(response);
+      final categoriesList = List<Map<String, dynamic>>.from(categoriesResponse).map((cat) => {
+        'id': cat['id'] as String,
+        'name': cat['name'] as String?,
+        'description': cat['description'] as String?,
+        'display_order': cat['display_order'] as int?,
+        'is_active': cat['is_active'] as bool?,
+        'image_url': cat['image_url'] as String?,
+        'shop_count': 0,
+      }).toList();
+      
+      // Tüm dükkanları getir ve kategorilere göre grupla
+      final shopsResponse = await Supabase.instance.client
+          .from('shops')
+          .select('category_id');
+      
+      // Dükkan sayılarını hesapla
+      final shopCounts = <String, int>{};
+      for (var shop in shopsResponse) {
+        final catId = shop['category_id'] as String?;
+        if (catId != null) {
+          shopCounts[catId] = (shopCounts[catId] ?? 0) + 1;
+        }
+      }
+      
+      // Kategorilere dükkan sayılarını ata
+      for (var category in categoriesList) {
+        category['shop_count'] = shopCounts[category['id']] ?? 0;
+      }
       
       debugPrint('✅ ${categoriesList.length} kategori yüklendi');
       for (var cat in categoriesList) {
@@ -7942,59 +8065,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     } catch (e) {
       debugPrint('❌ Kategoriler yüklenirken hata: $e');
       
-      // RPC yoksa manuel yöntemle dene
-      try {
-        debugPrint('🔄 Alternatif yöntem deneniyor...');
-        
-        // Kategorileri getir
-        final categoriesResponse = await Supabase.instance.client
-            .from('categories')
-            .select()
-            .order('display_order', ascending: true);
-        
-        final categoriesList = List<Map<String, dynamic>>.from(categoriesResponse).map((cat) => {
-          'id': cat['id'] as String,
-          'name': cat['name'] as String?,
-          'description': cat['description'] as String?,
-          'display_order': cat['display_order'] as int?,
-          'is_active': cat['is_active'] as bool?,
-          'image_url': cat['image_url'] as String?,
-          'shop_count': 0,
-        }).toList();
-        
-        // Tüm dükkanları getir ve kategorilere göre grupla
-        final shopsResponse = await Supabase.instance.client
-            .from('shops')
-            .select('category_id');
-        
-        // Dükkan sayılarını hesapla
-        final shopCounts = <String, int>{};
-        for (var shop in shopsResponse) {
-          final catId = shop['category_id'] as String?;
-          if (catId != null) {
-            shopCounts[catId] = (shopCounts[catId] ?? 0) + 1;
-          }
-        }
-        
-        // Kategorilere dükkan sayılarını ata
-        for (var category in categoriesList) {
-          category['shop_count'] = shopCounts[category['id']] ?? 0;
-        }
-        
-        debugPrint('✅ ${categoriesList.length} kategori yüklendi (alternatif yöntem)');
-        return categoriesList;
-      } catch (e2) {
-        debugPrint('❌ Alternatif yöntem de başarısız: $e2');
-        
-        // Mock veriler döndür
-        return [
-          {'id': '1', 'name': 'Market', 'description': 'Market alışverişi', 'display_order': 1, 'is_active': true, 'shop_count': 1, 'image_url': null},
-          {'id': '2', 'name': 'Manav', 'description': 'Taze meyve sebze', 'display_order': 2, 'is_active': true, 'shop_count': 0, 'image_url': null},
-          {'id': '3', 'name': 'Yemek', 'description': 'Restoran ve yemek siparişi', 'display_order': 3, 'is_active': true, 'shop_count': 0, 'image_url': null},
-          {'id': '4', 'name': 'Fırın', 'description': 'Ekmek ve unlu mamuller', 'display_order': 4, 'is_active': true, 'shop_count': 0, 'image_url': null},
-          {'id': '5', 'name': 'Tatlı', 'description': 'Tatlı ve pasta', 'display_order': 5, 'is_active': true, 'shop_count': 0, 'image_url': null},
-        ];
-      }
+      // Hata durumunda boş liste döndür
+      return [];
     }
   }
 
@@ -9832,6 +9904,658 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
       checkmarkColor: Colors.white,
     );
+  }
+
+  /// Kurye Yönetimi İçeriği
+  Widget _buildCourierManagementContent() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadCouriers(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Hata: ${snapshot.error}'));
+        }
+
+        final couriers = snapshot.data ?? [];
+        
+        // İstatistikler
+        final totalDeliveries = couriers.fold<int>(0, (sum, c) => sum + ((c['delivered_count'] as int?) ?? 0));
+        final totalEarnings = couriers.fold<double>(0, (sum, c) => sum + ((c['total_earnings'] as num?)?.toDouble() ?? 0));
+
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() {});
+          },
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Kurye Yönetimi',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                
+                // İstatistik Kartları
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildCourierStatCard(
+                        icon: Icons.delivery_dining,
+                        title: 'Toplam Kurye',
+                        value: '${couriers.length}',
+                        color: Colors.teal,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCourierStatCard(
+                        icon: Icons.check_circle,
+                        title: 'Toplam Teslimat',
+                        value: '$totalDeliveries',
+                        color: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCourierStatCard(
+                        icon: Icons.attach_money,
+                        title: 'Toplam Kazanç',
+                        value: '₺${totalEarnings.toStringAsFixed(2)}',
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                
+                // Kurye Ücreti Ayarı
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.settings, color: Colors.teal),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Kurye Ücret Ayarları',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const Spacer(),
+                            FutureBuilder<double>(
+                              future: _getCourierFee(),
+                              builder: (context, feeSnapshot) {
+                                if (!feeSnapshot.hasData) return const SizedBox.shrink();
+                                return Text(
+                                  'Paket Başı: ₺${feeSnapshot.data!.toStringAsFixed(2)}',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: () => _showCourierFeeDialog(),
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Ücreti Güncelle'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                // Kurye Ödeme İstekleri
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.payments, color: Colors.teal),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Kurye Ödeme İstekleri',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: () => _loadCourierPayouts(),
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Yenile'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                textStyle: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        FutureBuilder<List<Map<String, dynamic>>>(
+                          future: _loadCourierPayouts(),
+                          builder: (context, payoutSnapshot) {
+                            if (payoutSnapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            final payouts = payoutSnapshot.data ?? [];
+                            if (payouts.isEmpty) {
+                              return Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    'Bekleyen ödeme isteği yok',
+                                    style: TextStyle(color: Colors.grey.shade600),
+                                  ),
+                                ),
+                              );
+                            }
+                            return Column(
+                              children: payouts.map((payout) {
+                              final status = payout['status'] as String? ?? 'pending';
+                              final amount = (payout['amount'] as num?)?.toDouble() ?? 0.0;
+                              final courierName = payout['profiles']?['full_name'] ?? payout['profiles']?['username'] ?? 'Kurye';
+                              final statusColor = status == 'pending' ? Colors.orange : (status == 'approved' ? Colors.blue : Colors.green);
+                              final statusText = status == 'pending' ? 'Bekliyor' : (status == 'approved' ? 'Onaylandı' : 'Ödendi');
+                              
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(courierName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                            Text('₺${amount.toStringAsFixed(2)}', style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
+                                            Text(payout['requested_at'] != null ? _formatDate(payout['requested_at']) : '-', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Text(statusText, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                                      ),
+                                      if (status == 'pending') ...[
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.check_circle, color: Colors.green),
+                                          onPressed: () => _approveCourierPayout(payout['id']),
+                                          tooltip: 'Onayla',
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                // Kurye Listesi
+                const Text(
+                  'Kuryeler',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                
+                if (couriers.isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        children: [
+                          Icon(Icons.delivery_dining, size: 64, color: Colors.grey.shade400),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Henüz kurye yok',
+                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Kullanıcı yönetiminden rol atayarak kurye ekleyebilirsiniz',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: couriers.length,
+                    itemBuilder: (context, index) {
+                      final courier = couriers[index];
+                      return _buildCourierCard(courier);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCourierStatCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+          ),
+          Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCourierCard(Map<String, dynamic> courier) {
+    final deliveredCount = (courier['delivered_count'] as int?) ?? 0;
+    final totalEarnings = (courier['total_earnings'] as num?)?.toDouble() ?? 0.0;
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundImage: courier['avatar_url'] != null
+                      ? NetworkImage(courier['avatar_url'])
+                      : null,
+                  child: courier['avatar_url'] == null
+                      ? Text(
+                          (courier['username'] as String?)?.substring(0, 1).toUpperCase() ?? 'K',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        courier['full_name'] ?? courier['username'] ?? 'Kurye',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      Text(
+                        courier['email'] ?? '',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: courier['is_online'] == true ? Colors.green.shade100 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    courier['is_online'] == true ? 'Online' : 'Offline',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: courier['is_online'] == true ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildCourierInfoItem(Icons.check_circle, '$deliveredCount', 'Teslimat', Colors.green),
+                  Container(width: 1, height: 30, color: Colors.grey.shade300),
+                  _buildCourierInfoItem(Icons.attach_money, '₺${totalEarnings.toStringAsFixed(2)}', 'Kazanç', Colors.blue),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCourierInfoItem(IconData icon, String value, String label, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+      ],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadCouriers() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('id, username, full_name, email, avatar_url, is_online, delivered_count')
+          .eq('role', 'courier')
+          .order('created_at', ascending: false);
+      
+      final couriers = List<Map<String, dynamic>>.from(response);
+      
+      // Her kurye için toplam kazancı hesapla
+      for (var courier in couriers) {
+        try {
+          final earningsResponse = await Supabase.instance.client
+              .from('courier_earnings')
+              .select('amount')
+              .eq('courier_id', courier['id'])
+              .eq('status', 'paid');
+          
+          final totalEarnings = (earningsResponse as List).fold<double>(
+            0,
+            (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0),
+          );
+          courier['total_earnings'] = totalEarnings;
+        } catch (e) {
+          courier['total_earnings'] = 0.0;
+        }
+      }
+      
+      return couriers;
+    } catch (e) {
+      debugPrint('Kuryeler yüklenirken hata: $e');
+      return [];
+    }
+  }
+
+  Future<double> _getCourierFee() async {
+    try {
+      final settings = await Supabase.instance.client
+          .from('courier_settings')
+          .select('fee_per_delivery')
+          .order('updated_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      return (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
+    } catch (e) {
+      debugPrint('Kurye ücreti yüklenirken hata: $e');
+      return 15.0;
+    }
+  }
+
+  void _showCourierFeeDialog() {
+    final feeController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kurye Ücreti'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Paket başı kurye ücretini girin:'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: feeController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Ücret (₺)',
+                border: OutlineInputBorder(),
+                prefixText: '₺',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final fee = double.tryParse(feeController.text);
+              if (fee == null || fee < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Geçerli bir ücret girin'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+              
+              try {
+                // Önce mevcut kayıt var mı kontrol et
+                final existing = await Supabase.instance.client
+                    .from('courier_settings')
+                    .select('id')
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (existing != null) {
+                  // Kayıt varsa güncelle
+                  await Supabase.instance.client
+                      .from('courier_settings')
+                      .update({'fee_per_delivery': fee, 'updated_at': DateTime.now().toIso8601String()})
+                      .eq('id', existing['id']);
+                } else {
+                  // Kayıt yoksa oluştur
+                  await Supabase.instance.client
+                      .from('courier_settings')
+                      .insert({'fee_per_delivery': fee});
+                }
+                
+                if (mounted) {
+                  Navigator.pop(context);
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Kurye ücreti ₺$fee olarak güncellendi'), backgroundColor: Colors.green),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Kurye ödeme isteklerini yükle
+  Future<List<Map<String, dynamic>>> _loadCourierPayouts() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('courier_payout_requests')
+          .select('''
+            id,
+            amount,
+            status,
+            requested_at,
+            approved_at,
+            courier_id,
+            profiles:courier_id(full_name, username)
+          ''')
+          .order('requested_at', ascending: false)
+          .limit(50);
+      
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Kurye odeme istekleri yuklenirken hata: $e');
+      return [];
+    }
+  }
+
+  /// Kurye odeme istegini onayla (IBAN bilgileri ile birlikte goster)
+  Future<void> _approveCourierPayout(String payoutId) async {
+    try {
+      // Odeme isteginin detaylarini al
+      final payout = await Supabase.instance.client
+          .from('courier_payout_requests')
+          .select('''
+            id, amount, status, courier_id,
+            profiles:courier_id(full_name, username)
+          ''')
+          .eq('id', payoutId)
+          .maybeSingle();
+
+      if (payout == null) return;
+
+      // Kuryenin odeme bilgilerini al
+      Map<String, dynamic>? paymentInfo;
+      try {
+        final response = await Supabase.instance.client
+            .from('courier_payment_info')
+            .select()
+            .eq('courier_id', payout['courier_id'])
+            .maybeSingle();
+        paymentInfo = response;
+      } catch (_) {
+        // Tablo yoksa devam et
+      }
+
+      final courierName = payout['profiles']?['full_name'] ?? payout['profiles']?['username'] ?? 'Kurye';
+      final amount = (payout['amount'] as num?)?.toDouble() ?? 0.0;
+
+      if (!mounted) return;
+
+      // Onay dialogu goster
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Odeme Onayi'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Kurye: $courierName'),
+              Text('Tutar: ₺${amount.toStringAsFixed(2)}'),
+              const Divider(),
+              if (paymentInfo != null) ...[
+                const Text('Odeme Bilgileri:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (paymentInfo['iban'] != null)
+                  Text('IBAN: ${paymentInfo['iban']}'),
+                if (paymentInfo['bank_name'] != null)
+                  Text('Banka: ${paymentInfo['bank_name']}'),
+                if (paymentInfo['account_holder_name'] != null)
+                  Text('Hesap Sahibi: ${paymentInfo['account_holder_name']}'),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Kurye odeme bilgisi girmemis!',
+                    style: TextStyle(color: Colors.orange),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Iptal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Onayla'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      // Odeme istegini onayla
+      await Supabase.instance.client
+          .from('courier_payout_requests')
+          .update({
+            'status': 'approved',
+            'approved_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', payoutId);
+
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Odeme istegi onaylandi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Odeme onaylama hatasi: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Widget _buildComingSoon() {

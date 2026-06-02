@@ -49,12 +49,11 @@ class PostViewService {
 
       debugPrint('📊 Post görüntülemesi kaydediliyor: $postId <- $currentUserId');
 
-      // RPC fonksiyonunu çağır (viewer_id parametresini de gönder)
+      // RPC fonksiyonunu çağır (viewer_id auth.uid() ile otomatik alınır)
       await _supabase.rpc(
         'track_post_view',
         params: {
           'p_post_id': postId,
-          'p_viewer_id': currentUserId,
         },
       );
 
