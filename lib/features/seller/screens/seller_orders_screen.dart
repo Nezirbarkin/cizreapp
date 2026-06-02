@@ -99,6 +99,21 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     setState(() => _isLoading = true);
 
     try {
+      // Kurye durumunu her yükleme sırasında güncelle
+      // (admin değişiklik yapmış olabilir)
+      try {
+        final shopData = await _supabase
+            .from('shops')
+            .select('has_own_courier')
+            .eq('id', _shopId!)
+            .maybeSingle();
+        if (shopData != null) {
+          _hasOwnCourier = shopData['has_own_courier'] as bool? ?? true;
+        }
+      } catch (e) {
+        debugPrint('Kurye durumu güncellenemedi: $e');
+      }
+
       List<Order> orders;
       final currentTabIndex = _tabController.index;
 
