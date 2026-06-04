@@ -806,8 +806,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                             ),
                           ),
                         ],
-                        // Müşteri Telefonu ve Ara Butonu
-                        if (order.customerPhone != null && order.customerPhone!.isNotEmpty) ...[
+                        // Müşteri Telefonu ve Ara Butonu - kuryesi olmayan satıcıda gizli
+                        if (!_hideCustomerInfo && order.customerPhone != null && order.customerPhone!.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(16),
@@ -1551,7 +1551,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       // 1. Online olan bir kurye bul (aktif siparişi olmayan)
       final availableCouriers = await _supabase
           .from('profiles')
-          .select('id, username, full_name, avatar_url')
+          .select('id, username, full_name, avatar_url, phone')
           .eq('role', 'courier')
           .eq('is_online', true)
           .limit(10);
@@ -1579,6 +1579,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       final selectedCourier = availableCouriers.first;
       final courierId = selectedCourier['id'] as String;
       final courierName = selectedCourier['full_name'] ?? selectedCourier['username'] ?? 'Kurye';
+      final courierPhone = selectedCourier['phone'] as String?;
 
       // 2. Kurye ücretini al
       final settings = await _supabase
@@ -1634,17 +1635,111 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       if (mounted) {
         _loadOrders(); // Sipariş listesini yenile
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
+        // Kurye bilgilerini gösteren dialog
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 8),
-                Text('Sipariş $courierName kuryesine atandı!'),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.two_wheeler, color: Colors.teal.shade700, size: 28),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('Kurye Atandı!', style: TextStyle(fontSize: 18)),
+                ),
               ],
             ),
-            backgroundColor: Colors.green.shade600,
-            behavior: SnackBarBehavior.floating,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Siparişiniz bir kuryeye atandı:',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.teal.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.person, color: Colors.teal.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              courierName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: Colors.teal.shade800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (courierPhone != null && courierPhone.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Icon(Icons.phone, color: Colors.teal.shade700, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                courierPhone,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.teal.shade800,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.call, color: Colors.green),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _callCustomer(courierPhone);
+                              },
+                              tooltip: 'Ara',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              if (courierPhone != null && courierPhone.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _callCustomer(courierPhone);
+                  },
+                  child: const Text('Kuryeyi Ara'),
+                ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Tamam'),
+              ),
+            ],
           ),
         );
       }
