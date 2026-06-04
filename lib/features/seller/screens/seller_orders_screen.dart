@@ -1486,6 +1486,33 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         );
 
       case OrderStatus.onTheWay:
+        if (!_hasOwnCourier) {
+          // Kuryesi olmayan satıcı: sipariş kuryede, buton gösterme
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.teal.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.teal.shade200),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.two_wheeler, size: 16, color: Colors.teal.shade700),
+                const SizedBox(width: 6),
+                Text(
+                  'Kuryede',
+                  style: TextStyle(
+                    color: Colors.teal.shade700,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        // Kendi kuryesi olan satıcı: Teslim Et butonu
         return _buildActionButton(
           icon: Icons.task_alt,
           label: 'Teslim Et',
