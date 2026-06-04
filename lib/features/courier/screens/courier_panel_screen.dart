@@ -1261,11 +1261,11 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
         debugPrint('  └─ Sipariş: ${order['id'].toString().substring(0, 8)} | Durum: ${order['status']} | Dükkan: ${shopData?['name']} | has_own_courier: ${shopData?['has_own_courier']}');
       }
 
-      // 3. Zaten atanmış siparişleri bul
+      // 3. Zaten atanmış siparişleri bul (on_the_way dahil)
       final existingAssignments = await Supabase.instance.client
           .from('courier_assignments')
           .select('order_id')
-          .inFilter('status', ['assigned', 'picked_up']);
+          .inFilter('status', ['assigned', 'picked_up', 'on_the_way']);
 
       final assignedOrderIds = (existingAssignments as List)
           .map((a) => a['order_id'] as String)
