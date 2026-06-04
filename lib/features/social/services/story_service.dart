@@ -675,7 +675,7 @@ class StoryService {
       // Story beğenisi için özel bildirim oluştur
       await _notificationService.createNotification(
         userId: storyOwner['id'],
-        type: 'like',
+        type: 'story_like',
         title: '$actorName hikayeni beğendi',
         content: 'Hikayeni beğendi',
         actorId: actor['id'],

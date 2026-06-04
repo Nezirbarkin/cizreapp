@@ -9923,6 +9923,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         // İstatistikler
         final totalDeliveries = couriers.fold<int>(0, (sum, c) => sum + ((c['delivered_count'] as int?) ?? 0));
         final totalEarnings = couriers.fold<double>(0, (sum, c) => sum + ((c['total_earnings'] as num?)?.toDouble() ?? 0));
+        final totalPendingEarnings = couriers.fold<double>(0, (sum, c) => sum + ((c['pending_earnings'] as num?)?.toDouble() ?? 0));
 
         return RefreshIndicator(
           onRefresh: () async {
@@ -9959,13 +9960,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         color: Colors.green,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
                     Expanded(
                       child: _buildCourierStatCard(
                         icon: Icons.attach_money,
-                        title: 'Toplam Kazanç',
+                        title: 'Ödenen Kazanç',
                         value: '₺${totalEarnings.toStringAsFixed(2)}',
                         color: Colors.blue,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCourierStatCard(
+                        icon: Icons.pending_actions,
+                        title: 'Bekleyen Alacak',
+                        value: '₺${totalPendingEarnings.toStringAsFixed(2)}',
+                        color: Colors.orange,
                       ),
                     ),
                   ],
@@ -10197,6 +10211,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _buildCourierCard(Map<String, dynamic> courier) {
     final deliveredCount = (courier['delivered_count'] as int?) ?? 0;
     final totalEarnings = (courier['total_earnings'] as num?)?.toDouble() ?? 0.0;
+    final pendingEarnings = (courier['pending_earnings'] as num?)?.toDouble() ?? 0.0;
     
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -10265,10 +10280,55 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 children: [
                   _buildCourierInfoItem(Icons.check_circle, '$deliveredCount', 'Teslimat', Colors.green),
                   Container(width: 1, height: 30, color: Colors.grey.shade300),
-                  _buildCourierInfoItem(Icons.attach_money, '₺${totalEarnings.toStringAsFixed(2)}', 'Kazanç', Colors.blue),
+                  _buildCourierInfoItem(Icons.attach_money, '₺${totalEarnings.toStringAsFixed(2)}', 'Ödenen', Colors.blue),
+                  Container(width: 1, height: 30, color: Colors.grey.shade300),
+                  _buildCourierInfoItem(Icons.pending_actions, '₺${pendingEarnings.toStringAsFixed(2)}', 'Alacak', Colors.orange),
                 ],
               ),
             ),
+            if (pendingEarnings > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.account_balance_wallet, size: 16, color: Colors.orange.shade700),
+                          const SizedBox(width: 8),
+                          Text(
+                            '₺${pendingEarnings.toStringAsFixed(2)} alacak bekliyor',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _markCourierPaid(courier),
+                    icon: const Icon(Icons.check_circle, size: 16),
+                    label: const Text('Ödeme Yapıldı'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade600,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -10286,6 +10346,247 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  /// Kurye alacak bakiyesini sıfırla (geçmiş ödemeler ve siparişler korunur)
+  Future<void> _resetCourierBalance(Map<String, dynamic> courier) async {
+    final courierId = courier['id'] as String?;
+    final courierName = courier['full_name'] ?? courier['username'] ?? 'Kurye';
+    final pendingAmount = (courier['pending_earnings'] as num?)?.toDouble() ?? 0;
+    
+    if (courierId == null || pendingAmount <= 0) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kurye Alacak Sıfırlama'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.red.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$courierName - ₺${pendingAmount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Bekleyen alacak silinecek',
+                          style: TextStyle(fontSize: 12, color: Colors.red.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Bu işlem bekleyen kazançları "iptal" olarak işaretler. '
+              'Geçmiş ödemeler ve sipariş geçmişi korunur.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sıfırla'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Bekleyen kazançları "cancelled" olarak işaretle
+      await Supabase.instance.client
+          .from('courier_earnings')
+          .update({'status': 'cancelled'})
+          .eq('courier_id', courierId)
+          .eq('status', 'pending');
+
+      // Bekleyen ödeme isteklerini de "cancelled" yap
+      try {
+        await Supabase.instance.client
+            .from('courier_payout_requests')
+            .update({'status': 'cancelled'})
+            .eq('courier_id', courierId)
+            .eq('status', 'pending');
+      } catch (e) {
+        debugPrint('Ödeme isteği iptal hatası: $e');
+      }
+
+      if (mounted) {
+        setState(() {}); // Kurye listesini yenile
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$courierName alacak bakiyesi sıfırlandı (₺${pendingAmount.toStringAsFixed(2)})'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Kurye bakiye sıfırlama hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Kurye ödemesi yapıldı olarak işaretle
+  Future<void> _markCourierPaid(Map<String, dynamic> courier) async {
+    final courierId = courier['id'] as String?;
+    final courierName = courier['full_name'] ?? courier['username'] ?? 'Kurye';
+    final pendingAmount = (courier['pending_earnings'] as num?)?.toDouble() ?? 0;
+    
+    if (courierId == null) return;
+
+    // Eğer alacak yoksa, yine de ödeme kaydı oluşturabilir (manuel ödeme için)
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kurye Ödemesi'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.payments, color: Colors.green.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          courierName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '₺${pendingAmount.toStringAsFixed(2)} ödenecek',
+                          style: TextStyle(fontSize: 12, color: Colors.green.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Bu işlem:\n'
+              '• Kazançları "ödendi" olarak işaretler\n'
+              '• Kuryeye bildirim gönderir\n'
+              '• Ödeme geçmişine kayıt ekler',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Ödeme Yapıldı'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Bekleyen kazançları "paid" olarak işaretle
+      await Supabase.instance.client
+          .from('courier_earnings')
+          .update({'status': 'paid'})
+          .eq('courier_id', courierId)
+          .eq('status', 'pending');
+
+      // Bekleyen ödeme isteklerini "approved" yap
+      try {
+        await Supabase.instance.client
+            .from('courier_payout_requests')
+            .update({'status': 'approved'})
+            .eq('courier_id', courierId)
+            .eq('status', 'pending');
+      } catch (e) {
+        debugPrint('Ödeme isteği güncelleme hatası: $e');
+      }
+
+      // Kuryeye bildirim gönder
+      try {
+        await Supabase.instance.client.from('notifications').insert({
+          'user_id': courierId,
+          'type': 'courier_payout_approved',
+          'title': '💰 Ödemeniz Hesabınıza Aktarıldı!',
+          'body': '₺${pendingAmount.toStringAsFixed(2)} tutarındaki ödemeniz hesabınıza aktarıldı.',
+          'data': {
+            'type': 'courier_payout',
+            'amount': pendingAmount,
+          },
+        });
+      } catch (e) {
+        debugPrint('Kurye bildirim hatası: $e');
+      }
+
+      if (mounted) {
+        setState(() {}); // Kurye listesini yenile
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$courierName - ₺${pendingAmount.toStringAsFixed(2)} ödendi olarak işaretlendi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Kurye ödeme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _loadCouriers() async {
     try {
       final response = await Supabase.instance.client
@@ -10296,22 +10597,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       
       final couriers = List<Map<String, dynamic>>.from(response);
       
-      // Her kurye için toplam kazancı hesapla
+      // Her kurye için toplam kazancı ve bekleyen kazancı hesapla
       for (var courier in couriers) {
         try {
-          final earningsResponse = await Supabase.instance.client
+          // Ödenmiş kazançlar
+          final paidEarningsResponse = await Supabase.instance.client
               .from('courier_earnings')
               .select('amount')
               .eq('courier_id', courier['id'])
               .eq('status', 'paid');
           
-          final totalEarnings = (earningsResponse as List).fold<double>(
+          final totalPaidEarnings = (paidEarningsResponse as List).fold<double>(
             0,
             (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0),
           );
-          courier['total_earnings'] = totalEarnings;
+          courier['total_earnings'] = totalPaidEarnings;
+          
+          // Bekleyen kazançlar (alacak)
+          final pendingEarningsResponse = await Supabase.instance.client
+              .from('courier_earnings')
+              .select('amount')
+              .eq('courier_id', courier['id'])
+              .eq('status', 'pending');
+          
+          final totalPendingEarnings = (pendingEarningsResponse as List).fold<double>(
+            0,
+            (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0),
+          );
+          courier['pending_earnings'] = totalPendingEarnings;
         } catch (e) {
           courier['total_earnings'] = 0.0;
+          courier['pending_earnings'] = 0.0;
         }
       }
       
@@ -10539,11 +10855,69 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           })
           .eq('id', payoutId);
 
+      // Kuryenin bekleyen kazançlarını "paid" olarak işaretle
+      try {
+        await Supabase.instance.client
+            .from('courier_earnings')
+            .update({'status': 'paid'})
+            .eq('courier_id', payout['courier_id'])
+            .eq('status', 'pending');
+      } catch (e) {
+        debugPrint('Kurye kazanc guncelleme hatasi: $e');
+      }
+
+      // Kuryeye bildirim gonder
+      try {
+        await Supabase.instance.client.from('notifications').insert({
+          'user_id': payout['courier_id'],
+          'type': 'courier_payout_approved',
+          'title': '💰 Ödemeniz Onaylandı!',
+          'body': '₺${amount.toStringAsFixed(2)} tutarındaki ödemeniz onaylandı ve kısa süre içinde hesabınıza aktarılacaktır.',
+          'data': {
+            'payout_id': payoutId,
+            'amount': amount,
+            'type': 'courier_payout',
+          },
+        });
+
+        // Push bildirimi gonder (varsa FCM token ile)
+        final courierProfile = await Supabase.instance.client
+            .from('profiles')
+            .select('fcm_token')
+            .eq('id', payout['courier_id'])
+            .maybeSingle();
+
+        if (courierProfile?['fcm_token'] != null && (courierProfile!['fcm_token'] as String).isNotEmpty) {
+          try {
+            await Supabase.instance.client.functions.invoke('send-push-notification', body: {
+              'userId': payout['courier_id'],
+              'title': '💰 Ödemeniz Onaylandı!',
+              'body': '₺${amount.toStringAsFixed(2)} tutarındaki ödemeniz onaylandı.',
+              'data': {
+                'payout_id': payoutId,
+                'amount': amount.toString(),
+                'type': 'courier_payout',
+              },
+            });
+          } catch (e) {
+            debugPrint('Push bildirim hatasi: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('Bildirim gonderme hatasi: $e');
+      }
+
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Odeme istegi onaylandi'),
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('$courierName\'e ₺${amount.toStringAsFixed(2)} ödeme onaylandı ve bildirim gönderildi'),
+              ],
+            ),
             backgroundColor: Colors.green,
           ),
         );

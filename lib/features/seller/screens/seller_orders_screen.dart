@@ -32,6 +32,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   List<Order> _orders = [];
   String? _shopId;
   bool _hasOwnCourier = true; // Varsayılan olarak true, bilgi yüklenene kadar kurye çağırma butonu gizli
+  
+  // Kuryesi olmayan satıcının siparişlerinde müşteri bilgilerini gizleme
+  // Bu bilgiler platform kuryesi tarafından teslim edileceği için satıcı görmesin
+  bool _hideCustomerInfo = true;
 
   late TabController _tabController;
 
@@ -75,7 +79,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       final shopResponse = await _supabase
           .from('shops')
-          .select('id, has_own_courier')
+          .select('id, has_own_courier, hide_customer_info')
           .eq('owner_id', userId)
           .maybeSingle();
 
@@ -86,6 +90,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       _shopId = shopResponse['id'];
       _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? true;
+      // Kuryesi olmayan satıcıda müşteri bilgilerini gizle (admin toggle edebilir)
+      _hideCustomerInfo = shopResponse['hide_customer_info'] as bool? ?? (!_hasOwnCourier);
       await _loadOrders();
     } catch (e) {
       debugPrint('Hata: $e');
@@ -99,16 +105,17 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     setState(() => _isLoading = true);
 
     try {
-      // Kurye durumunu her yükleme sırasında güncelle
+      // Kurye durumunu ve gizleme ayarını her yükleme sırasında güncelle
       // (admin değişiklik yapmış olabilir)
       try {
         final shopData = await _supabase
             .from('shops')
-            .select('has_own_courier')
+            .select('has_own_courier, hide_customer_info')
             .eq('id', _shopId!)
             .maybeSingle();
         if (shopData != null) {
           _hasOwnCourier = shopData['has_own_courier'] as bool? ?? true;
+          _hideCustomerInfo = shopData['hide_customer_info'] as bool? ?? (!_hasOwnCourier);
         }
       } catch (e) {
         debugPrint('Kurye durumu güncellenemedi: $e');
@@ -757,47 +764,49 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         ),
                       ],
                       
-                      // Teslimat Adresi
-                      if (order.addressDisplay != null && order.addressDisplay!.isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        const Text(
-                          'Teslimat Adresi',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        const SizedBox(height: 12),
-                        InkWell(
-                          onTap: () => _openAddressInMap(order.addressDisplay!),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade100,
-                                    borderRadius: BorderRadius.circular(12),
+                      // Teslimat Adresi - kuryesi olmayan satıcıda gizli
+                      if (!_hideCustomerInfo) ...[
+                        if (order.addressDisplay != null && order.addressDisplay!.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          const Text(
+                            'Teslimat Adresi',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(height: 12),
+                          InkWell(
+                            onTap: () => _openAddressInMap(order.addressDisplay!),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(Icons.location_on, color: Colors.blue.shade700, size: 24),
                                   ),
-                                  child: Icon(Icons.location_on, color: Colors.blue.shade700, size: 24),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    order.addressDisplay!,
-                                    style: TextStyle(color: Colors.blue.shade900, fontSize: 14),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      order.addressDisplay!,
+                                      style: TextStyle(color: Colors.blue.shade900, fontSize: 14),
+                                    ),
                                   ),
-                                ),
-                                Icon(Icons.open_in_new, color: Colors.blue.shade700, size: 16),
-                              ],
+                                  Icon(Icons.open_in_new, color: Colors.blue.shade700, size: 16),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        // Müşteri Telefonu ve Ara Butonu - orders tablosundan al
+                        ],
+                        // Müşteri Telefonu ve Ara Butonu
                         if (order.customerPhone != null && order.customerPhone!.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           Container(
@@ -867,6 +876,46 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                             ),
                           ),
                         ],
+                      ] else ...[
+                        // Bilgiler gizli uyarı
+                        const SizedBox(height: 24),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.visibility_off, color: Colors.orange.shade700, size: 28),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Müşteri Bilgileri Gizli',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.orange.shade800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Bu sipariş platform kuryesi tarafından teslim edileceği için müşteri bilgileri gizlidir.',
+                                      style: TextStyle(
+                                        color: Colors.orange.shade700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
 
                       // Sipariş Notları
@@ -1150,15 +1199,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 0.5),
                           ),
                           const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(Icons.access_time, size: 14, color: Colors.grey.shade600),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${order.createdAt.day}.${order.createdAt.month}.${order.createdAt.year} ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                              ),
-                            ],
+                          Text(
+                            '${order.createdAt.day}.${order.createdAt.month}.${order.createdAt.year} ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -1181,58 +1225,82 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                 Container(height: 1, color: Colors.grey.shade200),
                 const SizedBox(height: 16),
 
-                // Müşteri Telefonu ve Adres
-                if (order.customerPhone != null && order.customerPhone!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                // Müşteri Telefonu ve Adres - kuryesi olmayan satıcıda gizli
+                if (!_hideCustomerInfo) ...[
+                  if (order.customerPhone != null && order.customerPhone!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: Icon(Icons.phone, size: 14, color: Colors.green.shade700),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              order.customerPhone!,
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.green.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  
+                  if (order.addressDisplay != null && order.addressDisplay!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Icon(Icons.location_on, size: 14, color: Colors.blue.shade700),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              order.addressDisplay!,
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.blue.shade700),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ] else ...[
+                  // Bilgiler gizli uyarı
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green.shade200),
-                          ),
-                          child: Icon(Icons.phone, size: 14, color: Colors.green.shade700),
-                        ),
+                        Icon(Icons.visibility_off, size: 16, color: Colors.orange.shade700),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            order.customerPhone!,
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.green.shade700),
+                            'Müşteri bilgileri platform kuryesi tarafından teslim edileceği için gizlidir',
+                            style: TextStyle(fontSize: 11, color: Colors.orange.shade700),
                           ),
                         ),
                       ],
                     ),
                   ),
-                
-                if (order.addressDisplay != null && order.addressDisplay!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.blue.shade200),
-                          ),
-                          child: Icon(Icons.location_on, size: 14, color: Colors.blue.shade700),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            order.addressDisplay!,
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.blue.shade700),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                ],
 
                 const SizedBox(height: 12),
                 Container(height: 1, color: Colors.grey.shade200),
@@ -1324,13 +1392,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                     const SizedBox(width: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          '₺${order.totalAmount.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF97316),
+                        FittedBox(
+                          child: Text(
+                            '₺${order.totalAmount.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFF97316),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1364,8 +1435,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         );
 
       case OrderStatus.confirmed:
-        return Row(
-          mainAxisSize: MainAxisSize.min,
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
           children: [
             _buildActionButton(
               icon: Icons.restaurant_menu,
@@ -1373,16 +1446,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
               color: const Color(0xFF8B5CF6),
               onTap: () => _updateOrderStatus(order, OrderStatus.preparing),
             ),
-            if (showCallCourierButton) ...[
-              const SizedBox(width: 8),
+            if (showCallCourierButton)
               _buildCallCourierButton(order),
-            ],
           ],
         );
 
       case OrderStatus.preparing:
-        return Row(
-          mainAxisSize: MainAxisSize.min,
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
           children: [
             _buildActionButton(
               icon: Icons.inventory_2,
@@ -1390,16 +1463,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
               color: const Color(0xFF14B8A6),
               onTap: () => _updateOrderStatus(order, OrderStatus.ready),
             ),
-            if (showCallCourierButton) ...[
-              const SizedBox(width: 8),
+            if (showCallCourierButton)
               _buildCallCourierButton(order),
-            ],
           ],
         );
 
       case OrderStatus.ready:
-        return Row(
-          mainAxisSize: MainAxisSize.min,
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
           children: [
             _buildActionButton(
               icon: Icons.two_wheeler,
@@ -1407,10 +1480,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
               color: const Color(0xFF6366F1),
               onTap: () => _updateOrderStatus(order, OrderStatus.onTheWay),
             ),
-            if (showCallCourierButton) ...[
-              const SizedBox(width: 8),
+            if (showCallCourierButton)
               _buildCallCourierButton(order),
-            ],
           ],
         );
 
@@ -1435,7 +1506,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         onTap: () => _callCourierForOrder(order),
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [Colors.orange, Colors.orange.shade700],
@@ -1471,39 +1542,108 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     );
   }
 
-  /// Kurye çağırma işlemi
+  /// Kurye çağırma işlemi - siparişi otomatik olarak kuryeye atar
   Future<void> _callCourierForOrder(Order order) async {
     try {
       final courierNotificationService = CourierNotificationService();
+      final shopName = (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan';
 
-      // Önce müsait kuryelere bildirim gönder
-      await courierNotificationService.notifyCouriersForNewOrder(
-        orderId: order.id,
-        shopId: order.shopId,
-        shopName: (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan',
-        totalAmount: order.totalAmount,
-        orderStatus: 'ready',
-      );
+      // 1. Online olan bir kurye bul (aktif siparişi olmayan)
+      final availableCouriers = await _supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url')
+          .eq('role', 'courier')
+          .eq('is_online', true)
+          .limit(10);
 
-      // Kurye ataması yap
-      await courierNotificationService.autoAssignCourierToOrder(
-        orderId: order.id,
-        shopId: order.shopId,
-        orderTotal: order.totalAmount,
-        orderStatus: order.status.name,
-      );
+      if (availableCouriers.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Şu an uygun kurye yok. Lütfen tekrar deneyin.'),
+                ],
+              ),
+              backgroundColor: Colors.orange.shade600,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      // İlk müsait kuryeyi seç (daha sonra round-robin veya başka bir yöntem eklenebilir)
+      final selectedCourier = availableCouriers.first;
+      final courierId = selectedCourier['id'] as String;
+      final courierName = selectedCourier['full_name'] ?? selectedCourier['username'] ?? 'Kurye';
+
+      // 2. Kurye ücretini al
+      final settings = await _supabase
+          .from('courier_settings')
+          .select('fee_per_delivery')
+          .order('updated_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      final fee = (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
+
+      debugPrint('📦 Sipariş atanıyor: ${order.id} → kurye: $courierId ($courierName), ücret: $fee');
+
+      // 3. Kurye ataması oluştur
+      await _supabase.from('courier_assignments').insert({
+        'order_id': order.id,
+        'courier_id': courierId,
+        'status': 'assigned',
+        'fee_amount': fee,
+        'assigned_at': DateTime.now().toIso8601String(),
+      });
+
+      // 4. Sipariş durumunu on_the_way yap
+      await _supabase.from('orders').update({
+        'status': 'on_the_way',
+        'courier_id': courierId,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', order.id);
+
+      // 5. Kuryeye özel bildirim gönder
+      await _supabase.from('notifications').insert({
+        'user_id': courierId,
+        'type': 'courier_new_order',
+        'title': '📦 Yeni Sipariş Atandı!',
+        'body': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
+        'data': {
+          'order_id': order.id,
+          'type': 'courier_assignment',
+        },
+        'is_read': false,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      // 6. Müşteriye bildirim gönder
+      try {
+        await courierNotificationService.notifyCustomerOrderAssigned(
+          customerId: order.userId,
+          orderId: order.id,
+          courierName: courierName,
+        );
+      } catch (e) {
+        debugPrint('⚠️ Müşteri bildirimi hatası: $e');
+      }
 
       if (mounted) {
+        _loadOrders(); // Sipariş listesini yenile
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Kuryelere bildirim gönderildi!'),
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Sipariş $courierName kuryesine atandı!'),
               ],
             ),
-            backgroundColor: Colors.orange.shade600,
+            backgroundColor: Colors.green.shade600,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1533,7 +1673,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [color, color.withOpacity(0.8)],
@@ -1552,14 +1692,14 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: Colors.white),
-              const SizedBox(width: 8),
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 6),
               Text(
                 label,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 13,
+                  fontSize: 12,
                 ),
               ),
             ],

@@ -35,6 +35,9 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
   Map<String, dynamic>? _shopOwner;
   bool _isLoading = true;
   
+  // Müşteri bilgilerini gizleme durumu (kuryesi olmayan satıcılar için)
+  bool _hideCustomerInfo = false;
+  
   // Kurye değişikliği logları
   List<Map<String, dynamic>> _courierChanges = [];
   
@@ -72,6 +75,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           .single();
 
       _shop = Map<String, dynamic>.from(shopResponse);
+      _hideCustomerInfo = _shop?['hide_customer_info'] as bool? ?? false;
 
       // Sahip bilgilerini al
       final ownerId = _shop!['owner_id'];
@@ -227,6 +231,69 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
             ),
           );
         }
+      }
+    }
+  }
+
+  /// Müşteri bilgilerini gizleme durumunu değiştir
+  Future<void> _toggleHideCustomerInfo() async {
+    if (_shop == null) return;
+
+    final newValue = !_hideCustomerInfo;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Müşteri Bilgilerini Gizle'),
+        content: Text(
+          newValue
+              ? 'Müşteri telefon ve adres bilgileri satıcıdan gizlenecek.\n\nBu işlem, platform kuryesi kullanılacaksa önerilir.'
+              : 'Müşteri telefon ve adres bilgileri satıcıya açık hale getirilecek.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Onayla'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _supabase
+          .from('shops')
+          .update({'hide_customer_info': newValue})
+          .eq('id', widget.shopId);
+
+      setState(() {
+        _hideCustomerInfo = newValue;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(newValue
+                ? 'Müşteri bilgileri satıcıdan gizlendi'
+                : 'Müşteri bilgileri satıcıya açıldı'),
+            backgroundColor: newValue ? Colors.orange : Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -459,6 +526,60 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
                 ),
               ],
             ),
+            
+            const SizedBox(height: 12),
+            
+            // Müşteri bilgilerini gizleme butonu (sadece kuryesi olmayan satıcılar için)
+            if (!hasCourier) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _hideCustomerInfo ? Colors.red.shade50 : Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _hideCustomerInfo ? Colors.red.shade200 : Colors.green.shade200,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _hideCustomerInfo ? Icons.visibility_off : Icons.visibility,
+                      color: _hideCustomerInfo ? Colors.red.shade700 : Colors.green.shade700,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Müşteri Bilgilerini Gizle',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _hideCustomerInfo ? Colors.red.shade800 : Colors.green.shade800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _hideCustomerInfo
+                                ? 'Satıcı müşteri tel/adres göremez'
+                                : 'Satıcı müşteri tel/adres görebilir',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _hideCustomerInfo ? Colors.red.shade600 : Colors.green.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _hideCustomerInfo,
+                      onChanged: (value) => _toggleHideCustomerInfo(),
+                      activeColor: Colors.red,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

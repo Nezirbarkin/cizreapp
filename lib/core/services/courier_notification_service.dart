@@ -361,8 +361,8 @@ class CourierNotificationService {
       await client.from('notifications').insert({
         'user_id': customerId,
         'type': 'order_update',
-        'title': 'Siparişiniz Yolda',
-        'content': 'Siparişinizi $courierName teslim edecek.',
+        'title': '🚴 Siparişiniz Yolda!',
+        'content': '$courierName siparişinizi teslim etmek için yola çıktı.',
         'data': {
           'order_id': orderId,
         },
@@ -386,8 +386,8 @@ class CourierNotificationService {
       await client.from('notifications').insert({
         'user_id': customerId,
         'type': 'order_delivered',
-        'title': 'Sipariş Teslim Edildi',
-        'content': 'Siparişiniz başarıyla teslim edildi.',
+        'title': '✅ Siparişiniz Teslim Edildi!',
+        'content': 'Siparişiniz başarıyla teslim edildi. Afiyet olsun!',
         'data': {
           'order_id': orderId,
         },

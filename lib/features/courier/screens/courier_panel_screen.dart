@@ -1252,7 +1252,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
     return RefreshIndicator(
       onRefresh: _loadOrders,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: _availableOrders.length,
         itemBuilder: (context, index) {
           final order = _availableOrders[index];
@@ -1729,7 +1729,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
     return RefreshIndicator(
       onRefresh: _loadOrders,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: _myOrders.length,
         itemBuilder: (context, index) {
           final order = _myOrders[index];
