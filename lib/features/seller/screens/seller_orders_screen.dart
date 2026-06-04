@@ -1493,6 +1493,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           onTap: () => _updateOrderStatus(order, OrderStatus.delivered),
         );
 
+      case OrderStatus.delivered:
+        // Teslim edilmiş siparişte hiçbir buton gösterme
+        return const SizedBox.shrink();
+
       default:
         return const SizedBox.shrink();
     }

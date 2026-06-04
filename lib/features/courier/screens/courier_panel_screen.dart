@@ -431,6 +431,134 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
     }
   }
 
+  /// Kurye ayarlar dialogu - isim, email, telefon güncelleme
+  void _showSettingsDialog() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final nameController = TextEditingController(text: _profile?['full_name'] ?? '');
+    final emailController = TextEditingController(text: _profile?['email'] ?? '');
+    final phoneController = TextEditingController(text: _profile?['phone'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.settings, color: Colors.teal.shade700, size: 28),
+            ),
+            const SizedBox(width: 12),
+            const Text('Kurye Ayarları'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sipariş atandığında e-posta bildirimi gönderilir',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  labelText: 'Ad Soyad',
+                  prefixIcon: const Icon(Icons.person),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'E-posta',
+                  prefixIcon: const Icon(Icons.email),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Telefon',
+                  prefixIcon: const Icon(Icons.phone),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = nameController.text.trim();
+              final newEmail = emailController.text.trim();
+              final newPhone = phoneController.text.trim();
+
+              try {
+                await Supabase.instance.client
+                    .from('profiles')
+                    .update({
+                      'full_name': newName,
+                      'phone': newPhone,
+                    })
+                    .eq('id', userId);
+
+                // Email güncelleme (auth metadata)
+                if (newEmail.isNotEmpty) {
+                  try {
+                    await Supabase.instance.client.auth.updateUser(
+                      UserAttributes(email: newEmail),
+                    );
+                  } catch (e) {
+                    debugPrint('Email güncelleme hatası: $e');
+                  }
+                }
+
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  _loadData(); // Verileri yenile
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Ayarlar güncellendi!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Hata: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -492,9 +620,22 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                             case 'refresh':
                               _loadData();
                               break;
+                            case 'settings':
+                              _showSettingsDialog();
+                              break;
                           }
                         },
                         itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'settings',
+                            child: Row(
+                              children: [
+                                Icon(Icons.settings, color: Colors.teal),
+                                SizedBox(width: 12),
+                                Text('Ayarlar'),
+                              ],
+                            ),
+                          ),
                           const PopupMenuItem(
                             value: 'normal_mode',
                             child: Row(
