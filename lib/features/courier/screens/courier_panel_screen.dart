@@ -959,7 +959,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
             const Divider(),
             _buildStepItem(Icons.home, '3', 'Teslim Et', 'Müşteriye siparişi teslim et'),
             const Divider(),
-            _buildStepItem(Icons.attach_money, '4', 'Kazanç Kazan', 'Paket başı ₺$_feePerDelivery kazan'),
+            _buildStepItem(Icons.attach_money, '4', 'Teslimat Yap', 'Teslim et, kazan!'),
           ],
         ),
       ),
@@ -2093,7 +2093,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sipariş alındı! Kazancınız: ₺${fee.toStringAsFixed(2)}'),
+            content: Text('Sipariş alındı! Teslim ettiğinizde ₺${fee.toStringAsFixed(2)} kazanacaksınız.'),
             backgroundColor: Colors.green,
           ),
         );
