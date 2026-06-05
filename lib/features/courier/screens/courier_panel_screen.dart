@@ -1300,7 +1300,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             )
           ''')
           .eq('courier_id', userId)
-          .inFilter('status', ['assigned', 'picked_up', 'delivered'])
+          .inFilter('status', ['assigned', 'picked_up', 'on_the_way', 'delivered'])
           .order('assigned_at', ascending: false);
 
       final myOrdersList = (assignments as List)
