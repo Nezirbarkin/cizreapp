@@ -1576,7 +1576,6 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   /// Kurye çağırma işlemi - siparişi otomatik olarak kuryeye atar
   Future<void> _callCourierForOrder(Order order) async {
     try {
-      final courierNotificationService = CourierNotificationService();
       final shopName = (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan';
 
       // 1. Online olan bir kurye bul (aktif siparişi olmayan)
