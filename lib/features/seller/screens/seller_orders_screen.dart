@@ -1623,7 +1623,26 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       debugPrint('📦 Sipariş atanıyor: ${order.id} → kurye: $courierId ($courierName), ücret: $fee');
 
-      // 3. Kurye ataması oluştur
+      // 3. Önce bu siparişin zaten atanmış olup olmadığını kontrol et
+      final existingAssignment = await _supabase
+          .from('courier_assignments')
+          .select('id')
+          .eq('order_id', order.id)
+          .maybeSingle();
+
+      if (existingAssignment != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bu sipariş zaten bir kuryeye atanmış'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 4. Kurye ataması oluştur
       await _supabase.from('courier_assignments').insert({
         'order_id': order.id,
         'courier_id': courierId,
