@@ -1422,17 +1422,27 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   Widget _buildStatusActions(Order order) {
     // Kuryesi olmayan satıcılar için kurye çağır butonu
     final showCallCourierButton = !_hasOwnCourier &&
-        (order.status == OrderStatus.confirmed ||
+        (order.status == OrderStatus.pending ||
+         order.status == OrderStatus.confirmed ||
          order.status == OrderStatus.preparing ||
          order.status == OrderStatus.ready);
 
     switch (order.status) {
       case OrderStatus.pending:
-        return _buildActionButton(
-          icon: Icons.check_circle,
-          label: 'Onayla',
-          color: const Color(0xFF10B981),
-          onTap: () => _updateOrderStatus(order, OrderStatus.confirmed),
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
+          children: [
+            _buildActionButton(
+              icon: Icons.check_circle,
+              label: 'Onayla',
+              color: const Color(0xFF10B981),
+              onTap: () => _updateOrderStatus(order, OrderStatus.confirmed),
+            ),
+            if (showCallCourierButton)
+              _buildCallCourierButton(order),
+          ],
         );
 
       case OrderStatus.confirmed:
