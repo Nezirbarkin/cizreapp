@@ -1635,7 +1635,6 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       // 4. Sipariş durumunu on_the_way yap
       await _supabase.from('orders').update({
         'status': 'on_the_way',
-        'courier_id': courierId,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', order.id);
 
