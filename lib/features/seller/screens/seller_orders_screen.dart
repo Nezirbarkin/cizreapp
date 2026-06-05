@@ -1671,16 +1671,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         'created_at': DateTime.now().toIso8601String(),
       });
 
-      // 6. Müşteriye bildirim gönder
-      try {
-        await courierNotificationService.notifyCustomerOrderAssigned(
-          customerId: order.userId,
-          orderId: order.id,
-          courierName: courierName,
-        );
-      } catch (e) {
-        debugPrint('⚠️ Müşteri bildirimi hatası: $e');
-      }
+      // NOT: Müşteriye "Yolda" bildirimi kurye siparişi aldığında gönderilecek
+      // (Kurye panelinde _acceptDelivery metodunda)
 
       if (mounted) {
         _loadOrders(); // Sipariş listesini yenile

@@ -1956,29 +1956,56 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             const SizedBox(height: 12),
             // Teslim edilmiş siparişlerde buton gösterme
             if (order['assignment_status'] != 'delivered') ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _navigateToAddress(order),
-                      icon: const Icon(Icons.navigation),
-                      label: const Text('Yol Tarifi'),
-                    ),
+              if (order['assignment_status'] == 'assigned') ...[
+                // Sipariş atanmış, henüz alınmamış
+                ElevatedButton.icon(
+                  onPressed: () => _acceptDelivery(order),
+                  icon: const Icon(Icons.delivery_dining),
+                  label: const Text('Siparişi Aldım'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 48),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _markAsDelivered(order),
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('Teslim Ettim'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
+                ),
+              ] else if (order['assignment_status'] == 'picked_up') ...[
+                // Sipariş alınmış, yola çıkıyor
+                ElevatedButton.icon(
+                  onPressed: () => _startDelivery(order),
+                  icon: const Icon(Icons.two_wheeler),
+                  label: const Text('Yola Çıktım'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                ),
+              ] else ...[
+                // Yolda - teslim et butonu
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _navigateToAddress(order),
+                        icon: const Icon(Icons.navigation),
+                        label: const Text('Yol Tarifi'),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _markAsDelivered(order),
+                        icon: const Icon(Icons.check_circle),
+                        label: const Text('Teslim Ettim'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ] else ...[
               // Teslim edilmiş sipariş bilgisi
               Container(
@@ -2112,6 +2139,109 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
     }
   }
 
+  /// Siparişi aldığında çağrılır - picked_up durumuna geçer
+  Future<void> _acceptDelivery(Map<String, dynamic> order) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final orderId = order['id'] as String;
+      final assignmentId = order['assignment_id'] as String?;
+
+      // Assignment durumunu picked_up yap
+      if (assignmentId != null) {
+        await Supabase.instance.client
+            .from('courier_assignments')
+            .update({'status': 'picked_up'})
+            .eq('id', assignmentId);
+      } else {
+        await Supabase.instance.client
+            .from('courier_assignments')
+            .update({'status': 'picked_up'})
+            .eq('order_id', orderId)
+            .eq('courier_id', userId);
+      }
+
+      // Müşteriye "yolda" bildirimi gönder
+      try {
+        final courierNotificationService = CourierNotificationService();
+        // notifyCustomerOrderAssigned zaten "Yolda" mesajı veriyor
+        await courierNotificationService.notifyCustomerOrderAssigned(
+          customerId: order['user_id'] ?? '',
+          orderId: orderId,
+          courierName: 'Kurye',
+        );
+      } catch (e) {
+        debugPrint('⚠️ Yolda bildirimi hatası: $e');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sipariş alındı! Müşteriye "yolda" bildirimi gönderildi.'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+        _loadOrders();
+      }
+    } catch (e) {
+      debugPrint('❌ Sipariş alınırken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Yola çıkıldığında çağrılır - on_the_way durumuna geçer
+  Future<void> _startDelivery(Map<String, dynamic> order) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final orderId = order['id'] as String;
+      final assignmentId = order['assignment_id'] as String?;
+
+      // Assignment durumunu on_the_way yap
+      if (assignmentId != null) {
+        await Supabase.instance.client
+            .from('courier_assignments')
+            .update({'status': 'on_the_way'})
+            .eq('id', assignmentId);
+      } else {
+        await Supabase.instance.client
+            .from('courier_assignments')
+            .update({'status': 'on_the_way'})
+            .eq('order_id', orderId)
+            .eq('courier_id', userId);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yola çıktınız!'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        _loadOrders();
+      }
+    } catch (e) {
+      debugPrint('❌ Yola çıkılırken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _markAsDelivered(Map<String, dynamic> order) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -2175,6 +2305,19 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       'delivered_at': DateTime.now().toIso8601String(),
     }).eq('id', orderId);
 
+    // Kurye bilgisini al
+    String courierName = 'Kurye';
+    try {
+      final courierProfile = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name, username')
+          .eq('id', userId)
+          .maybeSingle();
+      courierName = courierProfile?['full_name'] ?? courierProfile?['username'] ?? 'Kurye';
+    } catch (e) {
+      debugPrint('Kurye bilgisi alinamadi: $e');
+    }
+
     // Satıcıya bildirim gönder
     try {
       final orderData = await Supabase.instance.client
@@ -2188,13 +2331,13 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
         final sellerId = shopData?['owner_id'] as String?;
         
         if (sellerId != null) {
-          // Satıcıya bildirim
+          // Satıcıya bildirim (kurye bilgisi ile)
           await Supabase.instance.client.from('notifications').insert({
             'user_id': sellerId,
             'type': 'order_delivered',
             'title': '✅ Sipariş Teslim Edildi',
-            'content': 'Sipariş #$orderId kurye tarafından teslim edildi.',
-            'data': {'order_id': orderId, 'type': 'order_delivered'},
+            'content': 'Sipariş $courierName tarafından teslim edildi.',
+            'data': {'order_id': orderId, 'type': 'order_delivered', 'courier_name': courierName},
             'is_read': false,
             'created_at': DateTime.now().toIso8601String(),
           });
