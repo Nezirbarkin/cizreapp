@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../shop/services/order_service.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/services/courier_notification_service.dart';
+import '../../../core/services/email_service.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
 class SellerOrdersScreen extends StatefulWidget {
@@ -1581,7 +1582,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       // 1. Online olan bir kurye bul (aktif siparişi olmayan)
       final availableCouriers = await _supabase
           .from('profiles')
-          .select('id, username, full_name, avatar_url, phone')
+          .select('id, username, full_name, avatar_url, phone, email')
           .eq('role', 'courier')
           .eq('is_online', true)
           .limit(10);
@@ -1661,7 +1662,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         'user_id': courierId,
         'type': 'courier_new_order',
         'title': '📦 Yeni Sipariş Atandı!',
-        'body': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
+        'content': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
         'data': {
           'order_id': order.id,
           'type': 'courier_assignment',
@@ -1669,6 +1670,24 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         'is_read': false,
         'created_at': DateTime.now().toIso8601String(),
       });
+
+      // 6. Kuryeye email bildirimi gönder
+      try {
+        final courierEmail = selectedCourier['email'] as String?;
+        if (courierEmail != null && courierEmail.isNotEmpty) {
+          final emailService = EmailService();
+          await emailService.sendCourierNewOrderEmail(
+            courierEmail: courierEmail,
+            courierName: courierName,
+            shopName: shopName,
+            totalAmount: order.totalAmount,
+            deliveryAddress: order.addressDisplay ?? 'Belirtilmedi',
+            orderNumber: order.id.substring(0, 8),
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ Kurye email gönderme hatası: $e');
+      }
 
       // NOT: Müşteriye "Yolda" bildirimi kurye siparişi aldığında gönderilecek
       // (Kurye panelinde _acceptDelivery metodunda)

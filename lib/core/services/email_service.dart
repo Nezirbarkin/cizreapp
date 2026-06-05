@@ -293,4 +293,49 @@ class EmailService {
       return false;
     }
   }
+
+  /// Kuryeye yeni sipariş atandığında email bildirimi gönder
+  Future<bool> sendCourierNewOrderEmail({
+    required String courierEmail,
+    required String courierName,
+    required String shopName,
+    required double totalAmount,
+    required String deliveryAddress,
+    required String orderNumber,
+  }) async {
+    try {
+      if (courierEmail.isEmpty) {
+        debugPrint('⚠️ EMAIL: Kurye emaili boş, email gönderilmedi');
+        return false;
+      }
+
+      debugPrint('📧 EMAIL: Kuryeye yeni sipariş bildirimi gönderiliyor...');
+
+      final response = await _supabase.functions.invoke(
+        'send-order-email',
+        body: {
+          'type': 'new_order_courier',
+          'to': courierEmail,
+          'data': {
+            'courierName': courierName,
+            'shopName': shopName,
+            'orderNumber': orderNumber,
+            'totalAmount': totalAmount.toStringAsFixed(2),
+            'deliveryAddress': deliveryAddress,
+          },
+        },
+      );
+
+      if (response.status == 200) {
+        debugPrint('✅ EMAIL: Kurye yeni sipariş bildirimi gönderildi');
+        return true;
+      } else {
+        debugPrint('❌ EMAIL: Kurye emaili gönderilemedi - Status: ${response.status}');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ EMAIL: Kurye emaili gönderirken hata: $e');
+      return false;
+    }
+  }
 }
