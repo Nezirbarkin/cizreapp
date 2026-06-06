@@ -1518,8 +1518,30 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         );
 
       case OrderStatus.delivered:
-        // Teslim edilmiş siparişte hiçbir buton gösterme
-        return const SizedBox.shrink();
+        // Teslim edilmiş siparişte sadece teslim edildi bilgisi
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.green.shade200),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+              const SizedBox(width: 6),
+              Text(
+                'Teslim Edildi',
+                style: TextStyle(
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        );
 
       default:
         return const SizedBox.shrink();
