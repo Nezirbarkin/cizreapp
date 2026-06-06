@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use, unnecessary_underscores
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,6 +41,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   bool _hideCustomerInfo = true;
 
   late TabController _tabController;
+  Timer? _refreshTimer;
 
   final List<OrderStatus?> _statusFilters = [
     null, // Tümü
@@ -63,10 +66,18 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       }
     });
     _loadShopAndOrders();
+    
+    // Her 10 saniyede bir siparişleri otomatik yenile
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && _shopId != null) {
+        _loadOrders();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
