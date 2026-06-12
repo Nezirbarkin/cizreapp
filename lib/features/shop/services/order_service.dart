@@ -194,8 +194,8 @@ class OrderService {
         debugPrint('WARN: Siparis database\'de mevcut ama SELECT hatasi nedeniyle alinamadi');
       }
       
-      // NOT: Satıcıya bildirim artık SQL trigger tarafından gönderiliyor
-      // FIX_ORDER_NOTIFICATIONS_TURKISH.sql ile duplike önleme
+      // Satıcıya bildirim: SQL trigger kaldırıldı, Dart tarafından gönderiliyor
+      // Hem email hem push bildirimi gönderiliyor
       
       // Satıcıya "yeni sipariş" e-postası gönder (Dart tarafından doğrudan)
       try {
@@ -247,6 +247,37 @@ class OrderService {
         );
         
         debugPrint('📧 ORDER: E-posta bildirimi Dart tarafından gönderildi');
+        
+        // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
+        try {
+          // Mağaza sahibinin user ID'sini al
+          final shopOwnerResp = await _supabase
+              .from('shops')
+              .select('owner_id')
+              .eq('id', shopId)
+              .maybeSingle();
+          
+          final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
+          
+          if (shopOwnerId != null) {
+            // Satıcıya push bildirimi oluştur
+            await _notificationService.createNotification(
+              userId: shopOwnerId,
+              type: 'new_order',
+              title: 'Yeni Sipariş!',
+              content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
+              actorId: userId,
+              actorName: customerName,
+              entityId: order.id,
+            );
+            
+            debugPrint('🔔 ORDER: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
+          } else {
+            debugPrint('⚠️ ORDER: Mağaza sahibi bulunamadı, bildirim gönderilemedi');
+          }
+        } catch (notifError) {
+          debugPrint('⚠️ ORDER: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
+        }
       } catch (emailError) {
         debugPrint('⚠️ ORDER: E-posta gönderilirken hata (sipariş etkilenmez): $emailError');
       }
@@ -930,6 +961,35 @@ class OrderService {
               );
               
               debugPrint('📧 Multi-shop: Email gönderildi (Dükkan: $shopNameStr)');
+              
+              // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
+              try {
+                final shopOwnerResp = await _supabase
+                    .from('shops')
+                    .select('owner_id')
+                    .eq('id', shopId)
+                    .maybeSingle();
+                
+                final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
+                
+                if (shopOwnerId != null) {
+                  await _notificationService.createNotification(
+                    userId: shopOwnerId,
+                    type: 'new_order',
+                    title: 'Yeni Sipariş!',
+                    content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
+                    actorId: userId,
+                    actorName: customerName,
+                    entityId: order.id,
+                  );
+                  
+                  debugPrint('🔔 Multi-shop: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
+                } else {
+                  debugPrint('⚠️ Multi-shop: Mağaza sahibi bulunamadı, bildirim gönderilemedi');
+                }
+              } catch (notifError) {
+                debugPrint('⚠️ Multi-shop: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
+              }
             } catch (emailError) {
               debugPrint('⚠️ Email gönderilirken hata (sipariş etkilenmez): $emailError');
             }

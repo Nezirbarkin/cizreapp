@@ -193,7 +193,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Yeni Gönderi'),
         actions: [
@@ -399,6 +399,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 ),
               ),
             ),
+
+            // Klavye açıldığında butonun altta kalması için ekstra boşluk
+            const SizedBox(height: 80),
           ],
         ),
       ),
