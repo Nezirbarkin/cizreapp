@@ -11,6 +11,7 @@ class Post {
   final int sharesCount;
   final bool isActive;
   final bool isPinned;
+  final bool adminPinned; // Admin sabitledi (feed'de sabitlenmiş görünür)
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -27,6 +28,7 @@ class Post {
     this.sharesCount = 0,
     this.isActive = true,
     this.isPinned = false,
+    this.adminPinned = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -44,6 +46,7 @@ class Post {
     int? sharesCount,
     bool? isActive,
     bool? isPinned,
+    bool? adminPinned,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -60,6 +63,7 @@ class Post {
       sharesCount: sharesCount ?? this.sharesCount,
       isActive: isActive ?? this.isActive,
       isPinned: isPinned ?? this.isPinned,
+      adminPinned: adminPinned ?? this.adminPinned,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -79,6 +83,7 @@ class Post {
       'shares_count': sharesCount,
       'is_active': isActive,
       'is_pinned': isPinned,
+      'admin_pinned': adminPinned,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -98,6 +103,7 @@ class Post {
       sharesCount: json['shares_count'] as int? ?? 0,
       isActive: json['is_active'] as bool? ?? true,
       isPinned: json['is_pinned'] as bool? ?? false,
+      adminPinned: json['admin_pinned'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -157,6 +163,7 @@ class Story {
   final bool isViewedByCurrentUser; // Kullanıcı bu story'yi gördü mü?
   final bool isLikedByCurrentUser; // Kullanıcı bu story'yi beğendi mi?
   final bool isPinned;
+  final bool adminPinned; // Admin sabitledi (feed'de sabitlenmiş görünür)
   // Profil bilgileri - StoryService tarafından doldurulur
   final String? username;
   final String? fullName;
@@ -175,6 +182,7 @@ class Story {
     this.isViewedByCurrentUser = false,
     this.isLikedByCurrentUser = false,
     this.isPinned = false,
+    this.adminPinned = false,
     this.username,
     this.fullName,
     this.avatarUrl,
@@ -200,6 +208,7 @@ class Story {
     bool? isViewedByCurrentUser,
     bool? isLikedByCurrentUser,
     bool? isPinned,
+    bool? adminPinned,
     String? username,
     String? fullName,
     String? avatarUrl,
@@ -217,6 +226,7 @@ class Story {
       isViewedByCurrentUser: isViewedByCurrentUser ?? this.isViewedByCurrentUser,
       isLikedByCurrentUser: isLikedByCurrentUser ?? this.isLikedByCurrentUser,
       isPinned: isPinned ?? this.isPinned,
+      adminPinned: adminPinned ?? this.adminPinned,
       username: username ?? this.username,
       fullName: fullName ?? this.fullName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
@@ -255,6 +265,7 @@ class Story {
       isViewedByCurrentUser: json['is_viewed_by_current_user'] as bool? ?? false,
       isLikedByCurrentUser: json['is_liked_by_current_user'] as bool? ?? false,
       isPinned: json['is_pinned'] as bool? ?? false,
+      adminPinned: json['admin_pinned'] as bool? ?? false,
       // Profil bilgileri - varsa al
       username: json['username'] as String?,
       fullName: json['full_name'] as String?,

@@ -446,6 +446,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     final hasUnread = conversation.unreadCount > 0;
     final lastMessageByMe = conversation.lastMessageByMe;
     final lastMessageRead = conversation.lastMessageRead;
+    
+    // DEBUG: Sohbet listesi elemanı durumu logla
+    debugPrint('🟦 TILE: $fullName (${conversation.id.substring(0, 8)}...) lastMsgByMe=$lastMessageByMe lastMsgRead=$lastMessageRead unread=${conversation.unreadCount}');
 
     return InkWell(
       onTap: () async {

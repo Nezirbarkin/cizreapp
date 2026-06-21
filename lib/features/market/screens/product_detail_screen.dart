@@ -8,7 +8,9 @@ import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_review_model.dart';
 import '../../../core/providers/favorites_provider.dart';
+import '../../../core/services/order_availability_service.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/widgets/closed_shop_badge.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../services/product_service.dart';
 import '../services/shop_service.dart';
@@ -36,6 +38,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Product? _product;
   Shop? _shop;
   bool _isLoading = true;
+  bool _globalOrdersEnabled = true;
   int _selectedImageIndex = 0;
   int _quantity = 1;
   bool _isFavorite = false;
@@ -78,10 +81,19 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       
       // Ürün görüntülemeyi kaydet
       _analyticsService.recordProductView(widget.productId, product.shopId);
-      final shop = await _shopService.getShopById(product.shopId);
+
+      // Global sipariş alımı + dükkan bilgisi paralel yükle
+      final results = await Future.wait([
+        _shopService.getShopById(product.shopId),
+        OrderAvailabilityService.fetchGlobalOrdersEnabled(),
+      ]);
+      final shop = results[0] as Shop?;
+      final globalEnabled = results[1] as bool;
+
       setState(() {
         _product = product;
         _shop = shop;
+        _globalOrdersEnabled = globalEnabled;
         _isLoading = false;
       });
 
@@ -244,8 +256,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
+  // Sipariş alınabilirlik: global kapatma veya dükkan geçici kapalıysa false.
+  bool get _isOrderable {
+    if (!_globalOrdersEnabled) return false;
+    if (_shop != null && !_shop!.isAcceptingOrders) return false;
+    return true;
+  }
+
   bool get _canAddToCart {
     if (_product == null) return false;
+
+    // Önce sipariş durumu (global + dükkan)
+    if (!_isOrderable) return false;
     
     // Varyantlı ürün için seçim kontrolü
     if (_product!.hasVariants) {
@@ -264,6 +286,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   String get _cartButtonText {
     if (_product == null) return 'Sepete Ekle';
+
+    // Sipariş durumu mesajları en yüksek öncelikli
+    if (!_globalOrdersEnabled) return 'Siparişler Kapalı';
+    if (_shop != null && !_shop!.isAcceptingOrders) return 'Geçici Kapalı';
     
     if (!_product!.inStock) return 'Tükendi';
     
@@ -278,7 +304,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Future<void> _addToCart() async {
-    if (!_canAddToCart) return;
+    if (!_canAddToCart) {
+      // Buton pasif olsa bile kullanıcı geri bildirimi için uyarı göster.
+      if (mounted) {
+        final msg = OrderAvailabilityService.closedMessage(
+          globalEnabled: _globalOrdersEnabled,
+          shopAcceptingOrders: _shop?.isAcceptingOrders ?? true,
+        );
+        if (msg != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: Colors.orange),
+          );
+        }
+      }
+      return;
+    }
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
@@ -568,8 +608,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       // Shop Info (Tappable)
                       if (_shop != null) ...[
                         _buildShopInfo(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 12),
                       ],
+
+                      // Geçici Kapalı / Global Kapalı banner
+                      if (!_globalOrdersEnabled)
+                        ClosedShopBanner(global: true)
+                      else if (_shop != null && !_shop!.isAcceptingOrders)
+                        const ClosedShopBanner(),
+                      const SizedBox(height: 16),
 
                       // Quantity Selector
                       _buildQuantitySelector(product),

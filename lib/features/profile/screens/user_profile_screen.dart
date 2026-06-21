@@ -1657,6 +1657,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
             
             return GestureDetector(
               onTap: () => _navigateToPostDetail(post),
+              onDoubleTap: () {
+                _showLikeAnimation(context);
+                if (!_likedPostIds.contains(post.id)) {
+                  _toggleLike(post);
+                }
+              },
               child: Container(
                 color: Colors.grey.shade200,
                 child: firstImage != null
@@ -1673,20 +1679,35 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                               );
                             },
                           ),
+                          // Çoklu görsel göstergesi
                           if (post.images.length > 1)
                             Positioned(
                               top: 6,
                               right: 6,
                               child: Container(
-                                padding: const EdgeInsets.all(3),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                 decoration: BoxDecoration(
                                   color: Colors.black.withOpacity(0.6),
-                                  borderRadius: BorderRadius.circular(4),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(
-                                  Icons.photo_library,
-                                  color: Colors.white,
-                                  size: 14,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.photo_library,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '1/${post.images.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1828,20 +1849,65 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                     if (firstImage != null)
                       GestureDetector(
                         onTap: () => _navigateToPostDetail(post),
-                        child: ClipRRect(
-                          child: Image.network(
-                            firstImage,
-                            width: double.infinity,
-                            height: 350,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                height: 200,
-                                color: Colors.grey.shade100,
-                                child: const Icon(Icons.error_outline, size: 48),
-                              );
-                            },
-                          ),
+                        onDoubleTap: () {
+                          _showLikeAnimation(context);
+                          if (!_likedPostIds.contains(post.id)) {
+                            _toggleLike(post);
+                          }
+                        },
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: post.images.length > 1
+                                  ? const BorderRadius.vertical(top: Radius.circular(16))
+                                  : BorderRadius.zero,
+                              child: Image.network(
+                                firstImage,
+                                width: double.infinity,
+                                height: 350,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 200,
+                                    color: Colors.grey.shade100,
+                                    child: const Icon(Icons.error_outline, size: 48),
+                                  );
+                                },
+                              ),
+                            ),
+                            // Çoklu görsel göstergesi
+                            if (post.images.length > 1)
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.photo_library,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${post.images.length} fotoğraf',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     // İçerik
@@ -2892,5 +2958,141 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
         );
       }
     }
+  }
+
+  /// Instagram tarzı animasyonlu kalp efekti göster
+  void _showLikeAnimation(BuildContext context) {
+    final overlay = Overlay.of(context);
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final size = renderBox.size;
+    
+    // Kalp ikonu overlay'i oluştur
+    final entry = OverlayEntry(
+      builder: (context) => HeartAnimationOverlay(
+        key: UniqueKey(),
+        parentSize: size,
+      ),
+    );
+
+    overlay.insert(entry);
+    
+    // 1.5 saniye sonra overlay'i kaldır
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      entry.remove();
+    });
+  }
+}
+
+/// Instagram tarzı animasyonlu kalp efekti widget'ı
+class HeartAnimationOverlay extends StatefulWidget {
+  final Size parentSize;
+
+  const HeartAnimationOverlay({
+    super.key,
+    required this.parentSize,
+  });
+
+  @override
+  State<HeartAnimationOverlay> createState() => _HeartAnimationOverlayState();
+}
+
+class _HeartAnimationOverlayState extends State<HeartAnimationOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    // Ölçek animasyonu: 0 -> 1.2 -> 1.0
+    _scaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.3)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.3, end: 1.0)
+            .chain(CurveTween(curve: Curves.elasticOut)),
+        weight: 70,
+      ),
+    ]).animate(_controller);
+
+    // Opaklık animasyonu: 1 -> 0
+    _opacityAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.0),
+        weight: 20,
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween(1.0),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 30,
+      ),
+    ]).animate(_controller);
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _scaleAnimation.value,
+                child: Opacity(
+                  opacity: _opacityAnimation.value,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.favorite,
+                        color: Colors.red,
+                        size: 60,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 }

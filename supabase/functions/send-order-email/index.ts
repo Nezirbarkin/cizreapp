@@ -27,13 +27,14 @@ interface DirectRequest {
   type: string;
   to: string;
   data: {
-    orderId: string;
-    orderNumber: string;
-    shopName: string;
-    customerName: string;
-    deliveryAddress: string;
-    totalAmount: string;
-    orderItems: string[];
+    orderId?: string;
+    orderNumber?: string;
+    shopName?: string;
+    customerName?: string;
+    deliveryAddress?: string;
+    totalAmount?: string;
+    orderItems?: string[];
+    courierName?: string;
   };
 }
 
@@ -160,6 +161,70 @@ function createOrderEmailHtml(
   `;
 }
 
+// Kuryeye yeni sipariş atandığında email içeriği oluştur
+function createCourierOrderEmailHtml(
+  courierName: string,
+  shopName: string,
+  orderNumber: string,
+  total: string,
+  deliveryAddress: string
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Yeni Sipariş Size Atandı!</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: linear-gradient(135deg, #10B981 0%, #34D399 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0; text-align: center;">📦 Yeni Sipariş Size Atandı!</h1>
+        <p style="color: rgba(255,255,255,0.9); text-align: center; margin: 10px 0 0;">Merhaba ${courierName}, yeni bir teslimat sizi bekliyor!</p>
+      </div>
+      
+      <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #eee; border-top: none;">
+        <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h2 style="color: #10B981; margin-top: 0;">🚴 Teslimat Detayları</h2>
+          
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>Sipariş No:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">#${orderNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>Mağaza:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${shopName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>Sipariş Tutarı:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">₺${total}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>Teslimat Adresi:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${deliveryAddress}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="background: #10B981; color: white; padding: 20px; border-radius: 8px; text-align: center;">
+          <h2 style="margin: 0;">📋 Hemen Siparişi Alın</h2>
+          <p style="margin: 10px 0 0;">Uygulamanızdan siparişi görüntüleyin ve müşteriye en kısa sürede teslim edin.</p>
+        </div>
+
+        <p style="text-align: center; color: #666; margin-top: 20px; font-size: 14px;">
+          💡 İpucu: Siparişi aldığınızda ve teslim ettiğinizde uygulama üzerinden bildirimler alacaksınız.
+        </p>
+      </div>
+
+      <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+        © ${new Date().getFullYear()} CizreApp. Tüm hakları saklıdır.
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -173,6 +238,35 @@ serve(async (req) => {
     if (body.type && body.to && body.data) {
       const directReq = body as DirectRequest;
       console.log(`📧 Direct mode - Processing ${directReq.type} email to ${directReq.to}`);
+      
+      // Kurye emaili için özel işlem
+      if (directReq.type === 'new_order_courier') {
+        const { courierName, shopName, orderNumber, totalAmount, deliveryAddress } = directReq.data;
+        
+        const html = createCourierOrderEmailHtml(
+          courierName || 'Kurye',
+          shopName || 'Mağaza',
+          orderNumber || directReq.data.orderId || 'N/A',
+          totalAmount || '0.00',
+          deliveryAddress || 'Adres belirtilmemiş'
+        );
+        
+        const subject = `📦 Yeni Sipariş Size Atandı! - #${orderNumber || directReq.data.orderId}`;
+        const success = await sendEmail(directReq.to, subject, html);
+        
+        return new Response(
+          JSON.stringify({
+            success,
+            message: success ? "Kurye emaili gönderildi" : "Email gönderilemedi",
+            mode: "direct",
+            type: directReq.type,
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: success ? 200 : 500,
+          }
+        );
+      }
       
       const { orderId, orderNumber, shopName, customerName, deliveryAddress, totalAmount, orderItems } = directReq.data;
       
@@ -188,15 +282,15 @@ serve(async (req) => {
         orderItems || []
       );
       
-      const subject = recipientType === 'admin' 
+      const subject = recipientType === 'admin'
         ? `🛒 Yeni Sipariş: ${shopName} - #${orderNumber}`
         : `🎉 Yeni Sipariş: #${orderNumber}`;
       
       const success = await sendEmail(directReq.to, subject, html);
       
       return new Response(
-        JSON.stringify({ 
-          success, 
+        JSON.stringify({
+          success,
           message: success ? "Email sent successfully" : "Email sending failed",
           mode: "direct",
           type: directReq.type,

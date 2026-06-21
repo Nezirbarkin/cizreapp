@@ -16,6 +16,9 @@ import '../../market/services/product_service.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/privacy_service.dart';
+import '../../../core/services/order_availability_service.dart';
+import '../../../core/widgets/closed_shop_badge.dart';
+import '../../market/services/shop_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 
 class MainScreen extends StatefulWidget {
@@ -442,12 +445,17 @@ class ProductsScreen extends StatefulWidget {
 
 class _ProductsScreenState extends State<ProductsScreen> {
   final ProductService _productService = ProductService();
+  final ShopService _shopService = ShopService();
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
   bool _isLoading = true;
   String _searchQuery = '';
   final Set<String> _addingToCart = {};
-  
+
+  // Sipariş alınabilirlik durumu
+  bool _globalOrdersEnabled = true;
+  final Map<String, bool> _shopAcceptingOrders = {};
+
   // Filtreleme seçenekleri
   String _sortBy = 'newest'; // newest, price_asc, price_desc
   String? _selectedCategory;
@@ -458,12 +466,46 @@ class _ProductsScreenState extends State<ProductsScreen> {
   void initState() {
     super.initState();
     _loadProducts();
+    _loadGlobalOrdersEnabled();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cartProvider = context.read<CartProvider>();
       if (cartProvider.userId.isNotEmpty) {
         cartProvider.loadCart();
       }
     });
+  }
+
+  Future<void> _loadGlobalOrdersEnabled() async {
+    final enabled = await OrderAvailabilityService.fetchGlobalOrdersEnabled();
+    if (mounted) setState(() => _globalOrdersEnabled = enabled);
+  }
+
+  // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
+  // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
+  Future<void> _loadShopAcceptingOrdersForProducts(List<Product> products) async {
+    final shopIds = products
+        .map((p) => p.shopId)
+        .where((id) => !_shopAcceptingOrders.containsKey(id))
+        .toSet();
+    if (shopIds.isEmpty) return;
+
+    await Future.wait(shopIds.map((shopId) async {
+      try {
+        final shop = await _shopService.getShopById(shopId);
+        final accepting = shop?.isAcceptingOrders ?? true;
+        if (mounted) setState(() => _shopAcceptingOrders[shopId] = accepting);
+      } catch (_) {
+        if (mounted) setState(() => _shopAcceptingOrders[shopId] = true);
+      }
+    }));
+  }
+
+  // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
+  bool _isProductOrderable(Product product) {
+    if (!_globalOrdersEnabled) return false;
+    final accepting = _shopAcceptingOrders[product.shopId];
+    if (accepting == false) return false;
+    return true;
   }
 
   void _applyFilters() {
@@ -507,6 +549,24 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Future<void> _addToCart(Product product) async {
+    // Sipariş alınabilirlik kontrolü (global + dükkan durumu)
+    if (!_isProductOrderable(product)) {
+      if (mounted) {
+        final accepting = _shopAcceptingOrders[product.shopId] ?? true;
+        final msg = OrderAvailabilityService.closedMessage(
+          globalEnabled: _globalOrdersEnabled,
+          shopAcceptingOrders: accepting,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg ?? OrderAvailabilityService.shopClosedMessage),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
@@ -585,6 +645,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _applyFilters();
         _isLoading = false;
       });
+      // Ürünlerin dükkanlarının sipariş alma durumunu arka planda yükle
+      _loadShopAcceptingOrdersForProducts(products);
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -751,6 +813,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final isInStock = product.inStock;
     final inCart = cartProvider.getProductQuantityFromCache(product.id) > 0;
     final cartQuantity = cartProvider.getProductQuantityFromCache(product.id);
+    final isOrderable = _isProductOrderable(product);
+    final closedBadge = !isOrderable
+        ? ClosedShopBadge(global: !_globalOrdersEnabled)
+        : null;
 
     return GestureDetector(
       onTap: () {
@@ -846,6 +912,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         ),
                       ),
                     ),
+                  // Geçici Kapalı rozeti - üst sağ
+                  if (closedBadge != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: closedBadge,
+                    ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -934,13 +1007,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     height: 30,
                     child: !inCart
                         ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock)
+                            onPressed: (isAdding || !isInStock || !isOrderable)
                                 ? null
                                 : () => _addToCart(product),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
                               backgroundColor: theme.colorScheme.primary,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.grey.shade300,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -955,9 +1029,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
-                                    'Sepete Ekle',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                : Text(
+                                    !isOrderable
+                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
+                                        : 'Sepete Ekle',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                           )
                         : Container(
@@ -998,7 +1074,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: isInStock
+                                  onTap: (isInStock && isOrderable)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(

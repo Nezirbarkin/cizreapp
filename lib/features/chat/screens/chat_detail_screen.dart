@@ -39,6 +39,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   String? _currentUserId; // Cache current user ID
   bool _isAtBottom = true; // Kullanıcı en altta mı?
   DateTime? _lastReadTime; // Son okundu işaretleme zamanı (debounce)
+  
+  // Yanıt özelliği için
+  Message? _replyToMessage;
+  final FocusNode _messageFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -84,8 +88,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
+    _messageFocusNode.dispose();
     _messagesChannel?.unsubscribe();
     super.dispose();
+  }
+  
+  /// Yanıtlanacak mesajı ayarla
+  void _setReply(Message message) {
+    setState(() {
+      _replyToMessage = message;
+    });
+    _messageFocusNode.requestFocus();
+  }
+  
+  /// Yanıtı iptal et
+  void _cancelReply() {
+    setState(() {
+      _replyToMessage = null;
+    });
   }
 
   Future<void> _loadMessages() async {
@@ -106,11 +126,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       widget.conversationId,
       (messages) {
         if (mounted) {
-          // Sadece mesaj listesi değiştiyse setState çağır
+          // DÜZELTME: Önceki kontrol sadece mesaj sayısını ve son ID'yi kontrol ediyordu,
+          // bu yüzden is_read değişse bile UI güncellenmiyordu. Artık içerik (ID + is_read)
+          // bazında karşılaştırma yapıyoruz.
           bool hasChanged = _messages.length != messages.length;
-          if (!hasChanged && _messages.isNotEmpty && messages.isNotEmpty) {
-            // Son mesajın ID'sini kontrol et
-            hasChanged = _messages.last.id != messages.last.id;
+          if (!hasChanged) {
+            // Her mesajı karşılaştır: ID ve is_read
+            for (int i = 0; i < _messages.length && i < messages.length; i++) {
+              if (_messages[i].id != messages[i].id ||
+                  _messages[i].isRead != messages[i].isRead) {
+                hasChanged = true;
+                break;
+              }
+            }
           }
           if (!hasChanged) return; // Değişiklik yoksa gereksiz rebuild'i önle
           
@@ -165,16 +193,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     setState(() => _isSending = true);
     _messageController.clear();
 
+    // Yanıt bilgilerini al
+    final replyToId = _replyToMessage?.id;
+    final replyToContent = _replyToMessage?.content;
+    final replyToSenderName = _replyToMessage?.senderId == _currentUserId
+        ? 'Sen'
+        : widget.otherUserName;
+
     // Optimistic: Geçici mesaj ekle
-    final tempMessage = Message.createTemp(
+    final tempMessage = Message(
+      id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
       conversationId: widget.conversationId,
       senderId: _currentUserId!,
       content: content,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      isSending: true,
+      replyToId: replyToId,
+      replyToContent: replyToContent,
+      replyToSenderName: replyToSenderName,
     );
 
     setState(() {
       _messages.add(tempMessage);
       _pendingMessages[tempMessage.id] = false; // Failed değil
+      _replyToMessage = null; // Yanıtı temizle
     });
     _scrollToBottom();
 
@@ -182,6 +225,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     final message = await _chatService.sendMessage(
       conversationId: widget.conversationId,
       content: content,
+      replyToId: replyToId,
+      replyToContent: replyToContent,
+      replyToSenderName: replyToSenderName,
     );
 
     if (mounted) {
@@ -295,46 +341,58 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                   ),
                 ],
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _messageController,
-                        decoration: const InputDecoration(
-                          hintText: 'Mesaj yazın...',
-                          border: InputBorder.none,
-                        ),
-                        maxLines: null,
-                        textCapitalization: TextCapitalization.sentences,
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.deepPurple,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: _isSending
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                  // Yanıt gösterimi
+                  if (_replyToMessage != null) _buildReplyPreview(),
+                  
+                  // Mesaj gönderme alanı
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: TextField(
+                              controller: _messageController,
+                              focusNode: _messageFocusNode,
+                              decoration: const InputDecoration(
+                                hintText: 'Mesaj yazın...',
+                                border: InputBorder.none,
                               ),
-                            )
-                          : const Icon(Icons.send, color: Colors.white),
-                      onPressed: _isSending ? null : _sendMessage,
+                              maxLines: null,
+                              textCapitalization: TextCapitalization.sentences,
+                              onSubmitted: (_) => _sendMessage(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.deepPurple,
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            icon: _isSending
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.send, color: Colors.white),
+                            onPressed: _isSending ? null : _sendMessage,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -464,6 +522,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Widget _buildMessageBubble(Message message, bool isMe) {
+    // DEBUG: Okundu durumu detaylı log
+    debugPrint('🔵 _buildMessageBubble: isMe=$isMe isRead=${message.isRead} messageStatus=${message.messageStatus} senderId=${message.senderId.substring(0, 8)}...');
+    
     // PERFORMANCE: TimeOfDay yerine direkt hesaplama (daha hafif)
     final turkeyTime = message.createdAt.toUtc().add(const Duration(hours: 3));
     final timeString = '${turkeyTime.hour.toString().padLeft(2, '0')}:${turkeyTime.minute.toString().padLeft(2, '0')}';
@@ -479,66 +540,174 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     final bubbleColor = isMe ? Colors.deepPurple : Colors.white;
     final textColor = isMe ? Colors.white : Colors.grey[900]!;
     final timeColor = isMe ? Colors.white70 : Colors.grey[600]!;
+    
+    // Yanıt gösterimi için
+    final hasReply = message.replyToId != null;
 
+    // Sağa kaydırarak yanıtla - Dismissible yerine GestureDetector ile swipe
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: screenWidth * 0.75,
-        ),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+      child: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          // Sola doğru hızlı kaydırma = yanıtla
+          if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
+            _setReply(message);
+          }
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          constraints: BoxConstraints(
+            maxWidth: screenWidth * 0.75,
           ),
-          boxShadow: const [
-            BoxShadow(
-              offset: Offset(0, 1),
-              blurRadius: 2,
-              color: Color(0x1A000000), // Siyah %10 opacity (withOpacity yerine)
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
+              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
             ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              message.content,
-              style: TextStyle(
-                fontSize: 15,
-                color: textColor,
+            boxShadow: const [
+              BoxShadow(
+                offset: Offset(0, 1),
+                blurRadius: 2,
+                color: Color(0x1A000000), // Siyah %10 opacity (withOpacity yerine)
               ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  timeString,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: timeColor,
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Yanıt gösterimi (varsa)
+              if (hasReply) ...[
+                Container(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: isMe ? Colors.white54 : Colors.deepPurple.shade300,
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          message.replyToSenderName ?? 'Yanıt',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isMe ? Colors.white70 : Colors.deepPurple,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          message.replyToContent ?? '',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isMe ? Colors.white60 : Colors.grey[700],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                if (isMe) ...[
-                  const SizedBox(width: 4),
-                  _buildMessageStatusIcon(message.messageStatus, isMe: isMe),
+              ],
+              Text(
+                message.content,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    timeString,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: timeColor,
+                    ),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    _buildMessageStatusIcon(message.messageStatus, isMe: isMe),
+                  ],
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// Yanıt önizlemesi göster
+  Widget _buildReplyPreview() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        border: Border(
+          left: BorderSide(
+            color: Colors.deepPurple.shade300,
+            width: 3,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _replyToMessage?.senderId == _currentUserId
+                      ? 'Kendinize yanıt'
+                      : 'Yanıt',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple.shade300,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _replyToMessage?.content ?? '',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
-          ],
-        ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, color: Colors.grey[600], size: 20),
+            onPressed: _cancelReply,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
       ),
     );
   }
 
   /// WhatsApp benzeri mesaj durumu ikonu
   Widget _buildMessageStatusIcon(String status, {required bool isMe}) {
+    // DEBUG: Okundu durumu logla
+    debugPrint('🔔 _buildMessageStatusIcon: status=$status isMe=$isMe');
+    
     switch (status) {
       case 'failed':
         return const Icon(

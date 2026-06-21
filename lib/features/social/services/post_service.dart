@@ -43,13 +43,24 @@ class PostService {
   /// Network'ten feed verilerini çek (cache'ten bağımsız)
   Future<List<Post>> _fetchFeedFromNetwork({required int limit, required int offset}) async {
     try {
+      // Feed'de sadece admin sabitlediği gönderiler üstte gösterilir
+      // Kullanıcının kendi sabitlediği gönderiler normal olarak tarihe göre sıralanır
       final response = await _supabase
           .from('posts')
           .select()
           .eq('is_active', true)
-          .order('is_pinned', ascending: false)
+          .order('admin_pinned', ascending: false, nullsFirst: false)
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
+      
+      // Debug: Sabitlenmiş gönderileri logla
+      for (var post in response) {
+        final isAdminPinned = post['admin_pinned'] == true;
+        final isPinned = post['is_pinned'] == true;
+        if (isAdminPinned || isPinned) {
+          debugPrint('📌 FEED DEBUG: id=${post['id']}, admin_pinned=$isAdminPinned, is_pinned=$isPinned, user_id=${post['user_id']}');
+        }
+      }
 
       // ✅ PERFORMANS: Posts tablosunda likes_count ve comments_count zaten mevcut
       final posts = (response as List).map((json) => Post.fromJson(json)).toList();

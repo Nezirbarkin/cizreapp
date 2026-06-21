@@ -15,9 +15,14 @@ import '../../../core/models/daily_deal_model.dart';
 import '../../../core/widgets/story_card.dart';
 import '../../../core/widgets/html_iframe_widget.dart';
 import '../../../core/widgets/floating_message_button.dart';
+import '../../../core/widgets/floating_ai_chat_button.dart';
 import '../../../core/widgets/settings_sidebar.dart';
+import '../../ai_chat/screens/ai_chat_meta_screen.dart';
+import '../../ai_chat/screens/ai_chat_list_screen.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/order_availability_service.dart';
+import '../../../core/widgets/closed_shop_badge.dart';
 // ignore: duplicate_import
 import '../../../core/models/daily_deal_model.dart';
 import '../services/category_service.dart';
@@ -351,7 +356,40 @@ class _MarketScreenState extends State<MarketScreen> {
     }
   }
 
+  // Dükkan ID -> Shop haritası. Ürünlerin sipariş alınabilirliğini
+  // hızlıca kontrol etmek için _shops listesinden türetilir.
+  Map<String, Shop> get _shopsById =>
+      {for (final s in _shops) s.id: s};
+
+  // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
+  // Global kapatma veya dükkan geçici kapalıysa false.
+  bool _isProductOrderable(Product product) {
+    if (!_globalOrdersEnabled) return false;
+    final shop = _shopsById[product.shopId];
+    if (shop != null && !shop.isAcceptingOrders) return false;
+    return true;
+  }
+
   Future<void> _addToCart(Product product) async {
+    // Sipariş alınabilirlik kontrolü (global + dükkan durumu)
+    final orderable = _isProductOrderable(product);
+    if (!orderable) {
+      if (mounted) {
+        final shop = _shopsById[product.shopId];
+        final msg = OrderAvailabilityService.closedMessage(
+          globalEnabled: _globalOrdersEnabled,
+          shopAcceptingOrders: shop?.isAcceptingOrders ?? true,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg ?? OrderAvailabilityService.shopClosedMessage),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
@@ -590,6 +628,23 @@ class _MarketScreenState extends State<MarketScreen> {
                   builder: (context) => const ChatListScreen(),
                 ),
               ).then((_) => _loadChatUnreadCount());
+            },
+          ),
+          // Animasyonlu yapay zeka sohbet butonu (mesaj butonunun üstünde)
+          FloatingAIChatButton(
+            show: true,
+            onTap: () {
+              final currentUser = Supabase.instance.client.auth.currentUser;
+              if (currentUser == null) {
+                Navigator.pushNamed(context, '/login');
+                return;
+              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AIMetaScreen(conversationId: null),
+                ),
+              );
             },
           ),
         ],
@@ -1567,6 +1622,10 @@ class _MarketScreenState extends State<MarketScreen> {
   Widget _buildDiscountedProductCard(Product product) {
     final isAdding = _addingToCart.contains(product.id);
     final isInStock = product.inStock;
+    final isOrderable = _isProductOrderable(product);
+    final closedBadge = !isOrderable
+        ? ClosedShopBadge(global: !_globalOrdersEnabled)
+        : null;
     final theme = Theme.of(context);
     
     int cartQuantity;
@@ -1651,6 +1710,13 @@ class _MarketScreenState extends State<MarketScreen> {
                           ),
                         ),
                       ),
+                    ),
+                  // Geçici Kapalı rozeti - üst sağ
+                  if (closedBadge != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: closedBadge,
                     ),
                   // Stokta yok overlay
                   if (!isInStock)
@@ -1739,13 +1805,14 @@ class _MarketScreenState extends State<MarketScreen> {
                     height: 30,
                     child: !inCart
                         ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock)
+                            onPressed: (isAdding || !isInStock || !isOrderable)
                                 ? null
                                 : () => _addToCart(product),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
                               backgroundColor: theme.colorScheme.primary,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.grey.shade300,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -1760,9 +1827,11 @@ class _MarketScreenState extends State<MarketScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
-                                    'Sepete Ekle',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                : Text(
+                                    !isOrderable
+                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
+                                        : 'Sepete Ekle',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                           )
                         : Container(
@@ -1803,7 +1872,7 @@ class _MarketScreenState extends State<MarketScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: isInStock
+                                  onTap: (isInStock && isOrderable)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(

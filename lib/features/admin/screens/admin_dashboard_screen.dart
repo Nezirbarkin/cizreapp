@@ -19,8 +19,10 @@ import '../widgets/reports_content.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
 import '../widgets/daily_deals_content.dart';
+import 'ai_management_screen.dart';
 import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
+import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -516,6 +518,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.auto_awesome_rounded,
+                    title: 'Yapay Zeka Yönetimi',
+                    isSelected: _selectedMenu == 'Yapay Zeka Yönetimi',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Yapay Zeka Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.api_rounded,
                     title: 'API Ayarları',
                     isSelected: _selectedMenu == 'API Ayarları',
@@ -670,6 +681,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const DailyDealsContent();
       case 'Analitik':
         return _buildAnalyticsContent();
+      case 'Yapay Zeka Yönetimi':
+        return const AIManagementScreen();
       case 'API Ayarları':
         return _buildAPISettingsContent();
       case 'Ayarlar':
@@ -2014,7 +2027,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     itemCount: stories.length,
                     itemBuilder: (context, index) {
                       final story = stories[index];
-                      final isStoryPinned = story['is_pinned'] == true;
+                      // Hikayeler için hem is_pinned hem admin_pinned kontrol et
+                      final isStoryPinned = story['is_pinned'] == true || story['admin_pinned'] == true;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         elevation: isStoryPinned ? 3 : 1,
@@ -3245,6 +3259,186 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              
+              // Kurye Teslim Bilgisi - Kurye atanmış siparişlerde her zaman gösterilir.
+              // Teslim edilen siparişlerde kurye adı + telefon + teslim zamanı gösterilir.
+              Builder(
+                builder: (context) {
+                  final courierInfo = order['courier_info'] as Map<String, dynamic>?;
+                  if (courierInfo == null) {
+                    final hasOwnCourier = shop?['has_own_courier'] as bool? ?? false;
+                    // Teslim edildi ama kurye atanmamış: kendi kuryesi olan satıcı kendi
+                    // teslim etmiş olabilir. Kuryesi olmayan satıcı için bekleyen durum.
+                    if (status == 'delivered' && hasOwnCourier) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.storefront, size: 14, color: Colors.green.shade700),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Satıcı tarafından teslim edildi',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    if (!hasOwnCourier && status != 'delivered' && status != 'cancelled') {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.local_shipping, size: 14, color: Colors.grey.shade600),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Platform Kuryesi Atanacak',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }
+
+                  final courierName = courierInfo['courier_name'] as String? ?? 'Bilinmeyen';
+                  final courierPhone = courierInfo['courier_phone'] as String? ?? '';
+                  final courierStatus = courierInfo['status'] as String? ?? 'pending';
+                  final deliveredAt = courierInfo['delivered_at'] as String?;
+
+                  Color statusColor;
+                  IconData statusIcon;
+                  String statusText;
+
+                  switch (courierStatus) {
+                    case 'delivered':
+                      statusColor = Colors.green;
+                      statusIcon = Icons.check_circle;
+                      statusText = 'Kurye Teslim Etti';
+                      break;
+                    case 'on_the_way':
+                      statusColor = Colors.blue;
+                      statusIcon = Icons.delivery_dining;
+                      statusText = 'Kuryede (Yolda)';
+                      break;
+                    case 'picked_up':
+                      statusColor = Colors.teal;
+                      statusIcon = Icons.inventory_2;
+                      statusText = 'Kurye Teslim Aldı';
+                      break;
+                    case 'accepted':
+                      statusColor = Colors.orange;
+                      statusIcon = Icons.check;
+                      statusText = 'Kurye Kabul Etti';
+                      break;
+                    default:
+                      statusColor = Colors.grey;
+                      statusIcon = Icons.hourglass_empty;
+                      statusText = 'Kurye Atandı';
+                  }
+
+                  // Teslim edildiğinde kurye adı + telefon + teslim zamanı gösterilir.
+                  final isDelivered = courierStatus == 'delivered';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: statusColor.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(statusIcon, size: 14, color: statusColor),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                courierName,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: statusColor,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: statusColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isDelivered) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.phone, size: 12, color: statusColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                courierPhone.isNotEmpty ? courierPhone : 'Telefon yok',
+                                style: TextStyle(fontSize: 11, color: statusColor),
+                              ),
+                              const SizedBox(width: 12),
+                              Icon(Icons.access_time, size: 12, color: statusColor),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  deliveredAt != null
+                                      ? _formatDate(deliveredAt)
+                                      : 'Zaman bilinmiyor',
+                                  style: TextStyle(fontSize: 11, color: statusColor),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
               
               // Ürün Görselleri ve Bilgileri
               Builder(
@@ -4925,9 +5119,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .from('shops')
           .select('owner_id');
       
-      final shopOwnerIds = shopsResponse
-          .map((shop) => shop['owner_id'] as String)
-          .toSet();
+      // Null ve duplicate kontrolü ile owner ID'lerini al
+      final shopOwnerIds = <String>{};
+      for (final shop in shopsResponse) {
+        final ownerId = shop['owner_id'] as String?;
+        if (ownerId != null && ownerId.isNotEmpty) {
+          shopOwnerIds.add(ownerId);
+        }
+      }
       
       // Tüm kullanıcıları al
       final usersResponse = await Supabase.instance.client
@@ -4935,9 +5134,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .select('id, username, full_name, email, role')
           .order('created_at', ascending: false);
       
-      // Dükkanı olmayanları filtrele
+      // Yinelenenleri filtrele ve dükkanı olmayanları al
+      final seenIds = <String>{};
       final usersWithoutShop = List<Map<String, dynamic>>.from(usersResponse)
-          .where((user) => !shopOwnerIds.contains(user['id']))
+          .where((user) {
+            final userId = user['id'] as String;
+            // Yinelenen ID'leri atla
+            if (seenIds.contains(userId)) return false;
+            seenIds.add(userId);
+            // Zaten dükkanı olanları atla
+            return !shopOwnerIds.contains(userId);
+          })
           .toList();
       
       debugPrint('✅ Dükkanı olmayan ${usersWithoutShop.length} kullanıcı bulundu');
@@ -4952,11 +5159,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<List<Map<String, dynamic>>> _loadUsers() async {
     try {
       debugPrint('🔍 Kullanıcılar yükleniyor...');
+      
+      // profiles tablosundan tüm kullanıcıları al
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('id, username, full_name, email, role, avatar_url, created_at')
-          .order('created_at', ascending: false)
-          .limit(50);
+          .select('*')
+          .order('created_at', ascending: false);
       
       debugPrint('✅ Kullanıcı sorgusu başarılı. Dönen veri tipi: ${response.runtimeType}');
       debugPrint('📊 Veri içeriği: $response');
@@ -4996,7 +5204,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _togglePin(String table, String id, bool pin) async {
     try {
-      debugPrint('📌 Sabitleme işlemi: $table, $id -> $pin');
+      debugPrint('📌 SABİTLEME BAŞLADI: table=$table, id=$id, pin=$pin');
+      
+      // Önce mevcut durumu oku
+      try {
+        final currentData = await Supabase.instance.client
+            .from(table)
+            .select('is_pinned, admin_pinned')
+            .eq('id', id)
+            .maybeSingle();
+        debugPrint('📌 MEVCUT DURUM: is_pinned=${currentData?['is_pinned']}, admin_pinned=${currentData?['admin_pinned']}');
+      } catch (e) {
+        debugPrint('⚠️ Mevcut durum okunamadı: $e');
+      }
       
       // RPC fonksiyonu adını belirle
       String rpcFunction = 'admin_pin_$table';
@@ -5013,21 +5233,51 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       // Önce RPC ile dene
       bool pinned = false;
       try {
+        // Doğru parametre adını belirle: stories -> story_id, posts -> post_id
+        String paramIdName = '${table.substring(0, table.length - 1)}_id';
+        // stories -> story_id (duzeltme), posts -> post_id
+        if (table == 'stories') paramIdName = 'story_id';
+        debugPrint('📌 RPC çağrılıyor: $rpcFunction, params: $paramIdName=$id, pinned=$pin');
         final rpcResponse = await Supabase.instance.client.rpc(
           rpcFunction,
           params: {
-            '${table.substring(0, table.length - 1)}_id': id,
+            paramIdName: id,
             'pinned': pin,
           },
         );
         debugPrint('✅ RPC sabitleme yanıtı: $rpcResponse');
         pinned = true;
+        
+        // RPC başarılı olsa bile ek olarak admin_pinned sütununu güncelle
+        // Stories için de admin_pinned güncellemesi yapmalıyız!
+        if (table == 'posts' || table == 'stories') {
+          try {
+            debugPrint('📌 Ek admin_pinned güncellemesi yapılıyor: $pin');
+            final updateResponse = await Supabase.instance.client
+                .from(table)
+                .update({'admin_pinned': pin})
+                .eq('id', id)
+                .select();
+            debugPrint('✅ Ek admin_pinned güncellemesi yapıldı: $pin, yanıt: $updateResponse');
+          } catch (e) {
+            debugPrint('⚠️ admin_pinned güncelleme hatası (yoksayıldı): $e');
+          }
+        }
       } catch (rpcError) {
         debugPrint('⚠️ RPC hatası (fonksiyon yok olabilir), doğrudan güncelleme deneniyor: $rpcError');
         // RPC başarısız olursa doğrudan güncelle
+        // Stories ve Posts tablosu hem is_pinned hem admin_pinned kullanır
+        final Map<String, dynamic> updates;
+        if (table == 'stories' || table == 'posts') {
+          // Her iki kolonu da güncelle (sabitleme durumunu senkronize tut)
+          updates = {'is_pinned': pin, 'admin_pinned': pin};
+        } else {
+          updates = {'admin_pinned': pin};
+        }
+        
         final response = await Supabase.instance.client
             .from(table)
-            .update({'is_pinned': pin})
+            .update(updates)
             .eq('id', id)
             .select();
             
@@ -5362,15 +5612,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<List<Map<String, dynamic>>> _loadStories() async {
     try {
+      debugPrint('📌 _loadStories() çağrıldı');
       final response = await Supabase.instance.client
           .from('stories')
           .select('*, profiles(id, username, full_name, avatar_url)')
-          .order('is_pinned', ascending: false)
+          .order('admin_pinned', ascending: false, nullsFirst: false)
+          .order('is_pinned', ascending: false, nullsFirst: false)
           .order('created_at', ascending: false)
           .limit(50);
-      return List<Map<String, dynamic>>.from(response);
+      
+      final stories = List<Map<String, dynamic>>.from(response);
+      
+      // İlk 5 hikayenin sabitleme durumunu logla
+      debugPrint('📌 Yüklenen hikayeler: ${stories.length} adet');
+      for (int i = 0; i < 5 && i < stories.length; i++) {
+        final s = stories[i];
+        debugPrint('📌  Hikayeler[$i]: id=${s['id']}, is_pinned=${s['is_pinned']}, admin_pinned=${s['admin_pinned']}');
+      }
+      
+      return stories;
     } catch (e) {
-      debugPrint('Hikayeler yüklenirken hata: $e');
+      debugPrint('❌ Hikayeler yüklenirken hata: $e');
       return [];
     }
   }
@@ -6190,6 +6452,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     try {
       debugPrint('🔍 Dükkanlar detaylı bilgilerle yükleniyor...');
       
+      // Dükkanları al (foreign key join yerine ayrı sorgu ile profile bilgisi çekeceğiz)
       final response = await Supabase.instance.client
           .from('shops')
           .select('''
@@ -6213,16 +6476,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             total_collected_cash,
             total_paid,
             cash_payment_revenue,
-            online_payment_revenue,
-            profiles!shops_owner_id_fkey(id, email, username, full_name)
+            online_payment_revenue
           ''')
           .order('is_pinned', ascending: false)
           .order('name', ascending: true);
       
       final shops = List<Map<String, dynamic>>.from(response);
       
-      // Her dükkan için ürün sayısını ve kazanç toplamını hesapla
+      // Her dükkan için profile bilgisini ayrı sorgu ile al
       for (var shop in shops) {
+        final ownerId = shop['owner_id'] as String?;
+        if (ownerId != null) {
+          try {
+            final ownerResponse = await Supabase.instance.client
+                .from('profiles')
+                .select('id, email, username, full_name')
+                .eq('id', ownerId)
+                .maybeSingle();
+            
+            if (ownerResponse != null) {
+              shop['profiles'] = ownerResponse;
+            }
+          } catch (e) {
+            debugPrint('⚠️ Profile yüklenemedi (owner_id: $ownerId): $e');
+          }
+        }
+        
         try {
           // Ürün sayısı
           final productsCount = await Supabase.instance.client
@@ -6603,8 +6882,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final descriptionController = TextEditingController(text: shop['description'] ?? '');
     final commissionController = TextEditingController(text: shop['commission_rate']?.toString() ?? '10.0');
     final deliveryFeeController = TextEditingController(text: shop['delivery_fee']?.toString() ?? '0');
-    String? selectedOwnerId = shop['owner_id'];
+    final String shopOwnerId = shop['owner_id'] ?? '';
+    String? selectedOwnerId;
     bool hasOwnCourier = shop['has_own_courier'] ?? false;
+    // Mevcut sahip bilgilerini önceden al
+    final String shopOwnerName = shop['profiles']?['full_name'] ?? shop['profiles']?['username'] ?? '';
 
     showDialog(
       context: context,
@@ -6618,6 +6900,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           }
 
           final users = snapshot.data ?? [];
+          
+          // Owner ID'nin listede olup olmadığını kontrol et
+          // Yinelenen ID'leri filtrele ve seçili değeri ayarla
+          final seenIds = <String>{};
+          final uniqueUsers = users.where((user) {
+            final id = user['id'] as String;
+            if (seenIds.contains(id)) return false;
+            seenIds.add(id);
+            return true;
+          }).toList();
+          
+          // Mevcut sahip listede yoksa, listeye ekle
+          if (shopOwnerId.isNotEmpty && !uniqueUsers.any((u) => u['id'] == shopOwnerId)) {
+            uniqueUsers.insert(0, {
+              'id': shopOwnerId,
+              'full_name': shopOwnerName.isNotEmpty ? shopOwnerName : 'Mevcut Sahip',
+              'username': shopOwnerName.isNotEmpty ? shopOwnerName : 'mevcut_sahip',
+              'email': shop['profiles']?['email'] ?? '',
+            });
+          }
+          
+          // Seçili owner'ı listede bul
+          if (shopOwnerId.isNotEmpty && uniqueUsers.any((u) => u['id'] == shopOwnerId)) {
+            selectedOwnerId = shopOwnerId;
+          } else if (uniqueUsers.isNotEmpty) {
+            selectedOwnerId = uniqueUsers.first['id'] as String;
+          }
 
           return StatefulBuilder(
             builder: (context, setDialogState) => AlertDialog(
@@ -6699,7 +7008,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.person),
                         ),
-                        items: users.map((user) {
+                        items: uniqueUsers.map((user) {
                           return DropdownMenuItem(
                             value: user['id'] as String,
                             child: Text(user['full_name'] ?? user['username'] ?? '-'),
@@ -7947,7 +8256,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .select('''
             *,
             profiles!orders_user_id_fkey(id, username, full_name, email, avatar_url, phone),
-            shops(id, name, owner_id, commission_rate),
+            shops(id, name, owner_id, commission_rate, has_own_courier),
             order_items(id, product_id, product_name, product_image_url, price, quantity)
           ''');
       
@@ -7966,6 +8275,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final orders = List<Map<String, dynamic>>.from(response);
       debugPrint('✅ ${orders.length} sipariş yüklendi');
       
+      // Kurye bilgilerini toplu olarak çek
+      final orderIds = orders.map((o) => o['id'] as String).toList();
+      Map<String, Map<String, dynamic>> courierInfoMap = {};
+      
+      if (orderIds.isNotEmpty) {
+        try {
+          final courierAssignments = await Supabase.instance.client
+              .from('courier_assignments')
+              .select('''
+                id, order_id, status, picked_up_at, delivered_at,
+                courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
+              ''')
+              .inFilter('order_id', orderIds);
+
+          for (var assignment in courierAssignments) {
+            final orderId = assignment['order_id'] as String;
+            courierInfoMap[orderId] = {
+              'courier_name': assignment['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
+              'courier_phone': assignment['courier']?['phone'] ?? '',
+              'status': assignment['status'] ?? 'pending',
+              'picked_up_at': assignment['picked_up_at'],
+              'delivered_at': assignment['delivered_at'],
+            };
+          }
+        } catch (e) {
+          debugPrint('⚠️ Kurye bilgileri yüklenemedi: $e');
+        }
+
+        // Fallback: courier_assignments kaydı olmayan teslim edilmiş siparişler
+        // için orders tablosundaki delivered_courier_* alanlarını kullan.
+        try {
+          final ordersFallback = await Supabase.instance.client
+              .from('orders')
+              .select('id, delivered_courier_name, delivered_courier_phone, delivered_at, status')
+              .inFilter('id', orderIds);
+          for (var row in ordersFallback) {
+            final orderId = row['id'] as String;
+            if (courierInfoMap.containsKey(orderId)) continue;
+            final courierName = row['delivered_courier_name'] as String?;
+            if (courierName == null || courierName.isEmpty) continue;
+            final status = (row['status'] as String?) ?? '';
+            courierInfoMap[orderId] = {
+              'courier_name': courierName,
+              'courier_phone': (row['delivered_courier_phone'] as String?) ?? '',
+              'status': status == 'delivered' ? 'delivered' : 'pending',
+              'picked_up_at': null,
+              'delivered_at': row['delivered_at'],
+            };
+          }
+        } catch (e) {
+          // Sütunlar eklenmemiş olabilir (migration çalıştırılmamış); sessizce geç.
+          debugPrint('orders.delivered_courier_* fallback yüklenemedi (sütun eksik olabilir): $e');
+        }
+      }
+      
       // Her sipariş için kazanç hesaplaması yap ve adres alanını düzelt
       for (var order in orders) {
         final totalAmount = (order['total'] as num?)?.toDouble() ?? 0.0;
@@ -7982,6 +8346,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         // delivery_address_text varsa address_display'e kopyala
         if (order['delivery_address_text'] != null && order['address_display'] == null) {
           order['address_display'] = order['delivery_address_text'];
+        }
+        
+        // Kurye bilgisini ekle
+        final orderId = order['id'] as String;
+        if (courierInfoMap.containsKey(orderId)) {
+          order['courier_info'] = courierInfoMap[orderId];
         }
       }
       
@@ -11422,7 +11792,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void _showSupportTicketDetailDialog(Map<String, dynamic> ticket) {
     showDialog(
       context: context,
-      builder: (context) => _AdminTicketDetailDialog(
+      builder: (context) => AdminTicketDetailDialog(
         ticket: ticket,
         onUpdate: () {
           _loadSupportTickets();
@@ -14918,501 +15288,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             child: const Text('Kaydet'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// Admin Destek Talebi Detay Dialog Widget
-class _AdminTicketDetailDialog extends StatefulWidget {
-  final Map<String, dynamic> ticket;
-  final VoidCallback onUpdate;
-
-  const _AdminTicketDetailDialog({
-    required this.ticket,
-    required this.onUpdate,
-  });
-
-  @override
-  State<_AdminTicketDetailDialog> createState() => _AdminTicketDetailDialogState();
-}
-
-class _AdminTicketDetailDialogState extends State<_AdminTicketDetailDialog> {
-  final TextEditingController _messageController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  
-  List<Map<String, dynamic>> _messages = [];
-  bool _isLoading = true;
-  String _selectedStatus = 'open';
-  RealtimeChannel? _messagesChannel;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedStatus = widget.ticket['status'] ?? 'open';
-    _loadMessages();
-    _setupRealtimeSubscription();
-  }
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    _scrollController.dispose();
-    _messagesChannel?.unsubscribe();
-    super.dispose();
-  }
-
-  void _setupRealtimeSubscription() {
-    final ticketId = widget.ticket['id'].toString();
-    _messagesChannel = Supabase.instance.client
-        .channel('admin_ticket_messages_$ticketId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'support_ticket_messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'ticket_id',
-            value: ticketId,
-          ),
-          callback: (payload) {
-            final newMessage = payload.newRecord;
-            setState(() {
-              _messages.add(newMessage);
-            });
-            _scrollToBottom();
-          },
-        )
-        .subscribe();
-  }
-
-  Future<void> _loadMessages() async {
-    setState(() => _isLoading = true);
-    try {
-      final ticketId = widget.ticket['id'].toString();
-      final response = await Supabase.instance.client
-          .from('support_ticket_messages')
-          .select()
-          .eq('ticket_id', ticketId)
-          .order('created_at', ascending: true);
-      
-      setState(() {
-        _messages = List<Map<String, dynamic>>.from(response);
-        _isLoading = false;
-      });
-      _scrollToBottom();
-    } catch (e) {
-      debugPrint('Mesajlar yüklenirken hata: $e');
-      setState(() => _isLoading = false);
-    }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'open':
-        return Colors.red;
-      case 'in_progress':
-        return Colors.orange;
-      case 'resolved':
-        return Colors.green;
-      case 'closed':
-        return Colors.grey;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'open':
-        return 'Açık';
-      case 'in_progress':
-        return 'İşleniyor';
-      case 'resolved':
-        return 'Çözüldü';
-      case 'closed':
-        return 'Kapalı';
-      default:
-        return 'Bilinmiyor';
-    }
-  }
-
-  String _formatDate(String? dateString) {
-    if (dateString == null) return '-';
-    try {
-      final date = DateTime.parse(dateString);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-      
-      if (difference.inMinutes < 1) {
-        return 'Az önce';
-      } else if (difference.inHours < 1) {
-        return '${difference.inMinutes} dakika önce';
-      } else if (difference.inDays < 1) {
-        return '${difference.inHours} saat önce';
-      } else if (difference.inDays < 7) {
-        return '${difference.inDays} gün önce';
-      } else {
-        return '${date.day}/${date.month}/${date.year}';
-      }
-    } catch (e) {
-      return '-';
-    }
-  }
-
-  Future<void> _sendMessage() async {
-    if (_messageController.text.trim().isEmpty) return;
-    
-    final message = _messageController.text.trim();
-    _messageController.clear();
-    
-    try {
-      final ticketId = widget.ticket['id'].toString();
-      final adminId = Supabase.instance.client.auth.currentUser?.id;
-      
-      await Supabase.instance.client
-          .from('support_ticket_messages')
-          .insert({
-            'ticket_id': ticketId,
-            'sender_id': adminId,
-            'sender_type': 'admin',
-            'message': message,
-          });
-      
-      // Kullanıcıya bildirim gönder
-      if (widget.ticket['user_id'] != null) {
-        final shortMessage = message.length > 50
-            ? '${message.substring(0, 50)}...'
-            : message;
-        
-        await Supabase.instance.client.from('notifications').insert({
-          'user_id': widget.ticket['user_id'],
-          'type': 'support_response',
-          'title': 'Destek Talebinize Yanıt Geldi',
-          'content': 'Destek talebinize admin yanıt verdi: $shortMessage',
-          'entity_id': widget.ticket['id'].toString(),
-          'is_read': false,
-        });
-      }
-    } catch (e) {
-      debugPrint('Mesaj gönderilirken hata: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _updateStatus(String newStatus) async {
-    try {
-      await Supabase.instance.client
-          .from('support_tickets')
-          .update({'status': newStatus, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', widget.ticket['id']);
-      
-      setState(() {
-        _selectedStatus = newStatus;
-      });
-      
-      // Kullanıcıya bildirim gönder
-      if (widget.ticket['user_id'] != null) {
-        await Supabase.instance.client.from('notifications').insert({
-          'user_id': widget.ticket['user_id'],
-          'type': 'support_status',
-          'title': 'Destek Talebi Durumu Güncellendi',
-          'content': 'Destek talebinizin durumu "${_getStatusText(newStatus)}" olarak güncellendi.',
-          'entity_id': widget.ticket['id'].toString(),
-          'is_read': false,
-        });
-      }
-      
-      widget.onUpdate();
-    } catch (e) {
-      debugPrint('Durum güncellenirken hata: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 600,
-        height: 700,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Header
-            Row(
-              children: [
-                const Icon(Icons.support_agent, size: 28, color: Colors.purple),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.ticket['subject'] ?? 'Destek Talebi',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        '#${widget.ticket['id']}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(_selectedStatus).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _getStatusColor(_selectedStatus),
-                      width: 1,
-                    ),
-                  ),
-                  child: DropdownButton<String>(
-                    value: _selectedStatus,
-                    style: TextStyle(
-                      color: _getStatusColor(_selectedStatus),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    underline: const SizedBox.shrink(),
-                    icon: Icon(
-                      Icons.arrow_drop_down,
-                      color: _getStatusColor(_selectedStatus),
-                      size: 20,
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'open', child: Text('Açık')),
-                      DropdownMenuItem(value: 'in_progress', child: Text('İşleniyor')),
-                      DropdownMenuItem(value: 'resolved', child: Text('Çözüldü')),
-                      DropdownMenuItem(value: 'closed', child: Text('Kapalı')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null && value != _selectedStatus) {
-                        _updateStatus(value);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            
-            const Divider(height: 24),
-            
-            // User Info
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.person, size: 20, color: Colors.grey),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.ticket['user_email'] ?? 'Bilinmeyen Kullanıcı',
-                      style: const TextStyle(fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _formatDate(widget.ticket['created_at']),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Messages List
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.chat_bubble_outline,
-                                   size: 48,
-                                   color: Colors.grey.shade400),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Henüz mesaj yok',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'İlk mesajı gönderin',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _messages.length,
-                          itemBuilder: (context, index) {
-                            final message = _messages[index];
-                            final isAdmin = message['sender_type'] == 'admin';
-                            
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                crossAxisAlignment: isAdmin
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (!isAdmin) ...[
-                                        const Icon(Icons.person,
-                                                  size: 14,
-                                                  color: Colors.grey),
-                                        const SizedBox(width: 4),
-                                      ],
-                                      Text(
-                                        isAdmin ? 'Admin' : 'Kullanıcı',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: isAdmin
-                                              ? Colors.purple
-                                              : Colors.grey.shade600,
-                                        ),
-                                      ),
-                                      if (isAdmin) ...[
-                                        const SizedBox(width: 4),
-                                        const Icon(Icons.support_agent,
-                                                  size: 14,
-                                                  color: Colors.purple),
-                                      ],
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        _formatDate(message['created_at']),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 300,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isAdmin
-                                          ? Colors.purple.shade100
-                                          : Colors.grey.shade200,
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Text(
-                                      message['message'] ?? '',
-                                      style: const TextStyle(fontSize: 14),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-            ),
-            
-            const Divider(),
-            
-            // Message Input
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: 'Mesajınızı yazın...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: const BorderSide(color: Colors.purple, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey.shade50,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                    ),
-                    maxLines: null,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.purple,
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    onPressed: _sendMessage,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

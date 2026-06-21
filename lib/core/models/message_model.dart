@@ -15,6 +15,11 @@ class Message {
   final bool isFailed;
   final bool isSending;
   
+  // Yanıt (reply) özelliği için
+  final String? replyToId;
+  final String? replyToContent;
+  final String? replyToSenderName;
+  
   // Gönderi paylaşımı için ekstra alanlar (content içinden parse edilir)
   String? sharedPostId;
   String? sharedPostContent;
@@ -31,6 +36,9 @@ class Message {
     required this.updatedAt,
     this.isFailed = false,
     this.isSending = false,
+    this.replyToId,
+    this.replyToContent,
+    this.replyToSenderName,
     this.sharedPostId,
     this.sharedPostContent,
     this.sharedPostImageUrl,
@@ -87,6 +95,9 @@ class Message {
       isRead: map['is_read'] as bool? ?? false,
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
+      replyToId: map['reply_to_id'] as String?,
+      replyToContent: map['reply_to_content'] as String?,
+      replyToSenderName: map['reply_to_sender_name'] as String?,
       sharedPostId: sharedPostId,
       sharedPostContent: sharedPostContent,
       sharedPostImageUrl: sharedPostImageUrl,
@@ -107,6 +118,9 @@ class Message {
     DateTime? updatedAt,
     bool? isFailed,
     bool? isSending,
+    String? replyToId,
+    String? replyToContent,
+    String? replyToSenderName,
     String? sharedPostId,
     String? sharedPostContent,
     String? sharedPostImageUrl,
@@ -122,6 +136,9 @@ class Message {
       updatedAt: updatedAt ?? this.updatedAt,
       isFailed: isFailed ?? this.isFailed,
       isSending: isSending ?? this.isSending,
+      replyToId: replyToId ?? this.replyToId,
+      replyToContent: replyToContent ?? this.replyToContent,
+      replyToSenderName: replyToSenderName ?? this.replyToSenderName,
       sharedPostId: sharedPostId ?? this.sharedPostId,
       sharedPostContent: sharedPostContent ?? this.sharedPostContent,
       sharedPostImageUrl: sharedPostImageUrl ?? this.sharedPostImageUrl,

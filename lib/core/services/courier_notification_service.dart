@@ -374,7 +374,9 @@ class CourierNotificationService {
     }
   }
 
-  /// Sipariş teslim edildiğinde müşteriye bildirim
+  /// Sipariş teslim edildiğinde müşteriye TEK teslim bildirimi gönderir.
+  /// Değerlendirme hatırlatması PendingReviewChecker tarafından ayrıca yapılır,
+  /// bu yüzden burada ikinci bir bildirim oluşturulmaz (çift bildirim engeli).
   Future<void> notifyCustomerOrderDelivered({
     required String customerId,
     required String orderId,
@@ -386,16 +388,18 @@ class CourierNotificationService {
       await client.from('notifications').insert({
         'user_id': customerId,
         'type': 'order_delivered',
-        'title': '✅ Siparişiniz Teslim Edildi!',
-        'content': 'Siparişiniz başarıyla teslim edildi. Afiyet olsun!',
+        'title': 'Sipariş Teslim Edildi',
+        'content': 'Satıcıyı ve ürünü değerlendirmek için tıklayın.',
         'data': {
           'order_id': orderId,
+          'type': 'order_delivered',
         },
         'is_read': false,
         'created_at': DateTime.now().toIso8601String(),
       });
+      debugPrint('✅ Teslim bildirimi gönderildi: orderId=$orderId');
     } catch (e) {
-      debugPrint('❌ Teslimat bildirimi hatası: $e');
+      debugPrint('❌ Teslim bildirimi hatası: $e');
     }
   }
 }

@@ -55,7 +55,7 @@ class NotificationService {
       final seenOrderKeys = <String>{};
       
       for (var notification in notifications) {
-        final isOrderRelated = ['order_status', 'order_update', 'new_order', 'review_request', 'review_pending', 'courier_new_order']
+        final isOrderRelated = ['order_status', 'order_update', 'order_delivered', 'new_order', 'review_request', 'review_pending', 'courier_new_order']
             .contains(notification.type);
         
         if (isOrderRelated && notification.entityId != null) {

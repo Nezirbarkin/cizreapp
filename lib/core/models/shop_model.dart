@@ -87,7 +87,12 @@ class Shop {
 
   // Türkiye saatine göre (UTC+3) dükkan açık mı hesapla
   bool get isOpen {
-    // Eğer çalışma saatleri tanımlı değilse manuel değeri kullan
+    // 1) Manuel olarak kapatılmışsa her zaman kapalı (en yüksek öncelik).
+    // Satıcı dükkan ayarlarında "kapalı" yaptıysa saatler ne olursa olsun kapalıdır.
+    if (!_isOpenManual) {
+      return false;
+    }
+    // 2) Çalışma saati tanımlı değilse manuel açıklık (burada true) geçerli.
     if (workingHours == null || workingHours!.isEmpty) {
       return _isOpenManual;
     }
@@ -167,6 +172,8 @@ class Shop {
 
   // Bugünün çalışma saatlerini al
   String? get todayWorkingHours {
+    // Manuel kapalıysa kullanıcıya net "Kapalı" bilgisi göster.
+    if (!_isOpenManual) return 'Kapalı';
     if (workingHours == null || workingHours!.isEmpty) return null;
     
     final now = DateTime.now().toUtc().add(const Duration(hours: 3));

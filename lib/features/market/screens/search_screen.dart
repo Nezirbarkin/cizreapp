@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/category_model.dart';
+import '../../../core/services/order_availability_service.dart';
+import '../../../core/widgets/closed_shop_badge.dart';
 import '../services/shop_service.dart';
 import '../services/product_service.dart';
 import '../services/category_service.dart';
@@ -40,7 +42,14 @@ class _SearchScreenState extends State<SearchScreen> {
   List<Map<String, dynamic>> _userResults = [];
   bool _isSearching = false;
   int _selectedTabIndex = 0; // 0: Tümü, 1: Dükkanlar, 2: Ürünler, 3: Kategoriler, 4: Kişiler
-  
+
+  // Sipariş alınabilirlik durumu: global flag + ürünlerin dükkan durumu cache
+  bool _globalOrdersEnabled = true;
+  // shopId -> isAcceptingOrders (ürünlerin dükkanları için lazy yüklü)
+  final Map<String, bool> _shopAcceptingOrders = {};
+  // Bilinmeyen shopId'ler için yükleme devam ediyor mu
+  final Set<String> _loadingShopIds = {};
+
   final Set<String> _addingToCart = {};
   final Map<String, int> _cartQuantities = {};
 
@@ -97,6 +106,24 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _addToCart(Product product) async {
+    // Sipariş alınabilirlik kontrolü (global + dükkan durumu)
+    if (!_isProductOrderable(product)) {
+      if (mounted) {
+        final accepting = _shopAcceptingOrders[product.shopId] ?? true;
+        final msg = OrderAvailabilityService.closedMessage(
+          globalEnabled: _globalOrdersEnabled,
+          shopAcceptingOrders: accepting,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg ?? OrderAvailabilityService.shopClosedMessage),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
@@ -220,12 +247,64 @@ class _SearchScreenState extends State<SearchScreen> {
           _userResults = results[3] as List<Map<String, dynamic>>;
           _isSearching = false;
         });
+
+        // Global sipariş flag'ını ve ürünlerin dükkan durumlarını paralel yükle
+        _loadGlobalOrdersEnabled();
+        _loadShopAcceptingOrdersForProducts(_productResults);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSearching = false);
       }
     }
+  }
+
+  Future<void> _loadGlobalOrdersEnabled() async {
+    final enabled = await OrderAvailabilityService.fetchGlobalOrdersEnabled();
+    if (mounted) setState(() => _globalOrdersEnabled = enabled);
+  }
+
+  // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
+  // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
+  Future<void> _loadShopAcceptingOrdersForProducts(List<Product> products) async {
+    final shopIds = products
+        .map((p) => p.shopId)
+        .where((id) => !_shopAcceptingOrders.containsKey(id) && !_loadingShopIds.contains(id))
+        .toSet();
+
+    if (shopIds.isEmpty) return;
+
+    setState(() => _loadingShopIds.addAll(shopIds));
+
+    await Future.wait(shopIds.map((shopId) async {
+      try {
+        final shop = await _shopService.getShopById(shopId);
+        final accepting = shop?.isAcceptingOrders ?? true;
+        if (mounted) {
+          setState(() {
+            _shopAcceptingOrders[shopId] = accepting;
+            _loadingShopIds.remove(shopId);
+          });
+        }
+      } catch (_) {
+        // Hata durumunda dükkan açık varsay (müşteriyi yanlış engelleme)
+        if (mounted) {
+          setState(() {
+            _shopAcceptingOrders[shopId] = true;
+            _loadingShopIds.remove(shopId);
+          });
+        }
+      }
+    }));
+  }
+
+  // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
+  bool _isProductOrderable(Product product) {
+    if (!_globalOrdersEnabled) return false;
+    final accepting = _shopAcceptingOrders[product.shopId];
+    // Henüz yüklenmediyse açık varsay (yükleme tamamlanınca UI yenilenir)
+    if (accepting == false) return false;
+    return true;
   }
 
   int get _totalResults => _shopResults.length + _productResults.length + _categoryResults.length + _userResults.length;
@@ -582,7 +661,11 @@ class _SearchScreenState extends State<SearchScreen> {
     final theme = Theme.of(context);
     final isInStock = product.inStock;
     final isAdding = _addingToCart.contains(product.id);
-    
+    final isOrderable = _isProductOrderable(product);
+    final closedBadge = !isOrderable
+        ? ClosedShopBadge(global: !_globalOrdersEnabled)
+        : null;
+
     int cartQuantity;
     bool inCart;
     try {
@@ -687,6 +770,13 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       ),
                     ),
+                  // Geçici Kapalı rozeti - üst sağ
+                  if (closedBadge != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: closedBadge,
+                    ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -774,13 +864,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     height: 30,
                     child: !inCart
                         ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock)
+                            onPressed: (isAdding || !isInStock || !isOrderable)
                                 ? null
                                 : () => _addToCart(product),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
                               backgroundColor: theme.colorScheme.primary,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.grey.shade300,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -795,9 +886,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
-                                    'Sepete Ekle',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                : Text(
+                                    !isOrderable
+                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
+                                        : 'Sepete Ekle',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                           )
                         : Container(
@@ -838,7 +931,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: isInStock
+                                  onTap: (isInStock && isOrderable)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(

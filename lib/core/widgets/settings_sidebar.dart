@@ -39,7 +39,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
 
   // Gizlilik & Durum
   final PrivacyService _privacyService = PrivacyService();
-  bool _isOnline = true;
+  // Kullanıcının çevrimiçi GÖRÜNME TERCİHİ (kalıcı). is_online_enabled sütunu.
+  // UI toggle'ı bu değeri gösterir/günceller; app lifecycle bu tercihe saygı duyar.
+  bool _isOnlineEnabled = true;
   bool _isGhostMode = false;
   bool _isLoadingPrivacy = false;
 
@@ -140,11 +142,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
 
   Future<void> _loadPrivacySettings() async {
     try {
-      final isOnline = await _privacyService.getOnlineStatus();
+      // Tercihi (is_online_enabled) gösteriyoruz; gerçek anlık durumu değil.
+      // Çünkü kullanıcı "çevrimiçi görünmek istiyor mu?" toggle'ını yönetir.
+      final isOnlineEnabled = await _privacyService.getOnlineEnabled();
       final isGhostMode = await _privacyService.getGhostMode();
       if (mounted) {
         setState(() {
-          _isOnline = isOnline;
+          _isOnlineEnabled = isOnlineEnabled;
           _isGhostMode = isGhostMode;
         });
       }
@@ -157,9 +161,10 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     if (_isLoadingPrivacy) return;
     setState(() => _isLoadingPrivacy = true);
     try {
-      final success = await _privacyService.updateOnlineStatus(value);
+      // Tercihi güncelle; servis is_online alanını da buna göre setler.
+      final success = await _privacyService.updateOnlineEnabled(value);
       if (success && mounted) {
-        setState(() => _isOnline = value);
+        setState(() => _isOnlineEnabled = value);
       }
     } finally {
       if (mounted) {
@@ -175,9 +180,11 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
       final success = await _privacyService.updateGhostMode(value);
       if (success && mounted) {
         setState(() => _isGhostMode = value);
-        // Hayalet mod açılırsa çevrimiçi durumu kapat
+        // Hayalet mod açılırsa çevrimiçi görünürlük tercihini de kapalı göster.
+        // (Tercih değişmez ama UI görünümü çevrimdışı olur; gerçek is_online
+        // serviste false yapıldı.)
         if (value) {
-          setState(() => _isOnline = false);
+          setState(() => _isOnlineEnabled = false);
         }
       }
     } finally {
@@ -512,9 +519,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 opacity: _isGhostMode ? 0.5 : 1.0,
                                 child: _buildToggleItem(
                                   context: context,
-                                  icon: _isOnline ? Icons.circle : Icons.circle_outlined,
-                                  title: _isOnline ? 'Çevrimiçi Durumum: Açık' : 'Çevrimiçi Durumum: Kapalı',
-                                  value: _isOnline,
+                                  icon: _isOnlineEnabled ? Icons.circle : Icons.circle_outlined,
+                                  title: _isOnlineEnabled ? 'Çevrimiçi Durumum: Açık' : 'Çevrimiçi Durumum: Kapalı',
+                                  value: _isOnlineEnabled,
                                   activeColor: themeProvider.primaryColor,
                                   onChanged: (value) {
                                     if (!_isGhostMode) {

@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/services/favorite_service.dart';
+import '../../../core/services/order_availability_service.dart';
+import '../../../core/widgets/closed_shop_badge.dart';
 import '../services/cart_service.dart';
+import '../services/shop_service.dart';
 import 'product_detail_screen.dart';
 
 class AllDiscountedProductsScreen extends StatefulWidget {
@@ -19,15 +22,56 @@ class AllDiscountedProductsScreen extends StatefulWidget {
 class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScreen> {
   final FavoriteService _favoriteService = FavoriteService();
   final CartService _cartService = CartService();
+  final ShopService _shopService = ShopService();
   final Set<String> _favoriteProductIds = {};
   final Set<String> _addingToCart = {};
   final Map<String, int> _cartQuantities = {};
+
+  // Sipariş alınabilirlik durumu
+  bool _globalOrdersEnabled = true;
+  final Map<String, bool> _shopAcceptingOrders = {};
 
   @override
   void initState() {
     super.initState();
     _loadFavorites();
     _loadCartQuantities();
+    _loadGlobalOrdersEnabled();
+    _loadShopAcceptingOrdersForProducts();
+  }
+
+  Future<void> _loadGlobalOrdersEnabled() async {
+    final enabled = await OrderAvailabilityService.fetchGlobalOrdersEnabled();
+    if (mounted) setState(() => _globalOrdersEnabled = enabled);
+  }
+
+  // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
+  // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
+  Future<void> _loadShopAcceptingOrdersForProducts() async {
+    final shopIds = widget.products
+        .map((p) => p.shopId)
+        .where((id) => !_shopAcceptingOrders.containsKey(id))
+        .toSet();
+    if (shopIds.isEmpty) return;
+
+    for (final shopId in shopIds) {
+      try {
+        final shop = await _shopService.getShopById(shopId);
+        final accepting = shop?.isAcceptingOrders ?? true;
+        if (mounted) setState(() => _shopAcceptingOrders[shopId] = accepting);
+      } catch (_) {
+        // Hata durumunda dükkan açık varsay
+        if (mounted) setState(() => _shopAcceptingOrders[shopId] = true);
+      }
+    }
+  }
+
+  // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
+  bool _isProductOrderable(Product product) {
+    if (!_globalOrdersEnabled) return false;
+    final accepting = _shopAcceptingOrders[product.shopId];
+    if (accepting == false) return false;
+    return true;
   }
 
   Future<void> _loadCartQuantities() async {
@@ -113,6 +157,24 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
   }
 
   Future<void> _addToCart(Product product) async {
+    // Sipariş alınabilirlik kontrolü (global + dükkan durumu)
+    if (!_isProductOrderable(product)) {
+      if (mounted) {
+        final accepting = _shopAcceptingOrders[product.shopId] ?? true;
+        final msg = OrderAvailabilityService.closedMessage(
+          globalEnabled: _globalOrdersEnabled,
+          shopAcceptingOrders: accepting,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg ?? OrderAvailabilityService.shopClosedMessage),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
@@ -250,6 +312,10 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
     final cartQuantity = _getCartQuantity(product.id);
     final inCart = cartQuantity > 0;
     final isInStock = product.inStock;
+    final isOrderable = _isProductOrderable(product);
+    final closedBadge = !isOrderable
+        ? ClosedShopBadge(global: !_globalOrdersEnabled)
+        : null;
 
     return GestureDetector(
       onTap: () {
@@ -344,6 +410,13 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                         ),
                       ),
                     ),
+                  // Geçici Kapalı rozeti - üst sağ
+                  if (closedBadge != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: closedBadge,
+                    ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -431,13 +504,14 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                     height: 30,
                     child: !inCart
                         ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock)
+                            onPressed: (isAdding || !isInStock || !isOrderable)
                                 ? null
                                 : () => _addToCart(product),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
                               backgroundColor: theme.colorScheme.primary,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.grey.shade300,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -452,9 +526,11 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
-                                    'Sepete Ekle',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                : Text(
+                                    !isOrderable
+                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
+                                        : 'Sepete Ekle',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                           )
                         : Container(
@@ -495,7 +571,7 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: isInStock
+                                  onTap: (isInStock && isOrderable)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(

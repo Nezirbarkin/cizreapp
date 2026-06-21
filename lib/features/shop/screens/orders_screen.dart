@@ -487,15 +487,27 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
   Future<void> _showReviewDialog(Order order) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        debugPrint('❌ Değerlendirme: userId null');
+        return;
+      }
+
+      debugPrint('⭐ Değerlendirme açılıyor - orderId: ${order.id}');
 
       // Sipariş için değerlendirme yapılabilir mi kontrol et
       final firstItem = order.items.first;
-      final canReview = await _reviewService.canReviewOrder(
-        orderId: order.id,
-        userId: userId,
-        shopId: firstItem.shopId ?? '',
-      );
+      bool canReview = true;
+      try {
+        canReview = await _reviewService.canReviewOrder(
+          orderId: order.id,
+          userId: userId,
+          shopId: firstItem.shopId ?? '',
+        );
+        debugPrint('⭐ canReview sonucu: $canReview');
+      } catch (e) {
+        debugPrint('⚠️ canReview hatası: $e - Değerlendirmeye izin veriliyor');
+        canReview = true;
+      }
 
       if (!canReview) {
         if (mounted) {
@@ -507,19 +519,15 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
         return;
       }
 
-      // Değerlendirilebilir siparişleri al
-      final pendingReviews = await _reviewService.getPendingReviews(userId);
-      final targetReview = pendingReviews.firstWhere(
-        (r) => r.orderId == order.id,
-        orElse: () => PendingReview(
-          orderId: order.id,
-          shopId: firstItem.shopId ?? '',
-          shopName: firstItem.shopName ?? 'Mağaza',
-          productId: firstItem.productId,
-          productName: firstItem.productName,
-          orderDate: order.createdAt,
-          deliveredAt: order.deliveredAt ?? DateTime.now(),
-        ),
+      // Değerlendirme için PendingReview oluştur
+      final targetReview = PendingReview(
+        orderId: order.id,
+        shopId: firstItem.shopId ?? '',
+        shopName: firstItem.shopName ?? 'Mağaza',
+        productId: firstItem.productId,
+        productName: firstItem.productName,
+        orderDate: order.createdAt,
+        deliveredAt: order.deliveredAt ?? DateTime.now(),
       );
 
       if (!mounted) return;

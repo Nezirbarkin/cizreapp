@@ -438,14 +438,50 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   if (widget.post.images.isNotEmpty)
                     SizedBox(
                       height: 300,
-                      child: PageView.builder(
-                        itemCount: widget.post.images.length,
-                        itemBuilder: (context, index) {
-                          return Image.network(
-                            widget.post.images[index],
-                            fit: BoxFit.cover,
-                          );
-                        },
+                      child: Stack(
+                        children: [
+                          PageView.builder(
+                            itemCount: widget.post.images.length,
+                            itemBuilder: (context, index) {
+                              return Image.network(
+                                widget.post.images[index],
+                                fit: BoxFit.cover,
+                              );
+                            },
+                          ),
+                          // Çoklu görsel göstergesi
+                          if (widget.post.images.length > 1)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.6),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.photo_library,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${widget.post.images.length} fotoğraf',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
 

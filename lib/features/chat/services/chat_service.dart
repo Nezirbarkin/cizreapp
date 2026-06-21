@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_brace_in_string_interps
+
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -127,81 +129,208 @@ class ChatService {
   }
 
   // Tüm konuşmaları al - PERFORMANCE OPTIMIZED
+  // DÜZELTME: Hem user_id=currentUserId OLAN hem de other_user_id=currentUserId OLAN
+  // conversation'ları birleştirir. Çift yönlü sistemde her iki tarafın da conversation
+  // kaydı olur; bu yüzden karşı tarafın başlattığı sohbetler de görünür olur.
   Future<List<Conversation>> getConversations() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return [];
 
     try {
-      // Sadece user_id = currentUserId olan konuşmaları al
-      final userConvs = await _supabase
+      AppLogger.debug('📋 getConversations START: currentUserId=$currentUserId');
+
+      // 1) Benim başlattığım / user_id bana ait olan konuşmalar
+      final myConvs = await _supabase
           .from('conversations')
           .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at')
           .eq('user_id', currentUserId)
           .order('updated_at', ascending: false);
 
-      if (userConvs.isEmpty) return [];
+      // 2) Karşı tarafın başlattığı / other_user_id bana ait olan konuşmalar
+      //    Bu, sendMessage yapıldığında trigger'ın diğer tarafta oluşturduğu conversation
+      final reverseConvs = await _supabase
+          .from('conversations')
+          .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at')
+          .eq('other_user_id', currentUserId)
+          .order('updated_at', ascending: false);
 
-      // PERFORMANCE: Toplu profil bilgisi çekme - her konuşma için ayrı sorgu yerine
-      final otherUserIds = userConvs.map((c) => c['other_user_id'] as String).toList();
-      
-      // Tüm diğer kullanıcıların profillerini tek sorguda çek
+      AppLogger.debug('📋 getConversations: myConvs=${myConvs.length}, reverseConvs=${reverseConvs.length}');
+
+      if (myConvs.isEmpty && reverseConvs.isEmpty) return [];
+
+      // 3) Her partner için tek bir conversation kalsın. Aynı partner için hem myConvs hem
+      //    reverseConvs varsa, myConvs tercih edilir (çünkü unread_count=0 benim için
+      //    anlamlıdır; reverse'de unread_count karşı tarafın okunmamışıdır).
+      // Anahtar: smaller_userId + larger_userId çifti
+      final Map<String, Map<String, dynamic>> partnerToConv = {};
+      String pairKey(String a, String b) {
+        final sorted = [a, b]..sort();
+        return '${sorted[0]}_${sorted[1]}';
+      }
+
+      // Önce reverseConvs (bunlar karşı tarafın başlattığı; daha az öncelikli)
+      for (var rc in reverseConvs) {
+        final otherUserId = rc['other_user_id'] as String;
+        final key = pairKey(currentUserId, otherUserId);
+        // Normalize et: benim tarafımdan baktığımda other_user_id=otherUserId olmalı
+        rc['other_user_id'] = otherUserId; // zaten öyle
+        partnerToConv[key] = rc;
+      }
+      // Sonra myConvs (bunlar benim tarafıma ait; daha öncelikli - üzerine yaz)
+      for (var mc in myConvs) {
+        final otherUserId = mc['other_user_id'] as String;
+        final key = pairKey(currentUserId, otherUserId);
+        partnerToConv[key] = mc;
+      }
+
+      final userConvs = partnerToConv.values.toList();
+
+      // 4) Toplu profil çekme
+      final otherUserIds = userConvs.map((c) => c['other_user_id'] as String).toSet().toList();
       final profiles = await _supabase
           .from('profiles')
           .select('id, full_name, username, avatar_url, is_online, last_seen')
           .inFilter('id', otherUserIds);
-      
-      // Profil haritası oluştur (hızlı erişim için)
       final profileMap = <String, Map<String, dynamic>>{};
       for (var p in profiles) {
         profileMap[p['id'] as String] = p;
       }
 
-      // PERFORMANCE: Son mesaj bilgilerini toplu çekme
-      final convIds = userConvs.map((c) => c['id'] as String).toList();
-      
-      // Her konuşmanın son mesajını tek sorguda çek
+      // 5) Her partner için karşı tarafın conversation_id'sini bul (çift yönlü mesajlar için)
+      // user_id -> (other_user_id -> conversation_id)
+      final Map<String, Map<String, String>> convByUserAndOther = {};
+      // Hem myConvs hem reverseConvs'tan map oluştur
+      for (var c in myConvs) {
+        convByUserAndOther
+            .putIfAbsent(c['user_id'] as String, () => {})
+            [c['other_user_id'] as String] = c['id'] as String;
+      }
+      for (var c in reverseConvs) {
+        convByUserAndOther
+            .putIfAbsent(c['user_id'] as String, () => {})
+            [c['other_user_id'] as String] = c['id'] as String;
+      }
+
+      // 6) Hem myConvs hem reverseConvs'un ID'lerini topla (mesajları toplu çekmek için)
+      final allConvIds = <String>[
+        for (var c in myConvs) c['id'] as String,
+        for (var c in reverseConvs) c['id'] as String,
+      ];
+
+      // 7) Tüm bu conversation'lardaki mesajları tek sorguda çek
+      // KRİTİK: is_read'i tam olarak al
       final lastMessages = await _supabase
           .from('messages')
-          .select('conversation_id, sender_id, is_read, created_at')
-          .inFilter('conversation_id', convIds)
+          .select('id, conversation_id, sender_id, is_read, created_at, content')
+          .inFilter('conversation_id', allConvIds)
           .order('created_at', ascending: false);
-      
-      // Son mesajları konuşma ID'sine göre haritala
-      final lastMessageMap = <String, Map<String, dynamic>>{};
+
+      AppLogger.debug('📋 getConversations: Toplam ${lastMessages.length} mesaj çekildi (${allConvIds.length} conversation\'dan)');
+
+      // 8) Her conversation_id için en yeni mesajı haritala
+      final msgByConvId = <String, Map<String, dynamic>>{};
       for (var msg in lastMessages) {
-        final convId = msg['conversation_id'] as String;
-        // İlk karşılaşılan (en yeni) mesajı sakla
-        if (!lastMessageMap.containsKey(convId)) {
-          lastMessageMap[convId] = msg;
+        final cId = msg['conversation_id'] as String;
+        if (!msgByConvId.containsKey(cId)) {
+          msgByConvId[cId] = msg;
         }
       }
 
-      // Konuşmaları oluştur
-      List<Conversation> allConversations = [];
-      
+      // 9) Her partner için, iki conversation'daki en yeni mesajı bul ve birleştir
+      final lastMessageMap = <String, Map<String, dynamic>>{}; // partnerKey -> en yeni mesaj
+      final myConvIdToPartnerKey = <String, String>{}; // myConvId -> partnerKey
+
+      for (var c in userConvs) {
+        final myConvId = c['id'] as String;
+        final otherUserId = c['other_user_id'] as String;
+        final key = pairKey(currentUserId, otherUserId);
+        myConvIdToPartnerKey[myConvId] = key;
+
+        // Bu partner için her iki yöndeki conversation_id'leri bul
+        // c user_id=currentUserId, other_user_id=otherUserId ise: myConv
+        // c user_id=otherUserId, other_user_id=currentUserId ise: reverse
+        // (normalize edilmiş userConvs'ta user_id her zaman currentUserId DEĞİL!)
+        // Aslında yukarıdaki partnerToConv map'inde reverse'leri de normalize etmedik,
+        // bu yüzden doğrudan c['id'] = myConvId (tercih edilen), ve karşı tarafın
+        // otherConvId'sini convByUserAndOther'dan bulalım.
+
+        final myLastMsg = msgByConvId[myConvId];
+        // Karşı tarafın conversation_id'si: otherUserId+currentUserId anahtarı
+        final otherConvId = convByUserAndOther[otherUserId]?[currentUserId];
+        final otherLastMsg = otherConvId != null ? msgByConvId[otherConvId] : null;
+
+        Map<String, dynamic>? newestMsg;
+        if (myLastMsg != null && otherLastMsg != null) {
+          final myTime = DateTime.parse(myLastMsg['created_at'] as String);
+          final otherTime = DateTime.parse(otherLastMsg['created_at'] as String);
+          newestMsg = myTime.isAfter(otherTime) ? myLastMsg : otherLastMsg;
+        } else if (myLastMsg != null) {
+          newestMsg = myLastMsg;
+        } else if (otherLastMsg != null) {
+          newestMsg = otherLastMsg;
+        }
+
+        if (newestMsg != null) {
+          lastMessageMap[key] = newestMsg;
+        }
+      }
+
+      // 10) Conversation listesini oluştur
+      final allConversations = <Conversation>[];
       for (var conv in userConvs) {
         final otherUserId = conv['other_user_id'] as String;
         final otherUserProfile = profileMap[otherUserId];
-        
+        final convId = conv['id'] as String;
+        final key = pairKey(currentUserId, otherUserId);
+
         Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(conv);
         convWithProfile['other_user'] = otherUserProfile;
-        
-        // Son mesaj bilgilerini haritadan al
-        final lastMsgData = lastMessageMap[conv['id']];
+
+        // unread_count: reverse conversation'dan (karşı tarafın bana gönderdiği
+        // okunmamış mesaj sayısı) alınmalı, çünkü myConv'daki unread_count benim
+        // tarafıma ait olmayabilir.
+        final otherConvUnread = convByUserAndOther[otherUserId]?[currentUserId];
+        if (otherConvUnread != null) {
+          // Reverse conversation'ın unread_count'unu çekmemiz lazım
+          // (daha önce çekmediysek, lastMessages içinden türetebiliriz)
+          int unread = 0;
+          for (var msg in lastMessages) {
+            if (msg['conversation_id'] == otherConvUnread &&
+                msg['sender_id'] != currentUserId &&
+                msg['is_read'] == false) {
+              unread++;
+            }
+          }
+          convWithProfile['unread_count'] = unread;
+        }
+
+        // Son mesaj bilgisini haritadan al
+        final lastMsgData = lastMessageMap[key];
         if (lastMsgData != null) {
-          convWithProfile['last_message_by_me'] = lastMsgData['sender_id'] == currentUserId;
-          convWithProfile['last_message_read'] = lastMsgData['is_read'] ?? false;
+          final senderId = lastMsgData['sender_id'] as String?;
+          final isMe = senderId == currentUserId;
+          final isRead = lastMsgData['is_read'] ?? false;
+          final lastMsgConvId = lastMsgData['conversation_id'] as String?;
+          convWithProfile['last_message_by_me'] = isMe;
+          convWithProfile['last_message_read'] = isMe ? isRead : true;
+          convWithProfile['last_message'] = lastMsgData['content'];
+          convWithProfile['last_message_time'] = lastMsgData['created_at'];
+
+          AppLogger.debug('  📋 $key: myConv=$convId lastMsg conv=$lastMsgConvId sender=${isMe ? "ME" : "OTHER"} is_read=$isRead');
         } else {
           convWithProfile['last_message_by_me'] = false;
           convWithProfile['last_message_read'] = false;
         }
-        
+
         allConversations.add(Conversation.fromMap(convWithProfile));
       }
 
+      // updated_at'a göre sırala (en yeni üstte)
+      allConversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
       return allConversations;
-    } catch (e) {
-      AppLogger.error('Error getting conversations: $e');
+    } catch (e, stackTrace) {
+      AppLogger.error('Error getting conversations: $e', error: e, stackTrace: stackTrace);
       return [];
     }
   }
@@ -209,6 +338,8 @@ class ChatService {
   // Konuşmadaki mesajları al - her iki tarafın conversation_id'sini de kontrol et
   Future<List<Message>> getMessages(String conversationId) async {
     try {
+      AppLogger.debug('📥 getMessages START: conversationId=$conversationId');
+      
       // Önce bu konuşmanın diğer tarafını bul
       final convData = await _supabase
           .from('conversations')
@@ -223,6 +354,7 @@ class ChatService {
       
       final userId = convData['user_id'] as String;
       final otherUserId = convData['other_user_id'] as String;
+      AppLogger.debug('📥 getMessages: userId=$userId, otherUserId=$otherUserId');
       
       // Karşı tarafın conversation_id'sini bul
       final otherConv = await _supabase
@@ -238,17 +370,31 @@ class ChatService {
         convIds.add(otherConv['id'] as String);
       }
       
+      AppLogger.debug('📥 getMessages: convIds=$convIds (myConv=${convIds[0]}, otherConv=${otherConv?['id'] ?? "null"})');
+      
       final response = await _supabase
           .from('messages')
           .select()
           .inFilter('conversation_id', convIds)
           .order('created_at', ascending: true);
 
+      AppLogger.debug('📥 getMessages: Fetched ${response.length} messages');
+      
+      // DEBUG: Her mesajın is_read ve sender_id durumunu logla
+      final currentUserId = _supabase.auth.currentUser?.id;
+      for (var msg in response) {
+        final isMe = msg['sender_id'] == currentUserId;
+        final isRead = msg['is_read'] ?? false;
+        final contentStr = (msg['content'] as String?) ?? '';
+        final contentPreview = contentStr.length > 30 ? contentStr.substring(0, 30) : contentStr;
+        AppLogger.debug('  📨 msg_id=${msg['id']?.toString().substring(0, 8)}... conv=${msg['conversation_id']?.toString().substring(0, 8)}... sender=${isMe ? "ME" : "OTHER"} is_read=$isRead content=$contentPreview');
+      }
+
       return (response as List)
           .map((json) => Message.fromMap(json))
           .toList();
-    } catch (e) {
-      AppLogger.error('Error getting messages: $e');
+    } catch (e, stackTrace) {
+      AppLogger.error('Error getting messages: $e', error: e, stackTrace: stackTrace);
       return [];
     }
   }
@@ -257,6 +403,9 @@ class ChatService {
   Future<Message?> sendMessage({
     required String conversationId,
     required String content,
+    String? replyToId,
+    String? replyToContent,
+    String? replyToSenderName,
   }) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) {
@@ -272,14 +421,24 @@ class ChatService {
     try {
       AppLogger.debug('📤 Attempting direct insert into messages...');
       
+      // Insert verisi hazırla
+      final insertData = <String, dynamic>{
+        'conversation_id': conversationId,
+        'sender_id': currentUserId,
+        'content': content,
+      };
+      
+      // Yanıt bilgilerini ekle
+      if (replyToId != null) {
+        insertData['reply_to_id'] = replyToId;
+        insertData['reply_to_content'] = replyToContent;
+        insertData['reply_to_sender_name'] = replyToSenderName;
+      }
+      
       // Doğrudan insert kullan
       final response = await _supabase
           .from('messages')
-          .insert({
-            'conversation_id': conversationId,
-            'sender_id': currentUserId,
-            'content': content,
-          })
+          .insert(insertData)
           .select()
           .single();
 
@@ -375,9 +534,13 @@ class ChatService {
   }
 
   // Gönderenin mesajlarını okundu olarak işaretle (karşı taraf sohbeti açtığında)
+  // DÜZELTME: Benim mesajlarım her İKİ conversation'da da olabilir (çift yönlü sistem).
+  // Bu yüzden her iki conversation'daki sender_id=benim mesajları da okundu yapmalıyız.
   Future<void> markSenderMessagesAsRead(String conversationId) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
+
+    AppLogger.debug('✅ markSenderMessagesAsRead START: conv=$conversationId reader=$currentUserId');
 
     try {
       // RPC fonksiyonunu çağır
@@ -388,9 +551,9 @@ class ChatService {
           'p_reader_id': currentUserId,
         },
       );
-      AppLogger.debug('markSenderMessagesAsRead: RPC success for $conversationId');
+      AppLogger.debug('✅ markSenderMessagesAsRead: RPC success for $conversationId');
     } catch (e) {
-      AppLogger.error('markSenderMessagesAsRead RPC failed, trying direct update: $e');
+      AppLogger.error('❌ markSenderMessagesAsRead RPC failed, trying direct update: $e');
       // Fallback: Doğrudan güncelle
       try {
         // Konuşma bilgilerini al
@@ -405,7 +568,13 @@ class ChatService {
         final userId = convData['user_id'] as String;
         final otherUserId = convData['other_user_id'] as String;
         
-        // Diğer tarafın conversation_id'sini bul
+        AppLogger.debug('  ↪️ Fallback: convUserId=$userId otherUserId=$otherUserId');
+        
+        // İki tarafın conversation_id'lerini bul
+        final List<String> convIds = [conversationId];
+        
+        // Eğer conversation user_id=bense, karşı tarafın conv'ını bul
+        // Eğer conversation other_user_id=bense, benim conv'ımı zaten biliyoruz
         final otherConv = await _supabase
             .from('conversations')
             .select('id')
@@ -414,35 +583,54 @@ class ChatService {
             .maybeSingle();
         
         if (otherConv != null) {
-          // Karşı tarafın konuşmasındaki, benim gönderdiğim mesajları okundu yap
-          await _supabase
-              .from('messages')
-              .update({'is_read': true})
-              .eq('conversation_id', otherConv['id'])
-              .eq('sender_id', currentUserId)
-              .eq('is_read', false);
-          
-          AppLogger.debug('markSenderMessagesAsRead: Direct update success for $conversationId');
+          convIds.add(otherConv['id'] as String);
+          AppLogger.debug('  ↪️ Fallback: otherConvId=${otherConv['id']} - her iki conv güncellenecek');
         }
+        
+        // DÜZELTME: Hem benim hem karşı tarafın conversation'ındaki
+        // benim gönderdiğim mesajları okundu yap (sender_id = currentUserId)
+        // Ancak RLS politikası sender_id=auth.uid() gerektirdiği için,
+        // sadece benim conversation'ımdaki mesajlarımı güncelleyebilirim.
+        // Karşı tarafın conv'ındaki mesajlarımı RPC (SECURITY DEFINER) ile güncellemeliyiz.
+        // Burada en azından benim conv'ımdaki mesajlarımı güncelleyelim:
+        await _supabase
+            .from('messages')
+            .update({'is_read': true})
+            .inFilter('conversation_id', convIds)
+            .eq('sender_id', currentUserId)
+            .eq('is_read', false);
+        
+        AppLogger.debug('✅ markSenderMessagesAsRead: Direct update done. convIds=$convIds');
+        
+        // unread_count'u da güncelle
+        await _supabase
+            .from('conversations')
+            .update({'unread_count': 0})
+            .eq('id', conversationId);
       } catch (e2) {
-        AppLogger.error('markSenderMessagesAsRead direct update also failed: $e2');
+        AppLogger.error('❌ markSenderMessagesAsRead direct update also failed: $e2');
       }
     }
   }
 
   // Mesajları okundu olarak işaretle
+  // DÜZELTME: Hem benim hem karşı tarafın conversation'ındaki bana gelen mesajları
+  // okundu yapmalıyız. RLS sadece benim gördüğüm mesajları güncelleyebildiği için
+  // önce benim conv'ımdaki mesajları güncelle, sonra RPC ile karşı tarafınkileri.
   Future<void> markMessagesAsRead(String conversationId) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
     
+    AppLogger.debug('📖 markMessagesAsRead START: conv=$conversationId userId=$currentUserId');
+    
     try {
-      // Önce RPC dene
+      // Önce RPC dene (her iki conv'ı güncellemesi gerekir)
       await _supabase.rpc('mark_messages_as_read', params: {
         'p_conversation_id': conversationId,
       });
-      AppLogger.debug('markMessagesAsRead: RPC success for $conversationId');
+      AppLogger.debug('📖 markMessagesAsRead: RPC success for $conversationId');
     } catch (e) {
-      AppLogger.error('markMessagesAsRead RPC failed, trying direct update: $e');
+      AppLogger.error('📖 markMessagesAsRead RPC failed, trying direct update: $e');
       
       // RPC yoksa doğrudan güncelle
       try {
@@ -470,15 +658,30 @@ class ChatService {
         
         if (otherConv != null) {
           convIds.add(otherConv['id'] as String);
+          AppLogger.debug('  ↪️ Fallback: otherConvId=${otherConv['id']} - her iki conv güncellenecek');
         }
         
         // Karşı tarafın gönderdiği (benim almış olduğum) mesajları okundu yap
+        // RLS: sender_id != currentUserId olan mesajları güncellemem gerekiyor
+        // ama RLS UPDATE'de sender_id kontrolü olmadığı için
+        // burada sadece SELECT policy'si yetiyor
         await _supabase
             .from('messages')
             .update({'is_read': true})
             .inFilter('conversation_id', convIds)
             .neq('sender_id', currentUserId)
-            .eq('is_read', false);
+            .eq('is_read', false)
+            .then((_) => AppLogger.debug('  ↪️ Direct update of receiver messages OK'))
+            .catchError((e) {
+              AppLogger.error('  ↪️ Direct update failed: $e');
+              // Hata olursa, sadece benim conversation_id'mdeki mesajları güncelle
+              return _supabase
+                  .from('messages')
+                  .update({'is_read': true})
+                  .eq('conversation_id', conversationId)
+                  .neq('sender_id', currentUserId)
+                  .eq('is_read', false);
+            });
         
         // Benim konuşmamın unread_count'unu sıfırla
         await _supabase
@@ -486,9 +689,9 @@ class ChatService {
             .update({'unread_count': 0})
             .eq('id', conversationId);
         
-        AppLogger.debug('markMessagesAsRead: Direct update success for $conversationId');
+        AppLogger.debug('📖 markMessagesAsRead: Direct update success for $conversationId');
       } catch (e2) {
-        AppLogger.error('markMessagesAsRead direct update also failed: $e2');
+        AppLogger.error('📖 markMessagesAsRead direct update also failed: $e2');
       }
     }
   }

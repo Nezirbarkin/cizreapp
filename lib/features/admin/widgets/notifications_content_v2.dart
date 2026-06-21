@@ -1383,38 +1383,56 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       setDialogState(() => isSending = true);
 
                       try {
+                        final title = titleController.text.trim();
+                        final body = bodyController.text.trim();
+                        final now = DateTime.now().toIso8601String();
+                        // entity_id formatı admin_icon:<iconType> olmalı ki uygulama bildirimler
+                        // ekranında ikon/renk seçebilsin (notifications_screen.dart bu formata bakıyor).
+                        final entityId = 'admin_icon:$selectedIconType';
+
                         int sentCount = 0;
-                        
+
                         if (targetAudience == 'personal') {
-                          // Kişiye özel - direkt bildirim gönder
-                          await _client.from('notifications').insert({
-                            'user_id': selectedUserId,
-                            'type': 'order',
-                            'title': titleController.text.trim(),
-                            'content': bodyController.text.trim(),
-                            'is_read': false,
-                            'entity_id': 'admin_icon:$selectedIconType',
-                          });
-                          
-                          // FCM push gönderimi
+                          // Kişiye özel: FCM push + notifications tablosuna kayıt.
+                          // Push cihaza gider; kayıt sayesinde bildirimler ekranında da görünür.
                           try {
                             await _client.functions.invoke(
                               'send-push',
                               body: {
                                 'user_id': selectedUserId,
-                                'title': titleController.text.trim(),
-                                'body': bodyController.text.trim(),
-                                'data': {'type': 'order', 'icon_type': selectedIconType},
+                                'title': title,
+                                'body': body,
+                                'data': {'type': 'admin_notification', 'icon_type': selectedIconType},
                               },
                             );
                           } catch (e) {
                             debugPrint('Push gönderim hatası: $e');
                           }
+
+                          try {
+                            await _client.from('notifications').insert({
+                              'user_id': selectedUserId,
+                              'type': 'admin_notification',
+                              'title': title,
+                              'content': body,
+                              'data': {
+                                'icon_type': selectedIconType,
+                                'target': 'personal',
+                              },
+                              'entity_id': entityId,
+                              'is_read': false,
+                              'created_at': now,
+                            });
+                            debugPrint('✅ Kişisel bildirim notifications tablosuna eklendi');
+                          } catch (e) {
+                            debugPrint('⚠️ Kişisel bildirim kaydedilemedi: $e');
+                          }
                           sentCount = 1;
                         } else {
-                          // Bulk notification - Firebase Topic ile gönder (giriş yapmamış kullanıcılar da dahil)
-                          
-                          // Hangi topic'e gönderilecek
+                          // Toplu bildirim: Firebase topic push + her hedef kullanıcı için
+                          // notifications tablosuna ayrı kayıt. Böylece hem push alınır hem
+                          // bildirimler ekranında her kullanıcı için görünebilir.
+
                           String topicName;
                           switch (targetAudience) {
                             case 'customers':
@@ -1427,63 +1445,72 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                             default:
                               topicName = 'all_users';
                           }
-                          
+
                           // Topic bazlı push gönder (Firebase üzerinden)
                           try {
                             await _client.functions.invoke(
                               'send-push-notification',
                               body: {
-                                'title': titleController.text.trim(),
-                                'body': bodyController.text.trim(),
+                                'title': title,
+                                'body': body,
                                 'data': {'type': 'admin_notification', 'icon_type': selectedIconType, 'target': targetAudience},
                                 'topic': topicName,
                               },
                             );
                             debugPrint('✅ Topic "$topicName" üzerinden push gönderildi');
                           } catch (e) {
-                            debugPrint('⚠️ Topic push gönderilemedi, veritabanı bildirimleri deneniyor: $e');
+                            debugPrint('⚠️ Topic push gönderilemedi: $e');
                           }
-                          
-                          // Veritabanına da ekle (bildirim geçmişi için)
-                          List<Map<String, dynamic>> users;
-                          
-                          if (targetAudience == 'customers') {
-                            final response = await _client.from('profiles').select('id').eq('role', 'customer');
-                            users = List<Map<String, dynamic>>.from(response);
-                          } else if (targetAudience == 'sellers') {
-                            final response = await _client.from('profiles').select('id').eq('role', 'seller');
-                            users = List<Map<String, dynamic>>.from(response);
-                          } else {
-                            // 'all' için tüm profilleri al
-                            final response = await _client.from('profiles').select('id');
-                            users = List<Map<String, dynamic>>.from(response);
+
+                          // Hedef kullanıcıların ID listesini çek
+                          List<String> userIds = [];
+                          try {
+                            List<dynamic> response;
+                            if (targetAudience == 'customers') {
+                              response = await _client.from('profiles').select('id').eq('role', 'customer');
+                            } else if (targetAudience == 'sellers') {
+                              response = await _client.from('profiles').select('id').eq('role', 'seller');
+                            } else {
+                              response = await _client.from('profiles').select('id');
+                            }
+                            userIds = response.map((u) => u['id'] as String).toList();
+                          } catch (e) {
+                            debugPrint('Kullanıcı listesi alınamadı: $e');
                           }
-                          
-                          sentCount = users.length;
-                          
-                          // Her giriş yapmış kullanıcı için bildirim kaydı oluştur
-                          for (final user in users) {
+
+                          // Her kullanıcı için notifications tablosuna ayrı satır ekle.
+                          // Tek seferde toplu insert yaparak gidişatı hızlandırıyoruz.
+                          if (userIds.isNotEmpty) {
+                            final rows = userIds.map((uid) => {
+                              'user_id': uid,
+                              'type': 'admin_notification',
+                              'title': title,
+                              'content': body,
+                              'data': {
+                                'icon_type': selectedIconType,
+                                'target': targetAudience,
+                              },
+                              'entity_id': entityId,
+                              'is_read': false,
+                              'created_at': now,
+                            }).toList();
                             try {
-                              await _client.from('notifications').insert({
-                                'user_id': user['id'],
-                                'type': 'order',
-                                'title': titleController.text.trim(),
-                                'content': bodyController.text.trim(),
-                                'is_read': false,
-                                'entity_id': 'admin_icon:$selectedIconType',
-                              });
+                              await _client.from('notifications').insert(rows);
+                              debugPrint('✅ ${userIds.length} kullanıcı için bildirim kaydı eklendi');
                             } catch (e) {
-                              debugPrint('Kullanıcıya bildirim kaydı oluşturulamadı: $e');
+                              debugPrint('⚠️ Toplu bildirim kaydı eklenemedi: $e');
                             }
                           }
+
+                          sentCount = userIds.length;
                         }
 
                         // Herkese açık broadcasts tablosuna da ekle (üye olmayanlar da görsün)
                         if (targetAudience != 'personal') {
                           try {
                             await _client.from('admin_broadcasts').insert({
-                              'title': titleController.text.trim(),
-                              'content': bodyController.text.trim(),
+                              'title': title,
+                              'content': body,
                               'icon_type': selectedIconType,
                               'target_audience': targetAudience,
                               'is_active': true,

@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously, unnecessary_brace_in_string_interps
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +8,7 @@ import '../../../core/models/courier_assignment_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/privacy_service.dart';
 import '../../market/screens/cart_screen.dart';
 import '../../social/screens/social_screen.dart';
 import '../../profile/screens/profile_screen.dart';
@@ -262,7 +263,9 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
   double _weeklyEarnings = 0;
   int _monthlyDeliveries = 0;
   double _monthlyEarnings = 0;
-  bool _isOnline = true; // Kurye online/offline durumu
+  // Kurye online/offline tercihi (is_online_enabled). DB'den yüklenir.
+  // false ise kurye manuel çevrimdışı: app ön plana gelse bile otomatik online yapılmaz.
+  bool _isOnlineEnabled = true;
 
   @override
   void initState() {
@@ -283,6 +286,11 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
           .eq('id', userId)
           .single();
       _profile = Map<String, dynamic>.from(profileData);
+
+      // Kurye online GÖRÜNME TERCİHİ DB'den yüklenir (önceden default true
+      // gösteriliyordu, bu yüzden gerçek durumu yansıtmıyordu).
+      // is_online_enabled sütunu yoksa true kabul edilir (eski davranış).
+      _isOnlineEnabled = _profile?['is_online_enabled'] as bool? ?? true;
 
       // Kurye ucretini al (en guncel kaydi al)
       try {
@@ -369,26 +377,46 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      setState(() => _isOnline = !_isOnline);
+      final newValue = !_isOnlineEnabled;
+      setState(() => _isOnlineEnabled = newValue);
 
-      // Online durumunu profiles tablosunda güncelle (opsiyonel alan)
-      await Supabase.instance.client
-          .from('profiles')
-          .update({'is_online': _isOnline})
-          .eq('id', userId);
+      // Ortak PrivacyService kullanılarak tercihi (is_online_enabled) günceller.
+      // Bu, app lifecycle'ın da saygı duyduğu kalıcı tercihi yazar ve
+      // is_online alanını da buna göre setler. Böylece kurye manuel olarak
+      // offline yaptığında app ön plana gelse bile tekrar online yapılmaz.
+      final privacyService = PrivacyService();
+      final success = await privacyService.updateOnlineEnabled(newValue);
+
+      if (!success) {
+        // Hata: geri al
+        if (mounted) {
+          setState(() => _isOnlineEnabled = !newValue);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Durum güncellenemedi'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_isOnline ? 'Online moduna geçtiniz' : 'Offline moduna geçtiniz'),
-            backgroundColor: _isOnline ? Colors.green : Colors.grey,
+            content: Text(newValue ? 'Online moduna geçtiniz' : 'Offline moduna geçtiniz'),
+            backgroundColor: newValue ? Colors.green : Colors.grey,
             duration: const Duration(seconds: 2),
           ),
         );
       }
     } catch (e) {
       debugPrint('Online durumu güncellenirken hata: $e');
-      setState(() => _isOnline = !_isOnline);
+      // Hata: geri al
+      if (mounted) {
+        setState(() => _isOnlineEnabled = !_isOnlineEnabled);
+      }
     }
   }
 
@@ -581,20 +609,20 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: _isOnline ? Colors.green : Colors.grey,
+                              color: _isOnlineEnabled ? Colors.green : Colors.grey,
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _isOnline ? Icons.wifi : Icons.wifi_off,
+                                  _isOnlineEnabled ? Icons.wifi : Icons.wifi_off,
                                   color: Colors.white,
                                   size: 16,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _isOnline ? 'Online' : 'Offline',
+                                  _isOnlineEnabled ? 'Online' : 'Offline',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,
@@ -1207,135 +1235,109 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      // 1. Kuryesi olmayan satıcıların ID'lerini al
-      // has_own_courier null veya false olan dükkanları bul
-      final shopsWithoutCourier = await Supabase.instance.client
-          .from('shops')
-          .select('id')
-          .or('has_own_courier.is.null,has_own_courier.eq.false');
-      
-      final shopIdsWithoutCourier = (shopsWithoutCourier as List)
-          .map((s) => s['id'] as String)
-          .toList();
-      
-      debugPrint('🔍 Kuryesi olmayan dükkan sayısı: ${shopIdsWithoutCourier.length}');
-      for (final s in shopIdsWithoutCourier) {
-        debugPrint('  └─ Dükkan ID: $s');
+      debugPrint('========== KURYE SİPARİŞ YÜKLEME ==========');
+      debugPrint('Kullanıcı ID: $userId');
+
+      // Service rol ile RLS bypass et
+      final serviceClient = Supabase.instance.client;
+
+      // Atanabilir siparişleri getir
+      List<Map<String, dynamic>> availableFiltered = [];
+      try {
+        // Kuryesi olmayan dükkanlardaki confirmed/preparing/ready siparişleri bul
+        final ordersData = await serviceClient
+            .from('orders')
+            .select('''
+                id, total, delivery_address_text, customer_phone, created_at, shop_id, status,
+                shops(name, has_own_courier),
+                order_items(quantity, product_name)
+            ''')
+            .inFilter('status', ['confirmed', 'preparing', 'ready'])
+            .order('created_at', ascending: true)
+            .limit(100);
+        
+        debugPrint('Tüm sipariş sayısı: ${ordersData.length}');
+        
+        // Dükkan bilgilerini al
+        final shopsData = await serviceClient
+            .from('shops')
+            .select('id')
+            .or('has_own_courier.is.null,has_own_courier.eq.false');
+        final shopIds = (shopsData as List).map((s) => s['id'] as String).toSet();
+        
+        // Atanmış siparişleri bul
+        final assignedData = await serviceClient
+            .from('courier_assignments')
+            .select('order_id')
+            .inFilter('status', ['assigned', 'picked_up', 'on_the_way', 'delivered']);
+        final assignedIds = (assignedData as List).map((a) => a['order_id'] as String).toSet();
+        
+        debugPrint('Kuryesi olmayan dükkan sayısı: ${shopIds.length}');
+        debugPrint('Atanmış sipariş sayısı: ${assignedIds.length}');
+        
+        for (final order in (ordersData as List)) {
+          final shopId = order['shop_id'] as String;
+          final orderId = order['id'] as String;
+          
+          // Kuryesi olmayan dükkan ve atanmamış sipariş
+          if (shopIds.contains(shopId) && !assignedIds.contains(orderId)) {
+            availableFiltered.add(Map<String, dynamic>.from(order));
+            debugPrint('Atanabilir sipariş: ${orderId}');
+          }
+        }
+        
+        debugPrint('Toplam atanabilir sipariş: ${availableFiltered.length}');
+      } catch (e) {
+        debugPrint('❌ Atanabilir siparişler hatası: $e');
       }
 
-      if (shopIdsWithoutCourier.isEmpty) {
-        setState(() {
-          _availableOrders = [];
-          _myOrders = [];
-          _isLoading = false;
-        });
-        return;
-      }
-
-      // 2. Confirmed, preparing ve ready durumundaki siparişleri al
-      // (Kuryesi olmayan satıcıların siparişleri, henüz kurye atanmamış olanlar)
-      // Önce sipariş durumunu kontrol et
-      debugPrint('🔍 Sipariş sorgusu başlatılıyor - shopIdsWithoutCourier: ${shopIdsWithoutCourier.length} dükkan');
-      
-      final allAvailableOrders = await Supabase.instance.client
-          .from('orders')
-          .select('''
-            id,
-            total,
-            delivery_address_text,
-            customer_phone,
-            created_at,
-            shop_id,
-            status,
-            shops(name, has_own_courier),
-            order_items(quantity, product_name)
-          ''')
-          .inFilter('status', ['confirmed', 'preparing', 'ready'])
-          .inFilter('shop_id', shopIdsWithoutCourier)
-          .order('created_at', ascending: true)
-          .limit(100);
-
-      debugPrint('🔍 Confirmed/Preparing/Ready durumundaki sipariş sayısı: ${allAvailableOrders.length}');
-      for (final order in (allAvailableOrders as List)) {
-        final shopData = order['shops'] as Map<String, dynamic>?;
-        debugPrint('  └─ Sipariş: ${order['id'].toString().substring(0, 8)} | Durum: ${order['status']} | Dükkan: ${shopData?['name']} | has_own_courier: ${shopData?['has_own_courier']}');
-      }
-
-      // 3. Zaten atanmış siparişleri bul (on_the_way dahil)
-      final existingAssignments = await Supabase.instance.client
-          .from('courier_assignments')
-          .select('order_id')
-          .inFilter('status', ['assigned', 'picked_up', 'on_the_way']);
-
-      final assignedOrderIds = (existingAssignments as List)
-          .map((a) => a['order_id'] as String)
-          .toSet();
-
-      debugPrint('🔍 Zaten atanmış sipariş sayısı: ${assignedOrderIds.length}');
-
-      // 4. Henüz atanmamış siparişleri filtrele
-      final availableFiltered = (allAvailableOrders as List)
-          .where((order) => !assignedOrderIds.contains(order['id']))
-          .toList();
-
-      debugPrint('🔍 Atanabilir sipariş sayısı: ${availableFiltered.length}');
-
-      // 5. Kuryenin atanmış siparişleri (assigned, picked_up, on_the_way dahil)
-      final assignments = await Supabase.instance.client
-          .from('courier_assignments')
-          .select('''
-            id,
-            status,
-            fee_amount,
-            assigned_at,
-            orders(
-              id,
-              total,
-              delivery_address_text,
-              customer_phone,
-              created_at,
-              status,
-              shops(name),
-              order_items(quantity, product_name)
-            )
-          ''')
-          .eq('courier_id', userId)
-          .inFilter('status', ['assigned', 'picked_up', 'on_the_way', 'delivered'])
-          .order('assigned_at', ascending: false);
-
-      final myOrdersList = (assignments as List)
-          .map((a) {
-            final order = a['orders'];
-            if (order == null) return null;
-            return {
+      // Aktif siparişleri getir (bu kuryeye atanmış olanlar)
+      List<Map<String, dynamic>> myOrdersList = [];
+      try {
+        final assignments = await serviceClient
+            .from('courier_assignments')
+            .select('''
+                id, status, fee_amount, assigned_at,
+                orders(
+                    id, total, delivery_address_text, customer_phone, created_at, status,
+                    shops(name),
+                    order_items(quantity, product_name)
+                )
+            ''')
+            .eq('courier_id', userId)
+            .inFilter('status', ['assigned', 'picked_up', 'on_the_way', 'delivered'])
+            .order('assigned_at', ascending: false);
+        
+        debugPrint('Aktif sipariş sayısı: ${assignments.length}');
+        
+        for (final a in (assignments as List)) {
+          final order = a['orders'] as Map<String, dynamic>?;
+          if (order != null) {
+            myOrdersList.add({
               ...Map<String, dynamic>.from(order),
               'assignment_id': a['id'],
               'assignment_status': a['status'],
               'fee_amount': a['fee_amount'],
-            };
-          })
-          .where((o) => o != null)
-          .cast<Map<String, dynamic>>()
-          .toList();
+            });
+            debugPrint('Aktif sipariş: ${order['id']} | durum: ${a['status']}');
+          }
+        }
+        
+        debugPrint('Toplam aktif sipariş: ${myOrdersList.length}');
+      } catch (e) {
+        debugPrint('❌ Aktif siparişler hatası: $e');
+      }
 
-      debugPrint('🔍 Benim siparişlerim sayısı: ${myOrdersList.length}');
+      debugPrint('===========================================');
 
       setState(() {
-        _availableOrders = List<Map<String, dynamic>>.from(availableFiltered);
+        _availableOrders = availableFiltered;
         _myOrders = myOrdersList;
         _isLoading = false;
       });
     } catch (e, stackTrace) {
-      debugPrint('❌ Siparişler yüklenirken hata: $e');
-      debugPrint('❌ Hata tipi: ${e.runtimeType}');
-      if (e is PostgrestException) {
-        debugPrint('❌ PostgrestException details:');
-        debugPrint('  ├─ message: ${e.message}');
-        debugPrint('  ├─ code: ${e.code}');
-        debugPrint('  ├─ details: ${e.details}');
-        debugPrint('  └─ hint: ${e.hint}');
-      }
-      debugPrint('❌ Stack trace: $stackTrace');
+      debugPrint('❌ Genel hata: $e');
+      debugPrint('Stack: $stackTrace');
       setState(() => _isLoading = false);
     }
   }
@@ -2220,10 +2222,53 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .eq('courier_id', userId);
       }
 
+      // Müşteriye "Yolda" bildirimi gönder
+      try {
+        final orderData = await Supabase.instance.client
+            .from('orders')
+            .select('user_id, shops(name)')
+            .eq('id', orderId)
+            .maybeSingle();
+        
+        if (orderData != null) {
+          final customerId = orderData['user_id'] as String?;
+          final shopData = orderData['shops'] as Map<String, dynamic>?;
+          final shopName = shopData?['name'] as String? ?? 'Dükkan';
+          
+          if (customerId != null) {
+            // Kurye adını al
+            String courierName = 'Kurye';
+            try {
+              final courierProfile = await Supabase.instance.client
+                  .from('profiles')
+                  .select('full_name, username')
+                  .eq('id', userId)
+                  .maybeSingle();
+              courierName = courierProfile?['full_name'] ?? courierProfile?['username'] ?? 'Kurye';
+            } catch (e) {
+              debugPrint('⚠️ Kurye bilgisi alınamadı: $e');
+            }
+            
+            await Supabase.instance.client.from('notifications').insert({
+              'user_id': customerId,
+              'type': 'order_update',
+              'title': '🚴 Siparişiniz Yolda!',
+              'content': '$shopName siparişiniz kurye $courierName tarafından teslim edilmek üzere yola çıktı.',
+              'data': {'order_id': orderId, 'type': 'order_update'},
+              'is_read': false,
+              'created_at': DateTime.now().toIso8601String(),
+            });
+            debugPrint('✅ Müşteriye yolda bildirimi gönderildi');
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Müşteriye bildirim gönderilemedi: $e');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Yola çıktınız!'),
+            content: Text('Yola çıktınız! Müşteriye bildirim gönderildi.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -2299,23 +2344,45 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       'delivered_at': DateTime.now().toIso8601String(),
     }).eq('id', assignmentId);
 
-    // Sipariş durumunu güncelle
-    await Supabase.instance.client.from('orders').update({
-      'status': 'delivered',
-      'delivered_at': DateTime.now().toIso8601String(),
-    }).eq('id', orderId);
-
-    // Kurye bilgisini al
+    // Kurye bilgisini al (sipariş güncellemesinde de kaydetmek için önce çekiyoruz)
     String courierName = 'Kurye';
+    String courierPhone = '';
     try {
       final courierProfile = await Supabase.instance.client
           .from('profiles')
-          .select('full_name, username')
+          .select('full_name, username, phone')
           .eq('id', userId)
           .maybeSingle();
       courierName = courierProfile?['full_name'] ?? courierProfile?['username'] ?? 'Kurye';
+      courierPhone = (courierProfile?['phone'] as String?) ?? '';
     } catch (e) {
       debugPrint('Kurye bilgisi alinamadi: $e');
+    }
+
+    // Sipariş durumunu güncelle ve teslim eden kurye bilgisini de orders'a yaz.
+    // Bu sayede satıcı/admin panelleri courier_assignments join'ine bağımlı
+    // kalmadan orders kaydından kurye bilgisini gösterebilir.
+    final now = DateTime.now().toIso8601String();
+    try {
+      await Supabase.instance.client.from('orders').update({
+        'status': 'delivered',
+        'delivered_at': now,
+        'delivered_courier_id': userId,
+        'delivered_courier_name': courierName,
+        'delivered_courier_phone': courierPhone,
+      }).eq('id', orderId);
+    } catch (e) {
+      // Sütunlar henüz eklenmemiş olabilir (migration çalıştırılmamış);
+      // o durumda sadece temel alanları güncelleyerek devam et.
+      debugPrint("⚠️ Kurye bilgisi orders'a yazılamadı (sütun eksik olabilir): $e");
+      try {
+        await Supabase.instance.client.from('orders').update({
+          'status': 'delivered',
+          'delivered_at': now,
+        }).eq('id', orderId);
+      } catch (e2) {
+        debugPrint('❌ orders güncellenemedi: $e2');
+      }
     }
 
     // Satıcıya bildirim gönder

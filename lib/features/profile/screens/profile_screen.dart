@@ -1481,21 +1481,35 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                               );
                             },
                           ),
-                          // Çoklu resim ikonu
+                          // Çoklu görsel göstergesi
                           if (post.images.length > 1)
                             Positioned(
                               top: 6,
                               right: 6,
                               child: Container(
-                                padding: const EdgeInsets.all(3),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                 decoration: BoxDecoration(
                                   color: Colors.black.withOpacity(0.6),
-                                  borderRadius: BorderRadius.circular(4),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(
-                                  Icons.photo_library,
-                                  color: Colors.white,
-                                  size: 14,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.photo_library,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '1/${post.images.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1614,6 +1628,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Widget _buildListView(bool isOwnProfile) {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final username = _profileData!['username'] ?? 'Kullanıcı';
+    final fullName = _profileData!['full_name'] ?? username;
     final avatarUrl = _profileData!['avatar_url'];
 
     return SliverPadding(
@@ -1667,11 +1682,15 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                               children: [
                                 Row(
                                   children: [
-                                    Text(
-                                      username,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
+                                    Flexible(
+                                      child: Text(
+                                        fullName,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        overflow: TextOverflow.visible,
+                                        maxLines: 1,
                                       ),
                                     ),
                                     if (post.isPinned) ...[
@@ -1709,7 +1728,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                                   ],
                                 ),
                                 Text(
-                                  _formatDate(post.createdAt),
+                                  '@$username',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey.shade500,
@@ -1730,20 +1749,59 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                     if (firstImage != null)
                       GestureDetector(
                         onTap: () => _navigateToPostDetail(post),
-                        child: ClipRRect(
-                          child: Image.network(
-                            firstImage,
-                            width: double.infinity,
-                            height: 350,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                height: 200,
-                                color: Colors.grey.shade100,
-                                child: const Icon(Icons.error_outline, size: 48),
-                              );
-                            },
-                          ),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: post.images.length > 1
+                                  ? const BorderRadius.vertical(top: Radius.circular(16))
+                                  : BorderRadius.zero,
+                              child: Image.network(
+                                firstImage,
+                                width: double.infinity,
+                                height: 350,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 200,
+                                    color: Colors.grey.shade100,
+                                    child: const Icon(Icons.error_outline, size: 48),
+                                  );
+                                },
+                              ),
+                            ),
+                            // Çoklu görsel göstergesi
+                            if (post.images.length > 1)
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.photo_library,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${post.images.length} fotoğraf',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     // İçerik
@@ -1833,6 +1891,17 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                             onPressed: () => _savePost(post),
                           ),
                         ],
+                      ),
+                    ),
+                    // Tarih - Altta göster
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Text(
+                        _formatDate(post.createdAt),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
                       ),
                     ),
                   ],

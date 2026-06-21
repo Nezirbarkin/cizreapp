@@ -464,11 +464,8 @@ class OrderService {
           deliveredAt: DateTime.now(),
         );
         
-        // Değerlendirme bildirimi oluştur
+        // Değerlendirme bildirimi oluştur (SADECE BURADA - çift bildirimi önlemek için)
         try {
-          final notificationService = NotificationService();
-          final shopName = updatedOrder.shopName ?? 'Dükkan';
-          
           // İlk ürün bilgisini al
           final productInfo = await _supabase
               .from('order_items')
@@ -477,31 +474,36 @@ class OrderService {
               .limit(1)
               .maybeSingle();
           
-          final productId = productInfo?['product_id'] as String?;
           final productsData = productInfo?['products'] as Map<String, dynamic>?;
           final productName = productsData?['name'] as String?;
           
-          await notificationService.createReviewNotification(
+          // Tek teslim bildirimi - tipi order_delivered olmalı ki diğer modüllerle
+          // (kurye akışı, bildirimler ekranı) aynı kanaldan işlensin.
+          await _notificationService.createNotification(
             userId: updatedOrder.userId,
-            orderId: orderId,
-            shopName: shopName,
-            productId: productId,
-            productName: productName,
+            type: 'order_delivered',
+            title: 'Sipariş Teslim Edildi',
+            content: productName != null
+                ? '$productName için satıcıyı ve ürünü değerlendirin'
+                : 'Satıcıyı ve ürünü değerlendirmek için tıklayın',
+            entityId: orderId,
+            entityImage: null,
           );
+
+          debugPrint('✅ Teslim bildirimi gönderildi: orderId=$orderId');
         } catch (e) {
           debugPrint('⚠️ Değerlendirme bildirimi oluşturulamadı: $e');
         }
+        
+        return updatedOrder; // Teslim durumunda bildirim zaten gönderildi, metodu burada bitir
       }
 
-      // Sipariş durumu bildirimi gönder (müşteriye)
-      // Dart tarafından gönderiyoruz (SQL trigger varsa da devre dışı bırakılmalı)
-      // NOT: delivered durumu için yukarıda zaten createReviewNotification çağrıldı
-      if (status != OrderStatus.delivered) {
-        try {
-          await _sendOrderStatusNotification(updatedOrder.userId, updatedOrder);
-        } catch (notifError) {
-          debugPrint('⚠️ Bildirim gönderilirken hata (sipariş güncellendi): $notifError');
-        }
+      // Sipariş durumu bildirimi gönder (müşteriye) - delivered HARİÇ
+      // Diğer durumlar: onaylandı, hazırlanıyor, yolda, iptal
+      try {
+        await _sendOrderStatusNotification(updatedOrder.userId, updatedOrder);
+      } catch (notifError) {
+        debugPrint('⚠️ Bildirim gönderilirken hata (sipariş güncellendi): $notifError');
       }
       
       return updatedOrder;
@@ -695,6 +697,7 @@ class OrderService {
   }
 
   // Sipariş durumu bildirimi gönder
+  // NOT: delivered durumu updateOrderStatus'ta ayrıca ele alınıyor
   Future<void> _sendOrderStatusNotification(String userId, Order order) async {
     String type = 'order_update';
     String title = '';
@@ -702,7 +705,7 @@ class OrderService {
 
     switch (order.status) {
       case OrderStatus.confirmed:
-        title = 'Siparişiniz Onaylandı';
+        title = 'Sipariş Onaylandı';
         content = 'Siparişiniz onaylandı ve hazırlanıyor';
         type = 'order_update';
         break;
@@ -713,14 +716,14 @@ class OrderService {
         // Bildirim gönderme (kullanıcı istemedi)
         return;
       case OrderStatus.onTheWay:
-        title = 'Siparişiniz Yolda';
+        title = 'Sipariş Yolda';
         content = 'Siparişiniz size teslim edilmek üzere yola çıktı';
         type = 'order_update';
         break;
       case OrderStatus.delivered:
-        // Değerlendirme bildirimi gönder
-        await _sendReviewRequestNotification(userId, order);
-        return; // Bildirim _sendReviewRequestNotification'da gönderiliyor
+        // Teslim bildirimi updateOrderStatus içinde TEK SEFER oluşturuluyor.
+        // Çift bildirimi önlemek için burada ekstra bildirim göndermiyoruz.
+        return;
       case OrderStatus.cancelled:
         title = 'Siparişiniz İptal Edildi';
         content = 'Siparişiniz iptal edildi';
@@ -742,36 +745,6 @@ class OrderService {
     } catch (e) {
       debugPrint('❌ Bildirim gönderilirken hata (devam ediliyor): $e');
       // Hata olsa bile devam et, email gönderimini engelleme
-    }
-  }
-
-  /// Değerlendirme istek bildirimi gönder (teslimat sonrası)
-  Future<void> _sendReviewRequestNotification(String userId, Order order) async {
-    try {
-      // Siparişteki ilk ürünü ve dükkan bilgisini al
-      final productInfo = order.items.isNotEmpty ? order.items.first : null;
-      
-      String content;
-      if (productInfo != null) {
-        content = 'Ürünü ve satıcıyı değerlendirmek için tıklayın';
-      } else {
-        content = 'Siparişinizi değerlendirmek için tıklayın';
-      }
-
-      // Değerlendirme bildirimi gönder
-      await _notificationService.createNotification(
-        userId: userId,
-        type: 'review_request', // Yeni bildirim tipi
-        title: 'Siparişiniz Teslim Edildi! 🎉',
-        content: content,
-        entityId: order.id,
-        entityImage: productInfo?.productImageUrl,
-      );
-      
-      debugPrint('✅ Değerlendirme bildirimi gönderildi: orderId=${order.id}');
-    } catch (e) {
-      debugPrint('❌ Değerlendirme bildirimi gönderilirken hata: $e');
-      // Hata olsa bile işlemi engelleme
     }
   }
 

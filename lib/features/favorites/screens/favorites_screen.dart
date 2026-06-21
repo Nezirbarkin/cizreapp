@@ -488,14 +488,27 @@ class _PostCard extends StatelessWidget {
                               color: Colors.grey[600],
                             ),
                       ),
-                      const Spacer(),
-                      Text(
-                        _formatDate(post.createdAt),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[500],
-                            ),
-                      ),
                     ],
+                  ),
+                  // Tarih - Altta ayrı satırda
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.access_time,
+                          size: 14,
+                          color: Colors.grey[500],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatDate(post.createdAt),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey[500],
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),

@@ -67,7 +67,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Dükkan bilgilerini al
+      // Önce dükkan bilgilerini al
       final shopResponse = await _supabase
           .from('shops')
           .select('*')
@@ -77,15 +77,17 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
       _shop = Map<String, dynamic>.from(shopResponse);
       _hideCustomerInfo = _shop?['hide_customer_info'] as bool? ?? false;
 
-      // Sahip bilgilerini al
+      // owner_id'yi al
       final ownerId = _shop!['owner_id'];
+      
+      // Sahip bilgilerini ayrı sorgu ile al (foreign key join yerine daha güvenilir)
       if (ownerId != null) {
         final ownerResponse = await _supabase
             .from('profiles')
             .select('full_name, email, phone')
             .eq('id', ownerId)
             .maybeSingle();
-
+        
         if (ownerResponse != null) {
           _shopOwner = Map<String, dynamic>.from(ownerResponse);
         }
@@ -589,7 +591,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
   Widget _buildStatusCard(Color color, String text) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -614,21 +616,23 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           Row(
             children: [
               Icon(
-                color == Colors.green ? Icons.trending_up : 
-                color == Colors.red ? Icons.trending_down : 
+                color == Colors.green ? Icons.trending_up :
+                color == Colors.red ? Icons.trending_down :
                 Icons.balance,
                 color: Colors.white,
-                size: 32,
+                size: 28,
               ),
               const SizedBox(width: 12),
-              Text(
-                color == Colors.green ? 'Ödeme Yapılacak' : 
-                color == Colors.red ? 'Borç Var' : 
-                'Dengede',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              Expanded(
+                child: Text(
+                  color == Colors.green ? 'Ödeme Yapılacak' :
+                  color == Colors.red ? 'Borç Var' :
+                  'Dengede',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
@@ -637,10 +641,12 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           Text(
             text,
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
           ),
         ],
       ),
@@ -682,7 +688,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 80,
             child: Text(
               label,
               style: TextStyle(
@@ -698,6 +704,8 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
                 fontWeight: FontWeight.w500,
                 fontSize: 14,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
             ),
           ),
         ],

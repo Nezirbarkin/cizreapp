@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/shop_review_service.dart';
+import '../../shop/services/order_service.dart';
 
 /// Bekleyen değerlendirme popup widget'ı
 /// Kullanıcı uygulamaya giriş yaptığında teslim edilen siparişler için
@@ -417,6 +418,22 @@ class PendingReviewChecker {
   static final _reviewService = ShopReviewService();
   static bool _hasCheckedThisSession = false;
   static const String _skippedOrdersKey = 'skipped_review_orders';
+  
+  /// Push bildiriminden gelen sipariş ID'si (bildirim tıklandığında ayarlanır)
+  static String? _pendingOrderIdFromPush;
+  
+  /// Push bildiriminden gelen sipariş ID'sini ayarla
+  static void setPendingOrderIdFromPush(String? orderId) {
+    _pendingOrderIdFromPush = orderId;
+    debugPrint('🔔 Push bildiriminden sipariş ID ayarlandı: $orderId');
+  }
+  
+  /// Push bildiriminden gelen sipariş ID'sini al ve temizle
+  static String? takePendingOrderIdFromPush() {
+    final orderId = _pendingOrderIdFromPush;
+    _pendingOrderIdFromPush = null;
+    return orderId;
+  }
 
   /// Atlanan siparişi kaydet
   static Future<void> _markOrderAsSkipped(String orderId) async {
@@ -478,14 +495,27 @@ class PendingReviewChecker {
   }
 
   /// Bekleyen değerlendirmeleri kontrol et ve varsa popup göster
+  /// Push bildiriminden gelen sipariş ID varsa öncelikli olarak değerlendirme göster
   static Future<void> checkAndShowPendingReviews(BuildContext context) async {
-    // Oturum başına sadece bir kez kontrol et
-    if (_hasCheckedThisSession) return;
+    // Oturum başına sadece bir kez kontrol et (ama push bildirimi öncelikli)
+    final bool isFirstCheck = !_hasCheckedThisSession;
     _hasCheckedThisSession = true;
 
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
+
+      // Önce push bildiriminden gelen sipariş ID kontrol et
+      final pushOrderId = takePendingOrderIdFromPush();
+      if (pushOrderId != null) {
+        debugPrint('🔔 Push bildiriminden sipariş değerlendirmesi gösterilecek: $pushOrderId');
+        // Push bildirimi varsa direkt o siparişin değerlendirmesini göster
+        await _showReviewForOrderId(context, pushOrderId);
+        return;
+      }
+
+      // Normal akış: bekleyen değerlendirmeleri kontrol et
+      if (!isFirstCheck) return; // İlk kontrol değilse atla
 
       final pendingReviews = await _reviewService.getPendingReviews(userId);
       
@@ -514,6 +544,65 @@ class PendingReviewChecker {
       }
     } catch (e) {
       debugPrint('❌ Bekleyen değerlendirmeler kontrol edilirken hata: $e');
+    }
+  }
+
+  /// Push bildiriminden gelen sipariş ID'si için değerlendirme dialog'u göster
+  static Future<void> _showReviewForOrderId(BuildContext context, String orderId) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      // Sipariş detaylarını al
+      final orderService = OrderService();
+      final order = await orderService.getOrderById(orderId);
+      
+      if (order == null) {
+        debugPrint('❌ Sipariş bulunamadı: $orderId');
+        return;
+      }
+
+      // Atlanmış mı kontrol et (atlanmışsa gösterme)
+      final isSkipped = await _isOrderSkipped(orderId);
+      if (isSkipped) {
+        debugPrint('⚠️ Sipariş atlanmış, değerlendirme gösterilmiyor: $orderId');
+        return;
+      }
+
+      // PendingReview modeli oluştur
+      final pendingReview = PendingReview(
+        orderId: order.id,
+        shopId: order.shopId,
+        shopName: order.shopName ?? 'Dükkan',
+        shopLogo: null,
+        orderDate: order.createdAt,
+        deliveredAt: order.deliveredAt ?? DateTime.now(),
+        productId: order.items.isNotEmpty ? order.items.first.productId : null,
+        productName: order.items.isNotEmpty ? order.items.first.productName : null,
+      );
+
+      if (context.mounted) {
+        // Biraz bekle, uygulama tam yüklensin
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => PendingReviewDialog(
+              pendingReview: pendingReview,
+              onReviewSubmitted: () async {
+                await _removeSkippedOrder(orderId);
+              },
+              onSkipped: () async {
+                await _markOrderAsSkipped(orderId);
+              },
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Push sipariş değerlendirmesi gösterilirken hata: $e');
     }
   }
 

@@ -412,7 +412,12 @@ class PushNotificationService {
         
       case 'review_request':
       case 'review_pending':
-        _navigateToMainScreen(context);
+        // entityId sipariş ID'sidir, doğrudan değerlendirme ekranına yönlendir
+        if (entityId != null && !entityId.startsWith('admin_icon:')) {
+          _navigateToMainScreenWithOrderReview(context, entityId);
+        } else {
+          _navigateToMainScreen(context);
+        }
         break;
         
       case 'admin_notification':
@@ -480,11 +485,21 @@ class PushNotificationService {
   /// Bekleyen kullanıcı ID'si (bildirimden gelen)
   static String? _pendingUserId;
   
+  /// Bekleyen sipariş ID'si (değerlendirme bildiriminden gelen)
+  static String? _pendingOrderId;
+  
   /// Bekleyen gönderi ID'sini al ve temizle
   static String? getAndClearPendingPostId() {
     final postId = _pendingPostId;
     _pendingPostId = null;
     return postId;
+  }
+
+  /// Bekleyen sipariş ID'sini al ve temizle (değerlendirme için)
+  static String? getAndClearPendingOrderId() {
+    final orderId = _pendingOrderId;
+    _pendingOrderId = null;
+    return orderId;
   }
   
   /// Bekleyen kullanıcı ID'sini al ve temizle
@@ -594,6 +609,24 @@ class PushNotificationService {
       debugPrint('✅ Test bildirimi gönderildi');
     } catch (e) {
       debugPrint('❌ Test bildirimi gönderme hatası: $e');
+    }
+  }
+
+  /// MainScreen'e git ve sipariş değerlendirme ekranını aç
+  /// review_pending/review_request bildirimleri için kullanılır
+  static void _navigateToMainScreenWithOrderReview(BuildContext context, String orderId) {
+    try {
+      // Sipariş ID'yi sakla, MainScreen'de değerlendirme dialog'u açılacak
+      _pendingOrderId = orderId;
+      
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/main',
+        (route) => false,
+      );
+      debugPrint('✅ MainScreen\'e yönlendirildi, sipariş değerlendirme açılacak: $orderId');
+    } catch (e) {
+      debugPrint('❌ Sipariş değerlendirmeye yönlendirme hatası: $e');
+      _navigateToMainScreen(context);
     }
   }
 }

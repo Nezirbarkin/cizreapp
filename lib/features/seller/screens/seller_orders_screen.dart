@@ -30,6 +30,9 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     }
   }
   late final OrderService _orderService;
+  
+  // Realtime dinlemesi için channel
+  dynamic _ordersChannel;
 
   bool _isLoading = true;
   List<Order> _orders = [];
@@ -39,6 +42,9 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   // Kuryesi olmayan satıcının siparişlerinde müşteri bilgilerini gizleme
   // Bu bilgiler platform kuryesi tarafından teslim edileceği için satıcı görmesin
   bool _hideCustomerInfo = true;
+  
+  // Sipariş ID'sine göre kurye bilgileri
+  Map<String, Map<String, dynamic>> _courierInfoMap = {};
 
   late TabController _tabController;
   Timer? _refreshTimer;
@@ -79,6 +85,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   void dispose() {
     _refreshTimer?.cancel();
     _tabController.dispose();
+    // Realtime channel'ı kapat
+    if (_ordersChannel != null) {
+      _supabase.removeChannel(_ordersChannel);
+    }
     super.dispose();
   }
 
@@ -104,11 +114,70 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? true;
       // Kuryesi olmayan satıcıda müşteri bilgilerini gizle (admin toggle edebilir)
       _hideCustomerInfo = shopResponse['hide_customer_info'] as bool? ?? (!_hasOwnCourier);
+      
+      // Siparişler yüklendikten sonra Realtime dinlemesi başlat
       await _loadOrders();
+      _subscribeToOrderChanges();
     } catch (e) {
       debugPrint('Hata: $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  /// Siparişlerdeki değişiklikleri dinle (kurye teslim ettiğinde vb.)
+  void _subscribeToOrderChanges() {
+    if (_shopId == null) return;
+    
+    // Önceki channel'ı kapat
+    if (_ordersChannel != null) {
+      _supabase.removeChannel(_ordersChannel);
+    }
+    
+    // Yeni Realtime channel oluştur
+    _ordersChannel = _supabase
+        .channel('seller_orders_channel')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'orders',
+          callback: (payload) {
+            // Sadece bu dükkanın siparişlerini kontrol et
+            final newRecord = payload.newRecord as Map<String, dynamic>?;
+            if (newRecord != null && newRecord['shop_id'] == _shopId) {
+              debugPrint('📦 Sipariş güncellendi (Realtime): ${payload.newRecord}');
+              if (mounted) {
+                _loadOrders();
+              }
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'courier_assignments',
+          callback: (payload) {
+            debugPrint('🚴 Kurye ataması yapıldı (Realtime): ${payload.newRecord}');
+            // Kurye atandığında listeyi yenile
+            if (mounted) {
+              _loadOrders();
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'courier_assignments',
+          callback: (payload) {
+            debugPrint('🚴 Kurye ataması güncellendi (Realtime): ${payload.newRecord}');
+            // Kurye teslim ettiğinde vb. listeyi yenile
+            if (mounted) {
+              _loadOrders();
+            }
+          },
+        )
+        .subscribe();
+    
+    debugPrint('✅ Satıcı siparişleri Realtime dinlemesi başlatıldı (shopId: $_shopId)');
   }
 
   Future<void> _loadOrders() async {
@@ -139,6 +208,66 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       // Tüm siparişleri çek
       orders = await _orderService.getShopOrders(_shopId!);
 
+      // Kurye atama bilgilerini her zaman yükle (has_own_courier'dan bağımsız).
+      // Böylece ister platform kuryesi ister dükkanın kendi kuryesi teslim etmiş olsun,
+      // atama kaydı varsa kurye bilgisi kartta gösterilir.
+      Map<String, Map<String, dynamic>> courierInfoMap = {};
+      final orderIds = orders.map((o) => o.id).toList();
+      try {
+        if (orderIds.isNotEmpty) {
+          final courierAssignments = await _supabase
+              .from('courier_assignments')
+              .select('''
+                id, order_id, status, picked_up_at, delivered_at,
+                courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
+              ''')
+              .inFilter('order_id', orderIds);
+
+          for (var assignment in courierAssignments) {
+            final orderId = assignment['order_id'] as String;
+            courierInfoMap[orderId] = {
+              'courier_name': assignment['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
+              'courier_phone': assignment['courier']?['phone'] ?? '',
+              'status': assignment['status'] ?? 'pending',
+              'picked_up_at': assignment['picked_up_at'],
+              'delivered_at': assignment['delivered_at'],
+            };
+          }
+        }
+      } catch (e) {
+        debugPrint('Kurye atama bilgileri yüklenemedi: $e');
+      }
+
+      // Fallback: courier_assignments kaydı olmayan teslim edilmiş siparişler için,
+      // orders tablosundaki delivered_courier_* alanlarını kullan (kurye teslim anında
+      // orders'a da yazılmış olabilir). Bu, RLS veya join sorunlarına karşı dayanıklıdır.
+      try {
+        if (orderIds.isNotEmpty) {
+          final ordersRaw = await _supabase
+              .from('orders')
+              .select('id, delivered_courier_name, delivered_courier_phone, delivered_courier_id, delivered_at, status')
+              .inFilter('id', orderIds);
+
+          for (var row in ordersRaw) {
+            final orderId = row['id'] as String;
+            if (courierInfoMap.containsKey(orderId)) continue; // courier_assignments öncelikli
+            final courierName = row['delivered_courier_name'] as String?;
+            if (courierName == null || courierName.isEmpty) continue;
+            final status = (row['status'] as String?) ?? '';
+            courierInfoMap[orderId] = {
+              'courier_name': courierName,
+              'courier_phone': (row['delivered_courier_phone'] as String?) ?? '',
+              'status': status == 'delivered' ? 'delivered' : 'pending',
+              'picked_up_at': null,
+              'delivered_at': row['delivered_at'],
+            };
+          }
+        }
+      } catch (e) {
+        // Sütunlar eklenmemiş olabilir (migration çalıştırılmamış). Sessizce geç.
+        debugPrint('orders.delivered_courier_* fallback yüklenemedi (sütun eksik olabilir): $e');
+      }
+
       // Tab'a göre filtrele
       if (currentTabIndex == 0) {
         // Tümü - filter yok
@@ -153,6 +282,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       if (mounted) {
         setState(() {
           _orders = orders;
+          _courierInfoMap = courierInfoMap;
           _isLoading = false;
         });
       }
@@ -176,8 +306,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       await _orderService.updateOrderStatus(order.id, newStatus);
       debugPrint('✅ Sipariş durumu güncellendi: ${order.id} -> ${newStatus.name}');
       
-      // NOT: Kurye bildirimi ve atama işlemi artık satıcı "Kurye Çağır"
-      // butonuna bastığında yapılıyor - otomatik atama kaldırıldı
+      // Müşteriye bildirim gönder
+      await _sendStatusNotificationToCustomer(order, newStatus);
       
       await _loadOrders();
       if (mounted) {
@@ -195,6 +325,70 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red.shade400),
         );
       }
+    }
+  }
+
+  /// Sipariş durumu değişikliğinde müşteriye bildirim gönder
+  Future<void> _sendStatusNotificationToCustomer(Order order, OrderStatus newStatus) async {
+    try {
+      final shopResponse = await _supabase
+          .from('shops')
+          .select('name')
+          .eq('id', order.shopId)
+          .maybeSingle();
+      final shopName = shopResponse?['name'] ?? 'Dükkan';
+      
+      String title;
+      String content;
+      String type;
+      
+      switch (newStatus) {
+        case OrderStatus.confirmed:
+          title = 'Sipariş Onaylandı';
+          content = '$shopName mağazası siparişinizi onayladı ve hazırlamaya başlıyor.';
+          type = 'order_update';
+          break;
+        case OrderStatus.preparing:
+          title = 'Sipariş Hazırlanıyor';
+          content = '$shopName mağazası siparişinizi hazırlıyor.';
+          type = 'order_update';
+          break;
+        case OrderStatus.ready:
+          title = 'Sipariş Hazır';
+          content = '$shopName mağazası siparişinizi hazırladı, kurye teslim alacak.';
+          type = 'order_update';
+          break;
+        case OrderStatus.onTheWay:
+          title = 'Sipariş Yolda';
+          content = '$shopName siparişiniz kuryeye teslim edildi ve yola çıktı.';
+          type = 'order_update';
+          break;
+        case OrderStatus.delivered:
+          // Teslim bildirimi updateOrderStatus içinde tek sefer gönderilir.
+          // Burada tekrar bildirim gönderilmez (çift bildirim engeli).
+          return;
+        case OrderStatus.cancelled:
+          title = 'Sipariş İptal Edildi';
+          content = '$shopName mağazası siparişinizi iptal etti.';
+          type = 'order_update';
+          break;
+        default:
+          return;
+      }
+      
+      await _supabase.from('notifications').insert({
+        'user_id': order.userId,
+        'type': type,
+        'title': title,
+        'content': content,
+        'data': {'order_id': order.id, 'status': newStatus.name},
+        'is_read': false,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      
+      debugPrint('✅ Müşteriye bildirim gönderildi: $title');
+    } catch (e) {
+      debugPrint('⚠️ Müşteri bildirimi hatası: $e');
     }
   }
 
@@ -505,6 +699,278 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         return Icons.task_alt;
       case OrderStatus.cancelled:
         return Icons.cancel;
+    }
+  }
+
+  /// Kurye bilgilerini gösteren dialog
+  void _showCourierInfoDialog(Map<String, dynamic> courierInfo) {
+    final courierName = courierInfo['courier_name'] as String? ?? 'Bilinmeyen Kurye';
+    final courierPhone = courierInfo['courier_phone'] as String? ?? '';
+    final status = courierInfo['status'] as String? ?? 'pending';
+    final pickedUpAt = courierInfo['picked_up_at'] as String?;
+    final deliveredAt = courierInfo['delivered_at'] as String?;
+    
+    String statusText;
+    Color statusColor;
+    IconData statusIcon;
+    
+    switch (status) {
+      case 'delivered':
+        statusText = 'Teslim Edildi';
+        statusColor = Colors.green;
+        statusIcon = Icons.check_circle;
+        break;
+      case 'on_the_way':
+        statusText = 'Yolda';
+        statusColor = Colors.blue;
+        statusIcon = Icons.delivery_dining;
+        break;
+      case 'picked_up':
+        statusText = 'Teslim Alındı';
+        statusColor = Colors.teal;
+        statusIcon = Icons.inventory_2;
+        break;
+      case 'accepted':
+        statusText = 'Kabul Edildi';
+        statusColor = Colors.orange;
+        statusIcon = Icons.check;
+        break;
+      default:
+        statusText = 'Atandı';
+        statusColor = Colors.grey;
+        statusIcon = Icons.hourglass_empty;
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(statusIcon, color: statusColor, size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Kurye Bilgileri',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            courierName,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Status
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(statusIcon, color: statusColor, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Durum: $statusText',
+                      style: TextStyle(color: statusColor, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Phone
+              if (courierPhone.isNotEmpty)
+                _buildDialogInfoRow(Icons.phone, 'Telefon', courierPhone),
+              
+              // Pickup time
+              if (pickedUpAt != null)
+                _buildDialogInfoRow(
+                  Icons.access_time,
+                  'Teslim Alma',
+                  _formatDateTime(pickedUpAt),
+                ),
+              
+              // Delivery time
+              if (deliveredAt != null)
+                _buildDialogInfoRow(
+                  Icons.check_circle,
+                  'Teslim Etme',
+                  _formatDateTime(deliveredAt),
+                ),
+              
+              const SizedBox(height: 24),
+              
+              // Close button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: statusColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Kapat'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildDialogInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey),
+          const SizedBox(width: 12),
+          Text(
+            '$label: ',
+            style: const TextStyle(color: Colors.grey, fontSize: 14),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  String _formatDateTime(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString);
+      return '${dt.day}.${dt.month}.${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return isoString;
+    }
+  }
+
+  /// Kuryeyi arama dialogu
+  void _showCourierCallDialog(Map<String, dynamic> courierInfo) {
+    final courierName = courierInfo['courier_name'] as String? ?? 'Kurye';
+    final courierPhone = courierInfo['courier_phone'] as String? ?? '';
+    final courierStatus = courierInfo['status'] as String? ?? 'pending';
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.phone, color: Colors.green.shade700),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(courierName, style: const TextStyle(fontSize: 18)),
+                  Text(
+                    courierStatus == 'delivered' ? 'Teslim etti' : 'Aktif',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (courierPhone.isNotEmpty) ...[
+              Text(
+                courierPhone,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    // Telefon araması başlat
+                    _launchPhoneCall(courierPhone);
+                  },
+                  icon: const Icon(Icons.call),
+                  label: const Text('Ara'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ] else ...[
+              const Text('Telefon bilgisi yok', style: TextStyle(color: Colors.grey)),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Telefon araması başlat
+  Future<void> _launchPhoneCall(String phoneNumber) async {
+    try {
+      final url = Uri.parse('tel:$phoneNumber');
+      debugPrint('📞 Arama başlatılıyor: $phoneNumber');
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      }
+    } catch (e) {
+      debugPrint('Telefon araması başlatılamadı: $e');
     }
   }
 
@@ -1151,7 +1617,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   }
 
   Widget _buildOrderCard(Order order) {
-    final statusColor = _getStatusColor(order.status);
+    // Kurye teslim ettiyse, sipariş durumu on_the_way olsa bile "Teslim Edildi" göster
+    final courierInfo = _courierInfoMap[order.id];
+    final courierIsDelivered = courierInfo?['status'] == 'delivered';
+    
+    // Kurye teslim ettiyse sipariş durumunu delivered olarak göster
+    final displayStatus = courierIsDelivered && order.status == OrderStatus.onTheWay
+        ? OrderStatus.delivered
+        : order.status;
+    
+    final statusColor = _getStatusColor(displayStatus);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1199,7 +1674,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                           ),
                         ],
                       ),
-                      child: Icon(_getStatusIcon(order.status), color: Colors.white, size: 24),
+                      child: Icon(_getStatusIcon(displayStatus), color: Colors.white, size: 24),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1226,7 +1701,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        _getStatusText(order.status),
+                        _getStatusText(displayStatus),
                         style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
@@ -1313,6 +1788,144 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                     ),
                   ),
                 ],
+
+                // Kurye Teslim Bilgisi - Kurye atanmış siparişlerde her zaman gösterilir.
+                // Kendi kuryesi olup kendi teslim eden satıcılarda courierInfo null olacağı
+                // için kart gösterilmez (bu beklenen davranış).
+                Builder(
+                  builder: (context) {
+                    final courierInfo = _courierInfoMap[order.id];
+                    // Kurye atanmışsa (kendi kuryesi olsun veya olmasın) bilgisi gösterilir.
+                    if (courierInfo != null) {
+                      final courierName = courierInfo['courier_name'] as String? ?? 'Kurye';
+                      final courierPhone = courierInfo['courier_phone'] as String? ?? '';
+                      final courierStatus = courierInfo['status'] as String? ?? 'pending';
+
+                      Color statusColor;
+                      IconData statusIcon;
+                      String statusText;
+
+                      switch (courierStatus) {
+                        case 'delivered':
+                          statusColor = Colors.green;
+                          statusIcon = Icons.check_circle;
+                          statusText = 'Kurye Teslim Etti';
+                          break;
+                        case 'on_the_way':
+                          statusColor = Colors.blue;
+                          statusIcon = Icons.delivery_dining;
+                          statusText = 'Yolda';
+                          break;
+                        case 'picked_up':
+                          statusColor = Colors.teal;
+                          statusIcon = Icons.inventory_2;
+                          statusText = 'Teslim Alındı';
+                          break;
+                        case 'accepted':
+                          statusColor = Colors.orange;
+                          statusIcon = Icons.check;
+                          statusText = 'Kurye Yolda';
+                          break;
+                        default:
+                          statusColor = Colors.grey;
+                          statusIcon = Icons.hourglass_empty;
+                          statusText = 'Atandı';
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: GestureDetector(
+                          onTap: () => _showCourierInfoDialog(courierInfo),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: statusColor.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(statusIcon, size: 18, color: statusColor),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Kurye: $courierName',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          statusText,
+                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (courierStatus == 'delivered')
+                                  Icon(Icons.task_alt, size: 20, color: Colors.green.shade700),
+                                if (courierPhone.isNotEmpty) ...[
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    onTap: () => _showCourierCallDialog(courierInfo),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.shade100,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(Icons.phone, size: 18, color: Colors.green.shade700),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(width: 4),
+                                Icon(Icons.chevron_right, size: 16, color: statusColor),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    } else if (!_hasOwnCourier &&
+                        (order.status == OrderStatus.ready ||
+                         order.status == OrderStatus.confirmed ||
+                         order.status == OrderStatus.preparing)) {
+                      // Sipariş hazır ama platform kuryesi henüz atanmamış (sadece kendi
+                      // kuryesi olmayan satıcılar için anlamlıdır).
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.local_shipping, size: 18, color: Colors.amber.shade700),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Kurye atanması bekleniyor...',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.amber.shade700),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
 
                 const SizedBox(height: 12),
                 Container(height: 1, color: Colors.grey.shade200),
@@ -1417,7 +2030,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _buildStatusActions(order),
+                        _buildStatusActions(order, courierStatus: _courierInfoMap[order.id]?['status']),
                       ],
                     ),
                   ],
@@ -1430,10 +2043,39 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     );
   }
 
-  Widget _buildStatusActions(Order order) {
-    // Kuryesi olmayan satıcılar için kurye çağır butonu (sadece hazır durumunda)
+  Widget _buildStatusActions(Order order, {String? courierStatus}) {
+    // Kuryesi olmayan satıcılar için kurye çağır butonu (sadece hazır durumunda ve kurye atanmamışsa)
+    final courierIsDelivered = courierStatus == 'delivered';
     final showCallCourierButton = !_hasOwnCourier &&
-        order.status == OrderStatus.ready;
+        order.status == OrderStatus.ready &&
+        courierStatus == null;
+
+    // Kurye teslim ettiyse (kuryesi olmayan satıcıda)
+    if (!_hasOwnCourier && courierIsDelivered && order.status == OrderStatus.onTheWay) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.task_alt, size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 6),
+            Text(
+              'Kurye Teslim Etti',
+              style: TextStyle(
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     switch (order.status) {
       case OrderStatus.pending:
@@ -1482,12 +2124,15 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           runSpacing: 8,
           alignment: WrapAlignment.end,
           children: [
-            _buildActionButton(
-              icon: Icons.two_wheeler,
-              label: 'Yola Çıkar',
-              color: const Color(0xFF6366F1),
-              onTap: () => _updateOrderStatus(order, OrderStatus.onTheWay),
-            ),
+            // Kuryesi olmayan satıcıda "Yola Çıkar" butonu gizle
+            // (Kurye siparişi aldığında otomatik olarak "Yolda" durumuna geçer)
+            if (_hasOwnCourier)
+              _buildActionButton(
+                icon: Icons.two_wheeler,
+                label: 'Yola Çıkar',
+                color: const Color(0xFF6366F1),
+                onTap: () => _updateOrderStatus(order, OrderStatus.onTheWay),
+              ),
             if (showCallCourierButton)
               _buildCallCourierButton(order),
           ],
@@ -1984,6 +2629,33 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           ),
         );
       }
+    }
+  }
+
+  /// Sipariş için kurye bilgilerini getir
+  Future<Map<String, dynamic>?> _getCourierInfoForOrder(String orderId) async {
+    try {
+      final response = await _supabase
+          .from('courier_assignments')
+          .select('''
+            id, status, picked_up_at, delivered_at,
+            courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
+          ''')
+          .eq('order_id', orderId)
+          .maybeSingle();
+      
+      if (response == null) return null;
+      
+      return {
+        'courier_name': response['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
+        'courier_phone': response['courier']?['phone'] ?? '',
+        'status': response['status'] ?? 'pending',
+        'picked_up_at': response['picked_up_at'],
+        'delivered_at': response['delivered_at'],
+      };
+    } catch (e) {
+      debugPrint('Kurye bilgisi alınamadı: $e');
+      return null;
     }
   }
 }

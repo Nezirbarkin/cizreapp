@@ -64,11 +64,13 @@ class StoryService {
       int retryCount = 0;
       while (retryCount < 2) {
         try {
+          debugPrint('📱 Sorgulanıyor: admin_pinned desc, is_pinned desc, created_at desc, expires_at > ${now.toIso8601String()}');
           response = await _supabase
               .from('stories')
               .select('*, profiles!stories_user_id_fkey(username, full_name, avatar_url)')
               .gt('expires_at', now.toIso8601String())
-              .order('is_pinned', ascending: false)
+              .order('admin_pinned', ascending: false, nullsFirst: false)
+              .order('is_pinned', ascending: false, nullsFirst: false)
               .order('created_at', ascending: false);
           break; // Başarılı olursa döngüden çık
         } catch (e) {
@@ -87,6 +89,12 @@ class StoryService {
       }
 
       debugPrint('📱 getStories() - ${response.length} adet story bulundu');
+
+      // İlk 5 hikayenin sabitleme durumunu logla
+      for (int i = 0; i < 5 && i < response.length; i++) {
+        final s = response[i];
+        debugPrint('📱  Hikayeler[$i]: id=${s['id']}, is_pinned=${s['is_pinned']}, admin_pinned=${s['admin_pinned']}');
+      }
 
       final stories = response.map((json) {
         final storyId = json['id'] as String;
@@ -107,28 +115,34 @@ class StoryService {
       }).toList();
 
       // Sıralama önceliği:
-      // 1. Sabitlenenler (is_pinned = true) her zaman en başta
-      // 2. İzlenmeyen story'ler önce, izlenenler sonra
-      // 3. Her grup içinde created_at desc (yeniden eskiye)
+      // 1. Admin sabitlenenler (adminPinned = true) her zaman en başta
+      // 2. Kullanıcı sabitlenenler (isPinned = true) ikinci sıra
+      // 3. İzlenmeyen story'ler önce, izlenenler sonra
+      // 4. Her grup içinde created_at desc (yeniden eskiye)
       stories.sort((a, b) {
-        // 1. Önce pin durumuna göre sırala - SABİTLENEN HER ZAMAN BAŞTA
+        // 1. Önce adminPinned durumuna göre sırala - ADMIN SABİTLENEN HER ZAMAN BAŞTA
+        if (a.adminPinned != b.adminPinned) {
+          return a.adminPinned ? -1 : 1;
+        }
+        // 2. Sonra isPinned durumuna göre sırala
         if (a.isPinned != b.isPinned) {
-          return a.isPinned ? -1 : 1; // true (pinned) önce, false sonra
+          return a.isPinned ? -1 : 1;
         }
         
         // 2. Pin durumu aynıysa, görüntüleme durumuna göre sırala
         if (a.isViewedByCurrentUser != b.isViewedByCurrentUser) {
-          return a.isViewedByCurrentUser ? 1 : -1; // false (izlenmemiş) önce, true (izlenmiş) sonra
+          return a.isViewedByCurrentUser ? 1 : -1;
         }
         
         // 3. Her ikisi de aynı pin/view durumunda ise created_at desc (yeniden eskiye)
         return b.createdAt.compareTo(a.createdAt);
       });
 
-      final pinnedCount = stories.where((s) => s.isPinned).length;
-      final unwatchedCount = stories.where((s) => !s.isViewedByCurrentUser && !s.isPinned).length;
-      final watchedCount = stories.where((s) => s.isViewedByCurrentUser && !s.isPinned).length;
-      debugPrint('📱 Story sıralama tamamlandı - Sabitlenmiş: $pinnedCount, İzlenmeyen: $unwatchedCount, İzlenen: $watchedCount');
+      final adminPinnedCount = stories.where((s) => s.adminPinned).length;
+      final userPinnedCount = stories.where((s) => !s.adminPinned && s.isPinned).length;
+      final unwatchedCount = stories.where((s) => !s.isViewedByCurrentUser && !s.isPinned && !s.adminPinned).length;
+      final watchedCount = stories.where((s) => s.isViewedByCurrentUser && !s.isPinned && !s.adminPinned).length;
+      debugPrint('📱 Story sıralama - Admin Sabitlenmiş: $adminPinnedCount, Kullanıcı Sabitlenmiş: $userPinnedCount, İzlenmeyen: $unwatchedCount, İzlenen: $watchedCount');
 
       return stories;
     } catch (e) {

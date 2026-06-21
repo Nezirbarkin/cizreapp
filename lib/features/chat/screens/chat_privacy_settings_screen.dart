@@ -14,7 +14,9 @@ class ChatPrivacySettingsScreen extends StatefulWidget {
 
 class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
   final PrivacyService _privacyService = PrivacyService();
-  bool _isOnline = true;
+  // Çevrimiçi GÖRÜNME TERCİHİ (kalıcı, is_online_enabled sütunu).
+  // Toggle bu değeri gösterir/günceller; app lifecycle bu tercihe saygı duyar.
+  bool _isOnlineEnabled = true;
   bool _isGhostMode = false;
   bool _isLoading = true;
 
@@ -26,11 +28,11 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
 
   Future<void> _loadSettings() async {
     try {
-      final isOnline = await _privacyService.getOnlineStatus();
+      final isOnlineEnabled = await _privacyService.getOnlineEnabled();
       final isGhostMode = await _privacyService.getGhostMode();
       if (mounted) {
         setState(() {
-          _isOnline = isOnline;
+          _isOnlineEnabled = isOnlineEnabled;
           _isGhostMode = isGhostMode;
           _isLoading = false;
         });
@@ -46,9 +48,9 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
   Future<void> _setOnlineStatus(bool value) async {
     setState(() => _isLoading = true);
     try {
-      final success = await _privacyService.updateOnlineStatus(value);
+      final success = await _privacyService.updateOnlineEnabled(value);
       if (success && mounted) {
-        setState(() => _isOnline = value);
+        setState(() => _isOnlineEnabled = value);
       }
     } finally {
       if (mounted) {
@@ -65,7 +67,7 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
         setState(() {
           _isGhostMode = value;
           if (value) {
-            _isOnline = false;
+            _isOnlineEnabled = false;
           }
         });
       }
@@ -133,8 +135,8 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
                     opacity: _isGhostMode ? 0.5 : 1.0,
                     child: SwitchListTile(
                       secondary: Icon(
-                        _isOnline ? Icons.circle : Icons.circle_outlined,
-                        color: _isOnline ? Colors.green : Colors.grey,
+                        _isOnlineEnabled ? Icons.circle : Icons.circle_outlined,
+                        color: _isOnlineEnabled ? Colors.green : Colors.grey,
                       ),
                       title: Text(
                         'Çevrimiçi Durumum',
@@ -144,7 +146,7 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
                         ),
                       ),
                       subtitle: Text(
-                        _isOnline
+                        _isOnlineEnabled
                             ? 'Aktif görünüyorsun'
                             : 'Çevrimdışı görünüyorsun',
                         style: TextStyle(
@@ -152,7 +154,7 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
                           color: Colors.grey[600],
                         ),
                       ),
-                      value: _isOnline,
+                      value: _isOnlineEnabled,
                       activeColor: themeProvider.primaryColor,
                       onChanged: (value) {
                         if (!_isGhostMode) {

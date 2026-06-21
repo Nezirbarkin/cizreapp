@@ -581,6 +581,8 @@ class PostCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.2,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.visible,
             ),
           ),
           // Daha fazla butonu
