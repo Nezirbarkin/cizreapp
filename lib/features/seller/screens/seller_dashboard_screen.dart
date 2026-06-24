@@ -70,20 +70,28 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
   }
 
   Future<void> _loadDashboardData() async {
+    debugPrint('🔵 [_loadDashboardData] Başladı');
     setState(() => _isLoading = true);
     
     try {
       final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
+      debugPrint('🔵 [_loadDashboardData] userId: $userId');
+      if (userId == null) {
+        debugPrint('🔴 [_loadDashboardData] HATA: userId null - giriş yapılmamış olabilir');
+        return;
+      }
 
       // Satıcının mağazasını bul
+      debugPrint('🔵 [_loadDashboardData] Mağaza sorgulanıyor...');
       final shopResponse = await _supabase
           .from('shops')
-          .select('id, name, iban, bank_name, account_holder_name, pending_payout, total_paid, commission_rate, has_own_courier, delivery_fee, logo_url, is_accepting_orders')
+          .select('id, name, iban, bank_name, account_holder_name, pending_payout, total_paid, commission_rate, has_own_courier, delivery_fee, logo_url, is_accepting_orders, admin_credit, commission_debt, cash_payment_revenue, online_payment_revenue')
           .eq('owner_id', userId)
           .maybeSingle();
+      debugPrint('🔵 [_loadDashboardData] Mağaza sonucu: ${shopResponse != null ? "BULUNDU (id: ${shopResponse['id']})" : "BULUNAMADI"}');
 
       if (shopResponse == null) {
+        debugPrint('🔴 [_loadDashboardData] HATA: Satıcıya ait mağaza yok! userId=$userId');
         setState(() {
           _stats = {'hasShop': false};
           _isLoading = false;
@@ -95,54 +103,104 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
       _shopInfo = Map<String, dynamic>.from(shopResponse);
       _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? false;
       _isAcceptingOrders = shopResponse['is_accepting_orders'] as bool? ?? true;
+      debugPrint('🔵 [_loadDashboardData] Shop ID: $shopId, hasOwnCourier: $_hasOwnCourier');
+      debugPrint('🔵 [_loadDashboardData] admin_credit: ${shopResponse['admin_credit']}, commission_debt: ${shopResponse['commission_debt']}');
+      debugPrint('🔵 [_loadDashboardData] cash_payment_revenue: ${shopResponse['cash_payment_revenue']}, online_payment_revenue: ${shopResponse['online_payment_revenue']}');
 
       // İstatistikleri yükle
+      debugPrint('🔵 [_loadDashboardData] Siparişler sorgulanıyor...');
       final ordersResult = await _supabase
           .from('orders')
           .select('id')
           .eq('shop_id', shopId);
-      
+      debugPrint('🔵 [_loadDashboardData] Sipariş sayısı: ${(ordersResult as List).length}');
+       
+      debugPrint('🔵 [_loadDashboardData] Ürünler sorgulanıyor...');
       final productsResult = await _supabase
           .from('products')
           .select('id')
           .eq('shop_id', shopId);
+      debugPrint('🔵 [_loadDashboardData] Ürün sayısı: ${(productsResult as List).length}');
 
       // Son siparişler
+      debugPrint('🔵 [_loadDashboardData] Son siparişler sorgulanıyor...');
       final orders = await _supabase
           .from('orders')
-          .select('*, profiles(full_name)')
+          .select('*, profiles!orders_user_id_fkey(full_name)')
           .eq('shop_id', shopId)
           .order('created_at', ascending: false)
           .limit(5);
+      debugPrint('🔵 [_loadDashboardData] Son siparişler: ${(orders as List).length} adet');
 
       // En çok satılan ürünler
+      debugPrint('🔵 [_loadDashboardData] Ürünler sorgulanıyor...');
       final products = await _supabase
           .from('products')
           .select('*')
           .eq('shop_id', shopId)
           .order('created_at', ascending: false)
           .limit(5);
+      debugPrint('🔵 [_loadDashboardData] Ürünler: ${(products as List).length} adet');
 
       // Gelir özeti (YENİ - tek sorgu ile tüm gelir verileri)
-      _revenueSummary = await _payoutService.getRevenueSummary(shopId);
-      _pendingPayout = await _payoutService.getPendingPayoutAmount(shopId);
-      _totalPaid = await _payoutService.getTotalPaidAmount(shopId);
+      debugPrint('🔵 [_loadDashboardData] Gelir özeti sorgulanıyor...');
+      try {
+        _revenueSummary = await _payoutService.getRevenueSummary(shopId);
+        debugPrint('🔵 [_loadDashboardData] Gelir özeti başarılı: $_revenueSummary');
+      } catch (e) {
+        debugPrint('🔴 [_loadDashboardData] Gelir özeti HATASI: $e');
+        _revenueSummary = {};
+      }
+
+      debugPrint('🔵 [_loadDashboardData] Bekleyen ödeme tutarı sorgulanıyor...');
+      try {
+        _pendingPayout = await _payoutService.getPendingPayoutAmount(shopId);
+        debugPrint('🔵 [_loadDashboardData] Bekleyen ödeme: $_pendingPayout');
+      } catch (e) {
+        debugPrint('🔴 [_loadDashboardData] Bekleyen ödeme HATASI: $e');
+        _pendingPayout = 0;
+      }
+
+      debugPrint('🔵 [_loadDashboardData] Toplam ödenen sorgulanıyor...');
+      try {
+        _totalPaid = await _payoutService.getTotalPaidAmount(shopId);
+        debugPrint('🔵 [_loadDashboardData] Toplam ödenen: $_totalPaid');
+      } catch (e) {
+        debugPrint('🔴 [_loadDashboardData] Toplam ödenen HATASI: $e');
+        _totalPaid = 0;
+      }
       
       // Değişkenleri ata
-      _adminCredit = (_revenueSummary!['admin_credit'] as num?)?.toDouble() ?? 0;
-      _commissionDebt = (_revenueSummary!['commission_debt'] as num?)?.toDouble() ?? 0;
-      _cashPaymentRevenue = (_revenueSummary!['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
-      _onlinePaymentRevenue = (_revenueSummary!['online_payment_revenue'] as num?)?.toDouble() ?? 0;
+      _adminCredit = (_revenueSummary?['admin_credit'] as num?)?.toDouble() ?? 0;
+      _commissionDebt = (_revenueSummary?['commission_debt'] as num?)?.toDouble() ?? 0;
+      _cashPaymentRevenue = (_revenueSummary?['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
+      _onlinePaymentRevenue = (_revenueSummary?['online_payment_revenue'] as num?)?.toDouble() ?? 0;
+      debugPrint('🔵 [_loadDashboardData] Hesaplanan değerler: adminCredit=$_adminCredit, commissionDebt=$_commissionDebt, cashRevenue=$_cashPaymentRevenue, onlineRevenue=$_onlinePaymentRevenue');
 
       // Ödeme isteklerini yükle
-      _payoutRequests = await _payoutService.getPayoutRequests(userId);
+      debugPrint('🔵 [_loadDashboardData] Ödeme istekleri sorgulanıyor...');
+      try {
+        _payoutRequests = await _payoutService.getPayoutRequests(userId);
+        debugPrint('🔵 [_loadDashboardData] Ödeme istekleri: ${_payoutRequests.length} adet');
+      } catch (e) {
+        debugPrint('🔴 [_loadDashboardData] Ödeme istekleri HATASI: $e');
+        _payoutRequests = [];
+      }
 
       // Bekleyen ödeme isteklerinin toplam tutarını hesapla
-      _pendingRequestsTotal = await _payoutService.getPendingPayoutRequestsTotal(userId);
+      debugPrint('🔵 [_loadDashboardData] Bekleyen istekler toplamı sorgulanıyor...');
+      try {
+        _pendingRequestsTotal = await _payoutService.getPendingPayoutRequestsTotal(userId);
+        debugPrint('🔵 [_loadDashboardData] Bekleyen istekler toplamı: $_pendingRequestsTotal');
+      } catch (e) {
+        debugPrint('🔴 [_loadDashboardData] Bekleyen istekler HATASI: $e');
+        _pendingRequestsTotal = 0;
+      }
       
       // Kullanılabilir ödeme tutarı
       _availablePayout = _pendingPayout - _pendingRequestsTotal;
       if (_availablePayout < 0) _availablePayout = 0;
+      debugPrint('🔵 [_loadDashboardData] Kullanılabilir ödeme: $_availablePayout');
 
       setState(() {
         _stats = {
@@ -154,8 +212,10 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
         _topProducts = List<Map<String, dynamic>>.from(products);
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint('Dashboard verileri yüklenirken hata: $e');
+      debugPrint('🟢 [_loadDashboardData] BAŞARIYLA TAMAMLANDI');
+    } catch (e, stack) {
+      debugPrint('🔴 [_loadDashboardData] CATCH BLOĞU - HATA: $e');
+      debugPrint('🔴 [_loadDashboardData] STACK TRACE: $stack');
       setState(() => _isLoading = false);
     }
   }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Payout Service - Satıcı ödeme istekleri servisi
@@ -14,6 +15,7 @@ class PayoutService {
   /// Satıcının bilgilerini getir (tek sorgu ile tüm veriler)
   Future<Map<String, dynamic>> getShopInfo(String shopId) async {
     try {
+      debugPrint('🔵 [PayoutService.getShopInfo] Sorgulanıyor - shopId: $shopId');
       final response = await _supabase
           .from('shops')
           .select('''
@@ -30,8 +32,10 @@ class PayoutService {
           .eq('id', shopId)
           .single();
 
+      debugPrint('🔵 [PayoutService.getShopInfo] Sonuç: has_courier=${response['has_own_courier']}, admin_credit=${response['admin_credit']}, commission_debt=${response['commission_debt']}, cash_revenue=${response['cash_payment_revenue']}, online_revenue=${response['online_payment_revenue']}');
       return response;
     } catch (e) {
+      debugPrint('🔴 [PayoutService.getShopInfo] HATA: $e');
       return {};
     }
   }
