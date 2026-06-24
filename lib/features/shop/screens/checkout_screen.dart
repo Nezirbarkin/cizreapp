@@ -12,6 +12,7 @@ import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/payment_service.dart';
 import '../../../core/services/app_about_service.dart';
+import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../features/market/providers/cart_provider.dart';
 import '../../../features/market/services/address_service.dart';
@@ -45,6 +46,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final AddressService _addressService = AddressService();
   final PaymentService _paymentService = PaymentService();
   final AppAboutService _aboutService = AppAboutService();
+  final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
   final _addressController = TextEditingController();
   final _notesController = TextEditingController();
@@ -56,6 +58,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _isLoadingAddresses = true;
   bool _onlinePaymentEnabled = false;
   bool _isLoadingPaymentSettings = true;
+  double _userBalance = 0;
 
   @override
   void initState() {
@@ -91,8 +94,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _loadPaymentSettings() async {
     try {
       final settings = await _aboutService.getAboutSettings();
+      
+      // Bakiye bilgisini yükle
+      double balance = 0;
+      try {
+        final balanceData = await _balanceService.getBalance();
+        balance = balanceData?.availableBalance ?? 0;
+      } catch (e) {
+        debugPrint('Bakiye bilgisi yüklenemedi: $e');
+      }
+      
       setState(() {
         _onlinePaymentEnabled = settings?.onlinePaymentEnabled ?? false;
+        _userBalance = balance;
         _isLoadingPaymentSettings = false;
       });
       debugPrint('💳 Online ödeme durumu: $_onlinePaymentEnabled');
@@ -121,6 +135,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     // Online ödeme seçildiyse iyzico akışını başlat
     if (_selectedPaymentMethod == PaymentMethod.online) {
       await _initiateOnlinePayment();
+    } else if (_selectedPaymentMethod == PaymentMethod.balance) {
+      // Bakiye ile ödeme - onay kodu gerekmez
+      await _placeOrder();
     } else {
       // Kapıda ödeme - admin ayarına göre onay kodu iste
       final approvalCodeEnabled = await _checkOrderApprovalCodeEnabled();
@@ -277,6 +294,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
+    // Bakiye kontrolü
+    final finalTotal = widget.subtotal - widget.discountAmount + widget.deliveryFee;
+    if (_selectedPaymentMethod == PaymentMethod.balance) {
+      if (_userBalance < finalTotal) {
+        setState(() => _isPlacingOrder = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yetersiz bakiye! Mevcut: ₺${_userBalance.toStringAsFixed(2)}, Gerekli: ₺${finalTotal.toStringAsFixed(2)}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     try {
       // Müşteri telefon numarasını seçili adresten al
       final customerPhone = _selectedAddress?.phone;
@@ -305,12 +339,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final finalTotal = widget.subtotal - widget.discountAmount + widget.deliveryFee;
 
       // Siparişi oluştur
-      await _orderService.createOrder(
+      final order = await _orderService.createOrder(
         userId: userId,
         shopId: shopId,
         items: orderItems,
         deliveryAddressText: _addressController.text,
-        addressId: _selectedAddress?.id, // Kayıtlı adres ID'sini gönder
+        addressId: _selectedAddress?.id,
         subtotal: widget.subtotal,
         deliveryFee: widget.deliveryFee,
         discount: widget.discountAmount,
@@ -320,6 +354,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: customerPhone,
       );
+
+      // Bakiye ile ödeme ise bakiyeden düş
+      if (_selectedPaymentMethod == PaymentMethod.balance && order != null) {
+        try {
+          await _balanceService.useBalanceForOrder(
+            orderId: order.id,
+            amount: finalTotal,
+            orderTotal: finalTotal,
+          );
+          debugPrint('✅ Bakiye ile ödeme tamamlandı');
+        } catch (balanceError) {
+          debugPrint('❌ Bakiye düşme hatası: $balanceError');
+        }
+      }
 
       // Sepeti temizle (hem database hem UI state)
       await _cartService.clearCart(userId);
@@ -337,9 +385,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (mounted) {
         // Başarı mesajı ve ana ekrana dön
         Navigator.of(context).popUntil((route) => route.isFirst);
+        
+        String message = 'Siparişiniz başarıyla oluşturuldu!';
+        if (_selectedPaymentMethod == PaymentMethod.balance) {
+          message = 'Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${finalTotal.toStringAsFixed(2)})';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Siparişiniz başarıyla oluşturuldu!'),
+          SnackBar(
+            content: Text(message),
             backgroundColor: Colors.green,
           ),
         );
@@ -953,6 +1007,53 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         contentPadding: EdgeInsets.zero,
                         activeColor: Colors.orange.shade700,
                       ),
+                    // Bakiye ile ödeme seçeneği - her zaman göster
+                    const Divider(),
+                    RadioListTile<PaymentMethod>(
+                      value: PaymentMethod.balance,
+                      groupValue: _selectedPaymentMethod,
+                      onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
+                      title: Row(
+                        children: [
+                          const Expanded(child: Text('Bakiye ile Ödeme')),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _userBalance > 0 ? Colors.green.shade100 : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '₺${_userBalance.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                color: _userBalance > 0 ? Colors.green.shade800 : Colors.grey.shade600,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Text(
+                        _userBalance > 0
+                            ? 'Mevcut bakiyeniz: ₺${_userBalance.toStringAsFixed(2)}'
+                            : 'Bakiyeniz yetersiz',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _userBalance > 0 ? null : Colors.orange,
+                        ),
+                      ),
+                      secondary: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.account_balance_wallet, color: Colors.green.shade700),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                      activeColor: Colors.orange.shade700,
+                    ),
                     // Online ödeme kapalıysa bilgilendirme
                     if (!_onlinePaymentEnabled && !_isLoadingPaymentSettings)
                       Padding(

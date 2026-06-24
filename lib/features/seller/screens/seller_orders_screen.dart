@@ -1545,6 +1545,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         return 'Kapıda Kart';
       case PaymentMethod.online:
         return 'Online Ödeme';
+      case PaymentMethod.balance:
+        return 'Bakiye';
     }
   }
 

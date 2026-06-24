@@ -54,7 +54,8 @@ enum OrderStatus {
 enum PaymentMethod {
   cash,           // Kapıda Nakit
   cardOnDelivery, // Kapıda Kart (POS ile)
-  online;         // Online Ödeme (iyzico)
+  online,         // Online Ödeme (iyzico)
+  balance;        // Bakiye ile Ödeme
 
   String get label {
     switch (this) {
@@ -64,6 +65,8 @@ enum PaymentMethod {
         return 'Kapıda Kart';
       case PaymentMethod.online:
         return 'Online Ödeme';
+      case PaymentMethod.balance:
+        return 'Bakiye ile Ödeme';
     }
   }
 

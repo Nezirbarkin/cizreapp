@@ -24,6 +24,7 @@ import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
+import '../../../core/services/balance_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -553,6 +554,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       Navigator.pop(context);
                     },
                   ),
+                  _buildDrawerItem(
+                    icon: Icons.account_balance_wallet,
+                    title: 'Cüzdan Yönetimi',
+                    isSelected: _selectedMenu == 'Cüzdan Yönetimi',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Cüzdan Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -689,6 +699,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildSettingsContent();
       case 'Hakkında Ayarları':
         return const AdminAboutSettingsScreen();
+      case 'Cüzdan Yönetimi':
+        return _buildWalletManagementContent();
       default:
         return _buildComingSoon();
     }
@@ -4262,50 +4274,81 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             onPressed: () async {
               try {
                 final orderId = order['id'];
-                debugPrint('🗑️ Sipariş siliniyor: $orderId');
-                
-                // Siparişi sil (cascade delete order_items'i otomatik siler)
+                debugPrint('Siparis siliniyor: $orderId');
+
+                // Once iliskili verileri manuel sil
+                try {
+                  await Supabase.instance.client
+                      .from('courier_assignments')
+                      .delete()
+                      .eq('order_id', orderId);
+                } catch (e) {
+                  debugPrint('Courier assignments silinemedi: $e');
+                }
+
+                try {
+                  await Supabase.instance.client
+                      .from('order_items')
+                      .delete()
+                      .eq('order_id', orderId);
+                } catch (e) {
+                  debugPrint('Order items silinemedi: $e');
+                }
+
+                // Siparisi sil - select() ile silinen kaydin dondugunu kontrol et
                 final result = await Supabase.instance.client
                     .from('orders')
                     .delete()
-                    .eq('id', orderId);
-                
-                debugPrint('✅ Sipariş silme başarılı: $result');
-                
+                    .eq('id', orderId)
+                    .select();
+
+                debugPrint('Siparis silme sonucu: $result');
+
+                if (result.isEmpty) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Siparis silinemedi. Yetkiniz olmayabilir.'),
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                  return;
+                }
+
+                debugPrint('Siparis silme basarili: $result');
+
                 if (mounted) {
                   Navigator.pop(context);
-                  // Listeyi yenile
                   setState(() {});
-                  
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Sipariş başarıyla silindi'),
+                      content: Text('Siparis basariyla silindi'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
                   );
                 }
               } on PostgrestException catch (e) {
-                debugPrint('❌ PostgreSQL Hatası: ${e.message}');
+                debugPrint('PostgreSQL Hatasi: ${e.message}');
                 debugPrint('Hata kodu: ${e.code}');
                 debugPrint('Detay: ${e.details}');
-                
+
                 if (mounted) {
                   String errorMessage = 'Bilinmeyen hata';
-                  
-                  // RLS policy hatası
+
                   if (e.code == '42501' || e.message.contains('policy')) {
-                    errorMessage = 'Yetkilendirme hatası. Admin olduğunuzu kontrol edin.';
+                    errorMessage = 'Yetkilendirme hatasi. Admin oldugunuzu kontrol edin.';
                   }
-                  // Constraint hatası
                   else if (e.code == '23503') {
-                    errorMessage = 'Sipariş ilişkili verilere sahip';
+                    errorMessage = 'Siparis iliskili verilere sahip';
                   }
-                  // Genel hata
                   else {
                     errorMessage = e.message;
                   }
-                  
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $errorMessage'),
@@ -4315,9 +4358,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   );
                 }
               } catch (e, stackTrace) {
-                debugPrint('❌ Sipariş silinirken hata: $e');
+                debugPrint('Siparis silinirken hata: $e');
                 debugPrint('Stack trace: $stackTrace');
-                
+
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -15287,6 +15330,597 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
             child: const Text('Kaydet'),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ========== CÜZDAN YÖNETİMİ İÇERİĞİ ==========
+  Widget _buildWalletManagementContent() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cüzdan Yönetimi'),
+        backgroundColor: Colors.white,
+      ),
+      body: DefaultTabController(
+        length: 3,
+        child: Column(
+          children: [
+            const TabBar(
+              tabs: [
+                Tab(text: 'Bakiye Yükle'),
+                Tab(text: 'İşlem Geçmişi'),
+                Tab(text: 'Bakiyeli Kullanıcılar'),
+              ],
+              labelColor: Colors.blue,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Colors.blue,
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  const _BalanceLoadTabWidget(),
+                  _buildTransactionHistoryTab(),
+                  _buildUsersWithBalanceTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUsersWithBalanceTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _getUsersWithBalance(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                const SizedBox(height: 16),
+                Text('Hata: ${snapshot.error}'),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Tekrar Dene'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final users = snapshot.data ?? [];
+
+        if (users.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.account_balance_wallet, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'Bakiyeli kullanıcı bulunamadı',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(8),
+          itemCount: users.length,
+          itemBuilder: (context, index) {
+            final user = users[index];
+            final balance = (user['balance'] as num?)?.toDouble() ?? 0.0;
+            final isPositive = balance > 0;
+
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: isPositive ? Colors.green.shade100 : Colors.grey.shade100,
+                  child: Icon(
+                    Icons.account_balance_wallet,
+                    color: isPositive ? Colors.green : Colors.grey,
+                  ),
+                ),
+                title: Text(
+                  user['full_name'] ?? 'Bilinmeyen',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user['phone'] ?? '-'),
+                    Text(
+                      'Bakiye: ₺${balance.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: isPositive ? Colors.green : Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: isPositive
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '₺${balance.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    : null,
+                isThreeLine: true,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _getUsersWithBalance() async {
+    try {
+      // user_balances tablosundan bakiyeli kullanıcıları getir
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('user_balances')
+          .select('''
+            id:user_id,
+            full_name:profiles!inner(full_name),
+            phone:profiles!inner(phone),
+            balance:available_balance
+          ''')
+          .gt('available_balance', 0)
+          .order('available_balance', ascending: false)
+          .limit(100);
+
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      debugPrint('Bakiyeli kullanıcılar getirme hatası: $e');
+      // Alternatif: balance_transactions'dan user_id'leri çek
+      try {
+        final supabase = Supabase.instance.client;
+        final txResponse = await supabase
+            .from('balance_transactions')
+            .select('user_id, profiles!inner(full_name, phone), net_amount')
+            .eq('status', 'completed')
+            .order('created_at', ascending: false);
+
+        // Kullanıcıları ve son bakiyelerini grupla
+        final Map<String, Map<String, dynamic>> userMap = {};
+        for (var tx in (txResponse as List)) {
+          final userId = tx['user_id'] as String;
+          if (!userMap.containsKey(userId)) {
+            userMap[userId] = {
+              'user_id': userId,
+              'full_name': tx['profiles']?['full_name'] ?? 'Bilinmeyen',
+              'phone': tx['profiles']?['phone'] ?? '-',
+            };
+          }
+        }
+
+        return userMap.values.toList();
+      } catch (e2) {
+        debugPrint('Alternatif yöntem de hata: $e2');
+        return [];
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _searchUsers(String query) async {
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('profiles')
+          .select('id, full_name, phone, email')
+          .or('full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%,username.ilike.%$query%')
+          .limit(10);
+
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      debugPrint('Kullanıcı arama hatası: $e');
+      return [];
+    }
+  }
+
+  Widget _buildTransactionHistoryTab() {
+    final balanceService = BalanceService();
+    
+    return FutureBuilder(
+      future: balanceService.getAllTransactions(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData || (snapshot.data as List).isEmpty) {
+          return const Center(child: Text('Henüz işlem bulunmuyor'));
+        }
+
+        final transactions = snapshot.data as List;
+        return ListView.builder(
+          padding: const EdgeInsets.all(8),
+          itemCount: transactions.length,
+          itemBuilder: (context, index) {
+            final tx = transactions[index];
+            final isPositive = (tx['net_amount'] as num) > 0;
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: isPositive ? Colors.green.shade100 : Colors.red.shade100,
+                  child: Icon(
+                    isPositive ? Icons.add : Icons.remove,
+                    color: isPositive ? Colors.green : Colors.red,
+                  ),
+                ),
+                title: Text(
+                  '${isPositive ? '+' : ''}₺${(tx['net_amount'] as num).toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isPositive ? Colors.green : Colors.red,
+                  ),
+                ),
+                subtitle: Text(
+                  '${tx['description'] ?? tx['type']}\n${tx['created_at']}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ========== BAKİYE YÜKLEME SEKME WIDGET ==========
+class _BalanceLoadTabWidget extends StatefulWidget {
+  const _BalanceLoadTabWidget();
+
+  @override
+  State<_BalanceLoadTabWidget> createState() => _BalanceLoadTabWidgetState();
+}
+
+class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
+  final _searchController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  bool _isLoading = false;
+  bool _isSearching = false;
+  String? _message;
+  bool _isSuccess = false;
+  List<Map<String, dynamic>> _searchResults = [];
+  Map<String, dynamic>? _selectedUser;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _amountController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _searchUsers(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+
+    setState(() => _isSearching = true);
+
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('profiles')
+          .select('id, full_name, phone, email')
+          .or('full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%,username.ilike.%$query%')
+          .limit(10);
+
+      if (mounted) {
+        setState(() {
+          _searchResults = List<Map<String, dynamic>>.from(response as List);
+          _isSearching = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Kullanıcı arama hatası: $e');
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+          _isSearching = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitTransaction() async {
+    final amount = double.tryParse(_amountController.text);
+    final description = _descriptionController.text.trim();
+
+    if (_selectedUser == null || amount == null || description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kullanıcı seçin, tutar ve açıklama girin')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _message = null;
+    });
+
+    try {
+      final balanceService = BalanceService();
+      if (amount > 0) {
+        await balanceService.adminAddBalance(
+          userId: _selectedUser!['id'],
+          amount: amount,
+          description: description,
+        );
+        _isSuccess = true;
+        _message = '₺${amount.toStringAsFixed(2)} bakiye eklendi!';
+      } else {
+        await balanceService.adminDeductBalance(
+          userId: _selectedUser!['id'],
+          amount: amount.abs(),
+          description: description,
+        );
+        _isSuccess = true;
+        _message = '₺${amount.abs().toStringAsFixed(2)} bakiye düşüldü!';
+      }
+
+      // Temizle
+      setState(() {
+        _selectedUser = null;
+        _amountController.clear();
+        _descriptionController.clear();
+        _searchController.clear();
+        _searchResults = [];
+      });
+    } catch (e) {
+      _isSuccess = false;
+      _message = 'Hata: $e';
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_message!),
+          backgroundColor: _isSuccess ? Colors.green : Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Açıklama
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'Kullanıcı adı veya telefon numarası ile arama yapın.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Arama alanı
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              labelText: 'Kullanıcı Ara',
+              hintText: 'Ad, soyad veya telefon numarası',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _isSearching
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {
+                              _searchResults = [];
+                              _selectedUser = null;
+                            });
+                          },
+                        )
+                      : null,
+            ),
+            onChanged: (value) {
+              if (value.length >= 2) {
+                _searchUsers(value);
+              } else {
+                setState(() => _searchResults = []);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+
+          // Arama sonuçları
+          if (_searchResults.isNotEmpty && _selectedUser == null)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 200),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _searchResults.length,
+                itemBuilder: (context, index) {
+                  final user = _searchResults[index];
+                  final name = user['full_name'] ?? 'Bilinmeyen';
+                  final phone = user['phone'] ?? '-';
+                  final email = user['email'] ?? '-';
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.blue.shade100,
+                      child: Text(
+                        (name.toString().isNotEmpty ? name.toString()[0] : '?').toUpperCase(),
+                        style: TextStyle(color: Colors.blue.shade700),
+                      ),
+                    ),
+                    title: Text(name),
+                    subtitle: Text('$phone • $email'),
+                    onTap: () {
+                      setState(() {
+                        _selectedUser = user;
+                        _searchResults = [];
+                        _searchController.text = name;
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+
+          // Seçili kullanıcı
+          if (_selectedUser != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.green.shade100,
+                    child: Icon(Icons.person, color: Colors.green.shade700),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _selectedUser!['full_name'] ?? 'Bilinmeyen',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _selectedUser!['phone'] ?? '-',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red),
+                    onPressed: () {
+                      setState(() {
+                        _selectedUser = null;
+                        _searchController.clear();
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Tutar
+            TextField(
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Tutar (TL)',
+                hintText: 'Örn: 100 veya -50',
+                prefixText: '₺ ',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                prefixIcon: const Icon(Icons.attach_money),
+                helperText: 'Pozitif = Ekleme, Negatif = Düşme',
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Açıklama
+            TextField(
+              controller: _descriptionController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Açıklama',
+                hintText: 'İşlem açıklaması',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                prefixIcon: const Icon(Icons.note),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Ekle butonu
+            ElevatedButton.icon(
+              onPressed: _isLoading || _selectedUser == null ? null : _submitTransaction,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.add),
+              label: Text(_isLoading ? 'İşleniyor...' : 'İşlemi Uygula'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ],
+
+          // Mesaj
+          if (_message != null && _selectedUser != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isSuccess ? Colors.green.shade50 : Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _message!,
+                style: TextStyle(
+                  color: _isSuccess ? Colors.green.shade700 : Colors.red.shade700,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

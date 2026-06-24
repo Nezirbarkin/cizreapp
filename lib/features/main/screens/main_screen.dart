@@ -20,6 +20,12 @@ import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
 import '../../market/services/shop_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
+import '../../../core/services/balance_service.dart';
+import '../../../core/widgets/settings_sidebar.dart';
+import '../../../core/widgets/balance_header_widget.dart';
+import '../../wallet/screens/wallet_screen.dart';
+import '../../market/screens/search_screen.dart';
+import '../../market/screens/notifications_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -637,8 +643,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
       final products = _searchQuery.isEmpty
           ? await _productService.getAllProducts()
           : await _productService.searchProducts(_searchQuery);
-      // Her yenilemede farklı sıralama için ürünleri karıştır
-      products.shuffle();
       setState(() {
         _products = products;
         _filteredProducts = List.from(products);
@@ -663,92 +667,159 @@ class _ProductsScreenState extends State<ProductsScreen> {
     
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            floating: true,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: Colors.white,
-            expandedHeight: 80,
-            collapsedHeight: 60,
-            flexibleSpace: const FlexibleSpaceBar(
-              titlePadding: EdgeInsets.only(left: 16, bottom: 12),
-              title: Text(
-                'Ürünler',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
+      body: Column(
+        children: [
+          // Üst Bar
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
+                ],
               ),
             ),
-            actions: [
-              // Filtre butonu
-              IconButton(
-                icon: Icon(Icons.tune, size: 20, color: Colors.grey.shade700),
-                onPressed: () => _showFilterBottomSheet(context),
-                tooltip: 'Filtrele',
-              ),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Row(
-                children: [
-                  // Arama
-                  Expanded(
-                    child: TextField(
-                      decoration: InputDecoration(
-                        hintText: 'Ürün ara...',
-                        prefixIcon: const Icon(Icons.search, size: 18),
-                        suffixIcon: _searchQuery.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 16),
-                                onPressed: () {
-                                  setState(() => _searchQuery = '');
-                                  _loadProducts();
-                                },
-                              )
-                            : null,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        isDense: true,
-                      ),
-                      style: const TextStyle(fontSize: 13),
-                      onChanged: (value) {
-                        _searchQuery = value;
-                        _loadProducts();
-                      },
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top,
+              left: 12,
+              right: 12,
+              bottom: 8,
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'CizreApp',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  // Aktif filtre göstergesi
-                  if (_selectedCategory != null || _sortBy != 'newest')
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Filtre',
-                            style: TextStyle(fontSize: 11, color: Colors.blue.shade700, fontWeight: FontWeight.w600),
+                ),
+                // BAKİYE
+                _ProductsBalanceBadge(),
+                const SizedBox(width: 4),
+                // Arama ikonu
+                IconButton(
+                  icon: const Icon(Icons.search, color: Colors.white, size: 22),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SearchScreen()),
+                    );
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 0),
+                // Bildirim ikonu
+                IconButton(
+                  icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+                    );
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 0),
+                // Ayarlar ikonu
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
+                  onPressed: () => showSettingsSidebar(context),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          // Ürünler listesi
+          Expanded(
+            child: _buildProductsList(cartProvider),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductsList(CartProvider cartProvider) {
+    return CustomScrollView(
+      slivers: [
+          // Ürünler listesi
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Column(
+                children: [
+                  // Filtre ve Sıralama Butonları
+                  Row(
+                    children: [
+                      // Filtre butonu
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showFilterBottomSheet(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _selectedCategory != null ? Colors.blue.shade50 : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _selectedCategory != null ? Colors.blue.shade300 : Colors.grey.shade300,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.tune, size: 16, color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _selectedCategory ?? 'Filtrele',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(width: 4),
-                          Icon(Icons.filter_list, size: 14, color: Colors.blue.shade700),
-                        ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      // Sıralama Butonları
+                      _SortChip(
+                        label: 'Yeni',
+                        isSelected: _sortBy == 'newest',
+                        onTap: () {
+                          setState(() { _sortBy = 'newest'; });
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      _SortChip(
+                        label: '₺↗',
+                        isSelected: _sortBy == 'price_asc',
+                        onTap: () {
+                          setState(() { _sortBy = 'price_asc'; });
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      _SortChip(
+                        label: '₺↘',
+                        isSelected: _sortBy == 'price_desc',
+                        onTap: () {
+                          setState(() { _sortBy = 'price_desc'; });
+                          _applyFilters();
+                        },
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -801,11 +872,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           childCount: _filteredProducts.length,
                         ),
                       ),
-                    ),
-        ],
-      ),
-    );
-  }
+                  ),
+                ],
+              );
+            }
 
   Widget _buildProductCard(Product product, CartProvider cartProvider) {
     final theme = Theme.of(context);
@@ -1105,16 +1175,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
   void _showFilterBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
           padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1241,7 +1316,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   child: const Text('Tamam', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1266,6 +1342,135 @@ class _ProductsScreenState extends State<ProductsScreen> {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
           color: isSelected ? Colors.blue.shade300 : Colors.transparent,
+        ),
+      ),
+    );
+  }
+}
+
+// Keşfet ekranı için bakiye badge
+class _ProductsBalanceBadge extends StatefulWidget {
+  const _ProductsBalanceBadge();
+
+  @override
+  State<_ProductsBalanceBadge> createState() => _ProductsBalanceBadgeState();
+}
+
+class _ProductsBalanceBadgeState extends State<_ProductsBalanceBadge> {
+  final BalanceService _balanceService = BalanceService();
+  double? _balance;
+  bool _isLoading = true;
+  bool _showBalance = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkShowBalance();
+  }
+
+  Future<void> _checkShowBalance() async {
+    try {
+      final shouldShow = await BalanceHeaderWidget.getShowBalance();
+      if (mounted) {
+        setState(() => _showBalance = shouldShow);
+        if (shouldShow) {
+          _loadBalance();
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadBalance() async {
+    try {
+      final balance = await _balanceService.getBalance();
+      if (mounted) {
+        setState(() {
+          _balance = balance?.availableBalance ?? 0;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _navigateToWallet() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const WalletScreen()),
+    ).then((_) => _loadBalance());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_showBalance) return const SizedBox.shrink();
+
+    if (_isLoading) {
+      return const SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    return GestureDetector(
+      onTap: _navigateToWallet,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blue.shade200),
+        ),
+        child: Text(
+          '₺${(_balance ?? 0).toStringAsFixed(2)}',
+          style: TextStyle(
+            color: Colors.blue.shade700,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Sıralama Butonu Widget'ı
+class _SortChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _SortChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade700,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          ),
         ),
       ),
     );

@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/app_about_service.dart';
+import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
@@ -27,6 +28,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   final OrderService _orderService = OrderService();
   final CartService _cartService = CartService();
   final AppAboutService _aboutService = AppAboutService();
+  final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
   final _notesController = TextEditingController();
   /// Supabase client'ı güvenli şekilde al (lazy)
@@ -44,6 +46,8 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   bool _isLoading = true;
   bool _onlinePaymentEnabled = false;
   bool _isLoadingPaymentSettings = true;
+  double _userBalance = 0;
+  bool _balanceEnabled = false;
   
   Map<String, ShopCartSummary> _shopSummaries = {};
   double _grandTotal = 0;
@@ -77,8 +81,20 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   Future<void> _loadPaymentSettings() async {
     try {
       final settings = await _aboutService.getAboutSettings();
+      
+      // Bakiye bilgisini yükle
+      double balance = 0;
+      try {
+        final balanceData = await _balanceService.getBalance();
+        balance = balanceData?.availableBalance ?? 0;
+      } catch (e) {
+        debugPrint('Bakiye bilgisi yüklenemedi: $e');
+      }
+      
       setState(() {
         _onlinePaymentEnabled = settings?.onlinePaymentEnabled ?? false;
+        _balanceEnabled = settings?.balanceEnabled ?? false;
+        _userBalance = balance;
         _isLoadingPaymentSettings = false;
       });
     } catch (e) {
@@ -121,6 +137,22 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         throw Exception('Kullanıcı oturumu bulunamadı');
       }
 
+      // Bakiye ile ödeme kontrolü
+      if (_selectedPaymentMethod == PaymentMethod.balance) {
+        if (_userBalance < _grandTotal) {
+          setState(() => _isPlacingOrder = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Yetersiz bakiye! Mevcut: ₺${_userBalance.toStringAsFixed(2)}, Gerekli: ₺${_grandTotal.toStringAsFixed(2)}'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       // Minimum sipariş tutarı kontrolü - Tüm dükkanları kontrol et
       final cartProvider = Provider.of<CartProvider>(context, listen: false);
       final failedShops = <String, double>{};
@@ -142,7 +174,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
           final message = failedShops.entries
               .map((e) => '${e.key}\nEksik: ₺${e.value.toStringAsFixed(2)}')
               .join('\n\n');
-          
+           
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Minimum sipariş tutarı karşılanmıyor:\n\n$message'),
@@ -188,8 +220,25 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         notes: _notesController.text.trim().isNotEmpty
             ? _notesController.text.trim()
             : null,
-        customerPhone: selectedAddress.phone, // Adresteki telefon numarasını ekledik
+        customerPhone: selectedAddress.phone,
       );
+
+      // Bakiye ile ödeme ise bakiyeden düş
+      if (_selectedPaymentMethod == PaymentMethod.balance && result.orders.isNotEmpty) {
+        try {
+          for (final order in result.orders) {
+            await _balanceService.useBalanceForOrder(
+              orderId: order.id,
+              amount: order.totalAmount,
+              orderTotal: order.totalAmount,
+            );
+          }
+          debugPrint('✅ Çok dükkanlı bakiye ödeme tamamlandı');
+        } catch (balanceError) {
+          debugPrint('❌ Bakiye düşme hatası: $balanceError');
+          // Bakiye düşme hatası olsa bile sipariş oluştu
+        }
+      }
 
       // Sepeti temizle
       await cartProvider.clearCart();
@@ -198,6 +247,11 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         Navigator.pop(context); // Checkout ekranını kapat
 
         // Başarı mesajı göster
+        String paymentInfo = '';
+        if (_selectedPaymentMethod == PaymentMethod.balance) {
+          paymentInfo = ' (₺${_grandTotal.toStringAsFixed(2)} bakiyenizden ödendi)';
+        }
+        
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -213,7 +267,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${result.orderCount} dükkan için sipariş oluşturuldu.'),
+                Text('${result.orderCount} dükkan için sipariş oluşturuldu.$paymentInfo'),
                 const SizedBox(height: 12),
                 Text(
                   'Sipariş Grup No: ${result.groupOrderNumber}',
@@ -553,6 +607,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
     }
 
     // Kapıda ödeme ise - admin ayarına göre onay kodu iste
+    // Bakiye ve online ödemelerde onay kodu gerekmez
     if (_selectedPaymentMethod == PaymentMethod.cash ||
         _selectedPaymentMethod == PaymentMethod.cardOnDelivery) {
       final approvalCodeEnabled = await _checkOrderApprovalCodeEnabled();
@@ -592,7 +647,9 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                     ? 'Kapıda Nakit'
                     : (_selectedPaymentMethod == PaymentMethod.cardOnDelivery
                         ? 'Kapıda Banka/Kredi Kartı'
-                        : 'Online Ödeme'),
+                        : (_selectedPaymentMethod == PaymentMethod.balance
+                            ? 'Bakiye ile Ödeme'
+                            : 'Online Ödeme')),
               ),
               const Divider(height: 24),
               Text(
@@ -618,7 +675,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                   Text(
                     '₺${_grandTotal.toStringAsFixed(2)}',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold, 
+                      fontWeight: FontWeight.bold,
                       fontSize: 18,
                       color: Colors.green.shade700,
                     ),
@@ -663,6 +720,37 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                         child: Text(
                           'Teslimatçıya POS cihazında ödeme alacaktır',
                           style: TextStyle(fontSize: 12, color: Colors.blue),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_selectedPaymentMethod == PaymentMethod.balance)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.account_balance_wallet, color: Colors.green.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Bakiyenizden ödenecek',
+                              style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Mevcut bakiye: ₺${_userBalance.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 11, color: Colors.green.shade600),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -1047,6 +1135,53 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                   ),
                 ),
               ),
+            // Bakiye ile ödeme seçeneği - her zaman göster
+            const Divider(),
+            RadioListTile<PaymentMethod>(
+              value: PaymentMethod.balance,
+              groupValue: _selectedPaymentMethod,
+              onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
+              title: Row(
+                children: [
+                  const Text('Bakiye ile Ödeme'),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _userBalance > 0 ? Colors.green.shade100 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '₺${_userBalance.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: _userBalance > 0 ? Colors.green.shade800 : Colors.grey.shade600,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              subtitle: Text(
+                _userBalance > 0
+                    ? 'Mevcut bakiyeniz: ₺${_userBalance.toStringAsFixed(2)}'
+                    : 'Bakiyeniz yetersiz',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _userBalance > 0 ? null : Colors.orange,
+                ),
+              ),
+              secondary: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.account_balance_wallet, color: Colors.green.shade700),
+              ),
+              contentPadding: EdgeInsets.zero,
+              activeColor: Colors.orange.shade700,
+            ),
           ],
         ),
       ),

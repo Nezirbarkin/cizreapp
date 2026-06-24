@@ -17,6 +17,10 @@ import '../../../core/widgets/html_iframe_widget.dart';
 import '../../../core/widgets/floating_message_button.dart';
 import '../../../core/widgets/floating_ai_chat_button.dart';
 import '../../../core/widgets/settings_sidebar.dart';
+import '../../../core/widgets/balance_header_widget.dart';
+import '../../../core/services/balance_service.dart';
+import '../../wallet/screens/wallet_screen.dart';
+import '../../../core/widgets/balance_header_widget.dart';
 import '../../ai_chat/screens/ai_chat_meta_screen.dart';
 import '../../ai_chat/screens/ai_chat_list_screen.dart';
 import '../../../core/services/favorite_service.dart';
@@ -701,6 +705,19 @@ class _MarketScreenState extends State<MarketScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // BAKİYE - İLK SIRA, İKONSUZ
+                  Builder(
+                    builder: (context) {
+                      return _BalanceBadge(
+                        onBalanceChanged: () {
+                          if (mounted) {
+                            setState(() {});
+                          }
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 4),
                   // Arama ikonu
                   IconButton(
                     onPressed: () {
@@ -720,6 +737,7 @@ class _MarketScreenState extends State<MarketScreen> {
                     splashRadius: 16,
                     constraints: const BoxConstraints(),
                   ),
+                  const SizedBox(width: 0),
                   // Bildirim ikonu
                   GestureDetector(
                     onTap: () {
@@ -772,6 +790,7 @@ class _MarketScreenState extends State<MarketScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 0),
                   // Ayarlar ikonu
                   IconButton(
                     onPressed: () {
@@ -2425,6 +2444,111 @@ class _BlinkingCouponBadgeState extends State<_BlinkingCouponBadge>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// BAKİYE BADGE - İKONSUZ, SADECE BAKİYE METNİ
+class _BalanceBadge extends StatefulWidget {
+  final VoidCallback? onBalanceChanged;
+
+  const _BalanceBadge({this.onBalanceChanged});
+
+  @override
+  State<_BalanceBadge> createState() => _BalanceBadgeState();
+}
+
+class _BalanceBadgeState extends State<_BalanceBadge> {
+  final BalanceService _balanceService = BalanceService();
+  double? _balance;
+  bool _isLoading = true;
+  bool _showBalance = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkShowBalance();
+  }
+
+  Future<void> _checkShowBalance() async {
+    try {
+      final shouldShow = await BalanceHeaderWidget.getShowBalance();
+      if (mounted) {
+        setState(() => _showBalance = shouldShow);
+        if (shouldShow) {
+          _loadBalance();
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadBalance() async {
+    try {
+      final balance = await _balanceService.getBalance();
+      if (mounted) {
+        setState(() {
+          _balance = balance?.availableBalance ?? 0;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _navigateToWallet() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const WalletScreen()),
+    ).then((_) {
+      _loadBalance();
+      widget.onBalanceChanged?.call();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Gizleme ayarı kapalıysa boş döndür
+    if (!_showBalance) {
+      return const SizedBox.shrink();
+    }
+
+    if (_isLoading) {
+      return const SizedBox(
+        width: 16,
+        height: 16,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Colors.white,
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: _navigateToWallet,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          '₺${(_balance ?? 0).toStringAsFixed(2)}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
         ),
       ),
     );

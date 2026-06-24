@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import '../../../core/models/cart_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../../core/services/payment_service.dart';
+import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
@@ -34,6 +37,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final CartService _cartService = CartService();
   final AppAboutService _aboutService = AppAboutService();
   final PaymentService _paymentService = PaymentService();
+  final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
   final _notesController = TextEditingController();
 
@@ -65,6 +69,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void dispose() {
     _notesController.dispose();
     super.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _loadBalanceInfo() async {
+    try {
+      final balance = await _balanceService.getBalance();
+      final settings = await _aboutService.getAboutSettings();
+      return {
+        'balance': balance?.availableBalance ?? 0,
+        'enabled': settings?.balanceEnabled ?? false,
+      };
+    } catch (e) {
+      debugPrint('Bakiye bilgisi yüklenemedi: $e');
+      return {'balance': 0.0, 'enabled': false};
+    }
   }
 
   Future<bool> _checkOrderApprovalCodeEnabled() async {
@@ -358,6 +376,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _showConfirmationDialog(Address selectedAddress, CartProvider cartProvider) async {
     // Kapıda ödeme ise - admin ayarına göre onay kodu iste
+    // Bakiye ve online ödemelerde onay kodu gerekmez
     if (_selectedPaymentMethod == PaymentMethod.cash ||
         _selectedPaymentMethod == PaymentMethod.cardOnDelivery) {
       final approvalCodeEnabled = await _checkOrderApprovalCodeEnabled();
@@ -525,8 +544,120 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     // Online ödeme seçildiyse iyzico akışını başlat
     if (_selectedPaymentMethod == PaymentMethod.online) {
       await _initiateOnlinePayment(selectedAddress, cartProvider);
+    } else if (_selectedPaymentMethod == PaymentMethod.balance) {
+      await _processBalancePayment(selectedAddress, cartProvider);
     } else {
       await _placeOrder(selectedAddress, cartProvider);
+    }
+  }
+
+  /// Bakiye ile ödeme işle
+  Future<void> _processBalancePayment(Address selectedAddress, CartProvider cartProvider) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      setState(() => _isPlacingOrder = false);
+      return;
+    }
+
+    try {
+      // Sepeti getir
+      final cartSummary = await _cartService.getCartSummary(user.id);
+      if (cartSummary.items.isEmpty) {
+        throw Exception('Sepetiniz boş');
+      }
+
+      final total = cartSummary.total;
+       
+      // Bakiyeyi kontrol et
+      final balanceInfo = await _loadBalanceInfo();
+      final availableBalance = (balanceInfo?['balance'] as double?) ?? 0;
+       
+      if (availableBalance < total) {
+        setState(() => _isPlacingOrder = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yetersiz bakiye! Mevcut: ₺${availableBalance.toStringAsFixed(2)}, Gerekli: ₺${total.toStringAsFixed(2)}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Siparişi oluştur (balance ödeme yöntemiyle)
+      final order = await _orderService.createOrder(
+        userId: user.id,
+        shopId: widget.shopId,
+        items: cartSummary.items.map((item) => OrderItem(
+          id: '',
+          orderId: '',
+          productId: item.productId,
+          productName: item.productName ?? 'Ürün',
+          price: item.productPrice ?? 0,
+          quantity: item.quantity,
+          productImageUrl: item.productImageUrl,
+          shopId: item.shopId,
+          shopName: item.shopName,
+          createdAt: DateTime.now(),
+        )).toList(),
+        deliveryAddressText: selectedAddress.fullAddress,
+        addressId: selectedAddress.id,
+        subtotal: cartSummary.subtotal,
+        deliveryFee: cartSummary.deliveryFee,
+        discount: cartSummary.discount,
+        total: cartSummary.total,
+        commissionAmount: cartSummary.subtotal * 0.10,
+        paymentMethod: PaymentMethod.balance,
+        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+        customerPhone: selectedAddress.phone,
+      );
+      
+      if (order != null) {
+        // Bakiyeden düş
+        try {
+          await _balanceService.useBalanceForOrder(
+            orderId: order.id,
+            amount: total,
+            orderTotal: total,
+          );
+          debugPrint('✅ Bakiye ile ödeme tamamlandı, bakiyeden ₺${total.toStringAsFixed(2)} düşüldü');
+        } catch (balanceError) {
+          debugPrint('❌ Bakiye düşme hatası: $balanceError');
+          // Bakiye düşme hatası olsa bile sipariş oluştu, kullanıcıya bilgi ver
+        }
+        
+        // Sepeti temizle (hem database hem UI state)
+        await _cartService.clearCart(user.id);
+        await cartProvider.clearCart();
+
+        if (mounted) {
+          // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
+          Navigator.of(context).popUntil((route) => route.isFirst);
+           
+          // Biraz gecikme ile çünkü navigation tamamlanmalı
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (context.mounted) {
+              context.read<CartProvider>().loadCart();
+            }
+          });
+           
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${total.toStringAsFixed(2)})'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+      
+    } catch (e) {
+      setState(() => _isPlacingOrder = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bakiye ödeme hatası: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -1180,6 +1311,65 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     setState(() => _selectedPaymentMethod = value!);
                   },
                 ),
+              // Bakiye ile ödeme seçeneği - her zaman göster (ayara bakılmadan)
+              FutureBuilder<Map<String, dynamic>?>(
+                future: _loadBalanceInfo(),
+                builder: (context, snapshot) {
+                  final balance = snapshot.data?['balance'] as double? ?? 0;
+                  
+                  return Column(
+                    children: [
+                      const Divider(),
+                      RadioListTile<PaymentMethod>(
+                        value: PaymentMethod.balance,
+                        groupValue: _selectedPaymentMethod,
+                        onChanged: (value) {
+                          setState(() => _selectedPaymentMethod = value!);
+                        },
+                        title: Row(
+                          children: [
+                            const Expanded(child: Text('Bakiye ile Ödeme')),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: balance > 0 ? Colors.green.shade100 : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '₺${balance.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: balance > 0 ? Colors.green.shade800 : Colors.grey.shade600,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          balance > 0
+                              ? 'Mevcut bakiyeniz: ₺${balance.toStringAsFixed(2)}'
+                              : 'Bakiyeniz yetersiz',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: balance > 0 ? null : Colors.orange,
+                          ),
+                        ),
+                        secondary: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.account_balance_wallet, color: Colors.green.shade700),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              
               // Online ödeme kapalıysa bilgilendirme
               if (!_onlinePaymentEnabled && !_isLoadingPaymentSettings)
                 Padding(

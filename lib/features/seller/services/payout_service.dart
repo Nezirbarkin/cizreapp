@@ -170,14 +170,14 @@ class PayoutService {
   /// Satıcının toplam ödenen tutarını getir (payout_requests tablosundan approved olanları toplar)
   Future<double> getTotalPaidAmount(String shopId) async {
     try {
-      // shops tablosundaki total_paid_amount değerini kullan
+      // shops tablosundaki total_paid değerini kullan
       final response = await _supabase
           .from('shops')
-          .select('total_paid_amount')
+          .select('total_paid')
           .eq('id', shopId)
           .single();
 
-      return (response['total_paid_amount'] as num?)?.toDouble() ?? 0.0;
+      return (response['total_paid'] as num?)?.toDouble() ?? 0.0;
     } catch (e) {
       throw Exception('Toplam ödenen tutar getirilemedi: $e');
     }

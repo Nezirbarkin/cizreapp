@@ -19,6 +19,18 @@ class AppAboutSettings {
   final String? iyzicoSecretKey;
   final String? iyzicoApiUrl;
   
+  // Bakiye Sistemi
+  final bool balanceEnabled;
+  final double minTopupAmount;
+  final double maxTopupAmount;
+  final double withdrawalFeePercent;
+  final double minWithdrawalAmount;
+  
+  // Şirket Banka Hesabı
+  final String? companyBankName;
+  final String? companyIban;
+  final String? companyAccountHolder;
+  
   // Sipariş Kontrol
   final bool globalOrdersEnabled;
   
@@ -54,6 +66,14 @@ class AppAboutSettings {
     this.iyzicoApiKey,
     this.iyzicoSecretKey,
     this.iyzicoApiUrl,
+    this.balanceEnabled = true,
+    this.minTopupAmount = 10,
+    this.maxTopupAmount = 10000,
+    this.withdrawalFeePercent = 2,
+    this.minWithdrawalAmount = 50,
+    this.companyBankName,
+    this.companyIban,
+    this.companyAccountHolder,
     this.globalOrdersEnabled = true,
     this.startupAnnouncementEnabled = false,
     this.startupAnnouncementTitle,
@@ -96,6 +116,14 @@ class AppAboutSettings {
       iyzicoSecretKey: json['iyzico_secret_key'] as String?,
       iyzicoApiUrl: json['iyzico_api_url'] as String?,
       globalOrdersEnabled: json['global_orders_enabled'] as bool? ?? true,
+      balanceEnabled: json['balance_enabled'] as bool? ?? true,
+      minTopupAmount: (json['min_topup_amount'] as num?)?.toDouble() ?? 10,
+      maxTopupAmount: (json['max_topup_amount'] as num?)?.toDouble() ?? 10000,
+      withdrawalFeePercent: (json['withdrawal_fee_percent'] as num?)?.toDouble() ?? 2,
+      minWithdrawalAmount: (json['min_withdrawal_amount'] as num?)?.toDouble() ?? 50,
+      companyBankName: json['company_bank_name'] as String?,
+      companyIban: json['company_iban'] as String?,
+      companyAccountHolder: json['company_account_holder'] as String?,
       startupAnnouncementEnabled: json['startup_announcement_enabled'] as bool? ?? false,
       startupAnnouncementTitle: json['startup_announcement_title'] as String?,
       startupAnnouncementMessage: json['startup_announcement_message'] as String?,
@@ -130,6 +158,9 @@ class AppAboutSettings {
       'iyzico_secret_key': iyzicoSecretKey,
       'iyzico_api_url': iyzicoApiUrl,
       'global_orders_enabled': globalOrdersEnabled,
+      'company_bank_name': companyBankName,
+      'company_iban': companyIban,
+      'company_account_holder': companyAccountHolder,
       'startup_announcement_enabled': startupAnnouncementEnabled,
       'startup_announcement_title': startupAnnouncementTitle,
       'startup_announcement_message': startupAnnouncementMessage,
@@ -167,6 +198,14 @@ class AppAboutSettings {
     String? startupAnnouncementButtonText,
     DateTime? startupAnnouncementUpdatedAt,
     String? googleMapsApiKey,
+    bool? balanceEnabled,
+    double? minTopupAmount,
+    double? maxTopupAmount,
+    double? withdrawalFeePercent,
+    double? minWithdrawalAmount,
+    String? companyBankName,
+    String? companyIban,
+    String? companyAccountHolder,
   }) {
     return AppAboutSettings(
       id: id,
@@ -194,6 +233,11 @@ class AppAboutSettings {
       startupAnnouncementButtonText: startupAnnouncementButtonText ?? this.startupAnnouncementButtonText,
       startupAnnouncementUpdatedAt: startupAnnouncementUpdatedAt ?? this.startupAnnouncementUpdatedAt,
       googleMapsApiKey: googleMapsApiKey ?? this.googleMapsApiKey,
+      balanceEnabled: balanceEnabled ?? this.balanceEnabled,
+      minTopupAmount: minTopupAmount ?? this.minTopupAmount,
+      maxTopupAmount: maxTopupAmount ?? this.maxTopupAmount,
+      withdrawalFeePercent: withdrawalFeePercent ?? this.withdrawalFeePercent,
+      minWithdrawalAmount: minWithdrawalAmount ?? this.minWithdrawalAmount,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

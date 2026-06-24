@@ -17,6 +17,8 @@ import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
+import '../../features/wallet/screens/wallet_screen.dart';
+import 'balance_header_widget.dart';
 
 class SettingsSidebar extends StatefulWidget {
   const SettingsSidebar({super.key});
@@ -443,6 +445,21 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                               
                               _buildMenuItem(
                                 context: context,
+                                icon: Icons.account_balance_wallet_outlined,
+                                title: 'Cüzdanım',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const WalletScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              _buildMenuItem(
+                                context: context,
                                 icon: Icons.favorite_outline,
                                 title: 'Favorilerim',
                                 onTap: () {
@@ -638,6 +655,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 },
                               ),
 
+                              // Bakiye header göster/gizle
+                              _buildBalanceToggleItem(context, themeProvider),
+
                               const SizedBox(height: 32),
 
                               // Giriş Yap veya Çıkış Yap butonu
@@ -773,6 +793,69 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBalanceToggleItem(BuildContext context, ThemeProvider themeProvider) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(
+            // ignore: deprecated_member_use
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.account_balance_wallet_outlined,
+              color: Colors.grey.shade500,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              'Bakiyeyi Üstte Göster',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          FutureBuilder<bool>(
+            future: BalanceHeaderWidget.getShowBalance(),
+            builder: (context, snapshot) {
+              final isEnabled = snapshot.data ?? true;
+              return Switch(
+                value: isEnabled,
+                activeColor: themeProvider.primaryColor,
+                onChanged: (value) async {
+                  await BalanceHeaderWidget.setShowBalance(value);
+                  if (context.mounted) {
+                    setState(() {}); // Sidebar'ı yenile
+                  }
+                },
+              );
+            },
+          ),
+        ],
       ),
     );
   }
