@@ -372,7 +372,14 @@ class Order {
   bool get isActive => !isCompleted && !isCancelled;
 
   // Ödeme yapıldı mı?
-  bool get isPaid => paymentStatus == 'completed' || paymentStatus == 'paid';
+  // Bakiye ile veya online ödeme yönteminde otomatik olarak ödeme yapılmış kabul edilir
+  bool get isPaid {
+    // Bakiye ile veya online ödeme yönteminde ödeme zaten yapılmış kabul edilir
+    if (paymentMethod == PaymentMethod.balance || paymentMethod == PaymentMethod.online) {
+      return true;
+    }
+    return paymentStatus == 'completed' || paymentStatus == 'paid';
+  }
 
   // Sipariş durumunu değiştirebilir miyiz?
   bool get canCancel => status == OrderStatus.pending || status == OrderStatus.confirmed;

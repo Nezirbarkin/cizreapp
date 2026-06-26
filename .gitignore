@@ -51,6 +51,7 @@ app.*.map.json
 
 # Supabase
 .supabase/
+supabase/.temp/
 
 # Firebase
 firebase_app_id_file.json

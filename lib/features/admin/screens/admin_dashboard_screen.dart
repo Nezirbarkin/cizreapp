@@ -25,6 +25,7 @@ import '../widgets/groups_management_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
 import '../../../core/services/balance_service.dart';
+import '../widgets/bank_accounts_tab_widget.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -3849,6 +3850,67 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ],
                     ),
                   ),
+                ),
+                const SizedBox(height: 16),
+
+                // Ödeme Bilgileri
+                const Text(
+                  'Ödeme Bilgileri',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (context) {
+                    final paymentMethod = order['payment_method'] as String? ?? 'cash';
+                    final paymentStatus = order['payment_status'] as String? ?? 'pending';
+                    // Bakiye veya online ödeme ise otomatik ödendi kabul et
+                    final isAutoPaid = paymentMethod == 'balance' || paymentMethod == 'online';
+                    final isPaid = isAutoPaid || paymentStatus == 'completed' || paymentStatus == 'paid';
+                    final methodLabel = paymentMethod == 'balance'
+                        ? 'Bakiye'
+                        : paymentMethod == 'online'
+                            ? 'Online Ödeme'
+                            : paymentMethod == 'card_on_delivery'
+                                ? 'Kapıda Kart'
+                                : 'Kapıda Nakit';
+
+                    return Card(
+                      color: isPaid ? Colors.green.shade50 : Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            _buildDetailRow('Ödeme Yöntemi', methodLabel, Colors.blue),
+                            const Divider(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Ödeme Durumu',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isPaid ? Colors.green.shade100 : Colors.orange.shade100,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    isPaid ? 'Yapıldı' : 'Bekleniyor',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: isPaid ? Colors.green.shade700 : Colors.orange.shade700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 
                 // Teslimat Adresi ve Telefon
@@ -15343,14 +15405,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         backgroundColor: Colors.white,
       ),
       body: DefaultTabController(
-        length: 3,
+        length: 5,
         child: Column(
           children: [
             const TabBar(
+              isScrollable: true,
               tabs: [
                 Tab(text: 'Bakiye Yükle'),
                 Tab(text: 'İşlem Geçmişi'),
                 Tab(text: 'Bakiyeli Kullanıcılar'),
+                Tab(text: 'Banka Hesapları'),
+                Tab(text: 'Bakiye Ayarları'),
               ],
               labelColor: Colors.blue,
               unselectedLabelColor: Colors.grey,
@@ -15362,6 +15427,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   const _BalanceLoadTabWidget(),
                   _buildTransactionHistoryTab(),
                   _buildUsersWithBalanceTab(),
+                  BankAccountsTabWidget(),
+                  const _WalletSettingsTabWidget(),
                 ],
               ),
             ),
@@ -15420,53 +15487,103 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           itemCount: users.length,
           itemBuilder: (context, index) {
             final user = users[index];
-            final balance = (user['balance'] as num?)?.toDouble() ?? 0.0;
+            final balance = (user['available_balance'] as num?)?.toDouble() ??
+                           (user['balance'] as num?)?.toDouble() ?? 0.0;
+            final totalSpent = (user['total_spent'] as num?)?.toDouble() ?? 0.0;
+            final totalEarned = (user['total_earned'] as num?)?.toDouble() ?? 0.0;
+            final totalOrderPayments = (user['total_order_payments'] as num?)?.toDouble() ?? 0.0;
+            final totalTopups = (user['total_topups'] as num?)?.toDouble() ?? 0.0;
+            final orderCount = (user['order_count'] as num?)?.toInt() ?? 0;
+            final topupCount = (user['topup_count'] as num?)?.toInt() ?? 0;
             final isPositive = balance > 0;
 
             return Card(
-              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isPositive ? Colors.green.shade100 : Colors.grey.shade100,
-                  child: Icon(
-                    Icons.account_balance_wallet,
-                    color: isPositive ? Colors.green : Colors.grey,
-                  ),
-                ),
-                title: Text(
-                  user['full_name'] ?? 'Bilinmeyen',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Column(
+              margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(user['phone'] ?? '-'),
-                    Text(
-                      'Bakiye: ₺${balance.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        color: isPositive ? Colors.green : Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                trailing: isPositive
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '₺${balance.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            color: Colors.green.shade700,
-                            fontWeight: FontWeight.bold,
+                    // Üst satır: İsim ve bakiye
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: isPositive ? Colors.green.shade100 : Colors.grey.shade100,
+                          child: Icon(
+                            Icons.account_balance_wallet,
+                            color: isPositive ? Colors.green : Colors.grey,
+                            size: 20,
                           ),
                         ),
-                      )
-                    : null,
-                isThreeLine: true,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                user['full_name'] ?? user['user_name'] ?? 'Bilinmeyen',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Text(
+                                user['phone'] ?? user['user_phone'] ?? '-',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isPositive ? Colors.green.shade100 : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '₺${balance.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              color: isPositive ? Colors.green.shade700 : Colors.grey.shade700,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 16),
+
+                    // Bakiye detayları
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildBalanceInfo('Mevcut Bakiye', balance, Colors.green),
+                        _buildBalanceInfo('Toplam Yükleme', totalTopups > 0 ? totalTopups : totalEarned, Colors.blue),
+                        _buildBalanceInfo('Toplam Harcama', totalOrderPayments > 0 ? totalOrderPayments : totalSpent, Colors.orange),
+                      ],
+                    ),
+
+                    // İşlem sayıları
+                    if (orderCount > 0 || topupCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.receipt_long, size: 14, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$topupCount yükleme',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.shopping_bag, size: 14, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$orderCount sipariş',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ),
             );
           },
@@ -15477,21 +15594,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<List<Map<String, dynamic>>> _getUsersWithBalance() async {
     try {
-      // user_balances tablosundan bakiyeli kullanıcıları getir
+      // admin_users_with_balance view'ından bakiyeli kullanıcıları getir
+      // (bakiye > 0 VEYA toplam harcama > 0 VEYA toplam kazanç > 0)
       final supabase = Supabase.instance.client;
       final response = await supabase
-          .from('user_balances')
-          .select('''
-            id:user_id,
-            full_name:profiles!inner(full_name),
-            phone:profiles!inner(phone),
-            balance:available_balance
-          ''')
-          .gt('available_balance', 0)
+          .from('admin_users_with_balance')
+          .select('*')
           .order('available_balance', ascending: false)
           .limit(100);
 
-      return List<Map<String, dynamic>>.from(response as List);
+      final users = List<Map<String, dynamic>>.from(response as List);
+
+      // Her kullanıcı için ek harcama özetini al
+      for (var user in users) {
+        final userId = user['user_id'];
+        if (userId == null) continue;
+
+        try {
+          final summary = await supabase
+              .from('admin_user_spending_summary')
+              .select('*')
+              .eq('user_id', userId)
+              .maybeSingle();
+
+          if (summary != null) {
+            user['total_order_payments'] = summary['total_order_payments'] ?? 0;
+            user['total_topups'] = summary['total_topups'] ?? 0;
+            user['order_count'] = summary['order_count'] ?? 0;
+            user['topup_count'] = summary['topup_count'] ?? 0;
+          } else {
+            user['total_order_payments'] = 0;
+            user['total_topups'] = 0;
+            user['order_count'] = 0;
+            user['topup_count'] = 0;
+          }
+        } catch (_) {
+          user['total_order_payments'] = 0;
+          user['total_topups'] = 0;
+          user['order_count'] = 0;
+          user['topup_count'] = 0;
+        }
+      }
+
+      return users;
     } catch (e) {
       debugPrint('Bakiyeli kullanıcılar getirme hatası: $e');
       // Alternatif: balance_transactions'dan user_id'leri çek
@@ -15589,6 +15734,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       },
     );
   }
+
+  Widget _buildBalanceInfo(String label, double amount, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '₺${amount.toStringAsFixed(2)}',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ========== BAKİYE YÜKLEME SEKME WIDGET ==========
@@ -15603,10 +15769,14 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
   final _searchController = TextEditingController();
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _bankNameController = TextEditingController();
+  final _bankIbanController = TextEditingController();
+  final _bankAccountNameController = TextEditingController();
   bool _isLoading = false;
   bool _isSearching = false;
   String? _message;
   bool _isSuccess = false;
+  bool _showBankFields = false;
   List<Map<String, dynamic>> _searchResults = [];
   Map<String, dynamic>? _selectedUser;
 
@@ -15615,6 +15785,9 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
     _searchController.dispose();
     _amountController.dispose();
     _descriptionController.dispose();
+    _bankNameController.dispose();
+    _bankIbanController.dispose();
+    _bankAccountNameController.dispose();
     super.dispose();
   }
 
@@ -15654,10 +15827,15 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
   Future<void> _submitTransaction() async {
     final amount = double.tryParse(_amountController.text);
     final description = _descriptionController.text.trim();
+    // Açıklama boşsa varsayılan değer kullan
+    final finalDescription = description.isEmpty ? 'Bakiye düzeltmesi' : description;
+    final bankName = _bankNameController.text.trim();
+    final bankIban = _bankIbanController.text.trim();
+    final bankAccountName = _bankAccountNameController.text.trim();
 
-    if (_selectedUser == null || amount == null || description.isEmpty) {
+    if (_selectedUser == null || amount == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kullanıcı seçin, tutar ve açıklama girin')),
+        const SnackBar(content: Text('Kullanıcı seçin ve tutar girin')),
       );
       return;
     }
@@ -15668,20 +15846,28 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
     });
 
     try {
-      final balanceService = BalanceService();
+      final supabase = Supabase.instance.client;
       if (amount > 0) {
-        await balanceService.adminAddBalance(
-          userId: _selectedUser!['id'],
-          amount: amount,
-          description: description,
+        // Admin bakiye ekleme - banka bilgileri ile birlikte
+        await supabase.functions.invoke(
+          'admin-add-balance',
+          body: {
+            'user_id': _selectedUser!['id'],
+            'amount': amount,
+            'description': finalDescription,
+            if (bankName.isNotEmpty) 'bank_name': bankName,
+            if (bankIban.isNotEmpty) 'bank_iban': bankIban,
+            if (bankAccountName.isNotEmpty) 'bank_account_name': bankAccountName,
+          },
         );
         _isSuccess = true;
         _message = '₺${amount.toStringAsFixed(2)} bakiye eklendi!';
       } else {
+        final balanceService = BalanceService();
         await balanceService.adminDeductBalance(
           userId: _selectedUser!['id'],
           amount: amount.abs(),
-          description: description,
+          description: finalDescription,
         );
         _isSuccess = true;
         _message = '₺${amount.abs().toStringAsFixed(2)} bakiye düşüldü!';
@@ -15692,8 +15878,12 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
         _selectedUser = null;
         _amountController.clear();
         _descriptionController.clear();
+        _bankNameController.clear();
+        _bankIbanController.clear();
+        _bankAccountNameController.clear();
         _searchController.clear();
         _searchResults = [];
+        _showBankFields = false;
       });
     } catch (e) {
       _isSuccess = false;
@@ -15877,11 +16067,67 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
               maxLines: 2,
               decoration: InputDecoration(
                 labelText: 'Açıklama',
-                hintText: 'İşlem açıklaması',
+                hintText: 'İşlem açıklaması (opsiyonel)',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 prefixIcon: const Icon(Icons.note),
               ),
             ),
+            const SizedBox(height: 12),
+
+            // Banka bilgisi toggle
+            Row(
+              children: [
+                Checkbox(
+                  value: _showBankFields,
+                  onChanged: (value) {
+                    setState(() {
+                      _showBankFields = value ?? false;
+                    });
+                  },
+                ),
+                const Expanded(
+                  child: Text(
+                    'Banka bilgisi ekle (opsiyonel)',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+
+            // Banka bilgileri (sadece toggle açıksa göster)
+            if (_showBankFields) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _bankNameController,
+                decoration: InputDecoration(
+                  labelText: 'Banka Adı',
+                  hintText: 'Örn: Ziraat Bankası',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.account_balance),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _bankIbanController,
+                decoration: InputDecoration(
+                  labelText: 'IBAN',
+                  hintText: 'TR00 0000 0000 0000 0000 0000 00',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.credit_card),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _bankAccountNameController,
+                decoration: InputDecoration(
+                  labelText: 'Hesap Sahibi',
+                  hintText: 'Ad Soyad',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.person_outline),
+                ),
+              ),
+            ],
+
             const SizedBox(height: 20),
 
             // Ekle butonu
@@ -15921,6 +16167,356 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ========== CÜZDAN AYARLARI SEKME WIDGET ==========
+class _WalletSettingsTabWidget extends StatefulWidget {
+  const _WalletSettingsTabWidget();
+
+  @override
+  State<_WalletSettingsTabWidget> createState() => _WalletSettingsTabWidgetState();
+}
+
+class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
+  bool _isLoading = true;
+  bool _cardTopupEnabled = true;
+  bool _balanceEnabled = true;
+  double _minTopupAmount = 10;
+  double _maxTopupAmount = 10000;
+  double _withdrawalFeePercent = 2;
+  double _minWithdrawalAmount = 50;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await Supabase.instance.client
+          .from('app_about_settings')
+          .select('card_topup_enabled, balance_enabled, min_topup_amount, max_topup_amount, withdrawal_fee_percent, min_withdrawal_amount')
+          .maybeSingle();
+
+      if (response != null && mounted) {
+        setState(() {
+          _cardTopupEnabled = response['card_topup_enabled'] as bool? ?? true;
+          _balanceEnabled = response['balance_enabled'] as bool? ?? true;
+          _minTopupAmount = (response['min_topup_amount'] as num?)?.toDouble() ?? 10;
+          _maxTopupAmount = (response['max_topup_amount'] as num?)?.toDouble() ?? 10000;
+          _withdrawalFeePercent = (response['withdrawal_fee_percent'] as num?)?.toDouble() ?? 2;
+          _minWithdrawalAmount = (response['min_withdrawal_amount'] as num?)?.toDouble() ?? 50;
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('Ayarlar yüklenirken hata: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    setState(() => _isSaving = true);
+    try {
+      final supabase = Supabase.instance.client;
+      
+      // Önce mevcut kaydın ID'sini al (UPDATE için WHERE koşulu gerekli)
+      final existing = await supabase
+          .from('app_about_settings')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+      
+      if (existing == null || existing['id'] == null) {
+        throw Exception('app_about_settings tablosunda kayıt bulunamadı');
+      }
+      
+      await supabase
+          .from('app_about_settings')
+          .update({
+            'card_topup_enabled': _cardTopupEnabled,
+            'balance_enabled': _balanceEnabled,
+            'min_topup_amount': _minTopupAmount,
+            'max_topup_amount': _maxTopupAmount,
+            'withdrawal_fee_percent': _withdrawalFeePercent,
+            'min_withdrawal_amount': _minWithdrawalAmount,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', existing['id']);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ayarlar kaydedildi!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+    if (mounted) setState(() => _isSaving = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Kredi Kartı Ödeme Ayarları
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.credit_card, color: Colors.blue.shade700),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Kredi Kartı ile Ödeme',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _cardTopupEnabled ? Colors.green.shade50 : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _cardTopupEnabled ? Colors.green.shade200 : Colors.orange.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _cardTopupEnabled ? Icons.check_circle : Icons.warning,
+                        color: _cardTopupEnabled ? Colors.green.shade700 : Colors.orange.shade700,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _cardTopupEnabled
+                              ? 'Kredi kartı ile bakiye yükleme aktif'
+                              : 'Kredi kartı ile bakiye yükleme pasif - Kullanıcılar sadece havale yöntemini kullanabilir',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _cardTopupEnabled ? Colors.green.shade800 : Colors.orange.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('Kredi Kartı ile Bakiye Yükleme'),
+                  subtitle: Text(
+                    _cardTopupEnabled
+                        ? 'İYZiCo üzerinden kredi/banka kartı ile ödeme açık'
+                        : 'Kredi kartı ödemesi kapalı - Havale/EFT yöntemi kullanılmalı',
+                  ),
+                  value: _cardTopupEnabled,
+                  onChanged: (value) => setState(() => _cardTopupEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Genel Bakiye Ayarları
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet, color: Colors.purple.shade700),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Bakiye Sistemi',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  title: const Text('Bakiye Sistemi Aktif'),
+                  subtitle: const Text('Tüm bakiye işlemlerini aç/kapat'),
+                  value: _balanceEnabled,
+                  onChanged: (value) => setState(() => _balanceEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const Divider(),
+                ListTile(
+                  title: const Text('Minimum Yükleme Tutarı'),
+                  trailing: SizedBox(
+                    width: 100,
+                    child: TextField(
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.end,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        border: OutlineInputBorder(),
+                        suffixText: 'TL',
+                      ),
+                      controller: TextEditingController(text: _minTopupAmount.toStringAsFixed(0)),
+                      onChanged: (value) {
+                        final parsed = double.tryParse(value);
+                        if (parsed != null) setState(() => _minTopupAmount = parsed);
+                      },
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                ListTile(
+                  title: const Text('Maksimum Yükleme Tutarı'),
+                  trailing: SizedBox(
+                    width: 100,
+                    child: TextField(
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.end,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        border: OutlineInputBorder(),
+                        suffixText: 'TL',
+                      ),
+                      controller: TextEditingController(text: _maxTopupAmount.toStringAsFixed(0)),
+                      onChanged: (value) {
+                        final parsed = double.tryParse(value);
+                        if (parsed != null) setState(() => _maxTopupAmount = parsed);
+                      },
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                ListTile(
+                  title: const Text('Minimum Çekim Tutarı'),
+                  trailing: SizedBox(
+                    width: 100,
+                    child: TextField(
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.end,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        border: OutlineInputBorder(),
+                        suffixText: 'TL',
+                      ),
+                      controller: TextEditingController(text: _minWithdrawalAmount.toStringAsFixed(0)),
+                      onChanged: (value) {
+                        final parsed = double.tryParse(value);
+                        if (parsed != null) setState(() => _minWithdrawalAmount = parsed);
+                      },
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Kaydet Butonu
+          ElevatedButton.icon(
+            onPressed: _isSaving ? null : _saveSettings,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.save),
+            label: Text(_isSaving ? 'Kaydediliyor...' : 'Ayarları Kaydet'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Bilgi Kutusu
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Bilgi',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• Kredi kartı ödemesi için İYZiCo API ayarlarının yapılandırılmış olması gerekir.\n'
+                  '• Havale/EFT yöntemi her zaman aktif kalır.\n'
+                  '• Kullanıcılar havale bildirimi gönderdiğinde admin onayı gerekir.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blue.shade800,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -14,14 +14,20 @@ serve(async (req) => {
       })
     }
 
-    const { user_id, amount, description } = await req.json()
+    const { user_id, amount, description, bank_name, bank_iban, bank_account_name } = await req.json()
 
-    if (!user_id || !amount || !description) {
+    // Düzeltme: Boş string kontrolü de yap
+    if (!user_id || !amount) {
       return new Response(
-        JSON.stringify({ error: 'user_id, amount ve description zorunludur' }),
+        JSON.stringify({ error: 'user_id ve amount zorunludur' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }
+
+    // Açıklama boşsa varsayılan değer ver
+    const finalDescription = (!description || description.trim() === '') 
+      ? 'Bakiye düzeltmesi' 
+      : description.trim()
 
     if (amount <= 0) {
       return new Response(
@@ -36,6 +42,7 @@ serve(async (req) => {
     )
 
     // Admin kontrolü
+    let adminId: string | null = null
     const authHeader = req.headers.get('Authorization')
     if (authHeader) {
       const { data: { user } } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''))
@@ -58,6 +65,8 @@ serve(async (req) => {
           { status: 403, headers: { 'Content-Type': 'application/json' } }
         )
       }
+      
+      adminId = user.id
     }
 
     // Kullanıcı bakiyesini kontrol et
@@ -93,7 +102,7 @@ serve(async (req) => {
       )
     }
 
-    // İşlem kaydı oluştur
+    // İşlem kaydı oluştur (banka bilgileri dahil)
     const { error: txError } = await supabaseClient
       .from('balance_transactions')
       .insert({
@@ -105,9 +114,15 @@ serve(async (req) => {
         balance_before: balance.balance,
         balance_after: newBalance,
         reference_type: 'admin_adjustment',
-        description: `[Admin] ${description}`,
+        description: `[Admin] ${finalDescription}`,
         status: 'completed',
         payment_method: 'admin',
+        // Banka bilgileri (opsiyonel)
+        ...(bank_name && { bank_name: bank_name.trim() }),
+        ...(bank_iban && { bank_iban: bank_iban.trim() }),
+        ...(bank_account_name && { bank_account_name: bank_account_name.trim() }),
+        // Admin ID
+        admin_id: adminId,
       })
 
     if (txError) {
@@ -120,6 +135,7 @@ serve(async (req) => {
         message: `₺${amount.toFixed(2)} bakiye eklendi`,
         new_balance: newBalance,
         amount_added: amount,
+        description_used: finalDescription,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     )

@@ -5,17 +5,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
+console.log("✅ create-balance-topup Edge Function başlatıldı");
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// iyzico API URL (env'den veya varsayılan)
 const IYZICO_API_URL = Deno.env.get("IYZICO_API_URL") || "https://sandbox-api.iyzipay.com";
-const IYZICO_API_KEY = Deno.env.get("IYZICO_API_KEY") || "";
-const IYZICO_SECRET_KEY = Deno.env.get("IYZICO_SECRET_KEY") || "";
 
-// iyzico v2 Authorization
+// ────────── iyzico İmza Oluşturma (SHA-256 HMAC - iyzico v2) ──────────
+
 async function generateAuthorizationHeaderV2(
   apiKey: string,
   secretKey: string,
@@ -29,15 +31,27 @@ async function generateAuthorizationHeaderV2(
   const keyData = encoder.encode(secretKey);
   const msgData = encoder.encode(hashStr);
 
-  const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
   const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
   const signatureArray = new Uint8Array(signatureBuffer);
-  const signatureHex = Array.from(signatureArray).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const signatureHex = Array.from(signatureArray)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
   const authorizationParams = `apiKey:${apiKey}&randomKey:${randomString}&signature:${signatureHex}`;
   const authorizationBase64 = btoa(authorizationParams);
 
-  return { authorization: `IYZWSv2 ${authorizationBase64}`, randomString };
+  return {
+    authorization: `IYZWSv2 ${authorizationBase64}`,
+    randomString,
+  };
 }
 
 function generateRandomString(): string {
@@ -57,20 +71,153 @@ function formatPhoneNumber(phone: string): string {
   return `+90${digits}`;
 }
 
+// ────────── iyzico API Çağrısı ──────────
+
+async function initializeIyzicoCheckout(
+  iyzicoApiKey: string,
+  iyzicoSecretKey: string,
+  conversationId: string,
+  amount: number,
+  userEmail: string,
+  userPhone: string,
+  userName: string,
+  userId: string,
+  ipAddress: string,
+  callbackUrl: string
+): Promise<{ paymentPageUrl: string; token: string }> {
+  // iyzico request body
+  const iyzicoRequest = {
+    locale: "tr",
+    conversationId: conversationId,
+    price: amount.toFixed(2),
+    paidPrice: amount.toFixed(2),
+    currency: "TRY",
+    basketId: `BAL_${conversationId}`,
+    paymentGroup: "PRODUCT",
+    callbackUrl: callbackUrl,
+    enabledInstallments: [1],
+    buyer: {
+      id: userId,
+      name: userName.split(" ")[0] || "User",
+      surname: userName.split(" ").slice(1).join(" ") || "User",
+      identityNumber: "11111111111",
+      email: userEmail || "user@example.com",
+      gsmNumber: formatPhoneNumber(userPhone || "5000000000"),
+      registrationAddress: "Adres",
+      city: "İstanbul",
+      country: "Turkey",
+      zipCode: "34000",
+      ip: ipAddress,
+    },
+    shippingAddress: {
+      contactName: userName || "User",
+      city: "İstanbul",
+      country: "Turkey",
+      address: "Adres",
+      zipCode: "34000",
+    },
+    billingAddress: {
+      contactName: userName || "User",
+      city: "İstanbul",
+      country: "Turkey",
+      address: "Adres",
+      zipCode: "34000",
+    },
+    basketItems: [{
+      id: "BALANCE_TOPUP",
+      name: "Bakiye Yükleme",
+      category1: "Bakiye",
+      itemType: "VIRTUAL",
+      price: amount.toFixed(2),
+    }],
+  };
+
+  const bodyString = JSON.stringify(iyzicoRequest);
+  const randomHeaderValue = generateRandomString();
+
+  // Authorization header oluştur
+  const { authorization, randomString } = await generateAuthorizationHeaderV2(
+    iyzicoApiKey,
+    iyzicoSecretKey,
+    randomHeaderValue,
+    bodyString
+  );
+
+  console.log("📤 iyzico checkout form isteği gönderiliyor:", {
+    conversationId,
+    amount,
+    authMethod: "IYZWSv2",
+  });
+
+  // iyzico API'ye istek gönder
+  const response = await fetch(
+    `${IYZICO_API_URL}/payment/iyzipos/checkoutform/initialize/auth/ecom`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: authorization,
+        "x-iyzi-rnd": randomString,
+      },
+      body: bodyString,
+    }
+  );
+
+  const result = await response.json();
+
+  if (result.status !== "success") {
+    console.error("❌ iyzico hatası:", {
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+      errorGroup: result.errorGroup,
+    });
+
+    let userMessage = result.errorMessage || "Ödeme başlatılamadı";
+
+    // Kullanıcı dostu mesajlar
+    if (result.errorCode === "UNAUTHORIZED_NO_AUTH_HEADER" || result.errorCode === "UNAUTHORIZED") {
+      userMessage = "Ödeme sistemi yapılandırma hatası. Lütfen yönetici ile iletişime geçin.";
+    } else if (result.errorCode === "VALIDATION_ERROR") {
+      userMessage = "Gönderilen bilgilerde hata var. Lütfen tekrar deneyin.";
+    } else if (result.errorMessage?.includes("connection") || result.errorMessage?.includes("timeout")) {
+      userMessage = "Ödeme sağlayıcısına bağlantı sağlanamadı. Lütfen daha sonra tekrar deneyin.";
+    }
+
+    throw new Error(userMessage);
+  }
+
+  console.log("✅ iyzico checkout form başarılı:", {
+    token: result.token?.substring(0, 20) + "...",
+  });
+
+  return {
+    paymentPageUrl: result.paymentPageUrl,
+    token: result.token,
+  };
+}
+
+// ────────── Ana Handler ──────────
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Auth kontrolü
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
+    // Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -81,10 +228,13 @@ serve(async (req: Request) => {
     );
 
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Geçersiz oturum" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Geçersiz oturum" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     // Kullanıcı profilini al
@@ -98,16 +248,43 @@ serve(async (req: Request) => {
       throw new Error("Kullanıcı profili bulunamadı");
     }
 
-    // Sistem ayarlarını al
+    // Sistem ayarlarını al (iyzico credentials dahil)
     const { data: settings } = await supabase
       .from("app_about_settings")
-      .select("min_topup_amount, max_topup_amount, balance_enabled")
+      .select("min_topup_amount, max_topup_amount, balance_enabled, card_topup_enabled, iyzico_api_key, iyzico_secret_key, iyzico_api_url")
       .maybeSingle();
 
+    if (!settings) {
+      throw new Error("Sistem ayarları bulunamadı");
+    }
+
+    // Bakiye yükleme aktif mi?
     if (!settings?.balance_enabled) {
       throw new Error("Bakiye yükleme şu an aktif değil");
     }
 
+    // Kredi kartı ile ödeme aktif mi?
+    if (settings?.card_topup_enabled === false) {
+      throw new Error("Kredi kartı ile bakiye yükleme şu an pasif durumda. Lütfen havale yöntemini kullanın.");
+    }
+
+    // iyzico credentials kontrolü
+    let iyzicoApiKey = settings?.iyzico_api_key;
+    let iyzicoSecretKey = settings?.iyzico_secret_key;
+    const iyzicoApiUrl = settings?.iyzico_api_url || IYZICO_API_URL;
+
+    // Env'den fallback
+    if (!iyzicoApiKey) iyzicoApiKey = Deno.env.get("IYZICO_API_KEY") || "";
+    if (!iyzicoSecretKey) iyzicoSecretKey = Deno.env.get("IYZICO_SECRET_KEY") || "";
+
+    if (!iyzicoApiKey || !iyzicoSecretKey) {
+      console.error("❌ iyzico credentials eksik!");
+      console.error("   iyzico_api_key: " + (settings?.iyzico_api_key ? "✅ DB'de var" : "❌ DB'de yok"));
+      console.error("   IYZICO_API_KEY env: " + (Deno.env.get("IYZICO_API_KEY") ? "✅ env'de var" : "❌ env'de yok"));
+      throw new Error("Ödeme sistemi henüz yapılandırılmamış. Lütfen yönetici ile iletişime geçin.");
+    }
+
+    // Request body
     const body = await req.json();
     const amount = parseFloat(body.amount);
 
@@ -129,114 +306,97 @@ serve(async (req: Request) => {
     // Callback URL
     const callbackUrl = `${supabaseUrl}/functions/v1/confirm-balance-topup`;
 
-    // iyzico request body
-    const iyzicoRequest = {
-      locale: "tr",
-      conversationId: conversationId,
-      price: amount.toFixed(2),
-      paidPrice: amount.toFixed(2),
-      currency: "TRY",
-      basketId: `BAL_${conversationId}`,
-      paymentGroup: "PRODUCT",
-      callbackUrl: callbackUrl,
-      enabledInstallments: [1],
-      buyer: {
-        id: user.id,
-        name: profile.full_name?.split(" ")[0] || "User",
-        surname: profile.full_name?.split(" ").slice(1).join(" ") || "User",
-        identityNumber: "11111111111",
-        email: user.email || "user@example.com",
-        gsmNumber: formatPhoneNumber(profile.phone || "5000000000"),
-        registrationAddress: profile.address || "Adres",
-        city: "İstanbul",
-        country: "Turkey",
-        zipCode: "34000",
-        ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1",
-      },
-      shippingAddress: {
-        contactName: profile.full_name || "User",
-        city: "İstanbul",
-        country: "Turkey",
-        address: profile.address || "Adres",
-        zipCode: "34000",
-      },
-      billingAddress: {
-        contactName: profile.full_name || "User",
-        city: "İstanbul",
-        country: "Turkey",
-        address: profile.address || "Adres",
-        zipCode: "34000",
-      },
-      basketItems: [{
-        id: "BALANCE_TOPUP",
-        name: "Bakiye Yükleme",
-        category1: "Bakiye",
-        itemType: "VIRTUAL",
-        price: amount.toFixed(2),
-      }],
-    };
+    // Client IP
+    const clientIp =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      "127.0.0.1";
 
-    const bodyString = JSON.stringify(iyzicoRequest);
-    const randomHeaderValue = generateRandomString();
-    const { authorization, randomString } = await generateAuthorizationHeaderV2(
-      IYZICO_API_KEY, IYZICO_SECRET_KEY, randomHeaderValue, bodyString
-    );
-
-    // iyzico API'ye istek gönder
-    const response = await fetch(`${IYZICO_API_URL}/payment/iyzipos/checkoutform/initialize/auth/ecom`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: authorization,
-        "x-iyzi-rnd": randomString,
-      },
-      body: bodyString,
+    console.log("💰 Bakiye yükleme başlatılıyor:", {
+      userId: user.id,
+      amount,
+      conversationId,
+      clientIp,
     });
 
-    const result = await response.json();
+    // Mevcut bakiyeyi al (balance_before için)
+    // balance_transactions tablosunda balance_before/balance_after NOT NULL
+    // ve CHECK kısıtlaması var, o yüzden 0 göndermek hataya yol açıyor.
+    const { data: currentBalanceRow } = await supabase
+      .from("user_balances")
+      .select("balance")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (result.status !== "success") {
-      throw new Error(result.errorMessage || "Ödeme başlatılamadı");
-    }
+    const currentBalance = currentBalanceRow?.balance || 0;
+    // Pending işlemde balance_after henüz gerçek bakiye değil,
+    // ama tablo CHECK (>0) kabul etmediği için mevcut bakiye + tutar olarak kaydediyoruz.
+    // confirm-balance-topup callback'inde status='completed' olunca zaten
+    // user_balances güncelleniyor; bu satır sadece CHECK constraint'i geçmek için.
+    const projectedBalance = currentBalance + amount;
+
+    // iyzico Checkout Form başlat
+    const iyzicoResult = await initializeIyzicoCheckout(
+      iyzicoApiKey,
+      iyzicoSecretKey,
+      conversationId,
+      amount,
+      user.email || "user@example.com",
+      profile.phone || "5000000000",
+      profile.full_name || "User",
+      user.id,
+      clientIp,
+      callbackUrl
+    );
 
     // İşlem kaydı oluştur (pending durumunda)
-    await supabase.from("balance_transactions").insert({
+    const { error: insertError } = await supabase.from("balance_transactions").insert({
       user_id: user.id,
       type: "topup",
       amount: amount,
       net_amount: amount,
-      balance_before: 0,
-      balance_after: 0,
+      balance_before: currentBalance,
+      balance_after: projectedBalance,
       reference_type: "topup",
       reference_id: null,
       status: "pending",
       description: `Bakiye yükleme - ${amount} TL`,
       payment_method: "card",
       payment_reference: conversationId,
-      metadata: { token: result.token },
+      metadata: { token: iyzicoResult.token },
     });
 
-    console.log("✅ Balance topup başlatıldı:", { conversationId, amount });
+    if (insertError) {
+      console.error("❌ balance_transactions insert hatası:", insertError);
+      throw new Error(`İşlem kaydı oluşturulamadı: ${insertError.message}`);
+    }
 
-    return new Response(JSON.stringify({
-      status: "success",
-      payment_page_url: result.paymentPageUrl,
-      token: result.token,
-      conversation_id: conversationId,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.log("✅ Bakiye yükleme başlatıldı:", { conversationId, amount });
+
+    return new Response(
+      JSON.stringify({
+        status: "success",
+        payment_page_url: iyzicoResult.paymentPageUrl,
+        token: iyzicoResult.token,
+        conversation_id: conversationId,
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (err: unknown) {
     const error = err as Error;
     console.error("❌ create-balance-topup error:", error.message);
 
-    return new Response(JSON.stringify({
-      status: "error",
-      error: error.message,
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        error: error.message,
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
 });

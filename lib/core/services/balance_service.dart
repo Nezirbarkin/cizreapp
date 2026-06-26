@@ -319,6 +319,8 @@ class BalanceService {
   }
 
   /// Admin: Tüm işlemleri getir
+  /// Sadece başarılı (status='completed') işlemleri listeler.
+  /// pending ve failed kayıtlar cüzdan yönetimi işlem geçmişinde gösterilmez.
   Future<List<Map<String, dynamic>>> getAllTransactions() async {
     try {
       debugPrint('💰 BALANCE: Tüm işlemler getiriliyor...');
@@ -326,6 +328,7 @@ class BalanceService {
       final response = await _supabase
           .from('balance_transactions')
           .select('*')
+          .eq('status', 'completed')
           .order('created_at', ascending: false)
           .limit(100);
 

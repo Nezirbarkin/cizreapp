@@ -20,15 +20,12 @@ import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/services/balance_service.dart';
 import '../../wallet/screens/wallet_screen.dart';
-import '../../../core/widgets/balance_header_widget.dart';
 import '../../ai_chat/screens/ai_chat_meta_screen.dart';
 import '../../ai_chat/screens/ai_chat_list_screen.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
-// ignore: duplicate_import
-import '../../../core/models/daily_deal_model.dart';
 import '../services/category_service.dart';
 import '../services/shop_service.dart';
 import '../services/product_service.dart';

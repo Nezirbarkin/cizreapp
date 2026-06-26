@@ -1,0 +1,9 @@
+# Supabase project configuration
+# iyzico callback fonksiyonları JWT gerektirmez (iyzico Bearer token göndermez).
+# Diğer fonksiyonlar mobil app'ten geçerli JWT ile çağrıldığı için varsayılan (true) korunur.
+
+[functions.confirm-balance-topup]
+verify_jwt = false
+
+[functions.iyzico-payment-callback]
+verify_jwt = false

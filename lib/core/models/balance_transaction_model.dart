@@ -127,6 +127,9 @@ class BalanceTransaction {
   final String? paymentMethod;
   final String? paymentReference;
   final Map<String, dynamic>? metadata;
+  final String? bankName;
+  final String? bankIban;
+  final String? bankAccountName;
   final DateTime createdAt;
 
   BalanceTransaction({
@@ -145,6 +148,9 @@ class BalanceTransaction {
     this.paymentMethod,
     this.paymentReference,
     this.metadata,
+    this.bankName,
+    this.bankIban,
+    this.bankAccountName,
     required this.createdAt,
   });
 
@@ -187,6 +193,9 @@ class BalanceTransaction {
       paymentMethod: json['payment_method'] as String?,
       paymentReference: json['payment_reference'] as String?,
       metadata: json['metadata'] as Map<String, dynamic>?,
+      bankName: json['bank_name'] as String?,
+      bankIban: json['bank_iban'] as String?,
+      bankAccountName: json['bank_account_name'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : DateTime.now(),
@@ -210,6 +219,9 @@ class BalanceTransaction {
       'payment_method': paymentMethod,
       'payment_reference': paymentReference,
       'metadata': metadata,
+      'bank_name': bankName,
+      'bank_iban': bankIban,
+      'bank_account_name': bankAccountName,
       'created_at': createdAt.toIso8601String(),
     };
   }

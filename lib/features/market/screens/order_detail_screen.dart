@@ -981,8 +981,36 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 ),
               ],
             ),
-            // Sipariş teslim edildiyse ödeme durumunu vurgula
-            if (_currentOrder.status == OrderStatus.delivered) ...[
+            // Ödeme yöntemine göre bilgi mesajı
+            if (_currentOrder.paymentMethod == PaymentMethod.balance ||
+                _currentOrder.paymentMethod == PaymentMethod.online) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _currentOrder.paymentMethod == PaymentMethod.balance
+                            ? 'Bakiye ile ödeme yapıldı. Ödeme tamamlandı.'
+                            : 'Online ödeme ile ödeme yapıldı. Ödeme tamamlandı.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_currentOrder.status == OrderStatus.delivered) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),

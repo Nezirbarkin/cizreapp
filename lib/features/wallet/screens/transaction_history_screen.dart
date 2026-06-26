@@ -181,6 +181,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     final isPositive = transaction.isPositive;
     final amountColor = isPositive ? Colors.green : Colors.red;
     final icon = _getTransactionIcon(transaction.type);
+    final hasBankInfo = transaction.bankName != null || transaction.bankAccountName != null;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -196,74 +197,131 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // İkon
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: amountColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: amountColor, size: 24),
-          ),
-          const SizedBox(width: 12),
-
-          // Bilgiler
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.type.label,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  transaction.shortDate,
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                  ),
-                ),
-                if (transaction.description != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    transaction.description!,
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 11,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          // Tutar
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
             children: [
-              Text(
-                '${isPositive ? '+' : '-'}₺${transaction.absoluteAmount.toStringAsFixed(2)}',
-                style: TextStyle(
-                  color: amountColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
+              // İkon
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: amountColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: amountColor, size: 24),
+              ),
+              const SizedBox(width: 12),
+
+              // Bilgiler
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      transaction.type.label,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      transaction.shortDate,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (transaction.description != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        transaction.description!,
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              const SizedBox(height: 2),
-              _buildStatusBadge(transaction.status),
+
+              // Tutar
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${isPositive ? '+' : '-'}₺${transaction.absoluteAmount.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: amountColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _buildStatusBadge(transaction.status),
+                ],
+              ),
             ],
           ),
+
+          // Banka bilgileri (varsa)
+          if (hasBankInfo) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_balance, size: 14, color: Colors.blue.shade700),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Banka Bilgileri',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (transaction.bankName != null)
+                    Text(
+                      'Banka: ${transaction.bankName}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                    ),
+                  if (transaction.bankAccountName != null)
+                    Text(
+                      'Hesap Sahibi: ${transaction.bankAccountName}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                    ),
+                  if (transaction.bankIban != null)
+                    Text(
+                      'IBAN: ${_maskIban(transaction.bankIban!)}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  String _maskIban(String iban) {
+    if (iban.length <= 8) return iban;
+    return '${iban.substring(0, 4)}****${iban.substring(iban.length - 4)}';
   }
 
   Widget _buildStatusBadge(BalanceTransactionStatus status) {

@@ -21,6 +21,7 @@ class AppAboutSettings {
   
   // Bakiye Sistemi
   final bool balanceEnabled;
+  final bool cardTopupEnabled;
   final double minTopupAmount;
   final double maxTopupAmount;
   final double withdrawalFeePercent;
@@ -67,6 +68,7 @@ class AppAboutSettings {
     this.iyzicoSecretKey,
     this.iyzicoApiUrl,
     this.balanceEnabled = true,
+    this.cardTopupEnabled = true,
     this.minTopupAmount = 10,
     this.maxTopupAmount = 10000,
     this.withdrawalFeePercent = 2,
@@ -117,6 +119,7 @@ class AppAboutSettings {
       iyzicoApiUrl: json['iyzico_api_url'] as String?,
       globalOrdersEnabled: json['global_orders_enabled'] as bool? ?? true,
       balanceEnabled: json['balance_enabled'] as bool? ?? true,
+      cardTopupEnabled: json['card_topup_enabled'] as bool? ?? true,
       minTopupAmount: (json['min_topup_amount'] as num?)?.toDouble() ?? 10,
       maxTopupAmount: (json['max_topup_amount'] as num?)?.toDouble() ?? 10000,
       withdrawalFeePercent: (json['withdrawal_fee_percent'] as num?)?.toDouble() ?? 2,
@@ -161,6 +164,7 @@ class AppAboutSettings {
       'company_bank_name': companyBankName,
       'company_iban': companyIban,
       'company_account_holder': companyAccountHolder,
+      'card_topup_enabled': cardTopupEnabled,
       'startup_announcement_enabled': startupAnnouncementEnabled,
       'startup_announcement_title': startupAnnouncementTitle,
       'startup_announcement_message': startupAnnouncementMessage,
@@ -199,6 +203,7 @@ class AppAboutSettings {
     DateTime? startupAnnouncementUpdatedAt,
     String? googleMapsApiKey,
     bool? balanceEnabled,
+    bool? cardTopupEnabled,
     double? minTopupAmount,
     double? maxTopupAmount,
     double? withdrawalFeePercent,
@@ -234,10 +239,14 @@ class AppAboutSettings {
       startupAnnouncementUpdatedAt: startupAnnouncementUpdatedAt ?? this.startupAnnouncementUpdatedAt,
       googleMapsApiKey: googleMapsApiKey ?? this.googleMapsApiKey,
       balanceEnabled: balanceEnabled ?? this.balanceEnabled,
+      cardTopupEnabled: cardTopupEnabled ?? this.cardTopupEnabled,
       minTopupAmount: minTopupAmount ?? this.minTopupAmount,
       maxTopupAmount: maxTopupAmount ?? this.maxTopupAmount,
       withdrawalFeePercent: withdrawalFeePercent ?? this.withdrawalFeePercent,
       minWithdrawalAmount: minWithdrawalAmount ?? this.minWithdrawalAmount,
+      companyBankName: companyBankName ?? this.companyBankName,
+      companyIban: companyIban ?? this.companyIban,
+      companyAccountHolder: companyAccountHolder ?? this.companyAccountHolder,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

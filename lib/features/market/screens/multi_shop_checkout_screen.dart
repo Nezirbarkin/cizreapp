@@ -47,7 +47,6 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   bool _onlinePaymentEnabled = false;
   bool _isLoadingPaymentSettings = true;
   double _userBalance = 0;
-  bool _balanceEnabled = false;
   
   Map<String, ShopCartSummary> _shopSummaries = {};
   double _grandTotal = 0;
@@ -93,7 +92,6 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
       
       setState(() {
         _onlinePaymentEnabled = settings?.onlinePaymentEnabled ?? false;
-        _balanceEnabled = settings?.balanceEnabled ?? false;
         _userBalance = balance;
         _isLoadingPaymentSettings = false;
       });
