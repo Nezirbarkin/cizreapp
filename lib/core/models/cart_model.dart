@@ -180,6 +180,10 @@ class CartSummary {
       (sum, item) => sum + item.quantity,
     );
 
+    // Not: `subtotal` zaten indirimli productPrice üzerinden hesaplanır
+    // (CartItem.itemTotal = productPrice * quantity). `discount` alanı
+    // tasarruf miktarıdır (oldPrice - price) * qty; UI'da bilgi amaçlı
+    // gösterilir, toplamdan düşülmez (yapılırsa çift düşüm olur).
     final total = subtotal + deliveryFee;
 
     return CartSummary(

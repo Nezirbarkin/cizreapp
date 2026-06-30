@@ -1,4 +1,4 @@
-// ignore_for_file: unused_field
+  // ignore_for_file: unused_field
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -23,6 +23,7 @@ import '../../market/widgets/pending_review_dialog.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/widgets/balance_header_widget.dart';
+import '../../../core/widgets/animated_app_title.dart';
 import '../../wallet/screens/wallet_screen.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
@@ -688,52 +689,64 @@ class _ProductsScreenState extends State<ProductsScreen> {
               bottom: 8,
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 const Expanded(
-                  child: Text(
-                    'CizreApp',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  child: AnimatedAppTitle(
+                    primaryFontSize: 20,
+                    secondaryFontSize: 12,
                   ),
                 ),
-                // BAKİYE
-                _ProductsBalanceBadge(),
-                const SizedBox(width: 4),
+                // BAKİYE - ikonlarla aynı hizada ve boyutta
+                SizedBox(
+                  height: 30,
+                  child: Center(child: _ProductsBalanceBadge()),
+                ),
                 // Arama ikonu
-                IconButton(
-                  icon: const Icon(Icons.search, color: Colors.white, size: 22),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const SearchScreen()),
-                    );
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: IconButton(
+                    icon: const Icon(Icons.search, color: Colors.white, size: 20),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const SearchScreen()),
+                      );
+                    },
+                    padding: EdgeInsets.zero,
+                    splashRadius: 18,
+                    constraints: const BoxConstraints(),
+                  ),
                 ),
-                const SizedBox(width: 0),
                 // Bildirim ikonu
-                IconButton(
-                  icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-                    );
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: IconButton(
+                    icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 20),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+                      );
+                    },
+                    padding: EdgeInsets.zero,
+                    splashRadius: 18,
+                    constraints: const BoxConstraints(),
+                  ),
                 ),
-                const SizedBox(width: 0),
                 // Ayarlar ikonu
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
-                  onPressed: () => showSettingsSidebar(context),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: IconButton(
+                    icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 20),
+                    onPressed: () => showSettingsSidebar(context),
+                    padding: EdgeInsets.zero,
+                    splashRadius: 18,
+                    constraints: const BoxConstraints(),
+                  ),
                 ),
               ],
             ),

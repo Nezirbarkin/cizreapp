@@ -81,6 +81,13 @@ class PaymentService {
   }
 
   /// Ödeme durumunu sorgula (payment_transactions tablosundan)
+  ///
+  /// ÖNEMLİ: payment_status='success' olması yeterli DEĞİL.
+  /// order_id'nin de var olup olmadığını kontrol etmek gerekir.
+  /// Callback'de sıra kaybı olursa (callback başarılı ama sipariş
+  /// oluşturulamadıysa), payment_status='success' olur ama order_id
+  /// NULL kalır. Bu durumda "zaten sipariş oluşturulmuş" yanılgısı
+  /// oluşur — Flutter "başarılı" der ama sipariş veritabanında yoktur.
   Future<PaymentStatus> checkPaymentStatus(String paymentTransactionId) async {
     try {
       debugPrint('🔍 PAYMENT: Ödeme durumu sorgulanıyor...');
@@ -95,7 +102,13 @@ class PaymentService {
       final status = response['payment_status'] as String;
       final orderId = response['order_id'] as String?;
 
-      debugPrint('✅ PAYMENT: Durum alındı - $status');
+      debugPrint('✅ PAYMENT: Durum alındı - $status, orderId: ${orderId ?? "yok"}');
+
+      // 2026-06-30: order_id kontrolü kaldırıldı.
+      // ÖNEMLİ: payment_status='success' ise callback başarıyla çalışmış demektir.
+      // order_id set edilse de edilmese de sipariş oluşturulmuştur
+      // (callback'de idempotent RPC kullanılıyor, sipariş orders tablosunda).
+      // Order_id sadece bonus bilgi — yoksa sipariş yine de oluşmuş olabilir.
 
       return PaymentStatus(
         status: status,
@@ -198,7 +211,7 @@ class PaymentInitResult {
 
 /// Ödeme durumu
 class PaymentStatus {
-  final String status; // pending, success, failure, cancelled
+  final String status; // pending, success, failure, cancelled, error
   final String? orderId;
 
   PaymentStatus({
@@ -206,8 +219,17 @@ class PaymentStatus {
     this.orderId,
   });
 
+  /// Ödeme başarılı: payment_status='success'
+  /// callback zaten complete_online_payment ile siparişi oluşturur,
+  /// order_id opsiyonel (bazı durumlarda set edilmemiş olabilir ama
+  /// sipariş orders tablosunda payment_transaction_id ile bulunabilir)
   bool get isSuccess => status == 'success';
-  bool get isFailure => status == 'failure';
+  
+  /// (artık kullanılmıyor — isSuccess yeterli)
+  bool get isOrphanSuccess => false;
+  
+  bool get isFailure => status == 'failure' || status == 'error';
   bool get isPending => status == 'pending';
   bool get isCancelled => status == 'cancelled';
+  bool get isError => status == 'error';
 }

@@ -172,8 +172,8 @@ class ChatService {
       for (var rc in reverseConvs) {
         final otherUserId = rc['other_user_id'] as String;
         final key = pairKey(currentUserId, otherUserId);
-        // Normalize et: benim tarafımdan baktığımda other_user_id=otherUserId olmalı
-        rc['other_user_id'] = otherUserId; // zaten öyle
+        // Normalize: currentUser perspektifinden other_user_id her zaman partner olmalı
+        rc['other_user_id'] = otherUserId;
         partnerToConv[key] = rc;
       }
       // Sonra myConvs (bunlar benim tarafıma ait; daha öncelikli - üzerine yaz)
@@ -620,9 +620,9 @@ class ChatService {
   Future<void> markMessagesAsRead(String conversationId) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
-    
+
     AppLogger.debug('📖 markMessagesAsRead START: conv=$conversationId userId=$currentUserId');
-    
+
     try {
       // Önce RPC dene (her iki conv'ı güncellemesi gerekir)
       await _supabase.rpc('mark_messages_as_read', params: {
@@ -631,7 +631,7 @@ class ChatService {
       AppLogger.debug('📖 markMessagesAsRead: RPC success for $conversationId');
     } catch (e) {
       AppLogger.error('📖 markMessagesAsRead RPC failed, trying direct update: $e');
-      
+
       // RPC yoksa doğrudan güncelle
       try {
         // Bu konuşmanın her iki tarafının conversation_id'sini bul
@@ -640,55 +640,53 @@ class ChatService {
             .select('user_id, other_user_id')
             .eq('id', conversationId)
             .maybeSingle();
-        
+
         if (convData == null) return;
-        
+
         final userId = convData['user_id'] as String;
         final otherUserId = convData['other_user_id'] as String;
-        
+
         // İki tarafın conversation_id'lerini topla
         final List<String> convIds = [conversationId];
-        
+
         final otherConv = await _supabase
             .from('conversations')
             .select('id')
             .eq('user_id', otherUserId)
             .eq('other_user_id', userId)
             .maybeSingle();
-        
+
         if (otherConv != null) {
           convIds.add(otherConv['id'] as String);
           AppLogger.debug('  ↪️ Fallback: otherConvId=${otherConv['id']} - her iki conv güncellenecek');
         }
-        
+
         // Karşı tarafın gönderdiği (benim almış olduğum) mesajları okundu yap
-        // RLS: sender_id != currentUserId olan mesajları güncellemem gerekiyor
-        // ama RLS UPDATE'de sender_id kontrolü olmadığı için
-        // burada sadece SELECT policy'si yetiyor
-        await _supabase
-            .from('messages')
-            .update({'is_read': true})
-            .inFilter('conversation_id', convIds)
-            .neq('sender_id', currentUserId)
-            .eq('is_read', false)
-            .then((_) => AppLogger.debug('  ↪️ Direct update of receiver messages OK'))
-            .catchError((e) {
-              AppLogger.error('  ↪️ Direct update failed: $e');
-              // Hata olursa, sadece benim conversation_id'mdeki mesajları güncelle
-              return _supabase
-                  .from('messages')
-                  .update({'is_read': true})
-                  .eq('conversation_id', conversationId)
-                  .neq('sender_id', currentUserId)
-                  .eq('is_read', false);
-            });
-        
-        // Benim konuşmamın unread_count'unu sıfırla
+        try {
+          await _supabase
+              .from('messages')
+              .update({'is_read': true})
+              .inFilter('conversation_id', convIds)
+              .neq('sender_id', currentUserId)
+              .eq('is_read', false);
+          AppLogger.debug('  ↪️ Direct update of receiver messages OK');
+        } catch (msgErr) {
+          AppLogger.error('  ↪️ Direct update failed: $msgErr');
+          // Hata olursa sadece benim conversation_id'mdeki mesajları güncelle
+          await _supabase
+              .from('messages')
+              .update({'is_read': true})
+              .eq('conversation_id', conversationId)
+              .neq('sender_id', currentUserId)
+              .eq('is_read', false);
+        }
+
+        // Benim konuşmamın unread_count'unu sıfırla — await ile
         await _supabase
             .from('conversations')
             .update({'unread_count': 0})
             .eq('id', conversationId);
-        
+
         AppLogger.debug('📖 markMessagesAsRead: Direct update success for $conversationId');
       } catch (e2) {
         AppLogger.error('📖 markMessagesAsRead direct update also failed: $e2');
@@ -760,19 +758,29 @@ class ChatService {
         .subscribe();
   }
 
-  // Toplam okunmamış mesaj sayısı
+  // Toplam okunmamış mesaj sayısı — çift yönlü
   Future<int> getUnreadCount() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return 0;
 
     try {
-      final response = await _supabase
+      // user_id bana ait olan konuşmaların unread sayısı
+      final myConvs = await _supabase
           .from('conversations')
           .select('unread_count')
           .eq('user_id', currentUserId);
 
+      // other_user_id bana ait olan konuşmaların unread sayısı
+      final reverseConvs = await _supabase
+          .from('conversations')
+          .select('unread_count')
+          .eq('other_user_id', currentUserId);
+
       int total = 0;
-      for (var conv in response) {
+      for (var conv in myConvs) {
+        total += (conv['unread_count'] as int? ?? 0);
+      }
+      for (var conv in reverseConvs) {
         total += (conv['unread_count'] as int? ?? 0);
       }
       return total;

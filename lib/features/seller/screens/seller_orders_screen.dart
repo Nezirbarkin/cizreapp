@@ -97,8 +97,15 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
     try {
       final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        debugPrint('🔴 [_loadShopAndOrders] userId null - oturum açılmamış');
+        setState(() => _isLoading = false);
+        return;
+      }
+      debugPrint('🔵 [_loadShopAndOrders] userId: $userId');
 
+      // Satıcının mağazasını bul. owner_id RLS policy bu satıcının
+      // kendi mağazasını görmesine izin vermelidir.
       final shopResponse = await _supabase
           .from('shops')
           .select('id, has_own_courier, hide_customer_info')
@@ -106,20 +113,47 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           .maybeSingle();
 
       if (shopResponse == null) {
+        debugPrint('🔴 [_loadShopAndOrders] Satıcıya ait mağaza bulunamadı (userId=$userId)');
+        debugPrint('   Olası nedenler:');
+        debugPrint('   1) shops tablosunda bu kullanıcı için owner_id eşleşen mağaza yok');
+        debugPrint('   2) RLS policy satıcının kendi mağazasını görmesini engelliyor');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Mağaza bilgileriniz yüklenemedi. Yönetici ile iletişime geçin.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         setState(() => _isLoading = false);
         return;
       }
 
-      _shopId = shopResponse['id'];
+      _shopId = shopResponse['id'] as String;
       _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? true;
       // Kuryesi olmayan satıcıda müşteri bilgilerini gizle (admin toggle edebilir)
       _hideCustomerInfo = shopResponse['hide_customer_info'] as bool? ?? (!_hasOwnCourier);
-      
+      debugPrint('🟢 [_loadShopAndOrders] Mağaza bulundu: shopId=$_shopId, hasOwnCourier=$_hasOwnCourier');
+
       // Siparişler yüklendikten sonra Realtime dinlemesi başlat
       await _loadOrders();
       _subscribeToOrderChanges();
-    } catch (e) {
-      debugPrint('Hata: $e');
+    } catch (e, stack) {
+      debugPrint('🔴 [_loadShopAndOrders] HATA: $e');
+      debugPrint('🔴 [_loadShopAndOrders] STACK: $stack');
+      if (e is PostgrestException) {
+        debugPrint('   message: ${e.message}');
+        debugPrint('   code: ${e.code}');
+        debugPrint('   details: ${e.details}');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mağaza/siparişler yüklenemedi: ${e.toString().substring(0, e.toString().length.clamp(0, 100))}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       setState(() => _isLoading = false);
     }
   }
@@ -127,15 +161,34 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   /// Siparişlerdeki değişiklikleri dinle (kurye teslim ettiğinde vb.)
   void _subscribeToOrderChanges() {
     if (_shopId == null) return;
-    
+
     // Önceki channel'ı kapat
     if (_ordersChannel != null) {
       _supabase.removeChannel(_ordersChannel);
     }
-    
-    // Yeni Realtime channel oluştur
+
+    // Yeni Realtime channel oluştur.
+    // orders tablosu hem INSERT (yeni sipariş geldiğinde) hem UPDATE (durum değiştiğinde)
+    // için dinlenir. Yeni gelen siparişlerin anlık görünmesi için INSERT event'i şart.
     _ordersChannel = _supabase
         .channel('seller_orders_channel')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'orders',
+          callback: (payload) {
+            // Yeni sipariş geldi - sadece bu dükkanın siparişi ise listeyi yenile
+            final newRecord = payload.newRecord as Map<String, dynamic>?;
+            debugPrint('📦 Yeni sipariş geldi (Realtime): $newRecord');
+            if (newRecord != null && newRecord['shop_id'] == _shopId) {
+              if (mounted) {
+                _loadOrders();
+              }
+            } else {
+              debugPrint('  └─ Farklı dükkanın siparişi, yoksayıldı (bizim: $_shopId)');
+            }
+          },
+        )
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
@@ -176,13 +229,17 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           },
         )
         .subscribe();
-    
+
     debugPrint('✅ Satıcı siparişleri Realtime dinlemesi başlatıldı (shopId: $_shopId)');
   }
 
   Future<void> _loadOrders() async {
-    if (_shopId == null) return;
+    if (_shopId == null) {
+      debugPrint('🔴 [_loadOrders] shopId null - siparişler yüklenemez');
+      return;
+    }
 
+    debugPrint('🔵 [_loadOrders] Başladı, shopId=$_shopId');
     setState(() => _isLoading = true);
 
     try {
@@ -207,6 +264,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       // Tüm siparişleri çek
       orders = await _orderService.getShopOrders(_shopId!);
+      debugPrint('🟢 [_loadOrders] ${orders.length} sipariş yüklendi');
 
       // Kurye atama bilgilerini her zaman yükle (has_own_courier'dan bağımsız).
       // Böylece ister platform kuryesi ister dükkanın kendi kuryesi teslim etmiş olsun,
@@ -215,19 +273,47 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       final orderIds = orders.map((o) => o.id).toList();
       try {
         if (orderIds.isNotEmpty) {
+          // Atama kayıtlarını join OLMADAN çek. Önceden profiles join'i
+          // kullanılıyordu; RLS/join hatasında tüm sorgu patlayıp atama bilgisi
+          // hiç yüklenmiyordu → satıcı kartında "Kurye Çağır" butonu yanlışlıkla
+          // görünüyordu (sipariş atanmış olmasına rağmen). Artık önce atamaları,
+          // sonra kurye profillerini ayrı sorgu ile alıyoruz; profil okunamasa
+          // bile en azından atama durumu (status) bilinir.
           final courierAssignments = await _supabase
               .from('courier_assignments')
-              .select('''
-                id, order_id, status, picked_up_at, delivered_at,
-                courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
-              ''')
+              .select('id, order_id, status, picked_up_at, delivered_at, courier_id')
               .inFilter('order_id', orderIds);
+
+          // Kurye profillerini topluca çek (ad/telefon için)
+          final courierIds = courierAssignments
+              .map((a) => a['courier_id'] as String?)
+              .where((id) => id != null)
+              .cast<String>()
+              .toSet()
+              .toList();
+
+          final Map<String, Map<String, dynamic>> courierProfiles = {};
+          if (courierIds.isNotEmpty) {
+            try {
+              final profilesRes = await _supabase
+                  .from('profiles')
+                  .select('id, full_name, phone')
+                  .inFilter('id', courierIds);
+              for (var p in profilesRes) {
+                courierProfiles[p['id'] as String] = Map<String, dynamic>.from(p);
+              }
+            } catch (e) {
+              debugPrint('Kurye profilleri yüklenemedi (RLS olabilir): $e');
+            }
+          }
 
           for (var assignment in courierAssignments) {
             final orderId = assignment['order_id'] as String;
+            final courierId = assignment['courier_id'] as String?;
+            final profile = courierId != null ? courierProfiles[courierId] : null;
             courierInfoMap[orderId] = {
-              'courier_name': assignment['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
-              'courier_phone': assignment['courier']?['phone'] ?? '',
+              'courier_name': profile?['full_name'] ?? 'Bilinmeyen Kurye',
+              'courier_phone': profile?['phone'] ?? '',
               'status': assignment['status'] ?? 'pending',
               'picked_up_at': assignment['picked_up_at'],
               'delivered_at': assignment['delivered_at'],
@@ -278,6 +364,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         // Belirli bir durum
         orders = orders.where((o) => o.status == _statusFilters[currentTabIndex]).toList();
       }
+      debugPrint('🔵 [_loadOrders] Tab filtresinden sonra ${orders.length} sipariş');
 
       if (mounted) {
         setState(() {
@@ -286,8 +373,22 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           _isLoading = false;
         });
       }
-    } catch (e) {
-      debugPrint('Siparişler yüklenirken hata: $e');
+    } catch (e, stack) {
+      debugPrint('🔴 [_loadOrders] HATA: $e');
+      debugPrint('🔴 [_loadOrders] STACK: $stack');
+      if (e is PostgrestException) {
+        debugPrint('   message: ${e.message}');
+        debugPrint('   code: ${e.code}');
+        debugPrint('   details: ${e.details}');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Siparişler yüklenemedi: ${e.toString().substring(0, e.toString().length.clamp(0, 100))}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -305,10 +406,15 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       debugPrint('🔄 Sipariş durumu güncelleniyor: ${order.id} -> ${newStatus.name}');
       await _orderService.updateOrderStatus(order.id, newStatus);
       debugPrint('✅ Sipariş durumu güncellendi: ${order.id} -> ${newStatus.name}');
-      
+
       // Müşteriye bildirim gönder
       await _sendStatusNotificationToCustomer(order, newStatus);
-      
+
+      // Kuryeye confirmed/preparing/ready broadcast kaldırıldı. Kurye bildirimi
+      // yalnızca atama anında "Sipariş Sana Atandı" (autoAssignCourierToOrder ->
+      // _notifyCourierOfAssignment) ile gönderilir. Kurye paneli "Atanabilir"
+      // sekmesinde zaten bu siparişleri listeliyor.
+
       await _loadOrders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -349,15 +455,15 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           type = 'order_update';
           break;
         case OrderStatus.preparing:
-          title = 'Sipariş Hazırlanıyor';
-          content = '$shopName mağazası siparişinizi hazırlıyor.';
-          type = 'order_update';
-          break;
+          // "Sipariş Hazırlanıyor" bildirimi kaldırıldı - müşteri bu ara durum
+          // hakkında bilgilendirilmiyor (confirmed sonrası kurye yola çıkana kadar
+          // sessiz geçiş tercih edildi).
+          return;
         case OrderStatus.ready:
-          title = 'Sipariş Hazır';
-          content = '$shopName mağazası siparişinizi hazırladı, kurye teslim alacak.';
-          type = 'order_update';
-          break;
+          // "Sipariş Hazır" bildirimi kaldırıldı - bu durum müşteri tarafında
+          // gereksiz bildirim yoğunluğu yaratıyordu. Müşteri sadece "onaylandı"
+          // ve "yolda" aşamalarında bilgilendirilecek.
+          return;
         case OrderStatus.onTheWay:
           title = 'Sipariş Yolda';
           content = '$shopName siparişiniz kuryeye teslim edildi ve yola çıktı.';
@@ -2255,13 +2361,48 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     try {
       final shopName = (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan';
 
-      // 1. Online olan bir kurye bul (aktif siparişi olmayan)
-      final availableCouriers = await _supabase
+      // 1. ÖNCE bu siparişin zaten atanmış olup olmadığını kontrol et.
+      // Bu kontrol kurye aramadan ÖNCE yapılmalı; aksi halde o an online
+      // kurye yoksa sipariş aslında atanmış olsa bile "kurye yok" mesajı
+      // gösteriliyordu (yanlış pozitif çelişki).
+      final existingAssignment = await _supabase
+          .from('courier_assignments')
+          .select('id, status')
+          .eq('order_id', order.id)
+          .maybeSingle();
+
+      if (existingAssignment != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bu sipariş zaten bir kuryeye atanmış'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          // Kurye bilgisi UI'da görünmüyor olabilir; listeyi yenileyerek
+          // atanmış kurye bilgisini karta yansıt.
+          await _loadOrders();
+        }
+        return;
+      }
+
+      // 2. Kurye bul. Önce online kuryeler tercih edilir; online kurye yoksa
+      // tüm kuryelere düşülür (otomatik atama mantığıyla tutarlı). Böylece
+      // sistemde kurye olduğu sürece "kurye yok" denmez.
+      var availableCouriers = await _supabase
           .from('profiles')
           .select('id, username, full_name, avatar_url, phone, email')
           .eq('role', 'courier')
           .eq('is_online', true)
           .limit(10);
+
+      if (availableCouriers.isEmpty) {
+        availableCouriers = await _supabase
+            .from('profiles')
+            .select('id, username, full_name, avatar_url, phone, email')
+            .eq('role', 'courier')
+            .limit(10);
+      }
 
       if (availableCouriers.isEmpty) {
         if (mounted) {
@@ -2271,7 +2412,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                 children: [
                   Icon(Icons.warning, color: Colors.white),
                   SizedBox(width: 8),
-                  Text('Şu an uygun kurye yok. Lütfen tekrar deneyin.'),
+                  Text('Sistemde kayıtlı kurye bulunamadı.'),
                 ],
               ),
               backgroundColor: Colors.orange.shade600,
@@ -2299,26 +2440,9 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
       debugPrint('📦 Sipariş atanıyor: ${order.id} → kurye: $courierId ($courierName), ücret: $fee');
 
-      // 3. Önce bu siparişin zaten atanmış olup olmadığını kontrol et
-      final existingAssignment = await _supabase
-          .from('courier_assignments')
-          .select('id')
-          .eq('order_id', order.id)
-          .maybeSingle();
-
-      if (existingAssignment != null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Bu sipariş zaten bir kuryeye atanmış'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        return;
-      }
-
       // 4. Kurye ataması oluştur
+      // NOT: orders tablosunda courier_id kolonu olmadığı için sadece
+      // courier_assignments tablosuna ekleme yapıyoruz
       await _supabase.from('courier_assignments').insert({
         'order_id': order.id,
         'courier_id': courierId,
@@ -2326,12 +2450,6 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         'fee_amount': fee,
         'assigned_at': DateTime.now().toIso8601String(),
       });
-
-      // 4. Sipariş durumunu on_the_way yap
-      await _supabase.from('orders').update({
-        'status': 'on_the_way',
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', order.id);
 
       // 5. Kuryeye özel bildirim gönder
       await _supabase.from('notifications').insert({

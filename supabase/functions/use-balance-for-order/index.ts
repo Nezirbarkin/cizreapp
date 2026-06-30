@@ -76,78 +76,49 @@ serve(async (req: Request) => {
       });
     }
 
-    // Bakiyeyi kilitle ve kontrol et
-    const { data: balance, error: balanceError } = await supabase
-      .from("user_balances")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    if (balanceError) {
-      throw balanceError;
-    }
-
-    if (!balance) {
-      return new Response(JSON.stringify({ error: "Bakiye kaydı bulunamadı" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Bakiyeyi atomik olarak düş (check-then-act race condition önleme)
+    // Tek sorguda: WHERE balance >= amount kontrolü + UPDATE + RETURNING
+    // Eşzamanlı iki istek aynı snapshot'ı okuyup üzerine yazamaz çünkü UPDATE
+    // PostgreSQL'de satır bazlı lock alır ve koşulu tekrar değerlendirir.
+    const { data: deductedRows, error: deductError } = await supabase
+      .rpc("deduct_from_balance", {
+        p_user_id: user.id,
+        p_amount: amountNum,
+        p_type: "order_payment",
+        p_reference_type: "order",
+        p_reference_id: order_id,
+        p_description: `Sipariş ödemesi - ${order.order_number || order_id.substring(0, 8)}`,
       });
-    }
 
-    const availableBalance = parseFloat(balance.balance) - parseFloat(balance.locked_balance);
-
-    if (availableBalance < amountNum) {
+    if (deductError) {
+      // Yetersiz bakiye veya bakiye kaydı yok RPC içinde raise exception fırlatır
+      const msg = deductError.message || "Bakiye düşülemedi";
+      const isInsufficient = /Insufficient balance/i.test(msg);
+      const isNoRecord = /Balance record not found/i.test(msg);
       return new Response(JSON.stringify({
-        error: "Yetersiz bakiye",
-        available_balance: availableBalance,
-        required_amount: amountNum,
+        status: "error",
+        error: isInsufficient ? "Yetersiz bakiye" : isNoRecord ? "Bakiye kaydı bulunamadı" : msg,
       }), {
-        status: 400,
+        status: isInsufficient ? 400 : 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // İşlem başlangıcı
-    const balanceBefore = parseFloat(balance.balance);
-    const balanceAfter = balanceBefore - amountNum;
-
-    // Bakiyeyi düş
-    await supabase
-      .from("user_balances")
-      .update({
-        balance: balanceAfter,
-        total_spent: parseFloat(balance.total_spent) + amountNum,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", user.id);
-
-    // İşlem kaydı oluştur
-    const { data: transaction, error: transactionError } = await supabase
-      .from("balance_transactions")
-      .insert({
-        user_id: user.id,
-        type: "order_payment",
-        amount: amountNum,
-        net_amount: amountNum,
-        balance_before: balanceBefore,
-        balance_after: balanceAfter,
-        reference_type: "order",
-        reference_id: order_id,
-        status: "completed",
-        description: `Sipariş ödemesi - ${order.order_number || order_id.substring(0, 8)}`,
-        payment_method: "balance",
-      })
-      .select()
-      .single();
-
-    if (transactionError) {
-      throw transactionError;
-    }
+    // deduct_from_balance RPC atomik olarak (FOR UPDATE lock ile):
+    //   - bakiye kontrolü yapar (yetersizse exception fırlatır)
+    //   - user_balances.balance düşürür
+    //   - balance_transactions kaydı oluşturur
+    //   - transaction_id, balance_before, balance_after döndürür
+    // Transaction kaydı RPC içinde oluşturulduğu için burada tekrar insert edilmez.
+    // RPC RETURNS TABLE(...) döndürdüğü için Supabase-JS data bir dizi (array) döner.
+    const row = Array.isArray(deductedRows) ? deductedRows[0] : deductedRows;
+    const transactionId = row?.transaction_id ?? null;
+    const balanceAfter = row?.balance_after != null ? parseFloat(row.balance_after) : null;
 
     // Siparişin payment_method ve payment_status'unu güncelle
     // Eğer tamamen bakiye ile ödendiyse
-    const remainingAmount = order_total - amountNum;
-    
+    const remainingAmount = (order_total ?? 0) - amountNum;
+
     await supabase
       .from("orders")
       .update({
@@ -162,11 +133,12 @@ serve(async (req: Request) => {
       amount: amountNum,
       remainingAmount,
       newBalance: balanceAfter,
+      transactionId,
     });
 
     return new Response(JSON.stringify({
       status: "success",
-      transaction_id: transaction.id,
+      transaction_id: transactionId,
       amount_paid: amountNum,
       remaining_amount: remainingAmount,
       new_balance: balanceAfter,

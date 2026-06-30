@@ -221,24 +221,53 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         customerPhone: selectedAddress.phone,
       );
 
-      // Bakiye ile ödeme ise bakiyeden düş
+      // Bakiye ile ödeme ise sipariş sipariş dene; başarısız siparişleri iptal et.
       if (_selectedPaymentMethod == PaymentMethod.balance && result.orders.isNotEmpty) {
-        try {
-          for (final order in result.orders) {
+        final paidOrders = <String>[];
+        final failedOrders = <String>[];
+        for (final order in result.orders) {
+          try {
             await _balanceService.useBalanceForOrder(
               orderId: order.id,
               amount: order.totalAmount,
               orderTotal: order.totalAmount,
             );
+            paidOrders.add(order.id);
+            debugPrint('✅ Dükkan siparişi bakiye ile ödendi: ${order.id}');
+          } catch (balanceError) {
+            debugPrint('❌ Dükkan siparişi için bakiye düşülemedi (${order.id}): $balanceError');
+            failedOrders.add(order.id);
+            try {
+              await _orderService.cancelOrder(order.id);
+              debugPrint('✅ Ödenmeyen sipariş iptal edildi: ${order.id}');
+            } catch (cancelError) {
+              debugPrint('❌ Ödenmeyen sipariş iptal hatası: $cancelError');
+            }
           }
-          debugPrint('✅ Çok dükkanlı bakiye ödeme tamamlandı');
-        } catch (balanceError) {
-          debugPrint('❌ Bakiye düşme hatası: $balanceError');
-          // Bakiye düşme hatası olsa bile sipariş oluştu
+        }
+
+        // Tüm siparişler başarısızsa kullanıcıya bildir, hiçbir şeyi temizleme
+        if (paidOrders.isEmpty) {
+          throw Exception(
+              'Bakiye yetersiz veya ödeme başarısız. Hiçbir sipariş oluşturulmadı.');
+        }
+
+        // Kısmi başarı varsa kullanıcıya bildir
+        if (failedOrders.isNotEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    '${failedOrders.length} sipariş iptal edildi (bakiye yetersiz). ${paidOrders.length} sipariş ödendi.'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
         }
       }
 
-      // Sepeti temizle
+      // Sepeti sadece en az bir sipariş başarıyla ödendiyse temizle
       await cartProvider.clearCart();
 
       if (mounted) {

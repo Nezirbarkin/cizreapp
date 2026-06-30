@@ -25,7 +25,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   List<Conversation> _conversations = [];
   List<Map<String, dynamic>> _activeUsers = [];
   bool _isLoading = true;
-  bool _isLoadingActiveUsers = true;
+  // false ile başlat: yoksa initState'teki _loadActiveUsers() çağrısı
+  // if (_isLoadingActiveUsers) return; guard'ına takılarak hiç yüklenmezdi.
+  bool _isLoadingActiveUsers = false;
   int _unreadCount = 0;
   int _groupUnreadCount = 0;
   RealtimeChannel? _channel;

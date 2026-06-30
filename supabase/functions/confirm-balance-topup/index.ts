@@ -204,69 +204,39 @@ serve(async (req: Request) => {
       const amount = parseFloat(txn.amount);
       const userId = txn.user_id;
 
-      // Bakiyeyi güncelle
-      const { data: balance, error: balanceError } = await supabase
-        .from("user_balances")
-        .select("balance")
-        .eq("user_id", userId)
-        .maybeSingle();
+      // ─────────────────────────────────────────────────────────────
+      // ATOMİK BAKİYE YÜKLEME (FIX-HATA-1: race condition)
+      // ─────────────────────────────────────────────────────────────
+      // Önceki sürüm JS tarafında ayrı SELECT→UPDATE yapıyordu.
+      // Aynı token ile gelen iki eşzamanlı callback'te her ikisi de aynı
+      // balance_before okuyup üzerine yazabilirdi → 50 TL bakiye kaybı.
+      //
+      // Çözüm: PostgreSQL transaction içinde FOR UPDATE lock kullanarak
+      // aynı satırı kilitliyoruz. İkinci callback bu satırın kilidini
+      // bekler, böylece sıralı okuma-yazma garanti altında.
+      //
+      // supabase.rpc() ile SQL fonksiyonu çağırıyoruz — bu service role
+      // yetkisiyle çalışır ve SECURITY DEFINER fonksiyonu tetikler.
+      // ─────────────────────────────────────────────────────────────
+      const result = await supabase.rpc("atomic_add_balance_topup", {
+        p_user_id: userId,
+        p_amount: amount,
+        p_pending_txn_id: txn.id,
+        p_payment_id: paymentResult.paymentId,
+        p_paid_price: parseFloat(paymentResult.paidPrice || "0"),
+      });
 
-      if (balanceError) {
-        console.error("❌ Bakiye getirme hatası:", balanceError);
-        return new Response("Balance error", { status: 500, headers: corsHeaders });
+      if (result.error) {
+        console.error("❌ atomic_add_balance_topup RPC hatası:", result.error);
+        throw new Error(`Bakiye yüklenemedi: ${result.error.message}`);
       }
 
-      const currentBalance = balance?.balance || 0;
-      const newBalance = currentBalance + amount;
-      // JS tarafında hesapla (Supabase JS v2.38+ .sql() template tag'i yok).
-      // Race condition kabul edilebilir: callback idempotent ve balance_transactions
-      // kaydı zaten "pending" filter ile korunuyor.
-      const currentTotalEarned = (balance as any)?.total_earned || 0;
-      const newTotalEarned = currentTotalEarned + amount;
+      // RPC tek satır döndürür: { balance_before, balance_after }
+      const row = Array.isArray(result.data) ? result.data[0] : result.data;
+      const balanceBefore = row?.balance_before ?? 0;
+      const balanceAfter = row?.balance_after ?? 0;
 
-      // Bakiyeyi güncelle (upsert)
-      if (balance) {
-        await supabase
-          .from("user_balances")
-          .update({
-            balance: newBalance,
-            total_earned: newTotalEarned,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("user_id", userId);
-      } else {
-        await supabase
-          .from("user_balances")
-          .insert({
-            user_id: userId,
-            balance: amount,
-            total_earned: amount,
-          });
-      }
-
-      // İşlemi tamamlandı olarak işaretle
-      const { data: updatedTxn, error: updateError } = await supabase
-        .from("balance_transactions")
-        .update({
-          status: "completed",
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          metadata: {
-            ...txn.metadata,
-            confirmed_at: new Date().toISOString(),
-            payment_result: { paymentId: paymentResult.paymentId, paidPrice: paymentResult.paidPrice },
-          },
-        })
-        .eq("id", txn.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error("❌ balance_transactions update hatası:", updateError);
-        throw new Error("İşlem tamamlanamadı");
-      }
-
-      console.log("✅ Bakiye yüklendi:", { userId, amount, newBalance });
+      console.log("✅ Bakiye yüklendi (atomic):", { userId, amount, balanceBefore, balanceAfter });
 
       // ────────── Bildirimler (sadece başarılı bakiye yüklemede) ──────────
       // 1) Kullanıcıya push notification gönder
@@ -282,12 +252,12 @@ serve(async (req: Request) => {
             body: {
               fcm_token: profile.fcm_token,
               title: "Bakiye Yüklendi ✅",
-              body: `${amount} TL bakiye hesabınıza yüklendi. Yeni bakiyeniz: ${newBalance.toFixed(2)} TL`,
+              body: `${amount} TL bakiye hesabınıza yüklendi. Yeni bakiyeniz: ${balanceAfter.toFixed(2)} TL`,
               data: {
                 type: "balance_topup_success",
-                transaction_id: updatedTxn.id,
+                transaction_id: txn.id,
                 amount: amount,
-                new_balance: newBalance,
+                new_balance: balanceAfter,
               },
             },
           });
@@ -318,7 +288,7 @@ serve(async (req: Request) => {
             type: "admin_notification",
             title: "Bakiye Yüklendi 💰",
             content: `${userName} bakiye yükledi: ₺${amount.toFixed(2)}`,
-            entity_id: updatedTxn.id,
+            entity_id: txn.id,
           }));
 
           const { error: notifErr } = await supabase
@@ -328,7 +298,7 @@ serve(async (req: Request) => {
           if (notifErr) {
             console.error("⚠️ Admin bildirim hatası:", notifErr);
           } else {
-            console.log(`📤 ${admins.length} admin'e bildirim gönderildi`);
+            console.log(`📤 ${admins.length} admin'e bildirim gonsderildi`);
           }
         }
       } catch (notifErr) {

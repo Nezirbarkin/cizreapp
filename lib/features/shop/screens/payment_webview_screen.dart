@@ -76,6 +76,32 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           },
           onNavigationRequest: (NavigationRequest request) {
             debugPrint('🌐 PAYMENT WV: Navigation - ${request.url}');
+            
+            // ─────────────────────────────────────────────
+            // FIX: Callback URL navigation'ı engelle
+            // ─────────────────────────────────────────────
+            // iyzico ödeme tamamlandığında callback URL'ine POST atar.
+            // Bu POST'un response'u bir HTML sayfa döner ("Ödeme Başarılı").
+            // Eğer WebView bu URL'e navigate ederse, kullanıcı bu sayfayı
+            // görür ve polling mekanizması aynı sayfayı tekrar tekrar kontrol
+            // eder. Bu da "Bu sipariş zaten oluşturulmuştur" yanıltıcı
+            // mesajına yol açar.
+            //
+            // Çözüm: iyzico callback domain'ine navigation'ı engelle.
+            // Callback POST'u arka planda zaten Edge Function'a yapılıyor.
+            // WebView sadece ödeme sayfasını göstermeli.
+            // ─────────────────────────────────────────────
+            final url = request.url.toLowerCase();
+            final isIyzicoCallback = url.contains('iyzico-payment-callback') ||
+                url.contains('callback') ||
+                url.contains('payment-result') ||
+                url.contains('checkoutform/auth/ecom') && url.contains('status');
+            
+            if (isIyzicoCallback) {
+              debugPrint('🚫 PAYMENT WV: Callback navigation engellendi');
+              return NavigationDecision.prevent;
+            }
+            
             return NavigationDecision.navigate;
           },
           onWebResourceError: (WebResourceError error) {
@@ -139,6 +165,27 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         } else if (status.isCancelled) {
           debugPrint('🚫 PAYMENT WV: Ödeme İPTAL!');
           _handlePaymentCancelled();
+          return false;
+        } else if (status.isOrphanSuccess) {
+          // payment_status='success' AMA order_id henüz NULL
+          // Sebep: callback arka planda hâlâ order oluşturuyor (race window)
+          // Çözüm: polling'e devam et — callback order_id'yi set edene kadar bekle
+          // (max 60 poll = 120 saniye zaten var)
+          debugPrint('⏳ PAYMENT WV: order_id henüz yok (callback çalışıyor olabilir) - '
+              'poll $_pollCount ile devam');
+          return true; // polling'e devam et
+        } else if (status.isError) {
+          // status='error' — gerçek sistem hatası
+          debugPrint('⚠️ PAYMENT WV: Ödeme durumu hatası - status=${status.status}');
+          if (mounted) {
+            _showResultDialog(
+              title: 'Ödeme Durumu Belirsiz',
+              message: 'Ödeme işleminde bir hata oluştu. '
+                  'Lütfen destek ekibiyle iletişime geçin.',
+              isSuccess: false,
+              onDismiss: () => Navigator.pop(context, false),
+            );
+          }
           return false;
         }
 

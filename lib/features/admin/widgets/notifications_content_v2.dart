@@ -51,36 +51,89 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    
+
     try {
-      // Admin tarafından son gönderilen bildirimleri yükle
-      // Aynı başlık ve içeriğe sahip bildirimleri grupla
-      final notificationsResponse = await _client
-          .from('notifications')
-          .select('id, user_id, type, title, content, is_read, created_at, entity_id')
-          .order('created_at', ascending: false)
-          .limit(1000);
-      
-      final notifications = List<Map<String, dynamic>>.from(notificationsResponse);
-      
-      // Grupla: Aynı title+content'a sahip bildirimleri birleştir
+      // Admin tarafından gönderilen bildirimleri iki kaynaktan oku:
+      // 1) notifications tablosu: kişiye özel gönderimler (her kullanıcı için satır var)
+      // 2) admin_broadcasts tablosu: toplu (tümü/müşteriler/satıcılar) gönderimler.
+      // Çift bildirim sorununu önlemek için toplu gönderimler artık sadece
+      // admin_broadcasts tablosuna yazılıyor; burada her iki kaynak da gösterilir.
+
+      final List<Map<String, dynamic>> allNotifications = [];
+
+      // 1) Kişisel bildirimler
+      try {
+        final notificationsResponse = await _client
+            .from('notifications')
+            .select('id, user_id, type, title, content, is_read, created_at, entity_id')
+            .eq('type', 'admin_notification')
+            .order('created_at', ascending: false)
+            .limit(1000);
+        allNotifications.addAll(List<Map<String, dynamic>>.from(notificationsResponse));
+      } catch (e) {
+        debugPrint('Kişisel bildirimler yüklenemedi: $e');
+      }
+
+      // 2) Toplu broadcast bildirimler
+      try {
+        final broadcastsResponse = await _client
+            .from('admin_broadcasts')
+            .select('id, title, content, icon_type, target_audience, created_at')
+            .order('created_at', ascending: false)
+            .limit(1000);
+        for (final b in List<Map<String, dynamic>>.from(broadcastsResponse)) {
+          // Broadcast'leri notifications tablosundaki gibi bir forma çevir.
+          // Toplu gönderim olduğu için sent_count/total_recipients = 1 (tek kampanya),
+          // ama liste görünümünde "broadcast" etiketiyle gösterilecek.
+          allNotifications.add({
+            'id': 'broadcast_${b['id']}',
+            'user_id': null,
+            'type': 'admin_broadcast',
+            'title': b['title'],
+            'content': b['content'],
+            'is_read': false,
+            'created_at': b['created_at'],
+            'entity_id': 'admin_icon:${b['icon_type'] ?? 'announcement'}',
+            '_is_broadcast': true,
+            '_target_audience': b['target_audience'],
+          });
+        }
+      } catch (e) {
+        debugPrint('Broadcast bildirimleri yüklenemedi (tablo yok olabilir): $e');
+      }
+
+      // Tarihe göre azalan sırada birleştir
+      allNotifications.sort((a, b) {
+        final ad = a['created_at']?.toString() ?? '';
+        final bd = b['created_at']?.toString() ?? '';
+        return bd.compareTo(ad);
+      });
+
+      // Grupla: Aynı title+content+a dakika hassasiyetine sahip bildirimleri birleştir.
       final Map<String, Map<String, dynamic>> groupedNotifications = {};
-      
-      for (var notif in notifications) {
-        final key = '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}'; // dakika hassasiyeti
-        
+
+      for (var notif in allNotifications) {
+        final key = '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}';
+
         if (groupedNotifications.containsKey(key)) {
-          groupedNotifications[key]!['recipients'] = (groupedNotifications[key]!['recipients'] as List) + [notif['user_id']];
-          final recipientCount = (groupedNotifications[key]!['recipients'] as List).length;
-          groupedNotifications[key]!['sent_count'] = recipientCount;
-          groupedNotifications[key]!['delivered_count'] = recipientCount;
-          groupedNotifications[key]!['total_recipients'] = recipientCount;
-          if (notif['is_read'] == true) {
-            groupedNotifications[key]!['read_count'] = (groupedNotifications[key]!['read_count'] as int) + 1;
-          } else {
-            groupedNotifications[key]!['pending_count'] = (groupedNotifications[key]!['pending_count'] as int) + 1;
+          final isBroadcast = notif['_is_broadcast'] == true;
+          if (!isBroadcast && notif['user_id'] != null) {
+            groupedNotifications[key]!['recipients'] =
+                (groupedNotifications[key]!['recipients'] as List) + [notif['user_id']];
+            final recipientCount = (groupedNotifications[key]!['recipients'] as List).length;
+            groupedNotifications[key]!['sent_count'] = recipientCount;
+            groupedNotifications[key]!['delivered_count'] = recipientCount;
+            groupedNotifications[key]!['total_recipients'] = recipientCount;
+            if (notif['is_read'] == true) {
+              groupedNotifications[key]!['read_count'] =
+                  (groupedNotifications[key]!['read_count'] as int) + 1;
+            } else {
+              groupedNotifications[key]!['pending_count'] =
+                  (groupedNotifications[key]!['pending_count'] as int) + 1;
+            }
           }
         } else {
+          final isBroadcast = notif['_is_broadcast'] == true;
           groupedNotifications[key] = {
             'id': notif['id'],
             'title': notif['title'],
@@ -88,29 +141,31 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             'created_at': notif['created_at'],
             'type': notif['type'],
             'entity_id': notif['entity_id'],
-            'sent_count': 1,
-            'delivered_count': 1,
-            'read_count': notif['is_read'] == true ? 1 : 0,
+            'sent_count': isBroadcast ? 1 : 1,
+            'delivered_count': isBroadcast ? 1 : 1,
+            'read_count': (!isBroadcast && notif['is_read'] == true) ? 1 : 0,
             'failed_count': 0,
-            'pending_count': notif['is_read'] == false ? 1 : 0,
-            'total_recipients': 1,
+            'pending_count': (!isBroadcast && notif['is_read'] == false) ? 1 : 0,
+            'total_recipients': isBroadcast ? 1 : 1,
             'status': 'sent',
-            'recipients': [notif['user_id']],
+            'recipients': isBroadcast ? <String>[] : [notif['user_id']],
+            'is_broadcast': isBroadcast,
+            'target_audience': notif['_target_audience'],
           };
         }
       }
-      
+
       // İstatistikleri hesapla
       int totalSent = 0;
       int totalRead = 0;
       int totalPending = 0;
-      
+
       for (var group in groupedNotifications.values) {
         totalSent += group['total_recipients'] as int;
         totalRead += group['read_count'] as int;
         totalPending += group['pending_count'] as int;
       }
-      
+
       setState(() {
         _pushNotifications = groupedNotifications.values.toList()
           ..sort((a, b) {
@@ -1395,6 +1450,8 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         if (targetAudience == 'personal') {
                           // Kişiye özel: FCM push + notifications tablosuna kayıt.
                           // Push cihaza gider; kayıt sayesinde bildirimler ekranında da görünür.
+                          // Toplu bildirimlerin aksine kişisel bildirimler sadece burada
+                          // notifications tablosuna yazılır (admin_broadcasts'a yazılmaz).
                           try {
                             await _client.functions.invoke(
                               'send-push',
@@ -1429,9 +1486,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                           }
                           sentCount = 1;
                         } else {
-                          // Toplu bildirim: Firebase topic push + her hedef kullanıcı için
-                          // notifications tablosuna ayrı kayıt. Böylece hem push alınır hem
-                          // bildirimler ekranında her kullanıcı için görünebilir.
+                          // Toplu bildirim: Firebase topic push + admin_broadcasts tablosuna
+                          // tek bir kayıt. notifications tablosuna artık toplu kayıt
+                          // eklenmiyor; kullanıcı bildirimler ekranı admin_broadcasts
+                          // tablosundan besleniyor (Duyurular bölümü). Bu sayede çift
+                          // bildirim sorunu engellenmiş oluyor.
 
                           String topicName;
                           switch (targetAudience) {
@@ -1462,8 +1521,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                             debugPrint('⚠️ Topic push gönderilemedi: $e');
                           }
 
-                          // Hedef kullanıcıların ID listesini çek
-                          List<String> userIds = [];
+                          // Hedef kitleye göre "gönderilen kişi sayısı"nı hesapla
+                          // (sadece sayaç için, tek satırlık broadcast kaydı yeterli).
+                          int audienceSize = 0;
                           try {
                             List<dynamic> response;
                             if (targetAudience == 'customers') {
@@ -1473,36 +1533,15 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                             } else {
                               response = await _client.from('profiles').select('id');
                             }
-                            userIds = response.map((u) => u['id'] as String).toList();
+                            audienceSize = response.length;
                           } catch (e) {
                             debugPrint('Kullanıcı listesi alınamadı: $e');
                           }
 
-                          // Her kullanıcı için notifications tablosuna ayrı satır ekle.
-                          // Tek seferde toplu insert yaparak gidişatı hızlandırıyoruz.
-                          if (userIds.isNotEmpty) {
-                            final rows = userIds.map((uid) => {
-                              'user_id': uid,
-                              'type': 'admin_notification',
-                              'title': title,
-                              'content': body,
-                              'data': {
-                                'icon_type': selectedIconType,
-                                'target': targetAudience,
-                              },
-                              'entity_id': entityId,
-                              'is_read': false,
-                              'created_at': now,
-                            }).toList();
-                            try {
-                              await _client.from('notifications').insert(rows);
-                              debugPrint('✅ ${userIds.length} kullanıcı için bildirim kaydı eklendi');
-                            } catch (e) {
-                              debugPrint('⚠️ Toplu bildirim kaydı eklenemedi: $e');
-                            }
-                          }
-
-                          sentCount = userIds.length;
+                          // Not: notifications tablosuna artık toplu insert yapılmıyor.
+                          // Çift bildirim engellendi; kullanıcı ekranı admin_broadcasts
+                          // tablosundaki tek kaydı "Duyurular" bölümünde gösteriyor.
+                          sentCount = audienceSize;
                         }
 
                         // Herkese açık broadcasts tablosuna da ekle (üye olmayanlar da görsün)

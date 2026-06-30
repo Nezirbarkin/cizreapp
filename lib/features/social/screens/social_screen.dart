@@ -25,6 +25,7 @@ import 'story_viewer_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/balance_header_widget.dart';
+import '../../../core/widgets/animated_app_title.dart';
 import '../../wallet/screens/wallet_screen.dart';
 
 class SocialScreen extends StatefulWidget {
@@ -965,9 +966,12 @@ class _SocialScreenState extends State<SocialScreen> {
         children: [
           // Başlık ve aksiyonlar
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              GestureDetector(
+              AnimatedAppTitle(
+                primaryFontSize: 24,
+                secondaryFontSize: 14,
                 onTap: () {
                   // Sayfayı en üste scroll et
                   _scrollController.animateTo(
@@ -976,71 +980,72 @@ class _SocialScreenState extends State<SocialScreen> {
                     curve: Curves.easeInOut,
                   );
                 },
-                child: const Text(
-                  'CizreApp',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: 1.5,
-                  ),
-                ),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // BAKİYE - İLK SIRA
-                  Builder(
-                    builder: (context) => _SocialBalanceBadge(),
-                  ),
-                  const SizedBox(width: 6),
-                  // Arama ikonu
-                  IconButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SearchScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.search_outlined,
-                      color: Colors.white,
-                      size: 22,
+                  // BAKİYE - İKONLARLA AYNI BOYUT VE HİZADA
+                  SizedBox(
+                    height: 30,
+                    child: Center(
+                      child: Builder(
+                        builder: (context) => _SocialBalanceBadge(),
+                      ),
                     ),
-                    padding: EdgeInsets.zero,
-                    splashRadius: 16,
-                    constraints: const BoxConstraints(),
                   ),
-                  const SizedBox(width: 1),
+                  // Arama ikonu
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: IconButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SearchScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.search_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      padding: EdgeInsets.zero,
+                      splashRadius: 18,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
                   // Bildirim ikonu
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      ).then((_) {
-                        _loadNotificationCount();
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(1),
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NotificationsScreen(),
+                          ),
+                        ).then((_) {
+                          _loadNotificationCount();
+                        });
+                      },
                       child: Stack(
                         clipBehavior: Clip.none,
+                        alignment: Alignment.center,
                         children: [
                           const Icon(
                             Icons.notifications_outlined,
                             color: Colors.white,
-                            size: 22,
+                            size: 20,
                           ),
                           // Bildirim badge'i
                           if (_unreadNotificationCount > 0)
                             Positioned(
-                              top: -3,
-                              right: -3,
+                              top: -1,
+                              right: -1,
                               child: Container(
                                 padding: const EdgeInsets.all(2),
                                 decoration: const BoxDecoration(
@@ -1066,20 +1071,23 @@ class _SocialScreenState extends State<SocialScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 1),
                   // Ayarlar ikonu
-                  IconButton(
-                    onPressed: () {
-                      showSettingsSidebar(context);
-                    },
-                    icon: const Icon(
-                      Icons.settings_outlined,
-                      color: Colors.white,
-                      size: 22,
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: IconButton(
+                      onPressed: () {
+                        showSettingsSidebar(context);
+                      },
+                      icon: const Icon(
+                        Icons.settings_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      padding: EdgeInsets.zero,
+                      splashRadius: 18,
+                      constraints: const BoxConstraints(),
                     ),
-                    padding: EdgeInsets.zero,
-                    splashRadius: 16,
-                    constraints: const BoxConstraints(),
                   ),
                 ],
               ),

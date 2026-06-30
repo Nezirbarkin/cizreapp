@@ -171,11 +171,11 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
       }
       
       // Değişkenleri ata
-      _adminCredit = (_revenueSummary?['admin_credit'] as num?)?.toDouble() ?? 0;
-      _commissionDebt = (_revenueSummary?['commission_debt'] as num?)?.toDouble() ?? 0;
-      _cashPaymentRevenue = (_revenueSummary?['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
-      _onlinePaymentRevenue = (_revenueSummary?['online_payment_revenue'] as num?)?.toDouble() ?? 0;
-      debugPrint('🔵 [_loadDashboardData] Hesaplanan değerler: adminCredit=$_adminCredit, commissionDebt=$_commissionDebt, cashRevenue=$_cashPaymentRevenue, onlineRevenue=$_onlinePaymentRevenue');
+      final adminCredit = (_revenueSummary?['admin_credit'] as num?)?.toDouble() ?? 0;
+      final commissionDebt = (_revenueSummary?['commission_debt'] as num?)?.toDouble() ?? 0;
+      final cashRevenue = (_revenueSummary?['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
+      final onlineRevenue = (_revenueSummary?['online_payment_revenue'] as num?)?.toDouble() ?? 0;
+      debugPrint('🔵 [_loadDashboardData] Hesaplanan değerler: adminCredit=$adminCredit, commissionDebt=$commissionDebt, cashRevenue=$cashRevenue, onlineRevenue=$onlineRevenue');
 
       // Ödeme isteklerini yükle
       debugPrint('🔵 [_loadDashboardData] Ödeme istekleri sorgulanıyor...');
@@ -208,6 +208,17 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
           'ordersCount': (ordersResult as List).length,
           'productsCount': (productsResult as List).length,
         };
+        // Gelir değerlerini setState içinde atayarak UI'ın güncellenmesini sağlıyoruz.
+        _adminCredit = adminCredit;
+        _commissionDebt = commissionDebt;
+        _cashPaymentRevenue = cashRevenue;
+        _onlinePaymentRevenue = onlineRevenue;
+        _revenueSummary = _revenueSummary;
+        _pendingPayout = _pendingPayout;
+        _totalPaid = _totalPaid;
+        _payoutRequests = _payoutRequests;
+        _pendingRequestsTotal = _pendingRequestsTotal;
+        _availablePayout = _availablePayout;
         _recentOrders = List<Map<String, dynamic>>.from(orders);
         _topProducts = List<Map<String, dynamic>>.from(products);
         _isLoading = false;

@@ -330,7 +330,8 @@ class CartService {
           .maybeSingle();
 
       if (response != null) {
-        return response['quantity'] as int;
+        // Supabase JSON sayıları bazen double dönebilir; num üzerinden .toInt() güvenli cast yapar.
+        return (response['quantity'] as num?)?.toInt() ?? 0;
       }
       return 0;
     } catch (e) {

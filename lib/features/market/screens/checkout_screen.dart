@@ -90,8 +90,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final response = await Supabase.instance.client
           .from('app_about_settings')
           .select('order_approval_code_enabled')
-          .single();
-      return response['order_approval_code_enabled'] ?? true;
+          .maybeSingle();
+      // Satır yoksa onay kodu zorunlu olsun (güvenli taraf)
+      return response?['order_approval_code_enabled'] ?? true;
     } catch (e) {
       debugPrint('Onay kodu ayarı kontrolü hatası: $e');
       return true;
@@ -540,14 +541,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _confirmOrder(Address selectedAddress, CartProvider cartProvider) async {
     setState(() => _isPlacingOrder = true);
-    
-    // Online ödeme seçildiyse iyzico akışını başlat
-    if (_selectedPaymentMethod == PaymentMethod.online) {
-      await _initiateOnlinePayment(selectedAddress, cartProvider);
-    } else if (_selectedPaymentMethod == PaymentMethod.balance) {
-      await _processBalancePayment(selectedAddress, cartProvider);
-    } else {
-      await _placeOrder(selectedAddress, cartProvider);
+
+    try {
+      // Online ödeme seçildiyse iyzico akışını başlat
+      if (_selectedPaymentMethod == PaymentMethod.online) {
+        await _initiateOnlinePayment(selectedAddress, cartProvider);
+      } else if (_selectedPaymentMethod == PaymentMethod.balance) {
+        await _processBalancePayment(selectedAddress, cartProvider);
+      } else {
+        await _placeOrder(selectedAddress, cartProvider);
+      }
+    } finally {
+      // Her durumda (_isPlacingOrder) sıfırla — erken return'ları da kapsar
+      if (mounted) {
+        setState(() => _isPlacingOrder = false);
+      }
     }
   }
 
@@ -614,40 +622,75 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       
       if (order != null) {
-        // Bakiyeden düş
+        // Bakiyeden düş - BAŞARISIZSA siparişi iptal et
+        bool balanceDeducted = false;
         try {
           await _balanceService.useBalanceForOrder(
             orderId: order.id,
             amount: total,
             orderTotal: total,
           );
+          balanceDeducted = true;
           debugPrint('✅ Bakiye ile ödeme tamamlandı, bakiyeden ₺${total.toStringAsFixed(2)} düşüldü');
         } catch (balanceError) {
-          debugPrint('❌ Bakiye düşme hatası: $balanceError');
-          // Bakiye düşme hatası olsa bile sipariş oluştu, kullanıcıya bilgi ver
+          debugPrint('❌ Bakiye düşme hatası (sipariş iptal ediliyor): $balanceError');
+          // Atomik olmayan ödeme: siparişi iptal et
+          // NOT: audit_log tablosu varsa oraya da yazılabilir
+          try {
+            await _orderService.cancelOrder(order.id);
+            // HATA-3: audit trail - iptal nedenini orders.notes'a ekle
+            // (orders tablosunda notes alanı text, admin panelde görünür)
+            // İlk olarak: orders.update({notes: cancellationReason}) yapılabilir
+            // ancak OrderService.cancelOrder tek başına çağrıldığı için
+            // şimdilik sadece debugPrint ile log bırakıyoruz.
+            debugPrint(
+              '⚠️ Sipariş iptal nedeni (audit): '
+              'bakiye yetersiz veya ödeme başarısız: $balanceError',
+            );
+            debugPrint('✅ Sipariş bakiye hatası nedeniyle iptal edildi: ${order.id}');
+          } catch (cancelError) {
+            debugPrint('❌ Sipariş iptal hatası: $cancelError');
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Bakiye yetersiz veya ödeme başarısız. Sipariş iptal edildi, lütfen tekrar deneyin.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
-        
-        // Sepeti temizle (hem database hem UI state)
-        await _cartService.clearCart(user.id);
-        await cartProvider.clearCart();
 
-        if (mounted) {
-          // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
-          Navigator.of(context).popUntil((route) => route.isFirst);
-           
-          // Biraz gecikme ile çünkü navigation tamamlanmalı
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (context.mounted) {
-              context.read<CartProvider>().loadCart();
-            }
-          });
-           
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${total.toStringAsFixed(2)})'),
-              backgroundColor: Colors.green,
-            ),
-          );
+        // Sepeti temizle SADECE ödeme başarılıysa (HATA-3: hata yakalama eklendi)
+        if (balanceDeducted) {
+          try {
+            await _cartService.clearCart(user.id);
+            await cartProvider.clearCart();
+            debugPrint('✅ Sepet temizlendi');
+          } catch (cartError) {
+            // Sepet temizleme hatası kritik değil — sipariş oluşmuş, kullanıcı
+            // sepeti sonra kendi temizleyebilir. Sadece log bırak.
+            debugPrint('⚠️ Sepet temizleme hatası (sipariş etkilenmez): $cartError');
+          }
+
+          if (mounted) {
+            // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
+            Navigator.of(context).popUntil((route) => route.isFirst);
+
+            // Biraz gecikme ile çünkü navigation tamamlanmalı
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (context.mounted) {
+                context.read<CartProvider>().loadCart();
+              }
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${total.toStringAsFixed(2)})'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         }
       }
       

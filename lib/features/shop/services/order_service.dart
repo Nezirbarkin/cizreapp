@@ -156,39 +156,10 @@ class OrderService {
         }
         debugPrint('✅ ORDER: Tüm sipariş öğeleri eklendi');
         
-        // Stok düşürme - Sipariş oluşturulduğunda stokları güncelle
-        debugPrint('📦 STOCK: Stoklar düşürülüyor...');
-        for (var i = 0; i < items.length; i++) {
-          final item = items[i];
-          try {
-            // Mevcut stok miktarını al
-            final productResponse = await _supabase
-                .from('products')
-                .select('stock')
-                .eq('id', item.productId)
-                .maybeSingle();
-            
-            if (productResponse != null) {
-              final currentStock = productResponse['stock'] as int? ?? 0;
-              final newStock = currentStock - item.quantity;
-              
-              // Stoku güncelle (negatif olamaz)
-              await _supabase
-                  .from('products')
-                  .update({
-                    'stock': newStock < 0 ? 0 : newStock,
-                    'updated_at': DateTime.now().toIso8601String(),
-                  })
-                  .eq('id', item.productId);
-              
-              debugPrint('  └─ ${item.productName}: $currentStock -> ${newStock < 0 ? 0 : newStock} (sipariş: ${item.quantity})');
-            }
-          } catch (stockError) {
-            debugPrint('⚠️ STOCK: Stok güncellenirken hata (${item.productName}): $stockError');
-            // Stok hatası sipariş işlemini durdurmaz
-          }
-        }
-        debugPrint('✅ STOCK: Stok düşürme işlemi tamamlandı');
+        // Not: Stok düşürme artık DB trigger'ı (decrease_product_stock) tarafından
+        // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
+        // Dart tarafında çift düşümü önlemek için burada ek işlem yapılmıyor.
+        debugPrint('📦 STOCK: Stok düşürme DB trigger\'ına bırakıldı (confirmed durumunda)');
       } else {
         debugPrint('WARN: Fallback Order kullanildi, order_items eklenmedi');
         debugPrint('WARN: Siparis database\'de mevcut ama SELECT hatasi nedeniyle alinamadi');
@@ -450,9 +421,11 @@ class OrderService {
 
       final updatedOrder = Order.fromJson(response);
 
-      // Sipariş teslim edildiyse stokları düşür
+      // Sipariş teslim edildiyse ödeme durumunu "paid" yap
+      // Not: Stok düşürme artık DB trigger'ı tarafından yapılıyor
+      // (decrease_product_stock, status='confirmed' olduğunda çalışır).
+      // Dart tarafında çift düşümü önlemek için burada ek işlem yapılmıyor.
       if (status == OrderStatus.delivered) {
-        await _decreaseStockOnDelivery(orderId);
         debugPrint('✅ Sipariş teslim edildi - ödeme durumu "paid" yapıldı');
         
         // Email gönder (asenkron, hata uygulamayı engellemez)
@@ -639,62 +612,10 @@ class OrderService {
     return parts.join(', ');
   }
 
-  // Teslimat sonrası stok düşürme
-  Future<void> _decreaseStockOnDelivery(String orderId) async {
-    try {
-      debugPrint('📦 Stok düşürme başlatılıyor: $orderId');
-      
-      // Sipariş kalemlerini getir
-      final orderItemsResponse = await _supabase
-          .from('order_items')
-          .select('product_id, quantity')
-          .eq('order_id', orderId);
-      
-      if (orderItemsResponse.isEmpty) {
-        debugPrint('⚠️ Sipariş kalemleri bulunamadı, stok düşürülemedi');
-        return;
-      }
-      
-      // Her ürün için stoğu düşür
-      for (var item in orderItemsResponse) {
-        final productId = item['product_id'];
-        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
-        
-        if (productId == null || quantity <= 0) continue;
-        
-        // Mevcut stok bilgisini al
-        final productResponse = await _supabase
-            .from('products')
-            .select('stock')
-            .eq('id', productId)
-            .maybeSingle();
-        
-        if (productResponse == null) {
-          debugPrint('⚠️ Ürün bulunamadı: $productId');
-          continue;
-        }
-        
-        final currentStock = (productResponse['stock'] as num?)?.toInt() ?? 0;
-        final newStock = currentStock - quantity;
-        
-        // Stoğu güncelle (negatife düşmesini engelle)
-        await _supabase
-            .from('products')
-            .update({
-              'stock': newStock < 0 ? 0 : newStock,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', productId);
-        
-        debugPrint('✅ Stok güncellendi: Ürün=$productId, Eski=$currentStock, Yeni=$newStock');
-      }
-      
-      debugPrint('🎉 Tüm stoklar başarıyla düşürüldü');
-    } catch (e) {
-      debugPrint('❌ Stok düşürme hatası: $e');
-      // Stok hatası siparişi engellemeziz
-    }
-  }
+  // Not: Teslimat sonrası stok düşürme kaldırıldı.
+  // Stok düşürme artık DB trigger'ı (decrease_product_stock) tarafından
+  // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
+  // Dart tarafında çift düşümü önlemek için _decreaseStockOnDelivery metodu kullanılmıyor.
 
   // Sipariş durumu bildirimi gönder
   // NOT: delivered durumu updateOrderStatus'ta ayrıca ele alınıyor
@@ -856,31 +777,10 @@ class OrderService {
                 'created_at': DateTime.now().toIso8601String(),
               });
               
-              // Stok düşür
-              try {
-                final productResponse = await _supabase
-                    .from('products')
-                    .select('stock')
-                    .eq('id', item.productId)
-                    .maybeSingle();
-                
-                if (productResponse != null) {
-                  final currentStock = productResponse['stock'] as int? ?? 0;
-                  final newStock = currentStock - item.quantity;
-                  
-                  await _supabase
-                      .from('products')
-                      .update({
-                        'stock': newStock < 0 ? 0 : newStock,
-                        'updated_at': DateTime.now().toIso8601String(),
-                      })
-                      .eq('id', item.productId);
-                  
-                  debugPrint('  └─ Stok güncellendi: ${item.productName} ($currentStock -> $newStock)');
-                }
-              } catch (stockError) {
-                debugPrint('⚠️ Stok güncellenirken hata: $stockError');
-              }
+              // Not: Stok düşürme DB trigger'ı (decrease_product_stock) tarafından
+              // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
+              // Dart tarafında çift düşümü önlemek için burada ek işlem yapılmıyor.
+              debugPrint('  └─ Stok düşürme DB trigger\'ına bırakıldı (confirmed durumunda)');
             }
             
             createdOrders.add(order);

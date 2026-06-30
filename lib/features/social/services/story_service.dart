@@ -550,48 +550,42 @@ class StoryService {
   }
 
   // Story beğen
+  // NOT: stories.likes_count senkronizasyonu PostgreSQL trigger'ı
+  // (increment_story_likes_count) tarafından otomatik yapılır.
+  // Burada RPC çağırmak çift sayıma yol açar.
   Future<void> likeStory(String storyId) async {
     try {
       debugPrint('🔔 STORY LİKE BAŞLADI - storyId: $storyId');
-      
+
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         debugPrint('❌ Kullanıcı giriş yapmamış');
         throw Exception('Kullanıcı giriş yapmamış');
       }
 
-      // Önce beğenilmiş mi kontrol et - retry ile
-      dynamic existingLike;
-      int retryCount = 0;
-      while (retryCount < 2) {
-        try {
-          existingLike = await _supabase
-              .from('story_likes')
-              .select('id')
-              .eq('story_id', storyId)
-              .eq('user_id', userId)
-              .maybeSingle();
-          break;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= 2) rethrow;
-          await Future.delayed(Duration(milliseconds: 300));
-        }
-      }
+      // Önce mevcut kayıt var mı kontrol et — increment sadece yeni beğenide atılır
+      final existing = await _supabase
+          .from('story_likes')
+          .select('id')
+          .eq('story_id', storyId)
+          .eq('user_id', userId)
+          .maybeSingle();
 
-      if (existingLike == null) {
-        // Beğeni ekle
-        await _supabase.from('story_likes').insert({
-          'story_id': storyId,
-          'user_id': userId,
-        });
+      // Upsert ile race condition'dan korunuyoruz (unique constraint)
+      // Trigger otomatik increment'i yalnızca INSERT'te tetikler
+      await _supabase.from('story_likes').upsert(
+        {'story_id': storyId, 'user_id': userId},
+        onConflict: 'story_id,user_id',
+      );
 
-        // Beğeni sayısını artır
+      // Sadece yeni eklenmişse beğeni sayısını artır (trigger UPDATE'i ignore eder)
+      if (existing == null) {
         await _supabase.rpc('increment_story_likes', params: {'story_id': storyId});
         debugPrint('❤️ Story beğenildi: $storyId');
-
         // Hikaye sahibine bildirim gönder
         await _createStoryLikeNotification(storyId, userId);
+      } else {
+        debugPrint('ℹ️ Story zaten beğenilmiş: $storyId');
       }
     } catch (e) {
       debugPrint('❌ Story beğenme hatası: $e');
@@ -707,11 +701,26 @@ class StoryService {
   }
 
   // Story beğenisini kaldır
+  // NOT: decrement_story_likes RPC no-op'dır (20260528000001_trigger).
+  // DELETE trigger (decrement_story_likes_count) otomatik azaltır.
   Future<void> unlikeStory(String storyId) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         throw Exception('Kullanıcı giriş yapmamış');
+      }
+
+      // Önce mevcut beğeni var mı kontrol et
+      final existing = await _supabase
+          .from('story_likes')
+          .select('id')
+          .eq('story_id', storyId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existing == null) {
+        debugPrint('ℹ️ Story beğenisi zaten yok: $storyId');
+        return;
       }
 
       // Beğeniyi sil
@@ -721,8 +730,7 @@ class StoryService {
           .eq('story_id', storyId)
           .eq('user_id', userId);
 
-      // Beğeni sayısını azalt
-      await _supabase.rpc('decrement_story_likes', params: {'story_id': storyId});
+      // DELETE trigger otomatik decrement yapar
       debugPrint('💔 Story beğenisi kaldırıldı: $storyId');
     } catch (e) {
       debugPrint('❌ Story beğeni kaldırma hatası: $e');

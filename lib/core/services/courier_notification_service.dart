@@ -87,13 +87,11 @@ class CourierNotificationService {
 
       debugPrint('✅ Sipariş $orderId kurye $courierId\'e otomatik atandı');
 
-      // 5. Siparişi on_the_way durumuna güncelle
-      await client
-          .from('orders')
-          .update({'status': 'on_the_way'})
-          .eq('id', orderId);
-
-      debugPrint('✅ Sipariş $orderId durumu on_the_way olarak güncellendi');
+      // 5. Siparişin orders.status alanını güncelleme (sadece courier_assignments'a ekledik)
+      // orders.status = 'on_the_way' sadece kurye siparişi kabul ettiğinde yapılmalı
+      // Aksi halde sipariş kurye panelinin "Atanabilir Siparişler" listesinden düşer
+      // ve "Siparişlerim" listesinde de görünmez
+      debugPrint('✅ Sipariş $orderId courier_assignments\'a eklendi (status değişmedi)');
 
       // 6. Kuryeye bildirim gönder
       await _notifyCourierOfAssignment(
@@ -175,7 +173,37 @@ class CourierNotificationService {
     if (client == null) return;
 
     try {
-      // 1. Dukkanin kendi kuryesi var mi kontrol et
+      // 1. Sipariş zaten bir kuryeye atanmış mı kontrol et
+      final existingAssignment = await client
+          .from('courier_assignments')
+          .select('id, courier_id')
+          .eq('order_id', orderId)
+          .maybeSingle();
+
+      if (existingAssignment != null) {
+        debugPrint('📦 Sipariş zaten bir kuryeye atanmış, bildirim gonderilmedi');
+        return; // Kurye atanmış, tekrar bildirim gonderme
+      }
+
+      // 1b. Bu sipariş için kuryelere zaten bildirim gönderilmiş mi?
+      // Satıcı siparişi confirmed -> preparing -> ready durumlarına geçirdiğinde
+      // her geçişte bu metod çağrılıyor; tekrar bildirim eklenirse kuryede aynı
+      // sipariş için birden fazla bildirim birikiyor. Bu yüzden bir kez gönderildiyse
+      // tekrar gönderilmez (çift/çoklu bildirim engeli).
+      final existingNotification = await client
+          .from('notifications')
+          .select('id')
+          .inFilter('type', ['courier_new_order', 'courier_order_ready', 'courier_order_assigned'])
+          .eq('data->>order_id', orderId)
+          .limit(1)
+          .maybeSingle();
+
+      if (existingNotification != null) {
+        debugPrint('📦 Bu sipariş için kuryelere zaten bildirim gönderilmiş, tekrar gönderilmedi');
+        return;
+      }
+
+      // 2. Dukkanin kendi kuryesi var mi kontrol et
       final shop = await client
           .from('shops')
           .select('has_own_courier, name')
@@ -187,7 +215,7 @@ class CourierNotificationService {
         return; // Dukkanin kendi kuryesi var, bildirim gonderme
       }
 
-      // 2. Tum kuryeleri bul (online/offline fark etmez, hepsine bildirim gitsin)
+      // 3. Tum kuryeleri bul (online/offline fark etmez, hepsine bildirim gitsin)
       final couriers = await client
           .from('profiles')
           .select('id, fcm_token')
@@ -200,6 +228,17 @@ class CourierNotificationService {
 
       debugPrint('📦 ${couriers.length} kuryeye bildirim gonderiliyor...');
       final shopNameFinal = shop?['name'] ?? shopName;
+
+      // 4. Son kontrol: Hala atanmamış mı? (Yarış koşulu için)
+      final recheck = await client
+          .from('courier_assignments')
+          .select('id')
+          .eq('order_id', orderId)
+          .maybeSingle();
+      if (recheck != null) {
+        debugPrint('⚠️ Sipariş bu arada atandı, bildirim iptal');
+        return;
+      }
 
       // Duruma göre bildirim mesajı
       final String notificationTitle;

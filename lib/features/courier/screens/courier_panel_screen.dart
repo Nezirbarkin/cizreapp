@@ -1299,7 +1299,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .select('''
                 id, status, fee_amount, assigned_at,
                 orders(
-                    id, total, delivery_address_text, customer_phone, created_at, status,
+                    id, total, delivery_address_text, customer_phone, created_at, status, user_id,
                     shops(name),
                     order_items(quantity, product_name)
                 )
@@ -1313,13 +1313,14 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
         for (final a in (assignments as List)) {
           final order = a['orders'] as Map<String, dynamic>?;
           if (order != null) {
+            // order zaten spread'de nested objeleri (shops, order_items) içeriyor
             myOrdersList.add({
-              ...Map<String, dynamic>.from(order),
+              ...order,
               'assignment_id': a['id'],
               'assignment_status': a['status'],
               'fee_amount': a['fee_amount'],
             });
-            debugPrint('Aktif sipariş: ${order['id']} | durum: ${a['status']}');
+            debugPrint('Aktif sipariş: ${order['id']} | durum: ${a['status']} | items: ${(order['order_items'] as List?)?.length ?? 0}');
           }
         }
         
@@ -1958,56 +1959,62 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             const SizedBox(height: 12),
             // Teslim edilmiş siparişlerde buton gösterme
             if (order['assignment_status'] != 'delivered') ...[
-              if (order['assignment_status'] == 'assigned') ...[
-                // Sipariş atanmış, henüz alınmamış
-                ElevatedButton.icon(
-                  onPressed: () => _acceptDelivery(order),
-                  icon: const Icon(Icons.delivery_dining),
-                  label: const Text('Siparişi Aldım'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 48),
-                  ),
-                ),
-              ] else if (order['assignment_status'] == 'picked_up') ...[
-                // Sipariş alınmış, yola çıkıyor
-                ElevatedButton.icon(
-                  onPressed: () => _startDelivery(order),
-                  icon: const Icon(Icons.two_wheeler),
-                  label: const Text('Yola Çıktım'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 48),
-                  ),
-                ),
-              ] else ...[
-                // Yolda - teslim et butonu
-                Row(
-                  children: [
+              // Sol tarafta duruma göre adım butonu, sağ tarafta her durumda
+              // doğrudan erişilebilen "Teslim Ettim" butonu gösterilir. Böylece
+              // kurye ara adımları (aldım/yola çıktım) tamamlamak zorunda kalmadan
+              // teslimatı tek dokunuşla bitirebilir.
+              Row(
+                children: [
+                  if (order['assignment_status'] == 'assigned')
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _acceptDelivery(order),
+                        icon: const Icon(Icons.delivery_dining, size: 18),
+                        label: const Text('Siparişi Aldım'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.blue,
+                          minimumSize: const Size(0, 48),
+                        ),
+                      ),
+                    )
+                  else if (order['assignment_status'] == 'picked_up')
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _startDelivery(order),
+                        icon: const Icon(Icons.two_wheeler, size: 18),
+                        label: const Text('Yola Çıktım'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange,
+                          minimumSize: const Size(0, 48),
+                        ),
+                      ),
+                    )
+                  else
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => _navigateToAddress(order),
-                        icon: const Icon(Icons.navigation),
+                        icon: const Icon(Icons.navigation, size: 18),
                         label: const Text('Yol Tarifi'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _markAsDelivered(order),
-                        icon: const Icon(Icons.check_circle),
-                        label: const Text('Teslim Ettim'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 48),
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _markAsDelivered(order),
+                      icon: const Icon(Icons.check_circle, size: 18),
+                      label: const Text('Teslim Ettim'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 48),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ] else ...[
               // Teslim edilmiş sipariş bilgisi
               Container(
@@ -2142,6 +2149,11 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
   }
 
   /// Siparişi aldığında çağrılır - picked_up durumuna geçer
+  /// Müşteriye "Siparişiniz Yolda" bildiriminin TEK KAYNAĞI (autoAssignCourierToOrder
+  /// tarafından çağrılan _notifyCourierOfAssignment ile değil; burada doğrudan
+  /// notifyCustomerOrderAssigned kullanılır). orders.status da 'on_the_way'
+  /// yapılarak satıcı paneli müşteriye Yolda bildirimi gönderebilsin diye
+  /// sipariş durumu senkronize tutulur.
   Future<void> _acceptDelivery(Map<String, dynamic> order) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -2164,7 +2176,21 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .eq('courier_id', userId);
       }
 
-      // Müşteriye "yolda" bildirimi gönder
+      // Sipariş durumunu 'on_the_way' yap (satıcı paneli uyumu)
+      // Kurye "Siparişi Aldım" dediğinde sipariş YOLDA durumuna geçer.
+      try {
+        await Supabase.instance.client
+            .from('orders')
+            .update({
+              'status': 'on_the_way',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', orderId);
+      } catch (e) {
+        debugPrint('⚠️ Sipariş status güncellenemedi (kritik değil): $e');
+      }
+
+      // Müşteriye "yolda" bildirimi gönder (TEK KAYNAK)
       try {
         final courierNotificationService = CourierNotificationService();
         // notifyCustomerOrderAssigned zaten "Yolda" mesajı veriyor
@@ -2222,48 +2248,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .eq('courier_id', userId);
       }
 
-      // Müşteriye "Yolda" bildirimi gönder
-      try {
-        final orderData = await Supabase.instance.client
-            .from('orders')
-            .select('user_id, shops(name)')
-            .eq('id', orderId)
-            .maybeSingle();
-        
-        if (orderData != null) {
-          final customerId = orderData['user_id'] as String?;
-          final shopData = orderData['shops'] as Map<String, dynamic>?;
-          final shopName = shopData?['name'] as String? ?? 'Dükkan';
-          
-          if (customerId != null) {
-            // Kurye adını al
-            String courierName = 'Kurye';
-            try {
-              final courierProfile = await Supabase.instance.client
-                  .from('profiles')
-                  .select('full_name, username')
-                  .eq('id', userId)
-                  .maybeSingle();
-              courierName = courierProfile?['full_name'] ?? courierProfile?['username'] ?? 'Kurye';
-            } catch (e) {
-              debugPrint('⚠️ Kurye bilgisi alınamadı: $e');
-            }
-            
-            await Supabase.instance.client.from('notifications').insert({
-              'user_id': customerId,
-              'type': 'order_update',
-              'title': '🚴 Siparişiniz Yolda!',
-              'content': '$shopName siparişiniz kurye $courierName tarafından teslim edilmek üzere yola çıktı.',
-              'data': {'order_id': orderId, 'type': 'order_update'},
-              'is_read': false,
-              'created_at': DateTime.now().toIso8601String(),
-            });
-            debugPrint('✅ Müşteriye yolda bildirimi gönderildi');
-          }
-        }
-      } catch (e) {
-        debugPrint('⚠️ Müşteriye bildirim gönderilemedi: $e');
-      }
+      // NOT: Müşteriye "Yolda" bildirimi artık yalnızca _acceptDelivery
+      // (kurye "Siparişi Aldım" bastığında) içinde gönderiliyor. Burada
+      // tekrar gönderilmiyor, böylece çift "Yolda" bildirimi engelleniyor.
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2302,7 +2289,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .select('id')
             .eq('order_id', order['id'])
             .eq('courier_id', userId)
-            .inFilter('status', ['assigned', 'picked_up'])
+            .inFilter('status', ['assigned', 'picked_up', 'on_the_way'])
             .maybeSingle();
         
         if (assignment == null) {

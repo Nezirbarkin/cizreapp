@@ -247,11 +247,21 @@ class _AIMetaScreenState extends State<AIMetaScreen> with TickerProviderStateMix
   }
 
   Future<void> _sendMessage() async {
+    // Tek seferde birden fazla _sendMessage çağrısını engelle
+    if (_isSending) return;
+
     final text = _messageController.text.trim();
-    if (text.isEmpty && _pendingImages.isEmpty) return;
+    final hasImages = _pendingImages.isNotEmpty;
+
+    // Görselleri setState temizlemeden ÖNCE local listeye kopyala
+    // (setState içinde _pendingImages.clear() yapılacak)
+    final pendingFiles = hasImages
+        ? _pendingImages.map((e) => Map<String, dynamic>.from(e)).toList()
+        : <Map<String, dynamic>>[];
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
+    if (text.isEmpty && !hasImages) return;
 
     // Kullanıcı mesajını ekle
     final userMsg = {
@@ -270,10 +280,33 @@ class _AIMetaScreenState extends State<AIMetaScreen> with TickerProviderStateMix
     _scrollToBottom();
 
     try {
-      final response = await _service.sendTextMessage(
-        conversationId: widget.conversationId,
-        message: text,
-      );
+      AIChatResponse response;
+      if (hasImages) {
+        // 1) Her görseli storage'a yükle
+        final attachments = <({String storagePath, String mimeType})>[];
+        for (final img in pendingFiles) {
+          final xFile = img['file'] as XFile;
+          final bytes = await xFile.readAsBytes();
+          final mimeType = xFile.mimeType ?? 'image/jpeg';
+          final storagePath = await _service.uploadImage(
+            bytes: bytes,
+            fileName: xFile.name,
+            mimeType: mimeType,
+          );
+          attachments.add((storagePath: storagePath, mimeType: mimeType));
+        }
+        // 2) Vision mesajı gönder
+        response = await _service.sendVisionMessage(
+          conversationId: widget.conversationId,
+          message: text,
+          attachments: attachments,
+        );
+      } else {
+        response = await _service.sendTextMessage(
+          conversationId: widget.conversationId,
+          message: text,
+        );
+      }
 
       if (mounted) {
         // Kullanıcı mesajını güncelle
