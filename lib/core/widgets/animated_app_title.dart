@@ -58,6 +58,33 @@ class AnimatedAppTitle extends StatefulWidget {
     this.onTap,
   });
 
+  /// Veritabanı ayarlarından oluşturucu (daha kolay kullanım için)
+  factory AnimatedAppTitle.fromSettings({
+    Key? key,
+    required String primaryText,
+    required String secondaryText,
+    required int primaryDurationMs,
+    required int secondaryDurationMs,
+    required int transitionDurationMs,
+    double primaryFontSize = 22,
+    double secondaryFontSize = 14,
+    Color color = Colors.white,
+    VoidCallback? onTap,
+  }) {
+    return AnimatedAppTitle(
+      key: key,
+      primaryText: primaryText,
+      secondaryText: secondaryText,
+      primaryDuration: Duration(milliseconds: primaryDurationMs),
+      secondaryDuration: Duration(milliseconds: secondaryDurationMs),
+      transitionDuration: Duration(milliseconds: transitionDurationMs),
+      primaryFontSize: primaryFontSize,
+      secondaryFontSize: secondaryFontSize,
+      color: color,
+      onTap: onTap,
+    );
+  }
+
   @override
   State<AnimatedAppTitle> createState() => _AnimatedAppTitleState();
 }

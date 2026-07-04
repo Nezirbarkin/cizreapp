@@ -72,7 +72,27 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
     super.dispose();
   }
 
+  // İzin verilen kullanıcı adı karakterleri: harf, rakam, nokta, alt çizgi, tire
+  static final RegExp _usernameAllowedChars = RegExp(r'^[a-zA-Z0-9._-]+$');
+
+  /// Kullanıcı adını kurallara göre temizler: boşluk ve izin verilmeyen
+  /// karakterleri kaldırır. Bu, yapıştırma durumunda da geçerlidir.
+  String _sanitizeUsername(String value) {
+    final buf = StringBuffer();
+    for (final ch in value.characters) {
+      if (RegExp(r'[a-zA-Z0-9._-]').hasMatch(ch)) {
+        buf.write(ch);
+      }
+    }
+    return buf.toString();
+  }
+
   Future<void> _checkUsername(String username) async {
+    // Boşluk/özel karakter barındırıyorsa müsaitlik kontrolü yapma
+    if (!_usernameAllowedChars.hasMatch(username)) {
+      if (mounted) setState(() => _isUsernameAvailable = false);
+      return;
+    }
     if (username.length < 3) return;
     setState(() => _isCheckingUsername = true);
     
@@ -894,13 +914,35 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
             controller: _usernameController,
             hint: 'Kullanıcı adı',
             icon: Icons.alternate_email,
-            onChanged: (v) => _checkUsername(v),
+            onChanged: (v) {
+              // Giriş anında boşluk/özel karakterleri otomatik temizle
+              final sanitized = _sanitizeUsername(v);
+              if (sanitized != v) {
+                _usernameController.value = TextEditingValue(
+                  text: sanitized,
+                  selection: TextSelection.collapsed(offset: sanitized.length),
+                );
+              }
+              _checkUsername(sanitized);
+            },
             suffixIcon: _isCheckingUsername
                 ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)))
                 : _usernameController.text.length >= 3
                     ? Icon(_isUsernameAvailable ? Icons.check_circle : Icons.cancel, color: _isUsernameAvailable ? const Color(0xFF27AE60) : const Color(0xFFE74C3C), size: 20)
                     : null,
-            validator: (v) => (v?.isEmpty ?? true) ? 'Kullanıcı adı gerekli' : (v!.length < 3 ? 'En az 3 karakter' : (!_isUsernameAvailable ? 'Bu ad kullanımda' : null)),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9._-]')),
+            ],
+            validator: (v) {
+              if (v?.isEmpty ?? true) return 'Kullanıcı adı gerekli';
+              if (!_usernameAllowedChars.hasMatch(v!)) {
+                return 'Sadece harf, rakam, nokta, _ ve - kullanın';
+              }
+              if (v.length < 3) return 'En az 3 karakter';
+              if (v.length > 20) return 'En fazla 20 karakter';
+              if (!_isUsernameAvailable) return 'Bu ad kullanımda';
+              return null;
+            },
           ),
           const SizedBox(height: 6),
           // Kullanıcı adı uyarısı
@@ -912,7 +954,7 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Kullanıcı adınız sonradan değiştirilemez',
+                    'Sadece harf, rakam, nokta, _ ve - kullanılabilir (3-20 karakter). Kullanıcı adınız sonradan değiştirilemez.',
                     style: TextStyle(fontSize: 12, color: Colors.orange.shade700, height: 1.3),
                   ),
                 ),
@@ -1400,6 +1442,7 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
     VoidCallback? onTap,
     Widget? suffixIcon,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
@@ -1407,6 +1450,7 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
       onChanged: onChanged,
       obscureText: obscure,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       style: const TextStyle(fontSize: 15, color: Color(0xFF2C3E50)),
       decoration: InputDecoration(
         hintText: hint,

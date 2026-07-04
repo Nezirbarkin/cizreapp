@@ -1,11 +1,13 @@
 // ignore_for_file: deprecated_member_use, unused_local_variable
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/conversation_model.dart';
 import '../../../core/services/privacy_service.dart';
 import '../services/chat_service.dart';
 import '../services/group_chat_service.dart';
+import '../services/presence_service.dart';
 import 'chat_detail_screen.dart';
 import 'chat_privacy_settings_screen.dart';
 import 'group_list_screen.dart';
@@ -25,13 +27,16 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   List<Conversation> _conversations = [];
   List<Map<String, dynamic>> _activeUsers = [];
   bool _isLoading = true;
-  // false ile başlat: yoksa initState'teki _loadActiveUsers() çağrısı
-  // if (_isLoadingActiveUsers) return; guard'ına takılarak hiç yüklenmezdi.
   bool _isLoadingActiveUsers = false;
   int _unreadCount = 0;
   int _groupUnreadCount = 0;
+  bool _showActiveUsersHeader = true;
   RealtimeChannel? _channel;
   late TabController _tabController;
+
+  // Realtime presence state — onlineIds stream'den gelir
+  StreamSubscription<List<String>>? _onlineSub;
+  Set<String> _onlineIds = <String>{};
 
   @override
   void initState() {
@@ -42,13 +47,24 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     _loadGroupUnreadCount();
     _loadActiveUsers();
     _subscribeToConversations();
+    _subscribeOnlinePresence();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _channel?.unsubscribe();
+    _onlineSub?.cancel();
     super.dispose();
+  }
+
+  void _subscribeOnlinePresence() {
+    _onlineSub = PresenceService.instance.onlineUsersStream.listen((ids) {
+      if (!mounted) return;
+      setState(() => _onlineIds = ids.toSet());
+    }, onError: (e) {
+      debugPrint('online presence stream error: $e');
+    });
   }
 
   Future<void> _loadGroupUnreadCount() async {
@@ -86,34 +102,90 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
         return;
       }
 
-      // PERFORMANCE: Sadece gerekli alanları çek ve limiti düşür
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, avatar_url, last_seen, is_online')
-          .neq('id', currentUserId)
-          .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
-          .limit(50); // PERFORMANCE: Sadece ilk 50 aktif kullanıcıyı al
+      // ÖNEMLI DÜZELTME (2026-07-02):
+      // Önce yeni get_online_users RPC'sini dene - hızlı ve doğru sonuç
+      List<Map<String, dynamic>> users = [];
+      try {
+        final rpcResponse = await Supabase.instance.client.rpc(
+          'get_online_users',
+          params: {'p_exclude_user_id': currentUserId},
+        );
+        if (rpcResponse != null) {
+          users = (rpcResponse as List).cast<Map<String, dynamic>>();
+          debugPrint('✅ get_online_users RPC: ${users.length} users');
+        }
+      } catch (e) {
+        debugPrint('get_online_users RPC başarısız, fallback: $e');
+        // Fallback: eski sorgu
+        try {
+          final response = await Supabase.instance.client
+              .from('profiles')
+              .select(
+                  'id, full_name, avatar_url, last_seen, is_online, is_ghost_mode, is_online_enabled')
+              .neq('id', currentUserId)
+              .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
+              .limit(50);
+          users = (response as List).cast<Map<String, dynamic>>();
+        } catch (e2) {
+          // Son fallback: basit sorgu
+          final response = await Supabase.instance.client
+              .from('profiles')
+              .select('id, full_name, avatar_url, last_seen, is_online')
+              .neq('id', currentUserId)
+              .limit(50);
+          users = (response as List).cast<Map<String, dynamic>>();
+        }
+      }
 
       if (mounted) {
-        final users = (response as List).cast<Map<String, dynamic>>();
-
         // Aktiflik durumunu hesapla
+        // RPC'den geldiyse is_truly_active kolonu var
+        // Fallback'ten geldiyse hesaplamamız gerek
         for (var user in users) {
           final isOnline = user['is_online'] as bool? ?? false;
           final lastSeen = _parseDateTime(user['last_seen']);
-          user['_isActive'] = PrivacyService.isUserTrulyActive(isOnline, lastSeen);
+          final isOnlineEnabled = user['is_online_enabled'] as bool? ?? true;
+          final isGhostMode = user['is_ghost_mode'] as bool? ?? false;
+
+          // RPC'den is_truly_active geldiyse onu kullan
+          final rpcTrulyActive = user['is_truly_active'] as bool?;
+          if (rpcTrulyActive != null) {
+            user['_isActive'] = rpcTrulyActive;
+          } else {
+            // Hesapla
+            final trulyActive = isOnlineEnabled && !isGhostMode
+                ? PrivacyService.isUserTrulyActive(isOnline, lastSeen)
+                : false;
+            user['_isActive'] = trulyActive;
+          }
         }
 
-        // Aktif ve inaktif kullanıcıları ayır
-        final activeUsers = users.where((u) => u['_isActive'] == true).toList();
-        final inactiveUsers = users.where((u) => u['_isActive'] != true).toList();
+        // Aktif kullanıcıları presence stream + DB bilgisine göre ayır
+        final activeUsers = users.where((u) {
+          final uid = u['id'] as String?;
+          final dbActive = u['_isActive'] == true;
+          return uid != null && (_onlineIds.contains(uid) || dbActive);
+        }).toList();
+        final inactiveUsers = users.where((u) {
+          final uid = u['id'] as String?;
+          final dbActive = u['_isActive'] == true;
+          return uid == null || (!_onlineIds.contains(uid) && !dbActive);
+        }).toList();
 
-        // Her grubu kendi içinde rastgele sırala
-        activeUsers.shuffle();
+        // Presence'de olanlar en üstte, sonra DB'de aktif, en altta inaktif
+        final presenceOnline = activeUsers.where((u) {
+          final uid = u['id'] as String?;
+          return uid != null && _onlineIds.contains(uid);
+        }).toList();
+        final dbOnlineOnly = activeUsers.where((u) {
+          final uid = u['id'] as String?;
+          return uid == null || !_onlineIds.contains(uid);
+        }).toList();
+        presenceOnline.shuffle();
+        dbOnlineOnly.shuffle();
         inactiveUsers.shuffle();
 
-        // Aktifler öne, inaktifler arkaya - rastgele sıralı
-        final sortedUsers = [...activeUsers, ...inactiveUsers];
+        final sortedUsers = [...presenceOnline, ...dbOnlineOnly, ...inactiveUsers];
 
         setState(() {
           _activeUsers = sortedUsers;
@@ -274,122 +346,166 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   }
 
   Widget _buildChatsTab(bool isDarkMode) {
+    // Aktif kullanıcılar bölümü: aşağı kaydırınca AnimatedSize ile kapanır,
+    // en üste dönünce geri gelir. Fonksiyonların davranışı bozulmaz; sadece
+    // görünürlük state'i değişir.
+    final showHeader = _showActiveUsersHeader &&
+        !_isLoadingActiveUsers &&
+        _activeUsers.isNotEmpty;
+
     return Column(
       children: [
-        // Kullanıcılar Bölümü (aktif olanlar en başta) - PERFORMANCE: RepaintBoundary
-        if (!_isLoadingActiveUsers && _activeUsers.isNotEmpty)
-          RepaintBoundary(
-            child: Container(
-              height: 100,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: isDarkMode ? Colors.grey[850] : Colors.white,
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey[300]!),
-                ),
-              ),
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: _activeUsers.length,
-                // PERFORMANCE: Cache extent
-                cacheExtent: 300.0,
-                itemBuilder: (context, index) {
-                  final user = _activeUsers[index];
-                  final avatarUrl = user['avatar_url'] as String?;
-                  final fullName = user['full_name'] as String? ?? 'Kullanıcı';
-                  // Aktiflik durumu _loadActiveUsers'te hesaplanıyor
-                  final isActive = user['_isActive'] as bool? ?? false;
-                  
-                  // PERFORMANCE: Her kullanıcı öğesini RepaintBoundary ile sar
-                  return RepaintBoundary(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: GestureDetector(
-                        onTap: () => _openUserProfile(user['id'] as String),
-                        onLongPress: () => _startChat(user, fullName, avatarUrl),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Stack(
-                              children: [
-                                CircleAvatar(
-                                  radius: 26,
-                                  backgroundColor: Colors.deepPurple[100],
-                                  backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                                  child: avatarUrl == null
-                                      ? Text(
-                                          fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
-                                          style: TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.deepPurple[700],
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                                if (isActive)
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      width: 14,
-                                      height: 14,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.green,
-                                        shape: BoxShape.circle,
-                                        border: Border.fromBorderSide(
-                                          BorderSide(color: Colors.white, width: 2),
-                                        ),
+        // Aktif kullanıcılar bölümü
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: showHeader
+              ? RepaintBoundary(
+                  child: Container(
+                    height: 100,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? Colors.grey[850] : Colors.white,
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey[300]!),
+                      ),
+                    ),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: _activeUsers.length,
+                      cacheExtent: 300.0,
+                      itemBuilder: (context, index) {
+                        final user = _activeUsers[index];
+                        final avatarUrl = user['avatar_url'] as String?;
+                        final fullName =
+                            user['full_name'] as String? ?? 'Kullanıcı';
+                        // Presence stream'den realtime online bilgisi, DB fallback ile kombine
+                        final dbActive = user['_isActive'] as bool? ?? false;
+                        final userId = user['id'] as String?;
+                        final isActive = userId != null
+                            ? (_onlineIds.contains(userId) || dbActive)
+                            : dbActive;
+                        return RepaintBoundary(
+                          child: Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 6),
+                            child: GestureDetector(
+                              onTap: () =>
+                                  _openUserProfile(user['id'] as String),
+                              onLongPress: () =>
+                                  _startChat(user, fullName, avatarUrl),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Stack(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 26,
+                                        backgroundColor:
+                                            Colors.deepPurple[100],
+                                        backgroundImage: avatarUrl != null
+                                            ? NetworkImage(avatarUrl)
+                                            : null,
+                                        child: avatarUrl == null
+                                            ? Text(
+                                                fullName.isNotEmpty
+                                                    ? fullName[0].toUpperCase()
+                                                    : '?',
+                                                style: TextStyle(
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors
+                                                      .deepPurple[700],
+                                                ),
+                                              )
+                                            : null,
                                       ),
+                                      if (isActive)
+                                        Positioned(
+                                          right: 0,
+                                          bottom: 0,
+                                          child: Container(
+                                            width: 14,
+                                            height: 14,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.green,
+                                              shape: BoxShape.circle,
+                                              border: Border.fromBorderSide(
+                                                BorderSide(
+                                                    color: Colors.white,
+                                                    width: 2),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SizedBox(
+                                    width: 60,
+                                    child: Text(
+                                      fullName,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[700],
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
                                     ),
                                   ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            SizedBox(
-                              width: 60,
-                              child: Text(
-                                fullName,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[700],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
+                                ],
                               ),
                             ),
-                          ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                )
+              : const SizedBox(width: double.infinity, height: 0),
+        ),
+        // Sohbetler listesi - scroll yönünü izle ve header'ı gizle/göster
+        Expanded(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              // Dikey konum 8px'ten aşağıdaysa header'ı gizle,
+              // en üste (0) dönüldüyse tekrar göster.
+              if (notification is ScrollUpdateNotification) {
+                final pixels = notification.metrics.pixels;
+                if (pixels > 8 && _showActiveUsersHeader) {
+                  if (mounted) {
+                    setState(() => _showActiveUsersHeader = false);
+                  }
+                } else if (pixels <= 0 && !_showActiveUsersHeader) {
+                  if (mounted) {
+                    setState(() => _showActiveUsersHeader = true);
+                  }
+                }
+              }
+              return false;
+            },
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _conversations.isEmpty
+                    ? _buildEmptyState()
+                    : RefreshIndicator(
+                        onRefresh: _refreshConversations,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _conversations.length,
+                          cacheExtent: 400.0,
+                          itemBuilder: (context, index) {
+                            return RepaintBoundary(
+                              child:
+                                  _buildConversationTile(_conversations[index]),
+                            );
+                          },
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
           ),
-        // Konuşmalar Listesi - PERFORMANCE: RepaintBoundary ve cache
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _conversations.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _refreshConversations,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: _conversations.length,
-                        // PERFORMANCE: Cache extent
-                        cacheExtent: 400.0,
-                        itemBuilder: (context, index) {
-                          // PERFORMANCE: Her tile'ı ayrı bir RepaintBoundary ile sar
-                          return RepaintBoundary(
-                            child: _buildConversationTile(_conversations[index]),
-                          );
-                        },
-                      ),
-                    ),
         ),
       ],
     );
@@ -435,8 +551,11 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     final username = otherUser?['username'] as String?;
     final isOtherUserOnline = otherUser?['is_online'] as bool? ?? false;
     final otherUserLastSeen = _parseDateTime(otherUser?['last_seen']);
-    // Gerçek aktiflik kontrolü: is_online=true VE last_seen son 3 dk içinde
-    final isOtherUserTrulyActive = PrivacyService.isUserTrulyActive(isOtherUserOnline, otherUserLastSeen);
+    // Gerçek aktiflik kontrolü: presence stream VEYA (is_online VE last_seen son 3 dk)
+    final otherId = otherUser?['id'] as String?;
+    final isOnPresence = otherId != null && _onlineIds.contains(otherId);
+    final isDbTrulyActive = PrivacyService.isUserTrulyActive(isOtherUserOnline, otherUserLastSeen);
+    final isOtherUserTrulyActive = isOnPresence || isDbTrulyActive;
     
     // Son mesajı formatla - eğer paylaşılan gönderi ise özel metin göster
     String lastMessage = conversation.lastMessage ?? 'Henüz mesaj yok';
@@ -613,32 +732,83 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     );
   }
 
-  void _showDeleteDialog(Conversation conversation) {
+  Future<void> _showDeleteDialog(Conversation conversation) async {
     final otherUser = conversation.otherUser;
     final fullName = otherUser?['full_name'] as String? ?? 'Kullanıcı';
 
-    showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Konuşmayı Sil'),
-        content: Text('$fullName ile olan konuşmayı silmek istediğinizden emin misiniz?'),
+        content: Text(
+          '$fullName ile olan konuşma tüm mesajları ile birlikte silinecek. '
+          'Emin misin?',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('İptal'),
           ),
           TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _chatService.deleteConversation(conversation.id);
-              await _loadConversations();
-            },
+            onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Sil'),
           ),
         ],
       ),
     );
+
+    if (confirmed != true) return;
+    if (!mounted) return;
+
+    // Yükleniyor bilgisi (delete uzun sürebilir)
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Sohbet siliniyor...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      // PROJE_HAVIZA notu: delete_conversation_with_partner RPC kullanılıyor.
+      // Hem mevcut satırı hem karşı tarafın ters satırını atomik siler
+      // (ON DELETE CASCADE ile mesajlar da silinir). SECURE: bool döner.
+      final ok = await _chatService.deleteConversation(conversation.id);
+      if (!mounted) return;
+      if (ok) {
+        // İlk sohbet listede kalmış olabilir → _loadConversations sonrası
+        // realtime channel de UI'ı günceller.
+        await _loadConversations();
+        await _loadUnreadCount();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('$fullName ile olan sohbet silindi'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Sohbet silinemedi (yetkiniz olmayabilir veya zaten silinmiş)'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e, st) {
+      debugPrint('deleteConversation UI hata: $e\n$st');
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Silme hatası: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   String? _formatTime(DateTime? time) {

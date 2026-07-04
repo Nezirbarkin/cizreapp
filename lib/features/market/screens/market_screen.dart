@@ -50,6 +50,7 @@ import '../../social/screens/story_viewer_screen.dart';
 // ignore: unused_import
 import '../../shop/screens/cart_screen.dart' as shop_cart;
 import 'product_detail_screen.dart';
+import '../../../core/services/app_about_service.dart';
 
 class MarketScreen extends StatefulWidget {
   const MarketScreen({super.key});
@@ -59,6 +60,9 @@ class MarketScreen extends StatefulWidget {
 }
 
 class _MarketScreenState extends State<MarketScreen> {
+  // Animasyon ayarları için service
+  final _aboutService = AppAboutService();
+
   final CategoryService _categoryService = CategoryService();
   final ShopService _shopService = ShopService();
   final ProductService _productService = ProductService();
@@ -69,6 +73,7 @@ class _MarketScreenState extends State<MarketScreen> {
   final NotificationService _notificationService = NotificationService();
   final ChatService _chatService = ChatService();
   final GroupChatService _groupChatService = GroupChatService();
+  RealtimeChannel? _conversationsChannel;
   final DailyDealService _dailyDealService = DailyDealService();
   final ScrollController _scrollController = ScrollController();
 
@@ -84,6 +89,12 @@ class _MarketScreenState extends State<MarketScreen> {
   int _unreadNotificationCount = 0;
   int _unreadChatCount = 0;
   bool _globalOrdersEnabled = true;
+
+  // Animasyon ayarları
+  String _appSlogan = 'Her an her kapıda!';
+  int _animationPrimaryDurationMs = 6000;
+  int _animationSecondaryDurationMs = 3000;
+  int _animationTransitionDurationMs = 700;
   
   bool _isLoading = true;
   // ignore: unused_field
@@ -118,6 +129,13 @@ class _MarketScreenState extends State<MarketScreen> {
       if (mounted) {
         setState(() => _timerTick++);
       }
+    });
+
+    // Mesaj badge'i REALTIME: conversations değişince okunmamış sayısını yenile.
+    // Böylece kullanıcı market ekranındayken yeni mesaj gelince yüzen mesaj
+    // butonundaki kırmızı sayı anında güncellenir (2026-07-03).
+    _conversationsChannel = _chatService.subscribeToConversations((_) {
+      _loadChatUnreadCount();
     });
   }
 
@@ -244,6 +262,9 @@ class _MarketScreenState extends State<MarketScreen> {
   @override
   void dispose() {
     _dealTimer?.cancel();
+    if (_conversationsChannel != null) {
+      Supabase.instance.client.removeChannel(_conversationsChannel!);
+    }
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -308,6 +329,21 @@ class _MarketScreenState extends State<MarketScreen> {
       // Global sipariş durumunu ayarla
       if (settingsResponse != null) {
         _globalOrdersEnabled = settingsResponse['global_orders_enabled'] as bool? ?? true;
+      }
+
+      // Animasyon ayarlarını yükle (AppAboutService üzerinden)
+      try {
+        final appAbout = await _aboutService.getAboutSettings();
+        if (appAbout != null) {
+          setState(() {
+            _appSlogan = appAbout.appSlogan;
+            _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
+            _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
+            _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+          });
+        }
+      } catch (e) {
+        debugPrint('Animasyon ayarları yüklenirken hata: $e');
       }
       
       // Son gönderilerin kullanıcı bilgilerini yükle
@@ -682,7 +718,12 @@ class _MarketScreenState extends State<MarketScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              AnimatedAppTitle(
+              AnimatedAppTitle.fromSettings(
+                primaryText: 'CizreApp',
+                secondaryText: _appSlogan,
+                primaryDurationMs: _animationPrimaryDurationMs,
+                secondaryDurationMs: _animationSecondaryDurationMs,
+                transitionDurationMs: _animationTransitionDurationMs,
                 primaryFontSize: 24,
                 secondaryFontSize: 14,
                 onTap: () {

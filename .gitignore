@@ -57,3 +57,10 @@ supabase/.temp/
 firebase_app_id_file.json
 google-services.json
 GoogleService-Info.plist
+
+# Gecici analiz / teshis ciktilari (token yukunu azaltmak icin)
+analyze.out
+analyze_out*.txt
+android/.kotlin/
+DIAG_*.sql
+DEBUG_*.sql

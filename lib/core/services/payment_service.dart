@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/app_error_handler.dart';
 
 /// Online Ödeme Servisi (iyzico)
 /// iyzico Edge Functions ile iletişim kurar
@@ -13,6 +14,8 @@ class PaymentService {
       rethrow;
     }
   }
+  // NOT: Aşağıdaki edge function çağrılarında ham FunctionException yerine
+  // FriendlyException fırlatılır (kullanıcı dostu mesaj).
 
   /// iyzico ödeme başlatma
   /// 
@@ -76,7 +79,7 @@ class PaymentService {
       );
     } catch (e) {
       debugPrint('❌ PAYMENT: Hata - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -116,7 +119,7 @@ class PaymentService {
       );
     } catch (e) {
       debugPrint('❌ PAYMENT: Durum sorgulama hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 

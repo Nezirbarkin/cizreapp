@@ -28,6 +28,8 @@ class _TopupScreenState extends State<TopupScreen> {
   List<BankAccount> _bankAccounts = [];
   BankAccount? _selectedBankAccount;
   bool _cardTopupEnabled = true;
+  String? _conversationId; // Aktif topup işleminin referansı (sunucu doğrulaması için)
+  bool _paymentHandled = false; // Aynı ödemenin iki kez işlenmesini önler
 
   final List<double> _quickAmounts = [50, 100, 200, 500];
 
@@ -212,6 +214,10 @@ class _TopupScreenState extends State<TopupScreen> {
 
       if (!mounted) return;
 
+      // Ödeme referansını sakla ve durumu sıfırla (sunucu doğrulaması için)
+      _conversationId = result.conversationId;
+      _paymentHandled = false;
+
       // WebView ile ödemeyi aç
       _openPaymentWebView(result.paymentPageUrl);
     } catch (e) {
@@ -284,19 +290,57 @@ class _TopupScreenState extends State<TopupScreen> {
     });
   }
 
-  void _handlePaymentSuccess() {
-    if (!_isWebViewOpen) return;
-    
-    Navigator.pop(context, true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Bakiye başarıyla yüklendi!'),
-        backgroundColor: Colors.green,
-      ),
-    );
+  Future<void> _handlePaymentSuccess() async {
+    if (!_isWebViewOpen || _paymentHandled) return;
+    _paymentHandled = true;
+
+    // WebView'i kapat ve doğrulama ekranı göster
+    setState(() {
+      _isWebViewOpen = false;
+      _webViewController = null;
+      _isLoading = true;
+    });
+
+    // ÖNEMLİ: URL'de "success" görünmesi ödemenin gerçekten tamamlandığı
+    // anlamına gelmez. Sunucudan (balance_transactions.status) teyit alıyoruz.
+    bool confirmed = false;
+    if (_conversationId != null) {
+      // Callback'in işlenmesi için kısa retry (birkaç saniye gecikebilir)
+      for (int i = 0; i < 5; i++) {
+        confirmed = await _balanceService.checkTopupStatus(_conversationId!);
+        if (confirmed) break;
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+
+    if (!mounted) return;
+
+    if (confirmed) {
+      Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bakiye başarıyla yüklendi!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      // Ödeme henüz teyit edilemedi - yanlış "başarılı" göstermiyoruz
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Ödeme alındı, bakiyeye yansıması birkaç dakika sürebilir. '
+              'Yansımazsa lütfen destek ile iletişime geçin.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   void _handlePaymentFailed() {
+    if (_paymentHandled) return;
+    _paymentHandled = true;
     setState(() {
       _isWebViewOpen = false;
       _isLoading = false;

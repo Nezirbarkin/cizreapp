@@ -46,8 +46,17 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
       duration: const Duration(seconds: 5),
     );
     _markStoryAsViewed(_stories[_currentIndex]);
-    _startAutoPlay();
-    
+
+    // İLK story videoysa da başlatılmalı. Önceden yalnızca onPageChanged'de
+    // başlatıldığı için ilk açılışta video oynamıyor, başka story'ye geçip
+    // dönünce oynuyordu. Burada ilk story tipine göre başlatıyoruz.
+    final firstStory = _stories[_currentIndex];
+    if (firstStory.isVideo) {
+      _initializeVideo(firstStory.imageUrl);
+    } else {
+      _startAutoPlay();
+    }
+
     // Listener'ı sadece bir kez ekle
     _animationController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {

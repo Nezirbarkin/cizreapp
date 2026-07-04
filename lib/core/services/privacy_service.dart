@@ -209,8 +209,8 @@ class PrivacyService {
     }
   }
 
-  /// Heartbeat gönder - sadece last_seen günceller (hafif sorgu)
-  /// Sadece kullanıcı çevrimiçi görünme tercihini açık tutuyorsa gönderilir.
+  /// Heartbeat gönder - last_seen ve is_online günceller
+  /// ÖNEMLI DÜZELTME (2026-07-02): Sadece last_seen değil, is_online da güncellenir
   Future<void> _sendHeartbeat() async {
     try {
       final supabase = _supabase;
@@ -218,12 +218,26 @@ class PrivacyService {
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) return;
 
+      // Önce tercihleri kontrol et
+      final enabled = await getOnlineEnabled();
+      if (!enabled) {
+        // Tercih kapalı: sadece last_seen güncelle, is_online false kalsın
+        final now = DateTime.now().toUtc().toIso8601String();
+        await supabase.from('profiles').update({
+          'last_seen': now,
+        }).eq('id', userId);
+        AppLogger.debug('Heartbeat (offline mode) at $now');
+        return;
+      }
+
+      // Tercih açık: is_online=true ve last_seen güncelle
       final now = DateTime.now().toUtc().toIso8601String();
       await supabase.from('profiles').update({
+        'is_online': true,
         'last_seen': now,
       }).eq('id', userId);
 
-      AppLogger.debug('Heartbeat sent at $now');
+      AppLogger.debug('Heartbeat sent at $now (is_online=true)');
     } catch (e) {
       AppLogger.error('Heartbeat error: $e');
     }

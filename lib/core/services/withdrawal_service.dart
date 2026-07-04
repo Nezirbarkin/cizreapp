@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/seller_withdrawal_model.dart';
+import '../utils/app_error_handler.dart';
 
 /// Çekim Servisi
 /// Satıcı çekim işlemleri için API çağrılarını yönetir
@@ -10,7 +11,7 @@ class WithdrawalService {
       return Supabase.instance.client;
     } catch (e) {
       debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -62,7 +63,7 @@ class WithdrawalService {
       );
     } catch (e) {
       debugPrint('❌ WITHDRAWAL: Çekim talebi hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -99,7 +100,7 @@ class WithdrawalService {
       debugPrint('  └─ new_status: ${response.data['new_status']}');
     } catch (e) {
       debugPrint('❌ WITHDRAWAL: Çekim işleme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -128,7 +129,7 @@ class WithdrawalService {
       return withdrawals;
     } catch (e) {
       debugPrint('❌ WITHDRAWAL: Çekim talepleri getirme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -179,7 +180,7 @@ class WithdrawalService {
       return withdrawals;
     } catch (e) {
       debugPrint('❌ WITHDRAWAL: Tüm talepler getirme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -197,7 +198,7 @@ class WithdrawalService {
       return SellerWithdrawal.fromJson(response);
     } catch (e) {
       debugPrint('❌ WITHDRAWAL: Çekim detayı hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 

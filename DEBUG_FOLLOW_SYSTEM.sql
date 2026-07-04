@@ -164,13 +164,13 @@ user_following AS (
     SELECT following_id
     FROM follows
     WHERE follower_id = 'TEST_USER_ID' -- Buraya test user ID girin
+),
+mutual_follows AS (
+    SELECT follower_id FROM user_followers
+    INTERSECT
+    SELECT following_id FROM user_following
 )
-SELECT 
-    COUNT(*) as friends_count
-FROM user_followers
-INTERSECT
-SELECT following_id
-FROM user_following;
+SELECT COUNT(*) as friends_count FROM mutual_follows;
 
 -- 4.2 Eğer follow_requests accepted ise follows'ta olmalı kontrolü
 -- (Sorunu gösteren sorgu)

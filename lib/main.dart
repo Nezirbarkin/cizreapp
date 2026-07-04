@@ -46,6 +46,7 @@ import 'core/services/cleanup_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/permission_service.dart';
 import 'core/models/cached_post_model.dart';
+import 'features/chat/services/presence_service.dart';
 
 void main() async {
   // Web için path-based URL strategy kullan (hash # yerine clean URL)
@@ -379,6 +380,23 @@ class _CizreAppState extends State<CizreApp> {
         // Kullanıcı giriş yaptığında warm-up yap (email doğrulama değilse)
         VerificationService.warmUpEdgeFunctions();
         PaymentService.warmUpEdgeFunctions();
+      }
+
+      // Presence: giriş yapınca başlat
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        try {
+          final uid = session.user.id;
+          PresenceService.instance.startGlobalPresence(uid);
+        } catch (e) {
+          print('presence start error: $e');
+        }
+      }
+
+      // Presence: çıkış yapınca durdur
+      if (event == AuthChangeEvent.signedOut) {
+        try {
+          PresenceService.instance.dispose();
+        } catch (_) {}
       }
     });
     }

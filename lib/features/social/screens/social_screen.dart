@@ -12,7 +12,7 @@ import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/permission_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
-import '../../../core/utils/image_compression_helper.dart';
+import '../../chat/services/chat_service.dart';
 import '../services/post_service.dart';
 import '../services/story_service.dart';
 import '../services/post_report_service.dart';
@@ -27,6 +27,7 @@ import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/widgets/animated_app_title.dart';
 import '../../wallet/screens/wallet_screen.dart';
+import '../../../core/services/app_about_service.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key});
@@ -36,11 +37,15 @@ class SocialScreen extends StatefulWidget {
 }
 
 class _SocialScreenState extends State<SocialScreen> {
+  // Animasyon ayarları için service
+  final _aboutService = AppAboutService();
+
   final PostService _postService = PostService();
   final StoryService _storyService = StoryService();
   final PostReportService _postReportService = PostReportService();
   final ImagePicker _imagePicker = ImagePicker();
   final NotificationService _notificationService = NotificationService();
+  final ChatService _chatService = ChatService();
   late ScrollController _scrollController;
 
   List<Post> _posts = [];
@@ -52,6 +57,12 @@ class _SocialScreenState extends State<SocialScreen> {
   Set<String> _savedPosts = {}; // Kaydedilen gönderiler
   int _unreadNotificationCount = 0;
   bool _isLoading = true;
+
+  // Animasyon ayarları
+  String _appSlogan = 'Her an her kapıda!';
+  int _animationPrimaryDurationMs = 6000;
+  int _animationSecondaryDurationMs = 3000;
+  int _animationTransitionDurationMs = 700;
   
   // Pagination variables
   int _currentPage = 0;
@@ -177,6 +188,21 @@ class _SocialScreenState extends State<SocialScreen> {
         _likedPosts = likedStatus;
         _isLoading = false;
       });
+
+      // Animasyon ayarlarını yükle
+      try {
+        final appAbout = await _aboutService.getAboutSettings();
+        if (appAbout != null && mounted) {
+          setState(() {
+            _appSlogan = appAbout.appSlogan;
+            _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
+            _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
+            _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+          });
+        }
+      } catch (e) {
+        debugPrint('Animasyon ayarları yüklenirken hata: $e');
+      }
     } catch (e, stackTrace) {
       debugPrint('❌ SocialScreen _loadData hatası: $e');
       debugPrint('Stack trace: $stackTrace');
@@ -693,22 +719,62 @@ class _SocialScreenState extends State<SocialScreen> {
                       subtitle: Text('@${friend['username'] ?? ''}'),
                       onTap: () async {
                         Navigator.pop(context);
-                        // Mesajı gönder
+                        // PROJE_HAVIZA notu: conversations tablosu şu kolonlara
+                        // sahiptir -> user_id, other_user_id, last_message,
+                        // last_message_time, unread_count. Eski kod user1_id/
+                        // user2_id/last_message_sender_id/last_message_at
+                        // kullanıyordu; bu kolonlar tabloda yoktu ve
+                        // "Gönderilemedi" hatasına yol açıyordu. Çözüm:
+                        // ChatService.getOrCreateConversation + sendSharedPost
+                        // kullan (chat_service.dart zaten doğru şemayı biliyor).
                         try {
-                          await Supabase.instance.client.from('conversations').insert({
-                            'user1_id': currentUserId,
-                            'user2_id': friend['id'],
-                            'last_message': post.content ?? '📷 Görsel gönderildi',
-                            'last_message_sender_id': currentUserId,
-                            'last_message_at': DateTime.now().toUtc().toIso8601String(),
-                          });
-                          
-                          if (mounted) {
+                          final otherUserId = friend['id'] as String;
+                          final postImageUrl = post.images.isNotEmpty
+                              ? post.images.first
+                              : null;
+
+                          // Mevcut conversation'ı al veya oluştur
+                          final conversation = await _chatService
+                              .getOrCreateConversation(otherUserId);
+                          if (conversation == null) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Sohbet başlatılamadı (karşı taraf mesajları kapatmış olabilir).'),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
+                            }
+                            return;
+                          }
+
+                          // Gönderiyi mesaj olarak yolla (SHARED_POST:... formatı).
+                          // sendSharedPost sender_id'yi auth.currentUser'dan alır;
+                          // authorName için profil sorgusu gerekir, burada null
+                          // geçmek ChatService'in profile fallback'ini tetikler.
+                          final sent = await _chatService.sendSharedPost(
+                            conversationId: conversation.id,
+                            postId: post.id,
+                            postContent: post.content ?? '',
+                            postImageUrl: postImageUrl,
+                            authorName: null,
+                          );
+
+                          if (sent != null && mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text('$friendName\'e gönderildi!'),
                                 behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                              ),
+                            );
+                          } else if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Gönderilemedi'),
+                                backgroundColor: Colors.red,
                               ),
                             );
                           }
@@ -717,7 +783,7 @@ class _SocialScreenState extends State<SocialScreen> {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: const Text('Gönderilemedi'),
+                                content: Text('Bir hata oluştu: $e'),
                                 backgroundColor: Colors.red,
                               ),
                             );
@@ -969,7 +1035,12 @@ class _SocialScreenState extends State<SocialScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              AnimatedAppTitle(
+              AnimatedAppTitle.fromSettings(
+                primaryText: 'CizreApp',
+                secondaryText: _appSlogan,
+                primaryDurationMs: _animationPrimaryDurationMs,
+                secondaryDurationMs: _animationSecondaryDurationMs,
+                transitionDurationMs: _animationTransitionDurationMs,
                 primaryFontSize: 24,
                 secondaryFontSize: 14,
                 onTap: () {
@@ -1453,35 +1524,13 @@ class _SocialScreenState extends State<SocialScreen> {
           ),
         );
 
-        // Fotoğrafı sıkıştır ve yükle (Web ve Mobile uyumlu)
-        debugPrint('Story fotoğrafı işleniyor...');
-        
-        Uint8List imageBytes;
-        String fileExt;
-        
-        if (kIsWeb) {
-          // Web: XFile'dan byte array al
-          final compressedBytes = await ImageCompressionHelper.compressXFile(
-            xFile: media,
-            quality: 92,
-            maxWidth: 1080,
-            maxHeight: 1920,
-          );
-          imageBytes = compressedBytes ?? await media.readAsBytes();
-          fileExt = media.name.split('.').last.toLowerCase();
-          debugPrint('Web story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
-        } else {
-          // Mobile: XFile üzerinden sıkıştır
-          final compressedBytes = await ImageCompressionHelper.compressXFile(
-            xFile: media,
-            quality: 92,
-            maxWidth: 1080,
-            maxHeight: 1920,
-          );
-          imageBytes = compressedBytes ?? await media.readAsBytes();
-          fileExt = media.name.split('.').last.toLowerCase();
-          debugPrint('Mobile story boyutu: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
-        }
+        // Fotoğrafı ORİJİNAL boyutuyla yükle (yeniden boyutlandırma/sıkıştırma yok).
+        // Kullanıcı isteği: görsel hangi boyuttaysa olduğu gibi paylaşılsın.
+        debugPrint('Story fotoğrafı orijinal boyutuyla işleniyor...');
+
+        final Uint8List imageBytes = await media.readAsBytes();
+        final String fileExt = media.name.split('.').last.toLowerCase();
+        debugPrint('Story boyutu (orijinal): ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
 
         // Fotoğrafı yükle
         final fileName = 'story_${userId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
@@ -2123,6 +2172,38 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
   XFile? _selectedMedia;
   String? _mediaType; // 'image' veya 'video'
   bool _isUploading = false;
+  VideoPlayerController? _videoController;
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+
+  /// Seçilen video için oynatıcıyı hazırla (gerçek önizleme).
+  Future<void> _initVideoController(XFile file) async {
+    // Önceki controller'ı temizle
+    final old = _videoController;
+    _videoController = null;
+    if (mounted) setState(() {});
+    await old?.dispose();
+
+    try {
+      final controller = kIsWeb
+          ? VideoPlayerController.networkUrl(Uri.parse(file.path))
+          : VideoPlayerController.file(File(file.path));
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() => _videoController = controller);
+    } catch (e) {
+      debugPrint('Video önizleme başlatılamadı: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2519,25 +2600,7 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           if (_mediaType == 'video') {
-            // Web'de video önizlemesi için placeholder
-            return Container(
-              color: Colors.black87,
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.videocam, color: Colors.white70, size: 64),
-                  SizedBox(height: 16),
-                  Text(
-                    'Video Önizleme',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            );
+            return _buildVideoPreview();
           }
           return Image.memory(
             snapshot.data!,
@@ -2553,29 +2616,82 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
 
   Widget _buildMobilePreview() {
     if (_mediaType == 'video') {
-      // Video için küçük resim
-      return Container(
-        color: Colors.black87,
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.play_circle_outline, color: Colors.white70, size: 80),
-            SizedBox(height: 16),
-            Text(
-              'Video Önizleme',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      );
+      return _buildVideoPreview();
     }
     return Image.file(
       File(_selectedMedia!.path),
       fit: BoxFit.contain,
+    );
+  }
+
+  /// Seçilen videonun gerçek oynatılan önizlemesi (dokununca duraklat/oynat).
+  Widget _buildVideoPreview() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
+      return Container(
+        color: Colors.black87,
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.white70),
+              SizedBox(height: 16),
+              Text(
+                'Video hazırlanıyor...',
+                style: TextStyle(color: Colors.white70, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          controller.value.isPlaying ? controller.pause() : controller.play();
+        });
+      },
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Center(
+              child: AspectRatio(
+                aspectRatio: controller.value.aspectRatio,
+                child: VideoPlayer(controller),
+              ),
+            ),
+            // İlerleme çubuğu
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: VideoProgressIndicator(
+                controller,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: Colors.white,
+                  bufferedColor: Colors.white30,
+                  backgroundColor: Colors.white12,
+                ),
+              ),
+            ),
+            // Duraklatıldığında oynat ikonu
+            if (!controller.value.isPlaying)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(12),
+                child: const Icon(Icons.play_arrow,
+                    color: Colors.white, size: 48),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2662,11 +2778,9 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
         }
       }
       
+      // Orijinal boyut korunsun: maxWidth/maxHeight/imageQuality verilmiyor.
       final XFile? image = await widget.imagePicker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1080,
-        maxHeight: 1920,
-        imageQuality: 92,
       );
       if (image != null) {
         setState(() {
@@ -2702,11 +2816,9 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
         }
       }
       
+      // Orijinal boyut korunsun: maxWidth/maxHeight/imageQuality verilmiyor.
       final XFile? photo = await widget.imagePicker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 1080,
-        maxHeight: 1920,
-        imageQuality: 92,
       );
       if (photo != null) {
         setState(() {
@@ -2750,6 +2862,8 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
           _selectedMedia = video;
           _mediaType = 'video';
         });
+        // Gerçek video önizlemesini başlat
+        _initVideoController(video);
       }
     } catch (e) {
       debugPrint('Video seçme hatası: $e');
@@ -2762,6 +2876,9 @@ class _InstagramStoryCreatorState extends State<_InstagramStoryCreator> {
   }
 
   void _clearSelection() {
+    final old = _videoController;
+    _videoController = null;
+    old?.dispose();
     setState(() {
       _selectedMedia = null;
       _mediaType = null;

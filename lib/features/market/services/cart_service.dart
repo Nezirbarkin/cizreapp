@@ -236,17 +236,36 @@ class CartService {
   Future<CartSummary> getCartSummary(String userId, {double? deliveryFee}) async {
     try {
       final items = await getCart(userId);
-      
-      // Teslimat ücretini al
-      double fee = deliveryFee ?? 15.0;
-      if (deliveryFee == null && items.isNotEmpty) {
-        // Dükkanın teslimat ücretini al
-        final shopId = items.first.shopId;
-        if (shopId != null) {
-          fee = await getShopDeliveryFee(shopId);
+
+      // Teslimat ücreti: cart_provider.getDeliveryFee() ile TUTARLI olmalı.
+      // ÖNEMLI (2026-07-03 fix): Eskiden yalnızca items.first.shopId'nin HAM
+      // delivery_fee'si alınıyor, ücretsiz teslimat eşiği (free_delivery_min_amount)
+      // UYGULANMIYOR ve çok-dükkanlı sepette diğer dükkanlar sayılmıyordu. Bu
+      // yüzden sepet ekranı (ücretsiz gösterir) ile sipariş onayı (ücret ekler)
+      // farklı tutar gösteriyordu. Artık dükkan bazında eşik uygulanıp toplanıyor.
+      double fee;
+      if (deliveryFee != null) {
+        fee = deliveryFee;
+      } else {
+        fee = 0;
+        final grouped = <String, List<CartItem>>{};
+        for (final item in items) {
+          final sid = item.shopId;
+          if (sid == null) continue;
+          grouped.putIfAbsent(sid, () => []).add(item);
+        }
+        for (final entry in grouped.entries) {
+          final info = await getShopDeliveryInfo(entry.key);
+          final shopTotal =
+              entry.value.fold<double>(0, (s, it) => s + it.itemTotal);
+          fee += calculateDeliveryFee(
+            shopTotal,
+            info['delivery_fee'] ?? 15.0,
+            info['free_delivery_min_amount'] ?? 0.0,
+          );
         }
       }
-      
+
       return CartSummary.fromItems(items, deliveryFee: fee);
     } catch (e) {
       throw Exception('Sepet özeti alınırken hata: $e');

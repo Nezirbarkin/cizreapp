@@ -1,6 +1,6 @@
 # PROJE_HAVIZA
 
-Son güncelleme: 2026-06-29  
+Son güncelleme: 2026-07-04
 Supabase Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Şema Özeti
@@ -109,7 +109,7 @@ Supabase Project Ref: `xsbukxkgtmdyickknqzf`
 
 ### Sistem / Ayarlar / OTP
 - `app_settings`
-- `app_about_settings`
+- `app_about_settings` (animasyon: animation_primary_duration_ms / animation_secondary_duration_ms / animation_transition_duration_ms — admin panelden ayarlanır, migration: 20260702000000_app_animation_settings.sql)
 - `system_settings`
 - `api_settings`
 - `email_settings`
@@ -220,3 +220,14 @@ Her şema değişikliğinden sonra bu dosyayı güncelle:
 - Yeni policy eklendi mi?
 - Yeni edge function deploy edildi mi?
 - Deprecated alanlar var mı?
+
+## 10) Bilinen Güvenlik Öğrenmeleri (2026-07-02)
+
+### 10.1 `is_admin()` EXECUTE Yetkisi — 42501 Hatası
+`CREATE OR REPLACE FUNCTION ... SECURITY DEFINER` sonrası GRANT'ler korunmaz. `is_admin()` fonksiyonu RLS policy'lerde admin kontrolü için kullanılıyor. `authenticated` rolü için `GRANT EXECUTE` verilmezse policy içinden çağrıda `permission denied for function is_admin` (Postgres 42501) alınır. Çözüm: `GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated; REVOKE ... FROM anon;`. Detay: PROJE_HAVIZA_RLS.md § 4.1.1.
+
+### 10.2 orders_policy + courier_assignments Recursion (42P17)
+orders policy içinde `courier_assignments` subquery ve courier_assignments policy içinde orders subquery karşılıklı recursion oluşturur. Çözüm: orders tablosuna `assigned_courier_id` denormalize kolonu eklenir, trigger ile senkronize edilir, policy'de basit kolon karşılaştırması kullanılır. Detay: PROJE_HAVIZA_RLS.md § 4.1.4.
+
+### 10.3 orders_policy'de `is_admin()` Helper Yerine Subquery
+orders policy'de admin kontrolü için `is_admin()` helper fonksiyonu kullanılmamalıdır. Doğrudan `EXISTS(SELECT 1 FROM profiles WHERE id=(SELECT auth.uid()) AND role='admin')` subquery tercih edilir. Detay: PROJE_HAVIZA_RLS.md § 4.1.3.

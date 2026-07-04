@@ -27,6 +27,8 @@ import '../../../core/widgets/animated_app_title.dart';
 import '../../wallet/screens/wallet_screen.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
+import '../../chat/services/presence_service.dart';
+import '../../../core/services/app_about_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -88,12 +90,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         // Uygulama ön plana geldi - çevrimiçi yap
         _privacyService.onAppResumed();
+        PresenceService.instance.resumeGlobal();
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.inactive:
         // Uygulama arka plana geçti - çevrimdışı yap
         _privacyService.onAppPaused();
+        PresenceService.instance.pauseGlobal();
         break;
       default:
         break;
@@ -452,6 +456,13 @@ class ProductsScreen extends StatefulWidget {
 
 class _ProductsScreenState extends State<ProductsScreen> {
   final ProductService _productService = ProductService();
+  final _aboutService = AppAboutService();
+
+  // Animasyon ayarları
+  String _appSlogan = 'Her an her kapıda!';
+  int _animationPrimaryDurationMs = 6000;
+  int _animationSecondaryDurationMs = 3000;
+  int _animationTransitionDurationMs = 700;
   final ShopService _shopService = ShopService();
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
@@ -474,12 +485,29 @@ class _ProductsScreenState extends State<ProductsScreen> {
     super.initState();
     _loadProducts();
     _loadGlobalOrdersEnabled();
+    _loadAnimationSettings();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cartProvider = context.read<CartProvider>();
       if (cartProvider.userId.isNotEmpty) {
         cartProvider.loadCart();
       }
     });
+  }
+
+  Future<void> _loadAnimationSettings() async {
+    try {
+      final appAbout = await _aboutService.getAboutSettings();
+      if (appAbout != null && mounted) {
+        setState(() {
+          _appSlogan = appAbout.appSlogan;
+          _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
+          _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
+          _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+        });
+      }
+    } catch (e) {
+      debugPrint('Animasyon ayarları yüklenirken hata: $e');
+    }
   }
 
   Future<void> _loadGlobalOrdersEnabled() async {
@@ -691,8 +719,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Expanded(
-                  child: AnimatedAppTitle(
+                Expanded(
+                  child: AnimatedAppTitle.fromSettings(
+                    primaryText: 'CizreApp',
+                    secondaryText: _appSlogan,
+                    primaryDurationMs: _animationPrimaryDurationMs,
+                    secondaryDurationMs: _animationSecondaryDurationMs,
+                    transitionDurationMs: _animationTransitionDurationMs,
                     primaryFontSize: 20,
                     secondaryFontSize: 12,
                   ),

@@ -1472,7 +1472,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                               'type': 'admin_notification',
                               'title': title,
                               'content': body,
-                              'data': {
+                              // ÖNEMLI (2026-07-03 fix): kolon adı 'metadata' (JSONB).
+                              // Eskiden 'data' yazılıyordu — böyle bir kolon YOK →
+                              // PGRST204 hatası → INSERT sessizce başarısız → bildirim
+                              // uygulama içi listede görünmüyordu. Sadece push gidiyordu.
+                              'metadata': {
                                 'icon_type': selectedIconType,
                                 'target': 'personal',
                               },

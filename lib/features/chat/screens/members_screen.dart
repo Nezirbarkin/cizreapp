@@ -1,8 +1,10 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/privacy_service.dart';
+import '../services/presence_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 
 class MembersScreen extends StatefulWidget {
@@ -19,11 +21,26 @@ class _MembersScreenState extends State<MembersScreen> {
   String _searchQuery = '';
   Set<String> _followingIds = {};
   Map<String, bool> _isLoadingFollow = {};
+  // Canlı çevrimiçi kullanıcı id'leri (presence). chat_list_screen ile aynı desen.
+  Set<String> _onlineIds = <String>{};
+  StreamSubscription<List<String>>? _onlineSub;
 
   @override
   void initState() {
     super.initState();
     _loadUsers();
+    _onlineSub = PresenceService.instance.onlineUsersStream.listen((ids) {
+      if (!mounted) return;
+      setState(() => _onlineIds = ids.toSet());
+    }, onError: (e) {
+      debugPrint('members online presence stream error: $e');
+    });
+  }
+
+  @override
+  void dispose() {
+    _onlineSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUsers() async {
@@ -268,7 +285,9 @@ class _MembersScreenState extends State<MembersScreen> {
     final fullName = user['full_name'] as String? ?? 'Kullanıcı';
     final username = user['username'] as String?;
     final bio = user['bio'] as String?;
-    final isActive = user['_isActive'] as bool? ?? false;
+    // Canlı presence VEYA yükleme anındaki aktiflik → çevrimiçi say.
+    final isActive =
+        _onlineIds.contains(userId) || (user['_isActive'] as bool? ?? false);
     final isFollowing = _followingIds.contains(userId);
     final isFollowLoading = _isLoadingFollow[userId] == true;
 

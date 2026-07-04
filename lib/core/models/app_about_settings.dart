@@ -46,6 +46,11 @@ class AppAboutSettings {
   // API Keys
   final String? googleMapsApiKey;
   
+  // Animasyon Ayarları
+  final int animationPrimaryDurationMs;
+  final int animationSecondaryDurationMs;
+  final int animationTransitionDurationMs;
+  
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -84,6 +89,9 @@ class AppAboutSettings {
     this.startupAnnouncementButtonText = 'Tamam',
     this.startupAnnouncementUpdatedAt,
     this.googleMapsApiKey,
+    this.animationPrimaryDurationMs = 6000,
+    this.animationSecondaryDurationMs = 3000,
+    this.animationTransitionDurationMs = 700,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -136,6 +144,9 @@ class AppAboutSettings {
           ? DateTime.parse(json['startup_announcement_updated_at'] as String)
           : null,
       googleMapsApiKey: json['google_maps_api_key'] as String?,
+      animationPrimaryDurationMs: json['animation_primary_duration_ms'] as int? ?? 6000,
+      animationSecondaryDurationMs: json['animation_secondary_duration_ms'] as int? ?? 3000,
+      animationTransitionDurationMs: json['animation_transition_duration_ms'] as int? ?? 700,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -172,6 +183,9 @@ class AppAboutSettings {
       'startup_announcement_button_text': startupAnnouncementButtonText,
       'startup_announcement_updated_at': startupAnnouncementUpdatedAt?.toIso8601String(),
       'google_maps_api_key': googleMapsApiKey,
+      'animation_primary_duration_ms': animationPrimaryDurationMs,
+      'animation_secondary_duration_ms': animationSecondaryDurationMs,
+      'animation_transition_duration_ms': animationTransitionDurationMs,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -211,6 +225,9 @@ class AppAboutSettings {
     String? companyBankName,
     String? companyIban,
     String? companyAccountHolder,
+    int? animationPrimaryDurationMs,
+    int? animationSecondaryDurationMs,
+    int? animationTransitionDurationMs,
   }) {
     return AppAboutSettings(
       id: id,
@@ -247,6 +264,9 @@ class AppAboutSettings {
       companyBankName: companyBankName ?? this.companyBankName,
       companyIban: companyIban ?? this.companyIban,
       companyAccountHolder: companyAccountHolder ?? this.companyAccountHolder,
+      animationPrimaryDurationMs: animationPrimaryDurationMs ?? this.animationPrimaryDurationMs,
+      animationSecondaryDurationMs: animationSecondaryDurationMs ?? this.animationSecondaryDurationMs,
+      animationTransitionDurationMs: animationTransitionDurationMs ?? this.animationTransitionDurationMs,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

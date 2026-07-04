@@ -58,43 +58,47 @@ class Message {
   }
 
   factory Message.fromMap(Map<String, dynamic> map) {
-    String content = map['content'] as String;
+    final content = (map['content'] as String?) ?? '';
+
     String? sharedPostId;
     String? sharedPostContent;
     String? sharedPostImageUrl;
     String? sharedPostAuthorName;
-    
+
     // Content'in gönderi paylaşımı olup olmadığını kontrol et
     if (content.startsWith('SHARED_POST:')) {
       try {
         final jsonStr = content.substring('SHARED_POST:'.length);
-        print('🔍 DEBUG Message.fromMap - JSON string: $jsonStr');
-        
         final postData = json.decode(jsonStr) as Map<String, dynamic>;
         sharedPostId = postData['postId'] as String?;
         sharedPostContent = postData['content'] as String?;
         sharedPostImageUrl = postData['imageUrl'] as String?;
         sharedPostAuthorName = postData['authorName'] as String?;
-        
-        print('🔍 DEBUG Message.fromMap - Parsed: postId=$sharedPostId, content=$sharedPostContent');
-        
+
         // Gösterilecek içerik - paylaşılan gönderi için daha temiz bir metin
-        content = '📎 Gönderi paylaşıldı';
       } catch (e, stack) {
         // Parse hatası - normal mesaj olarak devam et
-        print('❌ ERROR Message.fromMap - Parse failed: $e');
-        print('Stack: $stack');
+        print('❌ ERROR Message.fromMap - SharedPost parse failed: $e\n$stack');
       }
     }
-    
+
+    final createdAtStr = map['created_at'] as String?;
+    if (createdAtStr == null) {
+      throw FormatException('created_at missing for message ${map['id']}');
+    }
+
+    final createdAt = DateTime.parse(createdAtStr);
+    final updatedAtStr = map['updated_at'] as String?;
+    final updatedAt = updatedAtStr != null ? DateTime.parse(updatedAtStr) : createdAt;
+
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
       senderId: map['sender_id'] as String,
       content: content,
-      isRead: map['is_read'] as bool? ?? false,
-      createdAt: DateTime.parse(map['created_at'] as String),
-      updatedAt: DateTime.parse(map['updated_at'] as String),
+      isRead: (map['is_read'] as bool?) ?? false,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
       replyToId: map['reply_to_id'] as String?,
       replyToContent: map['reply_to_content'] as String?,
       replyToSenderName: map['reply_to_sender_name'] as String?,

@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
@@ -30,16 +31,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  List<Message> _messages = [];
+
+  // Id-bazlı Map — duplicate önler, optimistic+DB merge'i yönetir
+  final Map<String, Message> _messagesById = {};
+  // UI'daki gösterim sırası (insert order)
+  final List<String> _orderedIds = [];
+  // Kompozit-anahtar (sender|content|createdAt) -> gösterilen mesajın id'si.
+  // Mailbox modelinde aynı mesaj iki conv'da farklı id ile durur; bu index
+  // canlı akışta ikinci kopyanın tekrar eklenmesini önler.
+  final Map<String, String> _keyToId = {};
+
   bool _isLoading = true;
   bool _isSending = false;
   bool _isInitialLoad = true; // İlk yükleme flag'i - jumpTo için
-  RealtimeChannel? _messagesChannel;
-  final Map<String, bool> _pendingMessages = {}; // Temp ID -> bool (isFailed)
-  String? _currentUserId; // Cache current user ID
-  bool _isAtBottom = true; // Kullanıcı en altta mı?
+  String? _currentUserId;
+  bool _isAtBottom = true;
   DateTime? _lastReadTime; // Son okundu işaretleme zamanı (debounce)
-  
+
   // Yanıt özelliği için
   Message? _replyToMessage;
   final FocusNode _messageFocusNode = FocusNode();
@@ -49,12 +57,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    _markSenderMessagesAsRead();
     _loadMessages();
     _subscribeToMessages();
     // Mesajları okundu olarak işaretle (bana gelen mesajlar)
     _chatService.markMessagesAsRead(widget.conversationId);
-    
+
     // Scroll pozisyonunu takip et
     _scrollController.addListener(_onScroll);
   }
@@ -72,14 +79,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _chatService.markMessagesAsRead(widget.conversationId);
-      _chatService.markSenderMessagesAsRead(widget.conversationId);
     }
   }
 
-  /// Karşı tarafın gönderdiği mesajları okundu olarak işaretle
-  /// (Benim mesajlarımın okundu olduğunu göstermek için)
+  /// Bu metod artık gerekli değil (kaldırıldı)
+  /// Okundu bilgisi sadece mesajı ALAN kişi tarafından işaretlenir
   Future<void> _markSenderMessagesAsRead() async {
-    await _chatService.markSenderMessagesAsRead(widget.conversationId);
+    // Boş - artık çağrılmıyor
+    debugPrint('_markSenderMessagesAsRead: DEPRECATED');
   }
 
   @override
@@ -89,7 +96,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
-    _messagesChannel?.unsubscribe();
+    _insertSub?.cancel();
+    _updateSub?.cancel();
+    _deleteSub?.cancel();
     super.dispose();
   }
   
@@ -110,54 +119,127 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   Future<void> _loadMessages() async {
     setState(() => _isLoading = true);
-    final messages = await _chatService.getMessages(widget.conversationId);
-    if (mounted) {
-      setState(() {
-        _messages = messages;
-        _isLoading = false;
-        _isInitialLoad = true; // İlk yükleme - jumpTo kullanılacak
-      });
-      _scrollToBottom();
+    try {
+      final messages = await _chatService.getMessages(widget.conversationId);
+      _messagesById.clear();
+      _orderedIds.clear();
+      _keyToId.clear();
+      for (final m in messages) {
+        _messagesById[m.id] = m;
+        _orderedIds.add(m.id);
+        _keyToId[_dupKey(m)] = m.id;
+      }
+      _isInitialLoad = true;
+    } catch (e) {
+      debugPrint('loadMessages error: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _scrollToBottom();
+      }
     }
   }
 
+  StreamSubscription<Message>? _insertSub;
+  StreamSubscription<Message>? _updateSub;
+  StreamSubscription<String>? _deleteSub;
+
+  /// Yeni olay-bazlı realtime subscription. DB'yi yeniden çekmez, sadece
+  /// değişen mesajı listeye işler.
   void _subscribeToMessages() {
-    _messagesChannel = _chatService.subscribeToMessagesChannel(
-      widget.conversationId,
-      (messages) {
-        if (mounted) {
-          // DÜZELTME: Önceki kontrol sadece mesaj sayısını ve son ID'yi kontrol ediyordu,
-          // bu yüzden is_read değişse bile UI güncellenmiyordu. Artık içerik (ID + is_read)
-          // bazında karşılaştırma yapıyoruz.
-          bool hasChanged = _messages.length != messages.length;
-          if (!hasChanged) {
-            // Her mesajı karşılaştır: ID ve is_read
-            for (int i = 0; i < _messages.length && i < messages.length; i++) {
-              if (_messages[i].id != messages[i].id ||
-                  _messages[i].isRead != messages[i].isRead) {
-                hasChanged = true;
-                break;
-              }
-            }
-          }
-          if (!hasChanged) return; // Değişiklik yoksa gereksiz rebuild'i önle
-          
-          setState(() {
-            _messages = messages;
-          });
-          // Sadece kullanıcı en alttaysa scroll yap
-          if (_isAtBottom) {
-            _scrollToBottom();
-          }
-          // Okundu işaretle - debounce ile (her değişiklikte değil)
-          final now = DateTime.now();
-          if (_lastReadTime == null || now.difference(_lastReadTime!).inSeconds >= 2) {
-            _lastReadTime = now;
-            _chatService.markMessagesAsRead(widget.conversationId);
-          }
-        }
-      },
-    );
+    // INSERT: yeni mesaj geldi
+    _insertSub = _chatService
+        .streamNewMessages(widget.conversationId)
+        .listen((msg) {
+      if (!mounted) return;
+      _addOrMerge(msg);
+    }, onError: (e, st) {
+      debugPrint('insert subscribe error: $e');
+    });
+
+    // UPDATE: is_read veya content güncellendi
+    _updateSub = _chatService
+        .streamMessageUpdates(widget.conversationId)
+        .listen((msg) {
+      if (!mounted) return;
+      _addOrMerge(msg);
+    }, onError: (e, st) {
+      debugPrint('update subscribe error: $e');
+    });
+
+    // DELETE: mesaj silindi
+    _deleteSub = _chatService
+        .streamDeletedMessages(widget.conversationId)
+        .listen((deletedId) {
+      if (!mounted) return;
+      final removed = _messagesById.remove(deletedId);
+      if (removed != null) {
+        _orderedIds.remove(deletedId);
+        _keyToId.remove(_dupKey(removed));
+        setState(() {});
+      }
+    }, onError: (e, st) {
+      debugPrint('delete subscribe error: $e');
+    });
+  }
+
+  /// Mailbox modelinde aynı mantıksal mesaj iki conversation'da farklı id ile
+  /// durur (sender|content|createdAt aynıdır). Bu anahtar iki kopyayı eşler.
+  String _dupKey(Message m) =>
+      '${m.senderId}|${m.content}|${m.createdAt.toIso8601String()}';
+
+  /// Kompozit-anahtar bazlı merge — INSERT ve UPDATE için kullanılır.
+  /// Mevcut mesaj varsa günceller, yoksa ekler. İki-kopya durumunda ikinci
+  /// kopyanın tekrar eklenmesini engeller.
+  void _addOrMerge(Message m) {
+    // Realtime INSERT'ten gelen DB mesajı: temp ID'leri atla
+    if (m.id.startsWith('temp_')) return;
+
+    final bool isMine = m.senderId == _currentUserId;
+
+    // ÖNEMLI: Gönderenin KENDI conv kopyasında is_read=true anlamsızdır
+    // (mesajı gönderen zaten "okumuştur"), karşı tarafın okuyup okumadığını
+    // göstermez. Bu yüzden kendi mesajımın is_read=true'sunu YOK SAY → 'sent'.
+    // Gerçek "okundu" bilgisi partner kopyasından / reopen'da getMessages'ten gelir.
+    Message incoming = (isMine && m.isRead) ? m.copyWith(isRead: false) : m;
+    final key = _dupKey(incoming);
+
+    // Aynı id zaten var mı? (RPC dönüşü + realtime INSERT aynı satır)
+    final existing = _messagesById[incoming.id];
+    if (existing != null) {
+      final mergedRead =
+          isMine ? (existing.isRead || incoming.isRead) : incoming.isRead;
+      _messagesById[incoming.id] = incoming.copyWith(isRead: mergedRead);
+      if (mounted) setState(() {});
+      return;
+    }
+
+    // Aynı mantıksal mesaj FARKLI id ile zaten gösteriliyor mu? (iki-kopya)
+    final twinId = _keyToId[key];
+    if (twinId != null && _messagesById.containsKey(twinId)) {
+      final twin = _messagesById[twinId]!;
+      if (isMine && incoming.isRead && !twin.isRead) {
+        _messagesById[twinId] = twin.copyWith(isRead: true);
+        if (mounted) setState(() {});
+      }
+      return; // İkinci kopyayı listeye EKLEME
+    }
+
+    _messagesById[incoming.id] = incoming;
+    _keyToId[key] = incoming.id;
+    _orderedIds.add(incoming.id);
+
+    if (mounted) setState(() {});
+
+    // Sadece kullanıcı en alttaysa scroll
+    if (_isAtBottom) _scrollToBottom();
+
+    // Debounced okundu işaretleme
+    final now = DateTime.now();
+    if (_lastReadTime == null || now.difference(_lastReadTime!).inSeconds >= 2) {
+      _lastReadTime = now;
+      _chatService.markMessagesAsRead(widget.conversationId);
+    }
   }
 
   void _scrollToBottom() {
@@ -200,28 +282,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         ? 'Sen'
         : widget.otherUserName;
 
-    // Optimistic: Geçici mesaj ekle
-    final tempMessage = Message(
-      id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
-      conversationId: widget.conversationId,
-      senderId: _currentUserId!,
-      content: content,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      isSending: true,
-      replyToId: replyToId,
-      replyToContent: replyToContent,
-      replyToSenderName: replyToSenderName,
-    );
-
-    setState(() {
-      _messages.add(tempMessage);
-      _pendingMessages[tempMessage.id] = false; // Failed değil
-      _replyToMessage = null; // Yanıtı temizle
-    });
-    _scrollToBottom();
-
-    // Mesajı gönder
+    // Mesajı gönder (RPC içinde hem gönderen hem alıcı conversation'ına ekleniyor)
     final message = await _chatService.sendMessage(
       conversationId: widget.conversationId,
       content: content,
@@ -230,34 +291,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       replyToSenderName: replyToSenderName,
     );
 
-    if (mounted) {
-      setState(() {
-        _isSending = false;
-        
-        if (message != null) {
-          // Temp mesajı gerçek mesajla değiştir
-          final index = _messages.indexWhere((m) => m.id == tempMessage.id);
-          if (index != -1) {
-            _messages[index] = message;
-          }
-          _pendingMessages.remove(tempMessage.id);
-        } else {
-          // Hata durumunda temp mesajı failed yap
-          final index = _messages.indexWhere((m) => m.id == tempMessage.id);
-          if (index != -1) {
-            _messages[index] = tempMessage.copyWith(isFailed: true, isSending: false);
-            _pendingMessages[tempMessage.id] = true;
-          }
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Mesaj gönderilemedi. İnternet bağlantınızı kontrol edin.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      });
+    _replyToMessage = null; // Yanıtı temizle
+
+    if (!mounted) return;
+    setState(() => _isSending = false);
+
+    if (message != null) {
+      // RPC'den dönen mesajı merge et
+      // Realtime subscription zaten aynı mesajı getirecek,
+      // ama _addOrMerge ID bazlı kontrol yapıyor (duplicate önleniyor)
+      _addOrMerge(message);
+    } else {
+      // Hata durumunda kullanıcıya bilgi ver
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mesaj gönderilemedi. İnternet bağlantınızı kontrol edin.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
+
+    _scrollToBottom();
   }
 
   @override
@@ -322,7 +376,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
+                : _orderedIds.isEmpty
                     ? _buildEmptyState()
                     : _buildOptimizedMessageList(),
           ),
@@ -404,24 +458,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     );
   }
 
-  /// Optimizasyonlu mesaj listesi - gereksiz rebuild'leri önler
+  /// Optimizasyonlu mesaj listesi - id-bazlı Map'ten sıralı listeye geçer
   Widget _buildOptimizedMessageList() {
+    // orderedIds üzerinden güvenli erişim
+    final orderedMessages = _orderedIds
+        .map((id) => _messagesById[id])
+        .whereType<Message>()
+        .toList();
+
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      itemCount: _messages.length,
-      // PERFORMANCE: Cache ve repaint optimizasyonları
-      cacheExtent: 300.0, // Ekran dışında 300px cache
-      addRepaintBoundaries: true, // Gereksiz repaint'leri önle
-      addAutomaticKeepAlives: false, // Bellek tasarrufu için kapat
+      itemCount: orderedMessages.length,
+      cacheExtent: 300.0,
+      addRepaintBoundaries: true,
+      addAutomaticKeepAlives: false,
       itemBuilder: (context, index) {
-        // PERFORMANCE: RepaintBoundary ile sar
+        final msg = orderedMessages[index];
         return RepaintBoundary(
           child: Hero(
-            tag: 'msg_${_messages[index].id}',
+            tag: 'msg_${msg.id}',
             child: Material(
               type: MaterialType.transparency,
-              child: _buildMessageItem(index),
+              child: _buildMessageItem(orderedMessages, index),
             ),
           ),
         );
@@ -430,14 +489,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   /// Performans için mesaj öğesi oluşturucu
-  Widget _buildMessageItem(int index) {
-    final message = _messages[index];
+  Widget _buildMessageItem(List<Message> messages, int index) {
+    final message = messages[index];
     final isMe = message.senderId == _currentUserId;
     final showDate = index == 0 ||
-        !_isSameDay(
-          _messages[index - 1].createdAt,
-          message.createdAt,
-        );
+        !_isSameDay(messages[index - 1].createdAt, message.createdAt);
 
     return Column(
       children: [

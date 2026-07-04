@@ -3,6 +3,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7640,6 +7641,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 .from('shops')
                                 .update({
                               'admin_credit': 0.0,
+                              // Admin, satıcıya online alacağını ödedi → satıcı genel
+                              // bakıştaki "Online Kazanç" kartı da sıfırlanmalı (kafa
+                              // karışıklığını önlemek için). 2026-07-03.
+                              'online_payment_revenue': 0.0,
                               'total_paid': ((shop['total_paid'] as num?)?.toDouble() ?? 0.0) + adminCredit,
                             })
                                 .eq('id', shop['id']);
@@ -7704,6 +7709,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 .from('shops')
                                 .update({
                               'commission_debt': 0.0,
+                              // Admin, kapıda (nakit) siparişlerin komisyonunu satıcıdan
+                              // tahsil etti → satıcı genel bakıştaki "Kapıda Kazanç" kartı
+                              // da sıfırlanmalı (kafa karışıklığını önlemek için). 2026-07-03.
+                              'cash_payment_revenue': 0.0,
                               'total_collected_cash': ((shop['total_collected_cash'] as num?)?.toDouble() ?? 0.0) + commissionDebt,
                             })
                                 .eq('id', shop['id']);
@@ -12639,19 +12648,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .eq('id', payoutId)
           .single();
       
-      // Shop bilgisini al (owner_id, pending_payout ve total_paid için)
+      // Shop bilgisini al (owner_id ve bildirim için)
       final shop = await Supabase.instance.client
           .from('shops')
-          .select('owner_id, name, pending_payout, total_paid')
+          .select('owner_id, name')
           .eq('id', payoutRequest['shop_id'])
           .single();
-      
+
       final sellerId = shop['owner_id'];
       final shopName = shop['name'];
       final amount = (payoutRequest['total_amount'] as num).toDouble();
-      final shopId = payoutRequest['shop_id'] as String;
-      
-      // Ödeme isteğini güncelle
+
+      // Ödeme isteğini güncelle.
+      // ÖNEMLI (2026-07-03): shops tablosundaki total_paid / pending_payout /
+      // kazanç sıfırlama İŞLEMLERİ ARTIK BURADA YAPILMIYOR. Tek yetkili kaynak
+      // clear_shop_balance trigger'ı (payout_requests UPDATE). Eskiden Dart hem
+      // total_paid += amount yapıyor hem trigger tekrar ekliyordu → ÇİFT SAYIM.
+      // Trigger approved VEYA paid'e İLK geçişte bir kez settle eder (idempotent).
       await Supabase.instance.client
           .from('payout_requests')
           .update({
@@ -12659,29 +12672,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', payoutId);
-      
-      // Eğer onaylandıysa shops tablosunu güncelle
-      if (newStatus == 'approved') {
-        final currentPendingPayout = (shop['pending_payout'] as num?)?.toDouble() ?? 0.0;
-        final currentTotalPaid = (shop['total_paid'] as num?)?.toDouble() ?? 0.0;
-        
-        // pending_payout'tan düş, total_paid'e ekle
-        final newPendingPayout = currentPendingPayout - amount;
-        final newTotalPaid = currentTotalPaid + amount;
-        
-        await Supabase.instance.client
-            .from('shops')
-            .update({
-              'pending_payout': newPendingPayout < 0 ? 0 : newPendingPayout,
-              'total_paid': newTotalPaid,
-            })
-            .eq('id', shopId);
-        
-        debugPrint('✅ PAYOUT: Shops tablosu güncellendi');
-        debugPrint('  └─ pending_payout: $currentPendingPayout -> ${newPendingPayout < 0 ? 0 : newPendingPayout}');
-        debugPrint('  └─ total_paid: $currentTotalPaid -> $newTotalPaid');
-      }
-      
+
       // Satıcıya bildirim gönder
       final notificationMessage = newStatus == 'approved'
           ? '$shopName mağazanız için ${amount.toStringAsFixed(2)} TL tutarındaki ödeme isteğiniz onaylandı. Ödeme kısa süre içinde hesabınıza aktarılacaktır.'
@@ -16049,7 +16040,13 @@ class _BalanceLoadTabWidgetState extends State<_BalanceLoadTabWidget> {
             // Tutar
             TextField(
               controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*[.,]?\d*')),
+              ],
               decoration: InputDecoration(
                 labelText: 'Tutar (TL)',
                 hintText: 'Örn: 100 veya -50',

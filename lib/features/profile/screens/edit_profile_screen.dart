@@ -10,6 +10,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import '../../../core/utils/app_error_handler.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/profile_service.dart';
 import '../../../core/utils/image_compression_helper.dart';
@@ -525,7 +526,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text('Hata: ${e.toString()}'),
+                  child: Text(e.userMessage),
                 ),
               ],
             ),
@@ -733,8 +734,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     fit: BoxFit.cover,
                   )
                 : _coverXFile != null && !kIsWeb
-                    ? Image.network(
-                        _coverXFile!.path,
+                    ? Image.file(
+                        File(_coverXFile!.path),
                         width: double.infinity,
                         height: 180,
                         fit: BoxFit.cover,
@@ -871,8 +872,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       fit: BoxFit.cover,
                     )
                   : _avatarXFile != null && !kIsWeb
-                      ? Image.network(
-                          _avatarXFile!.path,
+                      ? Image.file(
+                          File(_avatarXFile!.path),
                           width: 120,
                           height: 120,
                           fit: BoxFit.cover,

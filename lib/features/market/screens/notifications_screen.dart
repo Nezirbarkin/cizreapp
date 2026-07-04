@@ -330,7 +330,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // Bildirim tipine göre yönlendir
     switch (notification.type) {
       case 'follow':
+      case 'new_follower': // DB trigger'ı takip bildirimini bu type ile oluşturuyor
       case 'follow_request':
+      case 'follow_accepted':
         // Takip/Takip isteği bildirimi - kullanıcı profiline git
         if (notification.actorId != null) {
           Navigator.push(
@@ -344,6 +346,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       case 'like':
+      case 'post_like':
+      case 'story_like':
         // Beğeni bildirimi - hikaye mi gönderi mi kontrol et
         if (notification.entityId != null) {
           try {
@@ -409,6 +413,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       case 'comment':
+      case 'post_comment':
         // Yorum bildirimi - gönderi detayına git
         if (notification.entityId != null) {
           try {
@@ -450,6 +455,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       case 'mention':
+      case 'post_mention':
+      case 'comment_mention':
         // Mention bildirimi - gönderi detayına git (yorumda bahsedildi)
         if (notification.entityId != null) {
           try {
@@ -512,8 +519,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
+      case 'order':
       case 'order_update':
       case 'order_status':
+      case 'order_confirmed':
+      case 'delivered':
         // Sipariş durumu güncellendi - sipariş detayına git
         if (notification.entityId != null && !notification.entityId!.startsWith('admin_icon:') && mounted) {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const OrdersScreen()));
@@ -527,9 +537,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
+      case 'admin_notification':
+        // Admin'in gönderdiği bildirim: yönlendirme YOK, başlık+içerik DETAY göster.
+        if (mounted) {
+          _showFullNotificationContent(notification);
+        }
+        break;
+
       default:
-        // entity_id admin_icon: ile başlıyorsa admin bildirimidir, sadece okundu işaretle
-        // Diğer bildirimler için sadece okundu işaretle
+        // entity_id admin_icon: ile başlıyorsa admin bildirimidir → detay göster.
+        // (type farklı gelmiş olsa bile admin bildirimini yakala.)
+        if ((notification.entityId?.startsWith('admin_icon:') ?? false) && mounted) {
+          _showFullNotificationContent(notification);
+        }
+        // Diğer bildirimler için sadece okundu işaretlendi.
         break;
     }
   }

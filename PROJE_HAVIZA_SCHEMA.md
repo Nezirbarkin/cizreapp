@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_SCHEMA
 
-Son güncelleme: 2026-06-29  
+Son güncelleme: 2026-07-02
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Şemalar
@@ -36,6 +36,11 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 ### 2.3 Mesajlaşma
 - 1-1: `conversations`, `messages`, `conversation_participants`
 - Grup: `groups`, `group_members`, `group_join_requests`, `group_messages`, `group_message_reads`, `group_message_read_receipts`
+- MAILBOX MODELİ (KRİTİK): Her kullanıcının kendi `conversations` satırı vardır (`user_id` = sahip, `other_user_id` = karşı taraf). Her mantıksal mesaj İKİ `messages` satırı olarak saklanır — her iki tarafın conv'unda birer kopya (aynı `sender_id|content|created_at`, farklı `id`). Detay: PROJE_HAVIZA_FUNCTIONS.md §2.6.
+  - `conversations.unread_count`: o conv sahibinin okumadığı (sender_id != user_id, is_read=false) mesaj sayısı. TEK YETKİLİ yöneticisi `message_insert_trigger` (satır-bazlı). Sohbet listesi rozeti + yüzen mesaj ikonu bu değerden beslenir. Yeniden hesap: 20260703_CHAT_UNREAD_RECOUNT.sql.
+  - `conversations.deleted_for_user_id`: soft-delete; yeni mesaj gelince ilgili taraf için NULL'a döner (sohbet geri gelir).
+  - `messages.is_read`: alıcı kopyasında karşı taraf okuyunca true olur (okundu tiki). Gönderenin kendi kopyasında hep true (anlamsız) — okundu bilgisi partner kopyasından okunur.
+  - `app_about_settings` banka/bakiye/animasyon kolonları: bkz. §2.10 notu + toJson eşleşmesi.
 
 ### 2.4 Ticaret / Katalog
 - `categories`, `shops`, `products`
@@ -68,6 +73,13 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `support_tickets`, `support_ticket_messages`, `faqs`
 - `user_reports`, `report_rate_limit`, `audit_log`
 - `app_settings`, `app_about_settings`, `system_settings`, `api_settings`, `email_settings`
+  - `app_about_settings` kolonları (Dart `AppAboutSettings.toJson()` ile birebir eşleşmeli):
+    temel: `app_name`, `app_slogan`, `app_description`, `app_features`, `contact_email`, `website_url`, `support_phone`, `terms_of_service`, `privacy_policy`, `version_number`, `build_number`, `social_media_links`
+    ödeme/iyzico: `online_payment_enabled`, `iyzico_api_key`, `iyzico_secret_key`, `iyzico_api_url`, `global_orders_enabled`
+    banka/bakiye: `company_bank_name`, `company_iban`, `company_account_holder`, `balance_enabled`, `card_topup_enabled`, `min_topup_amount`, `max_topup_amount`, `withdrawal_fee_percent`, `min_withdrawal_amount`
+    duyuru: `startup_announcement_enabled`, `startup_announcement_title`, `startup_announcement_message`, `startup_announcement_type`, `startup_announcement_button_text`, `startup_announcement_updated_at`
+    diğer: `google_maps_api_key`, `animation_primary_duration_ms`, `animation_secondary_duration_ms`, `animation_transition_duration_ms`
+    - NOT: 2026-07-03 tarihinde `company_account_holder` ve banka/bakiye kolonları eksikti (PGRST204). Migration: `20260703_ABOUT_SETTINGS_MISSING_COLUMNS.sql`
 - `verification_codes`, `registration_otps`, `password_reset_otps`, `account_deletion_codes`
 - `achievements`, `user_achievements`, `user_unlocked_achievements`
 - `push_notifications`
@@ -92,6 +104,9 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `atomic_finalize_payment_transaction(p_transaction_id, p_payment_id, p_paid_price, ...)` — iyzico callback sonrası atomik ödeme kaydı güncelleme (HATA-2 REGRESYON çözümü: SELECT FOR UPDATE + UPDATE WHERE status='pending' + GET DIAGNOSTICS, RETURNS TABLE)
 - `complete_online_payment(p_payment_transaction_id)` — iyzico callback sonrası sipariş oluşturma
 - `create_seller_earnings_on_delivery()` — sipariş teslim edildiğinde satıcı kazancı oluşturma (trigger)
+- `is_admin()` — admin kontrolü (SECURITY DEFINER, authenticated EXECUTE gerektirir; bkz. PROJE_HAVIZA_RLS.md § 4.1.1)
+- `auth_is_admin()` — admin kontrolü (STABLE, SECURITY DEFINER değil; bkz. PROJE_HAVIZA_RLS.md § 4.1.1)
+- `sync_assigned_courier_to_order()` — courier ataması yapıldığında orders.assigned_courier_id'yi senkronize eder (trigger, SECURITY DEFINER)
 
 ## 4) Sistem Şemaları (özet)
 

@@ -502,15 +502,25 @@ class ProfileService {
 
       if (updates.isEmpty) return false;
 
-      await _supabase
+      // .select() ile dönen satırı kontrol et: RLS bir UPDATE'i engellediğinde
+      // Supabase hata fırlatmaz, sadece 0 satır günceller. Bu yüzden dönen
+      // satır sayısını kontrol ederek "sessiz başarısızlığı" yakalıyoruz.
+      final result = await _supabase
           .from('profiles')
           .update(updates)
-          .eq('id', userId);
+          .eq('id', userId)
+          .select();
+
+      if (result.isEmpty) {
+        // Hiç satır güncellenmedi -> RLS engelledi veya satır bulunamadı
+        throw Exception(
+            'Profil güncellenemedi: yetki hatası veya kayıt bulunamadı.');
+      }
 
       return true;
     } catch (e) {
       debugPrint('Profil güncellenemedi: $e');
-      return false;
+      rethrow; // Gerçek hatayı ekrana taşı ki kullanıcı sessizce "başarılı" görmesin
     }
   }
 

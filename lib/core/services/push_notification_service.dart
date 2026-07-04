@@ -87,6 +87,23 @@ class PushNotificationService {
         debugPrint('ℹ️ Web platformunda FCM token atlanıyor');
       }
 
+      // 9. Auth durumunu dinle: kullanıcı giriş yapınca FCM token'ı kaydet.
+      // KRİTİK: initialize() çoğu zaman kullanıcı giriş yapmadan ÖNCE çalışır,
+      // bu yüzden _setupFCMToken içindeki _saveFCMToken userId=null olduğu için
+      // atlanır ve profiles.fcm_token NULL kalır -> push HİÇ gelmez.
+      // signedIn olayında token'ı tekrar kaydederek bunu garanti altına alıyoruz.
+      if (!kIsWeb) {
+        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+          final event = data.event;
+          if (event == AuthChangeEvent.signedIn ||
+              event == AuthChangeEvent.tokenRefreshed ||
+              event == AuthChangeEvent.userUpdated) {
+            debugPrint('🔐 Auth olayı ($event) - FCM token güncelleniyor');
+            updateTokenAfterLogin();
+          }
+        });
+      }
+
       debugPrint('✅ Firebase Messaging initialize edildi');
     } catch (e) {
       debugPrint('❌ Firebase Messaging initialize hatası: $e');

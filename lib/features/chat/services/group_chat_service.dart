@@ -1024,7 +1024,10 @@ class GroupChatService {
   /// Grup profil fotoğrafını Supabase Storage'a yükle
   Future<String?> uploadGroupImage(String groupId, Uint8List imageBytes, {bool isCover = false}) async {
     try {
-      final fileName = isCover ? 'cover_$groupId.jpg' : 'avatar_$groupId.jpg';
+      // Dosya adına zaman damgası eklenir; aksi halde public URL hiç değişmez
+      // ve istemciler (Flutter/tarayıcı) eski görseli cache'ten göstermeye devam eder.
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = isCover ? 'cover_${groupId}_$timestamp.jpg' : 'avatar_${groupId}_$timestamp.jpg';
       final storagePath = 'group_images/$fileName';
 
       // Dosyayı yükle

@@ -43,6 +43,11 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
   // API Key controller
   late TextEditingController _mapsApiKeyController;
 
+  // Animasyon süreleri (slider ile, int ms olarak)
+  int _animationPrimaryDurationMs = 6000;
+  int _animationSecondaryDurationMs = 3000;
+  int _animationTransitionDurationMs = 700;
+
   @override
   void initState() {
     super.initState();
@@ -133,6 +138,11 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     
     // Populate API Keys
     _mapsApiKeyController.text = settings.googleMapsApiKey ?? '';
+
+    // Populate animation settings
+    _animationPrimaryDurationMs = settings.animationPrimaryDurationMs;
+    _animationSecondaryDurationMs = settings.animationSecondaryDurationMs;
+    _animationTransitionDurationMs = settings.animationTransitionDurationMs;
   }
 
   Future<void> _saveSettings() async {
@@ -167,6 +177,9 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
         googleMapsApiKey: _mapsApiKeyController.text.trim().isEmpty
             ? null
             : _mapsApiKeyController.text.trim(),
+        animationPrimaryDurationMs: _animationPrimaryDurationMs.clamp(1000, 30000),
+        animationSecondaryDurationMs: _animationSecondaryDurationMs.clamp(500, 15000),
+        animationTransitionDurationMs: _animationTransitionDurationMs.clamp(100, 3000),
       );
 
       final success = await _aboutService.updateAboutSettings(updatedSettings);
@@ -250,24 +263,114 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
                       icon: Icons.app_settings_alt,
                       required: true,
                     ),
-                    _buildTextField(
-                      controller: _appSloganController,
-                      label: 'Slogan',
-                      icon: Icons.format_quote,
-                      required: true,
-                    ),
-                    _buildTextArea(
-                      controller: _appDescriptionController,
-                      label: 'Açıklama',
-                      icon: Icons.description,
-                      required: true,
-                      minLines: 3,
-                    ),
-                  ]),
+                        _buildTextArea(
+                          controller: _appDescriptionController,
+                          label: 'Açıklama',
+                          icon: Icons.description,
+                          required: true,
+                          minLines: 3,
+                        ),
+                      ]),
 
-                  const SizedBox(height: 24),
-
-                  _buildSectionHeader('Özellikler', Icons.star_outline),
+                      const SizedBox(height: 24),
+    
+                      _buildSectionHeader('Animasyon Ayarları', Icons.animation),
+                      const SizedBox(height: 12),
+                      _buildCard([
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.purple.shade400, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '"Her an her kapıda" sloganının ekranda kalma süresi ve geçiş animasyonu hızını ayarlayın.',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _buildDurationSlider(
+                          label: 'Başlık Süresi (CizreApp)',
+                          value: _animationPrimaryDurationMs,
+                          min: 1000,
+                          max: 30000,
+                          divisions: 29,
+                          unit: 'sn',
+                          onChanged: (v) => setState(() => _animationPrimaryDurationMs = v),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildDurationSlider(
+                          label: 'Slogan Süresi',
+                          value: _animationSecondaryDurationMs,
+                          min: 500,
+                          max: 15000,
+                          divisions: 29,
+                          unit: 'sn',
+                          onChanged: (v) => setState(() => _animationSecondaryDurationMs = v),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildDurationSlider(
+                          label: 'Geçiş Animasyonu Süresi',
+                          value: _animationTransitionDurationMs,
+                          min: 100,
+                          max: 3000,
+                          divisions: 29,
+                          unit: 'sn',
+                          onChanged: (v) => setState(() => _animationTransitionDurationMs = v),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _animationPrimaryDurationMs = 6000;
+                              _animationSecondaryDurationMs = 3000;
+                              _animationTransitionDurationMs = 700;
+                            });
+                          },
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Varsayılana Dön'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.purple,
+                            side: const BorderSide(color: Colors.purple),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // Slogan metni (animasyon bölümü içinde)
+                        _buildTextField(
+                          controller: _appSloganController,
+                          label: 'Slogan Metni ("Her an her kapıda")',
+                          icon: Icons.format_quote,
+                          required: true,
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.lightbulb_outline, color: Colors.amber.shade700, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Bu metin üst bardaki CizreApp başlığıyla dönüşümlü gösterilir.',
+                                  style: TextStyle(fontSize: 11, color: Colors.amber.shade800),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ]),
+    
+                      const SizedBox(height: 24),
+    
+                      _buildSectionHeader('Özellikler', Icons.star_outline),
                   const SizedBox(height: 12),
                   _buildCard([
                     ...List.generate(_featureControllers.length, (index) {
@@ -642,6 +745,58 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
             },
             icon: const Icon(Icons.delete_outline, color: Colors.red),
           ),
+      ],
+    );
+  }
+
+  /// Animasyon süresi için slider widget'ı.
+  /// Değeri milisaniye olarak gösterir ama kullanıcıya saniye cinsinden
+  /// (1 ondalık basamak) gösterir.
+  Widget _buildDurationSlider({
+    required String label,
+    required int value,
+    required int min,
+    required int max,
+    required int divisions,
+    required String unit,
+    required ValueChanged<int> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${(value / 1000).toStringAsFixed(1)} $unit',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        Slider(
+          value: value.toDouble(),
+          min: min.toDouble(),
+          max: max.toDouble(),
+          divisions: divisions,
+          activeColor: Colors.purple,
+          label: '${(value / 1000).toStringAsFixed(1)} $unit',
+          onChanged: (v) => onChanged(v.round()),
+        ),
       ],
     );
   }

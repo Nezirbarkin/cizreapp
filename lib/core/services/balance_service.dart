@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/balance_model.dart';
 import '../models/balance_transaction_model.dart';
+import '../utils/app_error_handler.dart';
 
 /// Bakiye Servisi
 /// Bakiye işlemleri için API çağrılarını yönetir
@@ -11,7 +12,7 @@ class BalanceService {
       return Supabase.instance.client;
     } catch (e) {
       debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -34,7 +35,7 @@ class BalanceService {
       return UserBalance.fromJson(response.data['balance']);
     } catch (e) {
       debugPrint('❌ BALANCE: Bakiye getirme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -72,7 +73,7 @@ class BalanceService {
       );
     } catch (e) {
       debugPrint('❌ BALANCE: Yükleme başlatma hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -120,7 +121,7 @@ class BalanceService {
       );
     } catch (e) {
       debugPrint('❌ BALANCE: Bakiye kullanma hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -166,7 +167,7 @@ class BalanceService {
       );
     } catch (e) {
       debugPrint('❌ BALANCE: İade hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -202,7 +203,7 @@ class BalanceService {
       return BalanceTransactionPage.fromJson(response.data);
     } catch (e) {
       debugPrint('❌ BALANCE: Geçmiş getirme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -225,7 +226,7 @@ class BalanceService {
       return SellerEarningsSummary.fromJson(response.data['earnings_summary']);
     } catch (e) {
       debugPrint('❌ BALANCE: Kazanç getirme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -284,7 +285,7 @@ class BalanceService {
       }
     } catch (e) {
       debugPrint('❌ BALANCE: Admin ekleme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 
@@ -314,7 +315,7 @@ class BalanceService {
       }
     } catch (e) {
       debugPrint('❌ BALANCE: Admin düşme hatası - $e');
-      rethrow;
+      throw FriendlyException.from(e);
     }
   }
 

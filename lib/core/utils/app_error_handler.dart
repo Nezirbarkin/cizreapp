@@ -68,6 +68,28 @@ class ServerException extends AppException {
   });
 }
 
+/// Kullanıcıya doğrudan gösterilebilen dostane hata.
+/// `toString()` sadece mesajı döndürür; böylece ekranlarda `Hata: $e`
+/// yazıldığında "Exception:" gibi teknik önekler görünmez.
+class FriendlyException implements Exception {
+  final String message;
+  final dynamic originalError;
+
+  const FriendlyException(this.message, {this.originalError});
+
+  /// Herhangi bir hatayı dostane bir mesaja çevirip FriendlyException üretir.
+  factory FriendlyException.from(dynamic error, [StackTrace? stackTrace]) {
+    if (error is FriendlyException) return error;
+    return FriendlyException(
+      AppErrorHandler.handleError(error, stackTrace),
+      originalError: error,
+    );
+  }
+
+  @override
+  String toString() => message;
+}
+
 /// Error Handler - Tüm hataları merkezi olarak yönetir
 class AppErrorHandler {
   static final AppErrorHandler _instance = AppErrorHandler._internal();
@@ -99,6 +121,34 @@ class AppErrorHandler {
         // "..." formatındaki hata mesajını birleştir
         actualError = parts.sublist(1).join(':').trim();
       }
+    }
+
+    // Oturum / yetki hataları (Edge Function 401, FunctionException, JWT expired)
+    // supabase_flutter functions.invoke non-2xx yanıtlarda FunctionException fırlatır.
+    final lowerError = errorString.toLowerCase();
+    if (errorString.contains('FunctionException') ||
+        errorString.contains('Geçersiz oturum') ||
+        errorString.contains('status: 401') ||
+        errorString.contains('statusCode: 401') ||
+        lowerError.contains('unauthorized') ||
+        lowerError.contains('jwt expired') ||
+        lowerError.contains('invalid token') ||
+        (error is AuthException)) {
+      const message =
+          'Oturumunuzun süresi dolmuş görünüyor. Lütfen tekrar giriş yapın.';
+      _logError(message, stackTrace, error: error);
+      return message;
+    }
+
+    // Yetki / erişim hataları (403, RLS)
+    if (errorString.contains('status: 403') ||
+        errorString.contains('statusCode: 403') ||
+        lowerError.contains('forbidden') ||
+        lowerError.contains('row-level security') ||
+        lowerError.contains('permission denied')) {
+      const message = 'Bu işlem için yetkiniz bulunmuyor.';
+      _logError(message, stackTrace, error: error);
+      return message;
     }
 
     // Socket exception veya Network unreachable
