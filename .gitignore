@@ -64,3 +64,14 @@ analyze_out*.txt
 android/.kotlin/
 DIAG_*.sql
 DEBUG_*.sql
+
+# Node (root-level scripts only, not a real package)
+/node_modules/
+
+# Ad-hoc debug/backup artifacts (should never be committed)
+tmpclaude-*
+*.7z
+lib*.zip
+pubspec_temp*.txt
+pubspec_new.txt
+profile_screen_temp.txt
