@@ -2,6 +2,7 @@
 
 // ignore_for_file: deprecated_member_use
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -2299,10 +2300,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             child: product['image_url'] != null
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(
-                                      product['image_url'],
+                                    child: CachedNetworkImage(
+                                      imageUrl: product['image_url'],
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
+                                      errorWidget: (context, url, error) {
                                         return const Icon(Icons.image, size: 30, color: Colors.grey);
                                       },
                                     ),
@@ -2585,10 +2586,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     child: imageUrl != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              imageUrl,
+                            child: CachedNetworkImage(
+                              imageUrl: imageUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return Icon(iconData, color: color, size: 24);
                               },
                             ),
@@ -3488,10 +3489,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(10),
                                       child: imageUrl != null && imageUrl.isNotEmpty
-                                          ? Image.network(
-                                              imageUrl,
+                                          ? CachedNetworkImage(
+                                              imageUrl: imageUrl,
                                               fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Icon(Icons.image, size: 24, color: Colors.grey.shade400),
+                                              errorWidget: (_, __, ___) => Icon(Icons.image, size: 24, color: Colors.grey.shade400),
                                             )
                                           : Icon(Icons.shopping_bag, size: 24, color: Colors.grey.shade400),
                                     ),
@@ -8876,11 +8877,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       child: selectedImage != null
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                selectedImage!.path,
+                              child: CachedNetworkImage(
+                                imageUrl: selectedImage!.path,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorWidget: (context, url, error) {
                                   return const Center(
                                     child: Icon(Icons.error, size: 48, color: Colors.red),
                                   );
@@ -8890,11 +8891,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           : previewUrl != null && previewUrl!.isNotEmpty
                               ? ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    previewUrl!,
+                                  child: CachedNetworkImage(
+                                    imageUrl: previewUrl!,
                                     fit: BoxFit.cover,
                                     width: double.infinity,
-                                    errorBuilder: (context, error, stackTrace) {
+                                    errorWidget: (context, url, error) {
                                       return const Center(
                                         child: Column(
                                           mainAxisAlignment: MainAxisAlignment.center,

@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/payout_service.dart';
 import '../widgets/balance_status_card.dart';
@@ -979,13 +980,13 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: product['image_url'] != null
-                            ? Image.network(
-                                product['image_url'],
+                            ? CachedNetworkImage(
+                                imageUrl: product['image_url'],
                                 width: 56,
                                 height: 56,
                                 fit: BoxFit.cover,
                                 // ignore: unnecessary_underscores
-                                errorBuilder: (_, __, ___) => Container(
+                                errorWidget: (_, __, ___) => Container(
                                   width: 56,
                                   height: 56,
                                   color: Colors.grey.shade300,

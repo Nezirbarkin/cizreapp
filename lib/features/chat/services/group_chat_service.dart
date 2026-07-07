@@ -1247,22 +1247,19 @@ class GroupChatService {
       final actorName = profile['full_name'] as String? ?? 'Bilinmeyen';
       final actorAvatar = profile['avatar_url'] as String?;
 
-      // Her admin/moderator'a bildirim gönder
-      for (final admin in admins as List) {
-        final adminId = admin['user_id'] as String;
-        
-        // Kendine bildirim gönderme
-        if (adminId == _currentUserId) continue;
-
-        await _notificationService.createGroupJoinRequestNotification(
-          groupOwnerId: adminId,
-          actorId: _currentUserId!,
-          actorName: actorName,
-          actorAvatar: actorAvatar ?? '',
-          groupId: groupId,
-          groupName: groupName,
-        );
-      }
+      // Her admin/moderator'a bildirim gönder (paralel)
+      await Future.wait([
+        for (final admin in admins as List)
+          if ((admin['user_id'] as String) != _currentUserId)
+            _notificationService.createGroupJoinRequestNotification(
+              groupOwnerId: admin['user_id'] as String,
+              actorId: _currentUserId!,
+              actorName: actorName,
+              actorAvatar: actorAvatar ?? '',
+              groupId: groupId,
+              groupName: groupName,
+            ),
+      ]);
 
       AppLogger.debug('Katılma isteği bildirimi ${admins.length} admin/moderator\'e gönderildi');
     } catch (e) {
@@ -1310,22 +1307,19 @@ class GroupChatService {
       final actorName = profile['full_name'] as String? ?? 'Bilinmeyen';
       final actorAvatar = profile['avatar_url'] as String?;
 
-      // Her admin/moderator'a bildirim gönder
-      for (final admin in admins as List) {
-        final adminId = admin['user_id'] as String;
-        
-        // Kendine bildirim gönderme
-        if (adminId == _currentUserId) continue;
-
-        await _notificationService.createGroupMemberJoinedNotification(
-          groupOwnerId: adminId,
-          actorId: _currentUserId!,
-          actorName: actorName,
-          actorAvatar: actorAvatar ?? '',
-          groupId: groupId,
-          groupName: groupName,
-        );
-      }
+      // Her admin/moderator'a bildirim gönder (paralel)
+      await Future.wait([
+        for (final admin in admins as List)
+          if ((admin['user_id'] as String) != _currentUserId)
+            _notificationService.createGroupMemberJoinedNotification(
+              groupOwnerId: admin['user_id'] as String,
+              actorId: _currentUserId!,
+              actorName: actorName,
+              actorAvatar: actorAvatar ?? '',
+              groupId: groupId,
+              groupName: groupName,
+            ),
+      ]);
 
       AppLogger.debug('Katılım bildirimi ${admins.length} admin/moderator\'e gönderildi');
     } catch (e) {
@@ -1374,22 +1368,19 @@ class GroupChatService {
       final actorName = profile['full_name'] as String? ?? 'Bilinmeyen';
       final actorAvatar = profile['avatar_url'] as String?;
 
-      // Her admin/moderator'a bildirim gönder
-      for (final admin in admins as List) {
-        final adminId = admin['user_id'] as String;
-        
-        // Kendine bildirim gönderme
-        if (adminId == joinedUserId) continue;
-
-        await _notificationService.createGroupMemberJoinedNotification(
-          groupOwnerId: adminId,
-          actorId: joinedUserId,
-          actorName: actorName,
-          actorAvatar: actorAvatar ?? '',
-          groupId: groupId,
-          groupName: groupName,
-        );
-      }
+      // Her admin/moderator'a bildirim gönder (paralel)
+      await Future.wait([
+        for (final admin in admins as List)
+          if ((admin['user_id'] as String) != joinedUserId)
+            _notificationService.createGroupMemberJoinedNotification(
+              groupOwnerId: admin['user_id'] as String,
+              actorId: joinedUserId,
+              actorName: actorName,
+              actorAvatar: actorAvatar ?? '',
+              groupId: groupId,
+              groupName: groupName,
+            ),
+      ]);
 
       AppLogger.debug('Onaylanmış katılım bildirimi ${admins.length} admin/moderator\'e gönderildi');
     } catch (e) {

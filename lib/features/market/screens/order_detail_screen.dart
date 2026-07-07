@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
@@ -735,12 +736,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                           if (item.productImageUrl != null)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                item.productImageUrl!,
+                              child: CachedNetworkImage(
+                                imageUrl: item.productImageUrl!,
                                 width: 60,
                                 height: 60,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
+                                errorWidget: (context, url, error) =>
                                     Container(
                                   width: 60,
                                   height: 60,

@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/ai_quick_prompt_model.dart';
 import '../theme/ai_chat_theme.dart';
 
@@ -143,16 +144,15 @@ class _AIQuickPromptCardState extends State<AIQuickPromptCard>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.network(
-            widget.prompt.imageUrl!,
+          CachedNetworkImage(
+            imageUrl: widget.prompt.imageUrl!,
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
+            errorWidget: (context, url, error) {
               return Container(
                 color: AIChatTheme.cardBackground,
               );
             },
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
+            placeholder: (context, url) {
               return Container(
                 color: AIChatTheme.cardBackground,
                 child: const Center(
@@ -391,10 +391,10 @@ class AIEditablePromptCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   if (prompt.hasImage)
-                    Image.network(
-                      prompt.imageUrl!,
+                    CachedNetworkImage(
+                      imageUrl: prompt.imageUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildGradientBg(baseColor),
+                      errorWidget: (_, __, ___) => _buildGradientBg(baseColor),
                     )
                   else
                     _buildGradientBg(baseColor),

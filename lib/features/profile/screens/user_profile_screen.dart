@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -777,10 +778,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                     if (coverUrl != null && coverUrl.isNotEmpty)
                       GestureDetector(
                         onTap: () => _showFullScreenImage(coverUrl),
-                        child: Image.network(
-                          coverUrl,
+                        child: CachedNetworkImage(
+                          imageUrl: coverUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return _buildDefaultCover(context);
                           },
                         ),
@@ -1669,10 +1670,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                     ? Stack(
                         fit: StackFit.expand,
                         children: [
-                          Image.network(
-                            firstImage,
+                          CachedNetworkImage(
+                            imageUrl: firstImage,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
+                            errorWidget: (context, url, error) {
                               return Container(
                                 color: Colors.grey.shade200,
                                 child: Icon(Icons.broken_image, color: Colors.grey.shade400),
@@ -1861,12 +1862,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                               borderRadius: post.images.length > 1
                                   ? const BorderRadius.vertical(top: Radius.circular(16))
                                   : BorderRadius.zero,
-                              child: Image.network(
-                                firstImage,
+                              child: CachedNetworkImage(
+                                imageUrl: firstImage,
                                 width: double.infinity,
                                 height: 350,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorWidget: (context, url, error) {
                                   return Container(
                                     height: 200,
                                     color: Colors.grey.shade100,
@@ -2140,10 +2141,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
             child: InteractiveViewer(
               minScale: 0.5,
               maxScale: 4.0,
-              child: Image.network(
-                imageUrl,
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context, url, error) {
                   return const Icon(
                     Icons.error_outline,
                     color: Colors.white,

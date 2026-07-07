@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/utils/app_error_handler.dart';
@@ -429,11 +430,10 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                         ),
                       )
                     else
-                      Image.network(
-                        story.imageUrl,
+                      CachedNetworkImage(
+                        imageUrl: story.imageUrl,
                         fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
+                        placeholder: (context, url) {
                           return Container(
                             color: Colors.grey.shade900,
                             child: const Center(
@@ -441,7 +441,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                             ),
                           );
                         },
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
                           debugPrint('Image load error: $error');
                           return Container(
                             color: Colors.grey.shade900,

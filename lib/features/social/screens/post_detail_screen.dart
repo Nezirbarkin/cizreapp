@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
@@ -443,8 +444,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           PageView.builder(
                             itemCount: widget.post.images.length,
                             itemBuilder: (context, index) {
-                              return Image.network(
-                                widget.post.images[index],
+                              return CachedNetworkImage(
+                                imageUrl: widget.post.images[index],
                                 fit: BoxFit.cover,
                               );
                             },

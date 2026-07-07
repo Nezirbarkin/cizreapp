@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shop/services/order_service.dart';
@@ -2081,10 +2082,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                                         child: ClipRRect(
                                           borderRadius: BorderRadius.circular(10),
                                           child: item.productImageUrl != null && item.productImageUrl!.isNotEmpty
-                                              ? Image.network(
-                                                  item.productImageUrl!,
+                                              ? CachedNetworkImage(
+                                                  imageUrl: item.productImageUrl!,
                                                   fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) => Icon(Icons.shopping_bag_outlined, size: 22, color: Colors.grey.shade400),
+                                                  errorWidget: (_, __, ___) => Icon(Icons.shopping_bag_outlined, size: 22, color: Colors.grey.shade400),
                                                 )
                                               : Icon(Icons.shopping_bag_outlined, size: 22, color: Colors.grey.shade400),
                                         ),

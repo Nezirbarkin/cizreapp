@@ -1588,10 +1588,10 @@ class _MarketScreenState extends State<MarketScreen> {
           children: [
             // Kategori resmi veya placeholder
             if (category.imageUrl != null && category.imageUrl!.isNotEmpty)
-              Image.network(
-                category.imageUrl!,
+              CachedNetworkImage(
+                imageUrl: category.imageUrl!,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context, url, error) {
                   return Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -1741,10 +1741,10 @@ class _MarketScreenState extends State<MarketScreen> {
                     child: Container(
                       color: Colors.grey.shade100,
                       child: product.images.isNotEmpty
-                          ? Image.network(
-                              product.images.first,
+                          ? CachedNetworkImage(
+                              imageUrl: product.images.first,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return const Center(
                                   child: Icon(Icons.image_not_supported, size: 24),
                                 );
@@ -2287,10 +2287,10 @@ class _MarketScreenState extends State<MarketScreen> {
                           topLeft: Radius.circular(16),
                           topRight: Radius.circular(16),
                         ),
-                        child: Image.network(
-                          post.images.first,
+                        child: CachedNetworkImage(
+                          imageUrl: post.images.first,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return Container(
                               color: Colors.grey.shade200,
                               child: const Center(

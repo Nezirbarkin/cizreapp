@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
@@ -1028,12 +1029,12 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                   if (item.productImageUrl != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        item.productImageUrl!,
+                      child: CachedNetworkImage(
+                        imageUrl: item.productImageUrl!,
                         width: 40,
                         height: 40,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorWidget: (_, __, ___) => Container(
                           width: 40,
                           height: 40,
                           color: Colors.grey.shade200,

@@ -1,5 +1,6 @@
 // ignore_for_file: unnecessary_underscores, use_build_context_synchronously
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -130,10 +131,10 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
                     child: widget.pendingReview.shopLogo != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              widget.pendingReview.shopLogo!,
+                            child: CachedNetworkImage(
+                              imageUrl: widget.pendingReview.shopLogo!,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Icon(
+                              errorWidget: (_, __, ___) => Icon(
                                 Icons.store,
                                 color: Colors.orange.shade700,
                                 size: 28,

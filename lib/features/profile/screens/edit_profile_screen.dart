@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -749,12 +750,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         },
                       )
                     : _currentCoverUrl != null && _currentCoverUrl!.isNotEmpty
-                        ? Image.network(
-                            _currentCoverUrl!,
+                        ? CachedNetworkImage(
+                            imageUrl: _currentCoverUrl!,
                             width: double.infinity,
                             height: 180,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
+                            errorWidget: (context, url, error) {
                               return Center(
                                 child: Icon(
                                   Icons.image_not_supported,
@@ -891,12 +892,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           },
                         )
                       : _currentAvatarUrl != null && _currentAvatarUrl!.isNotEmpty
-                          ? Image.network(
-                              _currentAvatarUrl!,
+                          ? CachedNetworkImage(
+                              imageUrl: _currentAvatarUrl!,
                               width: 120,
                               height: 120,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return Container(
                                   width: 120,
                                   height: 120,

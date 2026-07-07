@@ -189,30 +189,24 @@ void main() async {
       log('⚠️ Initialization error: $e');
     }
     
-    // Supabase'e bağımlı servisleri paralel başlat
+    // ⚡ iOS PERFORMANCE: Storage/Push servisleri ve izinleri ARKA PLANDA başlat
+    // Bunların hiçbiri ilk frame'in çizilmesini engellemek zorunda değil;
+    // runApp'ten önce beklemek splash süresini uzatıyordu.
     if (!kIsWeb && supabaseInitialized) {
-      await Future.wait([
-        // Storage Service
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         StorageService().loadS3SettingsFromDatabase().then((value) {
           final storageService = StorageService();
           log('✅ Storage service initialized (${storageService.isS3Enabled ? "S3" : "Supabase"})');
         }).catchError((e) {
           log('⚠️ Storage service initialization failed: $e');
-          return null;
-        }),
-        // Push Notifications
+        });
+
         PushNotificationService.initialize().then((value) {
           log('✅ Push notification service initialized');
         }).catchError((e) {
           log('⚠️ Push notification service failed: $e');
-          return null;
-        }),
-      ]);
-      
-      // ⚡ iOS PERFORMANCE: İzinleri ARKA PLANDA kontrol et (başlatmayı engellemesin)
-      // İzin istemek iOS'ta system dialog gösterir ve kullanıcıyı bekletir
-      // Bu yüzden uygulamayı açtıktan sonra arka planda kontrol et
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+        });
+
         try {
           final permissionService = PermissionService();
           permissionService.checkAndRequestAllPermissions().then((permissionResults) {

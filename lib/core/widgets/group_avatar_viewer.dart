@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Grup profil resmini tam ekran görüntüleyen dialog
 void showGroupAvatarFullscreen({
@@ -22,11 +23,11 @@ void showGroupAvatarFullscreen({
                 child: InteractiveViewer(
                   minScale: 0.5,
                   maxScale: 4.0,
-                  child: Image.network(
-                    imageUrl,
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl,
                     width: double.infinity,
                     fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => Container(
+                    errorWidget: (context, url, error) => Container(
                       height: 300,
                       color: Colors.grey[800],
                       child: const Center(
@@ -37,18 +38,12 @@ void showGroupAvatarFullscreen({
                         ),
                       ),
                     ),
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
+                    placeholder: (context, url) {
                       return Container(
                         height: 300,
                         color: Colors.grey[800],
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                    loadingProgress.expectedTotalBytes!
-                                : null,
-                          ),
+                        child: const Center(
+                          child: CircularProgressIndicator(),
                         ),
                       );
                     },

@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -760,8 +761,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
               background: _shop!.bannerUrl != null
-                  ? Image.network(
-                      _shop!.bannerUrl!,
+                  ? CachedNetworkImage(
+                      imageUrl: _shop!.bannerUrl!,
                       fit: BoxFit.cover,
                     )
                   : Container(
@@ -1597,10 +1598,10 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     child: Container(
                       color: Colors.grey.shade100,
                       child: product.images.isNotEmpty
-                          ? Image.network(
-                              product.images.first,
+                          ? CachedNetworkImage(
+                              imageUrl: product.images.first,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return const Center(
                                   child: Icon(Icons.image_not_supported, size: 24),
                                 );

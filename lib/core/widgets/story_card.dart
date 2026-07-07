@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../../features/social/services/story_service.dart';
@@ -451,10 +452,10 @@ class _StoriesSectionState extends State<StoriesSection> {
                               fit: StackFit.expand,
                               children: [
                                 // Story içerik thumbnail (video önizlemesi)
-                                Image.network(
-                                  story.displayUrl,
+                                CachedNetworkImage(
+                                  imageUrl: story.displayUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
+                                  errorWidget: (context, url, error) {
                                     return Container(
                                       color: Colors.grey.shade800,
                                       child: const Icon(
@@ -464,8 +465,7 @@ class _StoriesSectionState extends State<StoriesSection> {
                                       ),
                                     );
                                   },
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
+                                  placeholder: (context, url) {
                                     return Container(
                                       color: Colors.grey.shade800,
                                       child: const Center(
@@ -578,10 +578,10 @@ class _StoriesSectionState extends State<StoriesSection> {
                           fit: StackFit.expand,
                           children: [
                             // Story içerik önizlemesi (displayUrl kullanıyoruz - video thumbnail varsa onu gösterir)
-                            Image.network(
-                              story.displayUrl,
+                            CachedNetworkImage(
+                              imageUrl: story.displayUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              errorWidget: (context, url, error) {
                                 return Container(
                                   color: Colors.grey.shade800,
                                   child: const Icon(
@@ -591,8 +591,7 @@ class _StoriesSectionState extends State<StoriesSection> {
                                   ),
                                 );
                               },
-                              loadingBuilder: (context, child, loadingProgress) {
-                                if (loadingProgress == null) return child;
+                              placeholder: (context, url) {
                                 return Container(
                                   color: Colors.grey.shade800,
                                   child: const Center(
@@ -705,10 +704,10 @@ class _StoriesSectionState extends State<StoriesSection> {
                                       ),
                                       child: ClipOval(
                                         child: avatarUrl != null && avatarUrl.isNotEmpty
-                                            ? Image.network(
-                                                avatarUrl,
+                                            ? CachedNetworkImage(
+                                                imageUrl: avatarUrl,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (context, error, stackTrace) {
+                                                errorWidget: (context, url, error) {
                                                   return Container(
                                                     color: Colors.grey.shade600,
                                                     child: Center(

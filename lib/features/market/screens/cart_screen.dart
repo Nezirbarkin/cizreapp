@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/cart_provider.dart';
@@ -686,10 +687,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: item.productImageUrl != null
-                    ? Image.network(
-                        item.productImageUrl!,
+                    ? CachedNetworkImage(
+                        imageUrl: item.productImageUrl!,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
                           return const Center(
                             child: Icon(Icons.image_not_supported, size: 24),
                           );

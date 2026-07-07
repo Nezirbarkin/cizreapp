@@ -1,6 +1,7 @@
   // ignore_for_file: unused_field
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -972,10 +973,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     child: Container(
                       color: Colors.grey.shade100,
                       child: product.images.isNotEmpty
-                          ? Image.network(
-                              product.images.first,
+                          ? CachedNetworkImage(
+                              imageUrl: product.images.first,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
+                              placeholder: (context, url) => const Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) {
                                 return const Center(
                                   child: Icon(Icons.image_not_supported, size: 24),
                                 );

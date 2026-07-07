@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -481,12 +482,12 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  imageUrl,
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
                                   width: double.infinity,
                                   height: double.infinity,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
+                                  errorWidget: (context, url, error) {
                                     return const Center(
                                       child: Icon(Icons.error_outline, color: Colors.red),
                                     );
@@ -986,12 +987,12 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                             // Görsel
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                deal.imageUrl,
+                              child: CachedNetworkImage(
+                                imageUrl: deal.imageUrl,
                                 width: 70,
                                 height: 55,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorWidget: (context, url, error) {
                                   return Container(
                                     width: 70,
                                     height: 55,

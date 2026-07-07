@@ -2,6 +2,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -525,13 +526,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: isUrl
-                        ? Image.network(
-                            _imageUrls[index],
+                        ? CachedNetworkImage(
+                            imageUrl: _imageUrls[index],
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: double.infinity,
-                            // ignore: unnecessary_underscores
-                            errorBuilder: (_, __, ___) => _buildPlaceholder(),
+                            errorWidget: (_, __, ___) => _buildPlaceholder(),
                           )
                         : FutureBuilder<Uint8List>(
                             future: _selectedImages[index - _imageUrls.length].readAsBytes(),

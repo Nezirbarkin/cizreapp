@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/ai_quick_prompt_model.dart';
 import '../../../core/models/ai_prompt_image_model.dart';
 import '../../ai_chat/services/ai_chat_service.dart';
@@ -628,10 +629,10 @@ class _AIPromptsImagesTabState extends State<AIPromptsImagesTab>
             fit: StackFit.expand,
             children: [
               // Image
-              Image.network(
-                image.thumbnailUrl ?? image.imageUrl,
+              CachedNetworkImage(
+                imageUrl: image.thumbnailUrl ?? image.imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
+                errorWidget: (_, __, ___) => Container(
                   color: AIChatTheme.cardBackground,
                   child: Icon(
                     Icons.broken_image,
@@ -996,8 +997,8 @@ class _AIPromptsImagesTabState extends State<AIPromptsImagesTab>
             // Image
             ClipRRect(
               borderRadius: BorderRadius.circular(AIChatTheme.radiusLarge),
-              child: Image.network(
-                image.imageUrl,
+              child: CachedNetworkImage(
+                imageUrl: image.imageUrl,
                 width: 300,
                 fit: BoxFit.contain,
               ),

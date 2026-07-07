@@ -2,6 +2,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
 
@@ -26,10 +27,10 @@ class FullScreenImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4.0,
-          child: Image.network(
-            imageUrl,
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
             fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
+            errorWidget: (context, url, error) {
               return const Icon(
                 Icons.error_outline,
                 color: Colors.white,
@@ -138,12 +139,12 @@ class _DoubleTapLikeImageState extends State<DoubleTapLikeImage>
         children: [
           ClipRRect(
             borderRadius: widget.borderRadius ?? BorderRadius.circular(0),
-            child: Image.network(
-              widget.imageUrl,
+            child: CachedNetworkImage(
+              imageUrl: widget.imageUrl,
               width: double.infinity,
               height: widget.height ?? 300,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
+              errorWidget: (context, url, error) {
                 return Container(
                   height: widget.height ?? 300,
                   color: Colors.grey.shade200,
@@ -463,12 +464,12 @@ class PostCard extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(16),
                 ),
-                child: Image.network(
-                  firstImage,
+                child: CachedNetworkImage(
+                  imageUrl: firstImage,
                   width: double.infinity,
                   height: 350,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
+                  errorWidget: (context, url, error) {
                     return Container(
                       height: 350,
                       decoration: BoxDecoration(

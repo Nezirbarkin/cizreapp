@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_model.dart';
 import '../../market/services/product_service.dart';
@@ -440,12 +441,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: product.imageUrl != null
-                        ? Image.network(
-                            product.imageUrl!,
+                        ? CachedNetworkImage(
+                            imageUrl: product.imageUrl!,
                             width: 80,
                             height: 80,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => _buildImagePlaceholder(),
+                            errorWidget: (_, _, _) => _buildImagePlaceholder(),
                           )
                         : _buildImagePlaceholder(),
                   ),

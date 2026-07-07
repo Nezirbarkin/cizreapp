@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post_model.dart';
@@ -1245,23 +1246,22 @@ class _SocialScreenState extends State<SocialScreen> {
                           ? Stack(
                               children: [
                                 // En son story içeriğini göster - displayUrl kullanıyoruz
-                                Image.network(
-                                  latestStory.displayUrl,
+                                CachedNetworkImage(
+                                  imageUrl: latestStory.displayUrl,
                                   width: size - 4,
                                   height: size - 4,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
+                                  errorWidget: (context, url, error) {
                                     return Container(
                                       width: size - 4,
                                       height: size - 4,
                                       color: Colors.grey.shade300,
                                       child: avatarUrl != null
-                                          ? Image.network(avatarUrl, fit: BoxFit.cover)
+                                          ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
                                           : Icon(Icons.person, size: size * 0.4, color: Colors.grey),
                                     );
                                   },
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
+                                  placeholder: (context, url) {
                                     return Container(
                                       width: size - 4,
                                       height: size - 4,
@@ -1301,7 +1301,7 @@ class _SocialScreenState extends State<SocialScreen> {
                                 color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                               ),
                               child: avatarUrl != null
-                                  ? Image.network(avatarUrl, fit: BoxFit.cover)
+                                  ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
                                   : Center(
                                       child: Text(
                                         username.isNotEmpty && username.length >= 1
@@ -1396,23 +1396,22 @@ class _SocialScreenState extends State<SocialScreen> {
                   child: Stack(
                     children: [
                       // Story içerik önizlemesi - displayUrl kullanıyoruz (thumbnail varsa onu gösterir)
-                      Image.network(
-                        story.displayUrl,
+                      CachedNetworkImage(
+                        imageUrl: story.displayUrl,
                         width: size - 4,
                         height: size - 4,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
                           return Container(
                             width: size - 4,
                             height: size - 4,
                             color: Colors.grey.shade300,
                             child: avatarUrl != null
-                                ? Image.network(avatarUrl, fit: BoxFit.cover)
+                                ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
                                 : Icon(Icons.person, size: size * 0.4, color: Colors.grey),
                           );
                         },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
+                        placeholder: (context, url) {
                           return Container(
                             width: size - 4,
                             height: size - 4,
@@ -3017,16 +3016,15 @@ class _StoryViewDialogState extends State<StoryViewDialog> {
                       : const Center(
                           child: CircularProgressIndicator(color: Colors.white),
                         )
-                  : Image.network(
-                      widget.story.imageUrl,
+                  : CachedNetworkImage(
+                      imageUrl: widget.story.imageUrl,
                       fit: BoxFit.contain,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
+                      placeholder: (context, url) {
                         return const Center(
                           child: CircularProgressIndicator(color: Colors.white),
                         );
                       },
-                      errorBuilder: (context, error, stackTrace) {
+                      errorWidget: (context, url, error) {
                         return const Center(
                           child: Icon(Icons.error, color: Colors.white, size: 48),
                         );
@@ -3375,12 +3373,12 @@ class _PostImageCarouselState extends State<_PostImageCarousel> {
               itemBuilder: (context, index) {
                 return GestureDetector(
                   onTap: widget.onTap,
-                  child: Image.network(
-                    images[index],
+                  child: CachedNetworkImage(
+                    imageUrl: images[index],
                     width: double.infinity,
                     height: 200,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
+                    errorWidget: (context, url, error) {
                       // Görsel yüklenemezse gri placeholder
                       return Container(
                         width: double.infinity,
@@ -3393,8 +3391,7 @@ class _PostImageCarouselState extends State<_PostImageCarousel> {
                         ),
                       );
                     },
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
+                    placeholder: (context, url) {
                       return Container(
                         width: double.infinity,
                         height: 200,

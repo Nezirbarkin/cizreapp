@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/favorites_provider.dart';
 // ignore: unused_import
@@ -239,10 +240,10 @@ class _ProductCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   product.imageUrl != null
-                      ? Image.network(
-                          product.imageUrl!,
+                      ? CachedNetworkImage(
+                          imageUrl: product.imageUrl!,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return Container(
                               color: Colors.grey[200],
                               child: const Icon(
@@ -392,11 +393,11 @@ class _PostCard extends StatelessWidget {
             if (post.images.isNotEmpty)
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Image.network(
-                  post.images.first,
+                child: CachedNetworkImage(
+                  imageUrl: post.images.first,
                   width: double.infinity,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
+                  errorWidget: (context, url, error) {
                     return Container(
                       color: Colors.grey[200],
                       child: const Icon(

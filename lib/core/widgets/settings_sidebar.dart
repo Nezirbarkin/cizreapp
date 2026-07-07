@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -315,10 +316,10 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   ),
                                   child: ClipOval(
                                     child: _avatarUrl != null && _avatarUrl!.isNotEmpty
-                                        ? Image.network(
-                                            _avatarUrl!,
+                                        ? CachedNetworkImage(
+                                            imageUrl: _avatarUrl!,
                                             fit: BoxFit.cover,
-                                            errorBuilder: (context, error, stackTrace) {
+                                            errorWidget: (context, url, error) {
                                               return const Icon(Icons.person, size: 32, color: Colors.grey);
                                             },
                                           )

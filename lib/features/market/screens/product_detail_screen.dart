@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -706,23 +707,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 maxScale: 4.0,
                 panEnabled: true,
                 boundaryMargin: const EdgeInsets.all(20),
-                child: Image.network(
-                  product.images[_selectedImageIndex],
+                child: CachedNetworkImage(
+                  imageUrl: product.images[_selectedImageIndex],
                   fit: BoxFit.contain,
-                  // ignore: unnecessary_underscores
-                  errorBuilder: (_, __, ___) => Container(
+                  errorWidget: (_, __, ___) => Container(
                     color: Colors.grey.shade200,
                     child: const Icon(Icons.image, size: 64, color: Colors.grey),
                   ),
-                  loadingBuilder: (_, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Center(
-                      child: CircularProgressIndicator(
-                        value: loadingProgress.expectedTotalBytes != null
-                            ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                            : null,
-                      ),
+                  placeholder: (_, __) {
+                    return const Center(
+                      child: CircularProgressIndicator(),
                     );
                   },
                 ),

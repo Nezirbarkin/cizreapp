@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/models/post_model.dart';
@@ -902,12 +903,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                       const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          message.sharedPostImageUrl!,
+                        child: CachedNetworkImage(
+                          imageUrl: message.sharedPostImageUrl!,
                           height: 150,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          errorWidget: (context, url, error) {
                             return const SizedBox.shrink(); // Resim yüklenemezse gizle
                           },
                         ),
