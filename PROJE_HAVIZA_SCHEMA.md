@@ -62,6 +62,7 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `user_balances`, `balance_transactions`
 - `seller_bank_accounts`, `payout_requests`, `payout_transactions`, `seller_earnings`, `seller_withdrawals`
 - `bank_accounts`
+- `transfer_confirmations` (20260705 — havale onay akışı: pending/approved/rejected + admin_id + admin_note + balance_added + user_notified)
 
 ### 2.8 Kurye
 - `courier_settings`, `courier_requests`, `courier_assignments`, `courier_earnings`, `courier_payment_info`, `courier_payout_requests`, `courier_status_changes`
@@ -77,6 +78,7 @@ Project Ref: `xsbukxkgtmdyickknqzf`
     temel: `app_name`, `app_slogan`, `app_description`, `app_features`, `contact_email`, `website_url`, `support_phone`, `terms_of_service`, `privacy_policy`, `version_number`, `build_number`, `social_media_links`
     ödeme/iyzico: `online_payment_enabled`, `iyzico_api_key`, `iyzico_secret_key`, `iyzico_api_url`, `global_orders_enabled`
     banka/bakiye: `company_bank_name`, `company_iban`, `company_account_holder`, `balance_enabled`, `card_topup_enabled`, `min_topup_amount`, `max_topup_amount`, `withdrawal_fee_percent`, `min_withdrawal_amount`
+    sipariş ödeme yöntemi toggle'ları (20260705): `order_cod_enabled`, `order_card_on_delivery_enabled`, `order_balance_enabled` (`online` için `online_payment_enabled` kolonu kullanılır — tek gerçek kaynak prensibi)
     duyuru: `startup_announcement_enabled`, `startup_announcement_title`, `startup_announcement_message`, `startup_announcement_type`, `startup_announcement_button_text`, `startup_announcement_updated_at`
     diğer: `google_maps_api_key`, `animation_primary_duration_ms`, `animation_secondary_duration_ms`, `animation_transition_duration_ms`
     - NOT: 2026-07-03 tarihinde `company_account_holder` ve banka/bakiye kolonları eksikti (PGRST204). Migration: `20260703_ABOUT_SETTINGS_MISSING_COLUMNS.sql`

@@ -27,6 +27,8 @@ import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
 import '../../../core/services/balance_service.dart';
 import '../widgets/bank_accounts_tab_widget.dart';
+import '../widgets/transfer_confirmations_tab_widget.dart';
+import '../../../core/services/transfer_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -15396,17 +15398,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         backgroundColor: Colors.white,
       ),
       body: DefaultTabController(
-        length: 5,
+        length: 6,
         child: Column(
           children: [
-            const TabBar(
+            TabBar(
               isScrollable: true,
               tabs: [
-                Tab(text: 'Bakiye Yükle'),
-                Tab(text: 'İşlem Geçmişi'),
-                Tab(text: 'Bakiyeli Kullanıcılar'),
-                Tab(text: 'Banka Hesapları'),
-                Tab(text: 'Bakiye Ayarları'),
+                const Tab(text: 'Bakiye Yükle'),
+                Tab(child: _TransferConfirmationsTabLabel()),
+                const Tab(text: 'İşlem Geçmişi'),
+                const Tab(text: 'Bakiyeli Kullanıcılar'),
+                const Tab(text: 'Banka Hesapları'),
+                const Tab(text: 'Bakiye Ayarları'),
               ],
               labelColor: Colors.blue,
               unselectedLabelColor: Colors.grey,
@@ -15416,6 +15419,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               child: TabBarView(
                 children: [
                   const _BalanceLoadTabWidget(),
+                  const TransferConfirmationsTabWidget(),
                   _buildTransactionHistoryTab(),
                   _buildUsersWithBalanceTab(),
                   BankAccountsTabWidget(),
@@ -15428,6 +15432,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
     );
   }
+
+  // ========== HAVALE ONAYLARI TAB ETİKETİ (bekleyen sayısı rozeti) ==========
 
   Widget _buildUsersWithBalanceTab() {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -15743,6 +15749,59 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             color: color,
           ),
         ),
+      ],
+    );
+  }
+}
+
+// ========== HAVALE ONAYLARI TAB ETİKETİ (bekleyen sayısı rozeti) ==========
+class _TransferConfirmationsTabLabel extends StatefulWidget {
+  @override
+  State<_TransferConfirmationsTabLabel> createState() =>
+      _TransferConfirmationsTabLabelState();
+}
+
+class _TransferConfirmationsTabLabelState
+    extends State<_TransferConfirmationsTabLabel> {
+  final TransferService _service = TransferService();
+  int _pendingCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final count = await _service.getPendingCount();
+    if (!mounted) return;
+    setState(() => _pendingCount = count);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Havale Onayları'),
+        if (_pendingCount > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$_pendingCount',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -16186,6 +16245,12 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
   double _maxTopupAmount = 10000;
   double _withdrawalFeePercent = 2;
   double _minWithdrawalAmount = 50;
+  // Sipariş ödeme yöntemi toggle'ları (20260705_PAYMENT_METHOD_TOGGLES.sql).
+  // 4 yöntem: Kapıda Nakit, Kapıda Kart, Online, Bakiye.
+  bool _orderCodEnabled = true;
+  bool _orderCardOnDeliveryEnabled = true;
+  bool _orderOnlineEnabled = true;
+  bool _orderBalanceEnabled = true;
   bool _isSaving = false;
 
   @override
@@ -16197,9 +16262,18 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     try {
+      // NOT: online_payment_enabled tek gerçek kaynak; siparişlerde de aynı kolon
+      // kullanılıyor (payment_method_settings_service.dart). Yeni sipariş toggle'ları
+      // 20260705_PAYMENT_METHOD_TOGGLES.sql ile eklendi (migration uygulanmadıysa
+      // ?? true fallback tüm yöntemleri aktif gösterir → mevcut davranış korunur).
       final response = await Supabase.instance.client
           .from('app_about_settings')
-          .select('card_topup_enabled, balance_enabled, min_topup_amount, max_topup_amount, withdrawal_fee_percent, min_withdrawal_amount')
+          .select(
+            'card_topup_enabled, balance_enabled, min_topup_amount, '
+            'max_topup_amount, withdrawal_fee_percent, min_withdrawal_amount, '
+            'online_payment_enabled, '
+            'order_cod_enabled, order_card_on_delivery_enabled, order_balance_enabled',
+          )
           .maybeSingle();
 
       if (response != null && mounted) {
@@ -16210,6 +16284,11 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
           _maxTopupAmount = (response['max_topup_amount'] as num?)?.toDouble() ?? 10000;
           _withdrawalFeePercent = (response['withdrawal_fee_percent'] as num?)?.toDouble() ?? 2;
           _minWithdrawalAmount = (response['min_withdrawal_amount'] as num?)?.toDouble() ?? 50;
+          // Sipariş ödeme yöntemi toggle'ları
+          _orderOnlineEnabled = response['online_payment_enabled'] as bool? ?? true;
+          _orderCodEnabled = response['order_cod_enabled'] as bool? ?? true;
+          _orderCardOnDeliveryEnabled = response['order_card_on_delivery_enabled'] as bool? ?? true;
+          _orderBalanceEnabled = response['order_balance_enabled'] as bool? ?? true;
           _isLoading = false;
         });
       } else {
@@ -16237,6 +16316,10 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
         throw Exception('app_about_settings tablosunda kayıt bulunamadı');
       }
       
+      // NOT: online_payment_enabled kolonu yalnızca admin bu sekmede değiştirirse
+      // yazılır; app_about_service tarafında da aynı kolon kullanılıyor. Çakışma yok
+      // (tek gerçek kaynak). Yeni kolonlar (order_*) migration ile geldiyse yazılır,
+      // gelmediyse PostgREST 204 verebilir → o durumda migration çalıştırılmalı.
       await supabase
           .from('app_about_settings')
           .update({
@@ -16246,6 +16329,11 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
             'max_topup_amount': _maxTopupAmount,
             'withdrawal_fee_percent': _withdrawalFeePercent,
             'min_withdrawal_amount': _minWithdrawalAmount,
+            // Sipariş ödeme yöntemi toggle'ları
+            'online_payment_enabled': _orderOnlineEnabled,
+            'order_cod_enabled': _orderCodEnabled,
+            'order_card_on_delivery_enabled': _orderCardOnDeliveryEnabled,
+            'order_balance_enabled': _orderBalanceEnabled,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', existing['id']);
@@ -16452,6 +16540,90 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
                     ),
                   ),
                   contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Sipariş Ödeme Yöntemleri (20260705_PAYMENT_METHOD_TOGGLES.sql)
+          // Admin siparişlerde hangi ödeme yöntemlerinin görünür olduğunu kontrol eder.
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.payments_outlined, color: Colors.teal.shade700),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sipariş Ödeme Yöntemleri',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.teal.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Müşteriye sipariş sırasında hangi yöntemlerin gösterileceğini belirleyin. '
+                  'Pasif yapılan yöntemler checkout ekranlarında gizlenir.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Kapıda Nakit'),
+                  subtitle: const Text('Teslimatçıya nakit ödeme'),
+                  value: _orderCodEnabled,
+                  onChanged: (value) => setState(() => _orderCodEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                SwitchListTile(
+                  title: const Text('Kapıda Banka/Kredi Kartı'),
+                  subtitle: const Text('Teslimatçıda POS cihazı ile ödeme'),
+                  value: _orderCardOnDeliveryEnabled,
+                  onChanged: (value) =>
+                      setState(() => _orderCardOnDeliveryEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                SwitchListTile(
+                  title: const Text('Online Ödeme (Kredi/Banka Kartı)'),
+                  subtitle: const Text('iyzico üzerinden güvenli online ödeme'),
+                  value: _orderOnlineEnabled,
+                  onChanged: (value) =>
+                      setState(() => _orderOnlineEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                SwitchListTile(
+                  title: const Text('Bakiye ile Ödeme'),
+                  subtitle: const Text(
+                      'Siparişi kullanıcı bakiyesinden öde (bakiye sistemi ayrıca aktif olmalı)'),
+                  value: _orderBalanceEnabled,
+                  onChanged: (value) =>
+                      setState(() => _orderBalanceEnabled = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const Divider(),
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.amber.shade700),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Bakiye sistemini tamamen kapatmak için yukarıdaki "Bakiye Sistemi Aktif" '
+                        'anahtarını kullanın. Bu bölüm yalnızca sipariş ödeme yöntemi seçeneğini filtreler.',
+                        style: TextStyle(fontSize: 11, color: Colors.amber.shade800),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

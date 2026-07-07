@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/bank_account_service.dart';
+import '../../../core/services/transfer_service.dart';
 import '../../../core/models/bank_account_model.dart';
 
 /// Bakiye Yükleme Ekranı
@@ -17,6 +18,7 @@ class TopupScreen extends StatefulWidget {
 class _TopupScreenState extends State<TopupScreen> {
   final BalanceService _balanceService = BalanceService();
   final BankAccountService _bankAccountService = BankAccountService();
+  final TransferService _transferService = TransferService();
   final TextEditingController _amountController = TextEditingController();
 
   bool _isLoading = false;
@@ -114,11 +116,21 @@ class _TopupScreenState extends State<TopupScreen> {
     );
   }
 
-  Future<void> _sendTransferNotification(BuildContext context) async {
-    final amount = _amountController.text.trim();
-    if (amount.isEmpty) {
+  /// Havale bildirimini `transfer_confirmations` tablosuna gönderir
+  /// (admin onayı bekler; onaylanınca bakiye OTOMATİK eklenir ve
+  /// kullanıcıya bildirim + push gider — bkz. [TransferService]).
+  Future<void> _submitTransferConfirmation(BuildContext context) async {
+    final raw = _amountController.text.trim();
+    if (raw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lütfen tutar girin')),
+      );
+      return;
+    }
+    final amount = double.tryParse(raw) ?? 0;
+    if (amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Geçersiz tutar')),
       );
       return;
     }
@@ -126,56 +138,59 @@ class _TopupScreenState extends State<TopupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) {
-        throw Exception('Kullanıcı girişi yapılmadı');
-      }
+      await _transferService.submitTransferConfirmation(
+        amount: amount,
+        bankAccountId: _selectedBankAccount?.id,
+      );
 
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, phone')
-          .eq('id', userId)
-          .single();
-
-      // Admin kullanıcıları bul
-      final admins = await Supabase.instance.client
-          .from('profiles')
-          .select('id')
-          .eq('role', 'admin');
-
-      // Her admin'e bildirim gönder
-      // Not: notifications tablosunda 'content' kolonu var (body DEĞİL),
-      // 'data' kolonu yok, 'entity_id' kullanılıyor.
-      // type CHECK constraint'te izin verilen: 'admin_notification' kullanıyoruz.
-      for (final admin in admins) {
-        await Supabase.instance.client.from('notifications').insert({
-          'user_id': admin['id'],
-          'type': 'admin_notification',
-          'title': 'Havale Bildirimi',
-          'content': '${profile['full_name']} havale bildirdi: ₺$amount',
-          'entity_id': userId,
-        });
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bildirim gönderildi! En kısa sürede kontrol edilecektir.'),
-            backgroundColor: Colors.green,
+      if (!mounted) return;
+      if (!context.mounted) return;
+      // Mevcut transfer (havale) yapılacak banka bilgisini göster
+      final bankName = _selectedBankAccount?.bankName ?? 'seçili banka';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Bildiriminiz alındı. ₺${amount.toStringAsFixed(2)} tutarındaki '
+            '$bankName havaleniz admin onayından sonra bakiyenize yansıyacak.',
           ),
-        );
-      }
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (!mounted) return;
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_friendlyError(e.toString())),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
 
-    if (mounted) {
-      setState(() => _isLoading = false);
+  /// Hata mesajını kullanıcı dostu hale getir (RAG/edge function mesajları).
+  String _friendlyError(String raw) {
+    final lower = raw.toLowerCase();
+    if (lower.contains('oturum') ||
+        lower.contains('session') ||
+        lower.contains('expired') ||
+        lower.contains('unauthorized')) {
+      return 'Ödeme sağlayıcısına bağlanılamıyor. Lütfen tekrar deneyin veya yönetici ile iletişime geçin.';
     }
+    if (lower.contains('yapılandırılmamış') || lower.contains('credentials')) {
+      return 'Ödeme sistemi henüz yapılandırılmamış. Lütfen yönetici ile iletişime geçin.';
+    }
+    if (lower.contains('network') || lower.contains('timeout')) {
+      return 'Bağlantı sorunu. Lütfen internetinizi kontrol edip tekrar deneyin.';
+    }
+    if (lower.contains('rate') || lower.contains('limit')) {
+      return 'Çok fazla deneme yaptınız. Lütfen birkaç saniye sonra tekrar deneyin.';
+    }
+    return 'Hata: $raw';
   }
 
   @override
@@ -225,15 +240,25 @@ class _TopupScreenState extends State<TopupScreen> {
       
       // Hata mesajını okunaklı hale getir
       String errorMessage = e.toString();
-      
-      // "Exception: " prefix'ini kaldır
-      if (errorMessage.startsWith('Exception: ')) {
-        errorMessage = errorMessage.substring(11);
+
+      // "Exception: " / "FriendlyException: " prefix'ini kaldır
+      for (final prefix in ['Exception: ', 'FriendlyException: ']) {
+        if (errorMessage.startsWith(prefix)) {
+          errorMessage = errorMessage.substring(prefix.length);
+          break;
+        }
       }
-      
-      // JSON formatındaki teknik hataları sadeleştir
-      if (errorMessage.contains('"code"') && errorMessage.contains('UNAUTHORIZED')) {
-        errorMessage = 'Kredi kartı sistemi yapılandırılmamış. Lütfen yönetici ile iletişime geçin.';
+
+      // iyzico/oturum hataları → kullanıcı dostu (ham teknik mesajı gösterme)
+      // "Oturumunuzun süresi dolmuş" gibi iyzico edge function hataları burada yakalanır.
+      final lower = errorMessage.toLowerCase();
+      if (lower.contains('oturum') ||
+          lower.contains('session') ||
+          lower.contains('expired') ||
+          lower.contains('unauthorized') ||
+          lower.contains('yapılandırılmamış') ||
+          lower.contains('credentials')) {
+        errorMessage = _friendlyError(errorMessage);
       } else if (errorMessage.contains('"code"') && errorMessage.contains('"message"')) {
         // JSON parse deneyerek kullanıcı dostu mesajı al
         try {
@@ -673,9 +698,9 @@ class _TopupScreenState extends State<TopupScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : () => _sendTransferNotification(context),
+                        onPressed: _isLoading ? null : () => _submitTransferConfirmation(context),
                         icon: const Icon(Icons.send, size: 18),
-                        label: const Text('Admin\'e Bildir'),
+                        label: const Text('Sisteme Bildir'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,

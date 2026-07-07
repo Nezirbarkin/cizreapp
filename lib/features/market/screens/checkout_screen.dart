@@ -11,6 +11,7 @@ import '../../../core/services/app_about_service.dart';
 import '../../../core/services/payment_service.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
+import '../../../core/services/payment_method_settings_service.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
 import '../../shop/services/order_service.dart';
@@ -45,6 +46,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _isPlacingOrder = false;
   bool _onlinePaymentEnabled = false;
   bool _isLoadingPaymentSettings = true;
+  /// Admin panelden kontrol edilen sipariş ödeme yöntemi toggle'ları.
+  /// load() başarısız olursa allEnabled() fallback döner (mevcut davranış korunur).
+  PaymentMethodSettings _paymentSettings = const PaymentMethodSettings.allEnabled();
 
   @override
   void initState() {
@@ -54,13 +58,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _loadPaymentSettings() async {
     try {
-      final settings = await _aboutService.getAboutSettings();
+      final methodSettings = await PaymentMethodSettings.load();
+      if (!mounted) return;
       setState(() {
-        _onlinePaymentEnabled = settings?.onlinePaymentEnabled ?? false;
+        _paymentSettings = methodSettings;
+        // Eski _onlinePaymentEnabled referansı helper'ın onlineEnabled'ı ile beslenir
+        // (tek gerçek kaynak prensibi: online_payment_enabled kolonu).
+        _onlinePaymentEnabled = methodSettings.onlineEnabled;
         _isLoadingPaymentSettings = false;
+        // Seçili yöntem artık aktif değilse (admin kapatmışsa) ilk aktif
+        // yönteme otomatik kay — kullanıcı hiçbir yöntemi seçemez kalmaz.
+        _selectedPaymentMethod = methodSettings.pickDefault(
+          preferred: _selectedPaymentMethod,
+        );
       });
     } catch (e) {
-      setState(() => _isLoadingPaymentSettings = false);
+      if (!mounted) return;
+      setState(() {
+        _paymentSettings = const PaymentMethodSettings.allEnabled();
+        _onlinePaymentEnabled = true;
+        _isLoadingPaymentSettings = false;
+      });
       debugPrint('❌ Ödeme ayarları yüklenirken hata: $e');
     }
   }
@@ -1291,29 +1309,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         Card(
           child: Column(
             children: [
-              RadioListTile<PaymentMethod>(
-                title: const Text('Kapıda Nakit'),
-                subtitle: const Text('Teslimatçıya nakit ödeme'),
-                value: PaymentMethod.cash,
-                // ignore: deprecated_member_use
-                groupValue: _selectedPaymentMethod,
-                // ignore: deprecated_member_use
-                onChanged: (value) {
-                  setState(() => _selectedPaymentMethod = value!);
-                },
-              ),
-              RadioListTile<PaymentMethod>(
-                title: const Text('Kapıda Banka/Kredi Kartı'),
-                subtitle: const Text('Teslimatçıda POS cihazı ile ödeme'),
-                value: PaymentMethod.cardOnDelivery,
-                // ignore: deprecated_member_use
-                groupValue: _selectedPaymentMethod,
-                // ignore: deprecated_member_use
-                onChanged: (value) {
-                  setState(() => _selectedPaymentMethod = value!);
-                },
-              ),
-              // Online Ödeme - sadece aktifse göster
+              // Kapıda Nakit - admin toggle'ı (order_cod_enabled) ile
+              if (_paymentSettings.isAvailable(PaymentMethod.cash))
+                RadioListTile<PaymentMethod>(
+                  title: const Text('Kapıda Nakit'),
+                  subtitle: const Text('Teslimatçıya nakit ödeme'),
+                  value: PaymentMethod.cash,
+                  // ignore: deprecated_member_use
+                  groupValue: _selectedPaymentMethod,
+                  // ignore: deprecated_member_use
+                  onChanged: (value) {
+                    setState(() => _selectedPaymentMethod = value!);
+                  },
+                ),
+              // Kapıda Banka/Kredi Kartı - admin toggle'ı (order_card_on_delivery_enabled) ile
+              if (_paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
+                RadioListTile<PaymentMethod>(
+                  title: const Text('Kapıda Banka/Kredi Kartı'),
+                  subtitle: const Text('Teslimatçıda POS cihazı ile ödeme'),
+                  value: PaymentMethod.cardOnDelivery,
+                  // ignore: deprecated_member_use
+                  groupValue: _selectedPaymentMethod,
+                  // ignore: deprecated_member_use
+                  onChanged: (value) {
+                    setState(() => _selectedPaymentMethod = value!);
+                  },
+                ),
+              // Online Ödeme - sadece aktifse göster (online_payment_enabled)
               if (_onlinePaymentEnabled)
                 RadioListTile<PaymentMethod>(
                   title: Row(
@@ -1354,8 +1376,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     setState(() => _selectedPaymentMethod = value!);
                   },
                 ),
-              // Bakiye ile ödeme seçeneği - her zaman göster (ayara bakılmadan)
-              FutureBuilder<Map<String, dynamic>?>(
+              // Bakiye ile ödeme - admin toggle'ı (order_balance_enabled) ile.
+              // Not: balance_info ayrıca balance_enabled (bakiye SİSTEMİ) kontrol eder;
+              // buradaki toggle yalnızca "siparişte bakiye ile öde" seçeneğini filtreler.
+              if (_paymentSettings.isAvailable(PaymentMethod.balance))
+                FutureBuilder<Map<String, dynamic>?>(
                 future: _loadBalanceInfo(),
                 builder: (context, snapshot) {
                   final balance = snapshot.data?['balance'] as double? ?? 0;

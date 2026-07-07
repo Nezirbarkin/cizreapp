@@ -11,9 +11,9 @@ import '../services/cart_service.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/payment_service.dart';
-import '../../../core/services/app_about_service.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
+import '../../../core/services/payment_method_settings_service.dart';
 import '../../../features/market/providers/cart_provider.dart';
 import '../../../features/market/services/address_service.dart';
 import '../../../features/market/screens/address_management_screen.dart';
@@ -45,7 +45,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final CartService _cartService = CartService();
   final AddressService _addressService = AddressService();
   final PaymentService _paymentService = PaymentService();
-  final AppAboutService _aboutService = AppAboutService();
   final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
   final _addressController = TextEditingController();
@@ -59,6 +58,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _onlinePaymentEnabled = false;
   bool _isLoadingPaymentSettings = true;
   double _userBalance = 0;
+  /// Admin panelden kontrol edilen sipariş ödeme yöntemi toggle'ları.
+  /// load() başarısız olursa allEnabled() fallback döner (mevcut davranış korunur).
+  PaymentMethodSettings _paymentSettings = const PaymentMethodSettings.allEnabled();
 
   @override
   void initState() {
@@ -93,8 +95,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _loadPaymentSettings() async {
     try {
-      final settings = await _aboutService.getAboutSettings();
-      
       // Bakiye bilgisini yükle
       double balance = 0;
       try {
@@ -103,15 +103,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       } catch (e) {
         debugPrint('Bakiye bilgisi yüklenemedi: $e');
       }
-      
+
+      // Tek sorgu ile online_payment_enabled + 3 sipariş toggle'ı çekilir.
+      final methodSettings = await PaymentMethodSettings.load();
+
+      if (!mounted) return;
       setState(() {
-        _onlinePaymentEnabled = settings?.onlinePaymentEnabled ?? false;
+        _paymentSettings = methodSettings;
+        // Tek gerçek kaynak: online_payment_enabled kolonu hem eski
+        // _onlinePaymentEnabled hem helper.onlineEnabled tarafından okunur.
+        _onlinePaymentEnabled = methodSettings.onlineEnabled;
         _userBalance = balance;
         _isLoadingPaymentSettings = false;
+        // Admin bir yöntemi kapattıysa seçili yöntem aktif değilse
+        // ilk aktif yönteme otomatik kay (kullanıcı boş seçimde kalmaz).
+        _selectedPaymentMethod = methodSettings.pickDefault(
+          preferred: _selectedPaymentMethod,
+        );
       });
       debugPrint('💳 Online ödeme durumu: $_onlinePaymentEnabled');
     } catch (e) {
-      setState(() => _isLoadingPaymentSettings = false);
+      if (!mounted) return;
+      setState(() {
+        _paymentSettings = const PaymentMethodSettings.allEnabled();
+        _onlinePaymentEnabled = true;
+        _isLoadingPaymentSettings = false;
+      });
       debugPrint('❌ Ödeme ayarları yüklenirken hata: $e');
     }
   }
@@ -978,24 +995,28 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    RadioListTile<PaymentMethod>(
-                      value: PaymentMethod.cash,
-                      groupValue: _selectedPaymentMethod,
-                      onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
-                      title: const Text('Kapıda Nakit'),
-                      subtitle: const Text('Teslimatçıya nakit ödeme'),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: Colors.orange.shade700,
-                    ),
-                    RadioListTile<PaymentMethod>(
-                      value: PaymentMethod.cardOnDelivery,
-                      groupValue: _selectedPaymentMethod,
-                      onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
-                      title: const Text('Kapıda Banka/Kredi Kartı'),
-                      subtitle: const Text('Teslimatçıya kart ile ödeme (POS)'),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: Colors.orange.shade700,
-                    ),
+                    // Kapıda Nakit - admin toggle'ı (order_cod_enabled) ile
+                    if (_paymentSettings.isAvailable(PaymentMethod.cash))
+                      RadioListTile<PaymentMethod>(
+                        value: PaymentMethod.cash,
+                        groupValue: _selectedPaymentMethod,
+                        onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
+                        title: const Text('Kapıda Nakit'),
+                        subtitle: const Text('Teslimatçıya nakit ödeme'),
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: Colors.orange.shade700,
+                      ),
+                    // Kapıda Banka/Kredi Kartı - admin toggle'ı (order_card_on_delivery_enabled) ile
+                    if (_paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
+                      RadioListTile<PaymentMethod>(
+                        value: PaymentMethod.cardOnDelivery,
+                        groupValue: _selectedPaymentMethod,
+                        onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
+                        title: const Text('Kapıda Banka/Kredi Kartı'),
+                        subtitle: const Text('Teslimatçıya kart ile ödeme (POS)'),
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: Colors.orange.shade700,
+                      ),
                     // Online Ödeme seçeneği - sadece aktifse göster
                     if (_onlinePaymentEnabled)
                       RadioListTile<PaymentMethod>(
@@ -1007,53 +1028,56 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         contentPadding: EdgeInsets.zero,
                         activeColor: Colors.orange.shade700,
                       ),
-                    // Bakiye ile ödeme seçeneği - her zaman göster
-                    const Divider(),
-                    RadioListTile<PaymentMethod>(
-                      value: PaymentMethod.balance,
-                      groupValue: _selectedPaymentMethod,
-                      onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
-                      title: Row(
-                        children: [
-                          const Expanded(child: Text('Bakiye ile Ödeme')),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _userBalance > 0 ? Colors.green.shade100 : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '₺${_userBalance.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                color: _userBalance > 0 ? Colors.green.shade800 : Colors.grey.shade600,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                    // Bakiye ile ödeme - admin toggle'ı (order_balance_enabled) ile.
+                    // Not: balance_enabled (bakiye SİSTEMİ) ayrı master anahtardır.
+                    if (_paymentSettings.isAvailable(PaymentMethod.balance)) ...[
+                      const Divider(),
+                      RadioListTile<PaymentMethod>(
+                        value: PaymentMethod.balance,
+                        groupValue: _selectedPaymentMethod,
+                        onChanged: (value) => setState(() => _selectedPaymentMethod = value!),
+                        title: Row(
+                          children: [
+                            const Expanded(child: Text('Bakiye ile Ödeme')),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: _userBalance > 0 ? Colors.green.shade100 : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '₺${_userBalance.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: _userBalance > 0 ? Colors.green.shade800 : Colors.grey.shade600,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          _userBalance > 0
+                              ? 'Mevcut bakiyeniz: ₺${_userBalance.toStringAsFixed(2)}'
+                              : 'Bakiyeniz yetersiz',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _userBalance > 0 ? null : Colors.orange,
                           ),
-                        ],
-                      ),
-                      subtitle: Text(
-                        _userBalance > 0
-                            ? 'Mevcut bakiyeniz: ₺${_userBalance.toStringAsFixed(2)}'
-                            : 'Bakiyeniz yetersiz',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _userBalance > 0 ? null : Colors.orange,
                         ),
-                      ),
-                      secondary: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(8),
+                        secondary: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.account_balance_wallet, color: Colors.green.shade700),
                         ),
-                        child: Icon(Icons.account_balance_wallet, color: Colors.green.shade700),
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: Colors.orange.shade700,
                       ),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: Colors.orange.shade700,
-                    ),
+                    ],
                     // Online ödeme kapalıysa bilgilendirme
                     if (!_onlinePaymentEnabled && !_isLoadingPaymentSettings)
                       Padding(
