@@ -112,13 +112,30 @@ class BalanceService {
       debugPrint('  └─ amount_paid: ${data['amount_paid']}');
       debugPrint('  └─ new_balance: ${data['new_balance']}');
 
+      // Güvenli parse: Edge function veya RPC bazı alanları null döndürürse
+      // (örn. deploy edilmemis Edge function, veya deduct_from_balance RPC
+      // RETURNS TABLE boş dönerse) 'as num)' cast'i patlamadan 0'a fallback
+      // yapıyoruz. Eski davranışta null cast hatayı sipariş iptaline kadar
+      // götürüyordu.
+      num safeNum(dynamic v, [num fallback = 0]) =>
+          v is num ? v : (v is String ? (num.tryParse(v) ?? fallback) : fallback);
+
       return BalancePaymentResult(
-        transactionId: data['transaction_id'],
-        amountPaid: (data['amount_paid'] as num).toDouble(),
-        remainingAmount: (data['remaining_amount'] as num).toDouble(),
-        newBalance: (data['new_balance'] as num).toDouble(),
-        isFullyPaid: data['is_fully_paid'] ?? false,
+        transactionId: (data['transaction_id'] as String?) ?? '',
+        amountPaid: safeNum(data['amount_paid']).toDouble(),
+        remainingAmount: safeNum(data['remaining_amount']).toDouble(),
+        newBalance: safeNum(data['new_balance']).toDouble(),
+        isFullyPaid: data['is_fully_paid'] == true,
       );
+    } on FunctionException catch (e) {
+      final details = e.details;
+      final serverError = details is Map ? details['error'] as String? : null;
+      final debugDetail = details is Map ? details['debug_detail'] : null;
+      debugPrint('❌ BALANCE: Bakiye kullanma hatası - status: ${e.status}, error: $serverError');
+      if (debugDetail != null) {
+        debugPrint('🔎 BALANCE: debug_detail = $debugDetail');
+      }
+      throw FriendlyException(serverError ?? 'Bakiye ile ödeme başarısız oldu.', originalError: e);
     } catch (e) {
       debugPrint('❌ BALANCE: Bakiye kullanma hatası - $e');
       throw FriendlyException.from(e);

@@ -406,7 +406,12 @@ class _TopupScreenState extends State<TopupScreen> {
         title: const Text('Bakiye Yükle'),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).padding.bottom,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -538,6 +543,53 @@ class _TopupScreenState extends State<TopupScreen> {
                       Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Hızlı seçenekler
+            Text(
+              'Hızlı Seç',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _quickAmounts.map((amount) {
+                return OutlinedButton(
+                  onPressed: _isLoading ? null : () {
+                    _amountController.text = amount.toString();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                  child: Text('₺$amount'),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+
+            // Tutar girişi
+            Text(
+              'veya tutar girin',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Tutar (TL)',
+                prefixText: '₺ ',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
               ),
             ),
 
@@ -713,76 +765,31 @@ class _TopupScreenState extends State<TopupScreen> {
               ),
             ],
 
-            const SizedBox(height: 24),
-
-            // Hızlı seçenekler
-            Text(
-              'Hızlı Seç',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _quickAmounts.map((amount) {
-                return OutlinedButton(
-                  onPressed: _isLoading ? null : () {
-                    _amountController.text = amount.toString();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: Text('₺$amount'),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 24),
-
-            // Tutar girişi
-            Text(
-              'veya tutar girin',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Tutar (TL)',
-                prefixText: '₺ ',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            // Yükle butonu (sadece kart ile ödemede gösterilir)
+            if (_selectedMethod == 'card') ...[
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _isLoading ? null : () {
+                  final amount = double.tryParse(_amountController.text) ?? 0;
+                  _initializeTopup(amount);
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
                 ),
-                filled: true,
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Ödemeye Geç'),
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // Yükle butonu
-            ElevatedButton(
-              onPressed: _isLoading ? null : () {
-                final amount = double.tryParse(_amountController.text) ?? 0;
-                _initializeTopup(amount);
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Ödemeye Geç'),
-            ),
+            ],
 
             if (_error != null) ...[
               const SizedBox(height: 16),

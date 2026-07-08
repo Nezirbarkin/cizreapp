@@ -68,8 +68,10 @@ serve(async (req: Request) => {
       });
     }
 
-    // Zaten ödenmişse kontrol et
-    if (order.payment_status === "completed" || order.payment_status === "paid") {
+    // Zaten ödenmişse kontrol et.
+    // ÖNEMLİ: orders.payment_status ENUM: ('pending', 'paid', 'refunded').
+    // Artık 'completed' yazmıyoruz; tam ödeme 'paid' ile ifade ediliyor.
+    if (order.payment_status === "paid") {
       return new Response(JSON.stringify({ error: "Bu sipariş zaten ödenmiş" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -99,7 +101,7 @@ serve(async (req: Request) => {
         status: "error",
         error: isInsufficient ? "Yetersiz bakiye" : isNoRecord ? "Bakiye kaydı bulunamadı" : msg,
       }), {
-        status: isInsufficient ? 400 : 400,
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -115,18 +117,49 @@ serve(async (req: Request) => {
     const transactionId = row?.transaction_id ?? null;
     const balanceAfter = row?.balance_after != null ? parseFloat(row.balance_after) : null;
 
-    // Siparişin payment_method ve payment_status'unu güncelle
-    // Eğer tamamen bakiye ile ödendiyse
+    // Siparişin payment_method ve payment_status'unu güncelle.
+    // ÖNEMLİ: orders.payment_status bir ENUM'dur ve sadece
+    // ('pending', 'paid', 'refunded') değerlerini kabul eder.
+    // Eski kod 'completed'/'partial' yazıyordu → enum ihlali (22P02)
+    // → sipariş güncellenemiyor → bakiye iade → sipariş iptal ediliyordu.
+    // Tamamen ödendiyse 'paid'; kısmi ödemede sipariş hâlâ açık kaldığı için 'pending'.
     const remainingAmount = (order_total ?? 0) - amountNum;
 
-    await supabase
+    const { error: orderUpdateError } = await supabase
       .from("orders")
       .update({
         payment_method: "balance", // bakiye ile ödeme
-        payment_status: remainingAmount <= 0 ? "completed" : "partial",
+        payment_status: remainingAmount <= 0 ? "paid" : "pending",
         updated_at: new Date().toISOString(),
       })
       .eq("id", order_id);
+
+    if (orderUpdateError) {
+      // Bakiye zaten düşüldü (RPC commit oldu) ama sipariş güncellenemedi.
+      // Bakiyeyi geri iade ederek kullanıcının parasının kalıcı kesilmesini önle.
+      console.error("❌ Sipariş güncelleme hatası, bakiye iade ediliyor:", orderUpdateError.message);
+      try {
+        await supabase.rpc("add_to_balance", {
+          p_user_id: user.id,
+          p_amount: amountNum,
+          p_type: "refund",
+          p_reference_type: "order",
+          p_reference_id: order_id,
+          p_description: `Sipariş güncelleme hatası nedeniyle otomatik iade - ${order.order_number || order_id.substring(0, 8)}`,
+        });
+      } catch (refundErr) {
+        console.error("❌ Otomatik iade de başarısız:", (refundErr as Error).message);
+      }
+
+      return new Response(JSON.stringify({
+        status: "error",
+        error: "Sipariş güncellenemedi, bakiyeniz iade edildi. Lütfen tekrar deneyin.",
+        debug_detail: orderUpdateError.message,
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     console.log("✅ Bakiye ile sipariş ödemesi:", {
       orderId: order_id,
