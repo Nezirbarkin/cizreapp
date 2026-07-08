@@ -58,7 +58,12 @@ class PresenceService {
       if (_globalChannel == null) return;
       try {
         final state = _globalChannel!.presenceState();
-        final ids = state.map((p) => p.key).whereType<String>().toList();
+        final ids = state
+            .expand((p) => p.presences)
+            .map((pres) => pres.payload['user_id'] as String?)
+            .whereType<String>()
+            .toSet()
+            .toList();
         _onlineUsersController.add(ids);
         debugPrint('👥 Presence sync: ${ids.length} online users');
       } catch (e) {
@@ -122,7 +127,12 @@ class PresenceService {
     if (_globalChannel == null) return;
     try {
       final state = _globalChannel!.presenceState();
-      final ids = state.map((p) => p.key).whereType<String>().toList();
+      final ids = state
+          .expand((p) => p.presences)
+          .map((pres) => pres.payload['user_id'] as String?)
+          .whereType<String>()
+          .toSet()
+          .toList();
       _onlineUsersController.add(ids);
     } catch (e) {
       debugPrint('broadcast error: $e');

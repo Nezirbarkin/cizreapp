@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/group_model.dart';
@@ -24,6 +26,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
   bool _isLoading = true;
   int _totalUnreadCount = 0;
   RealtimeChannel? _channel;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
@@ -31,11 +34,23 @@ class _GroupListScreenState extends State<GroupListScreen> {
     _loadGroups();
     _loadUnreadCount();
     _subscribeToGroups();
+    // Soğuk başlangıçta oturum token'ı henüz yenilenmemişse ilk sorgu
+    // sessizce boş dönebiliyor; token yenilendiğinde/oturum netleştiğinde
+    // listeyi tekrar çekerek "grup bazen görünmüyor" durumunu önle.
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
+      state,
+    ) {
+      if (state.event == AuthChangeEvent.tokenRefreshed ||
+          state.event == AuthChangeEvent.signedIn) {
+        _loadGroups();
+      }
+    });
   }
 
   @override
   void dispose() {
     _channel?.unsubscribe();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
