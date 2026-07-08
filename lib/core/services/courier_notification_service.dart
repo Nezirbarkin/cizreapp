@@ -123,18 +123,16 @@ class CourierNotificationService {
           .eq('id', courierId)
           .maybeSingle();
 
-      // Bildirim oluştur
-      await client.from('notifications').insert({
-        'user_id': courierId,
-        'type': 'courier_order_assigned',
-        'title': '🛵 Sipariş Sana Atandı!',
-        'content': '$shopName - ₺${orderTotal.toStringAsFixed(2)} tutarında sipariş sana atandı. Hemen teslimata çık!',
-        'data': {
-          'order_id': orderId,
-          'type': 'courier_order_assigned',
-        },
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
+      // Bildirim oluştur.
+      // ÖNEMLİ: Doğrudan INSERT yerine add_notification RPC kullanılıyor.
+      // RLS nedeniyle mevcut kullanıcı (auth.uid()) kurye adına satır
+      // yazamıyordu (42501). RPC SECURITY DEFINER, RLS bypass.
+      await client.rpc('add_notification', params: {
+        'p_user_id': courierId,
+        'p_type': 'courier_order_assigned',
+        'p_title': '🛵 Sipariş Sana Atandı!',
+        'p_content': '$shopName - ₺${orderTotal.toStringAsFixed(2)} tutarında sipariş sana atandı. Hemen teslimata çık!',
+        'p_entity_id': orderId,
       });
 
       debugPrint('✅ Kurye $courierId\'e atama bildirimi gönderildi');

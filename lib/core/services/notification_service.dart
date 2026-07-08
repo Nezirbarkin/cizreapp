@@ -209,22 +209,26 @@ class NotificationService {
       }
       
       debugPrint('✅ Bildirim tercihi açık, veritabanına ekleniyor...');
-      
-      final response = await client.from('notifications').insert({
-        'user_id': userId,
-        'type': type,
-        'title': title,
-        'content': content,
-        'actor_id': actorId,
-        'actor_name': actorName,
-        'actor_avatar': actorAvatar,
-        'entity_id': entityId,
-        'entity_image': entityImage,
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
-      }).select('id');
-      
-      debugPrint('✅ BİLDİRİM BAŞARIYLA OLUŞTURULDU! ID: ${response.first['id']}');
+
+      // ÖNEMLİ (2026-07-07): Doğrudan INSERT yerine add_notification RPC'si
+      // kullanılıyor. RLS nedeniyle kullanıcı kendi adına değil BAŞKA
+      // kullanıcıya (satıcıya, kuryeye) satır yazamıyordu (42501).
+      // add_notification SECURITY DEFINER olduğu için RLS'i bypass eder.
+      // Kullanıcı kendi adına ekliyorsa bile RPC üzerinden gitmek güvenli
+      // ve tutarlıdır (tüm kod yolları aynı mekanizmayı kullanır).
+      final response = await client.rpc('add_notification', params: {
+        'p_user_id': userId,
+        'p_type': type,
+        'p_title': title,
+        'p_content': content,
+        'p_actor_id': actorId,
+        'p_actor_name': actorName,
+        'p_actor_avatar': actorAvatar,
+        'p_entity_id': entityId,
+        'p_entity_image': entityImage,
+      });
+
+      debugPrint('✅ BİLDİRİM BAŞARIYLA OLUŞTURULDU! ID: $response');
       debugPrint('🔔 Database Trigger tetiklenmeli (push_notification_trigger.sql)');
     } catch (e) {
       // Bildirim oluşturma hatası sessizce geçilebilir
