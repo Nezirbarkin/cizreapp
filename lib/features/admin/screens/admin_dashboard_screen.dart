@@ -1025,7 +1025,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               'type': 'admin_notification',
                               'title': 'Şikayetinize Yanıt Geldi',
                               'content': notificationMessage,
-                              'data': {
+                              'metadata': {
                                 'report_id': report['id'],
                                 'status': selectedStatus,
                                 'admin_response': newResponse,
@@ -14778,7 +14778,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             'type': 'admin_notification',
                             'title': 'Şikayet Güncellemesi',
                             'content': notificationMessage,
-                            'data': {
+                            'metadata': {
                               'report_id': report['id'],
                               'status': selectedStatus,
                               'admin_response': newResponse,

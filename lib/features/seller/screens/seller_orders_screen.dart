@@ -2452,18 +2452,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         'assigned_at': DateTime.now().toIso8601String(),
       });
 
-      // 5. Kuryeye özel bildirim gönder
-      await _supabase.from('notifications').insert({
-        'user_id': courierId,
-        'type': 'courier_new_order',
-        'title': '📦 Yeni Sipariş Atandı!',
-        'content': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
-        'data': {
-          'order_id': order.id,
-          'type': 'courier_assignment',
-        },
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
+      // 5. Kuryeye özel bildirim gönder.
+      // ÖNEMLİ: Doğrudan INSERT yerine add_notification RPC kullanılıyor.
+      // RLS nedeniyle satıcı (auth.uid()) kendi adına değil kurye adına
+      // satır yazamıyordu (42501). RPC SECURITY DEFINER, RLS bypass.
+      await _supabase.rpc('add_notification', params: {
+        'p_user_id': courierId,
+        'p_type': 'courier_new_order',
+        'p_title': '📦 Yeni Sipariş Atandı!',
+        'p_content': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
+        'p_entity_id': order.id,
       });
 
       // 6. Kuryeye email bildirimi gönder

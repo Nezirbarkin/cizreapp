@@ -126,8 +126,7 @@ class AppErrorHandler {
     // Oturum / yetki hataları (Edge Function 401, FunctionException, JWT expired)
     // supabase_flutter functions.invoke non-2xx yanıtlarda FunctionException fırlatır.
     final lowerError = errorString.toLowerCase();
-    if (errorString.contains('FunctionException') ||
-        errorString.contains('Geçersiz oturum') ||
+    if (errorString.contains('Geçersiz oturum') ||
         errorString.contains('status: 401') ||
         errorString.contains('statusCode: 401') ||
         lowerError.contains('unauthorized') ||
