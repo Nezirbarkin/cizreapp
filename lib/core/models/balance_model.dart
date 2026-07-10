@@ -7,6 +7,7 @@ class UserBalance {
   final double lockedBalance;
   final double totalEarned;
   final double totalSpent;
+  final double totalRefunds;
   final double totalWithdrawn;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -18,6 +19,7 @@ class UserBalance {
     this.lockedBalance = 0,
     this.totalEarned = 0,
     this.totalSpent = 0,
+    this.totalRefunds = 0,
     this.totalWithdrawn = 0,
     required this.createdAt,
     required this.updatedAt,
@@ -26,8 +28,14 @@ class UserBalance {
   /// Kullanılabilir bakiye (toplam - kilitli)
   double get availableBalance => balance - lockedBalance;
 
-  /// Bakiye yeterli mi?
-  bool hasEnough(double amount) => availableBalance >= amount;
+  /// Bakiye denklemi kontrolü:
+  /// bakiye = yüklenen - harcanan + iade - çekilen
+  /// yüklenen = totalEarned (yükleme + bonus vb., iade HARİÇ)
+  /// iade = totalRefunds (iptal iadeleri vb.)
+  bool get isConsistent {
+    final expected = totalEarned - totalSpent + totalRefunds - totalWithdrawn;
+    return (balance - expected).abs() < 0.01;
+  }
 
   factory UserBalance.fromJson(Map<String, dynamic> json) {
     return UserBalance(
@@ -37,6 +45,7 @@ class UserBalance {
       lockedBalance: (json['locked_balance'] as num?)?.toDouble() ?? 0,
       totalEarned: (json['total_earned'] as num?)?.toDouble() ?? 0,
       totalSpent: (json['total_spent'] as num?)?.toDouble() ?? 0,
+      totalRefunds: (json['total_refunds'] as num?)?.toDouble() ?? 0,
       totalWithdrawn: (json['total_withdrawn'] as num?)?.toDouble() ?? 0,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
@@ -55,6 +64,7 @@ class UserBalance {
       'locked_balance': lockedBalance,
       'total_earned': totalEarned,
       'total_spent': totalSpent,
+      'total_refunds': totalRefunds,
       'total_withdrawn': totalWithdrawn,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -68,6 +78,7 @@ class UserBalance {
     double? lockedBalance,
     double? totalEarned,
     double? totalSpent,
+    double? totalRefunds,
     double? totalWithdrawn,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -79,6 +90,7 @@ class UserBalance {
       lockedBalance: lockedBalance ?? this.lockedBalance,
       totalEarned: totalEarned ?? this.totalEarned,
       totalSpent: totalSpent ?? this.totalSpent,
+      totalRefunds: totalRefunds ?? this.totalRefunds,
       totalWithdrawn: totalWithdrawn ?? this.totalWithdrawn,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -110,12 +122,10 @@ class SellerEarningsSummary {
     required this.withdrawalFeePercent,
   });
 
-  /// Çekim ücreti hesapla
   double calculateFee(double amount) {
     return (amount * withdrawalFeePercent / 100 * 100).round() / 100;
   }
 
-  /// Net çekilebilir tutar
   double netWithdrawable(double amount) {
     return amount - calculateFee(amount);
   }

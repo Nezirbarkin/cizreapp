@@ -67,6 +67,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _selectedMenu = 'Dashboard';
   String _selectedPeriod = 'weekly'; // Raporlar için seçili dönem
   String _userSearchQuery = ''; // Kullanıcı arama sorgusu
+  final TextEditingController _userSearchController = TextEditingController();
+  Future<List<Map<String, dynamic>>>? _usersFuture;
   String? _selectedShopFilter; // Sipariş yönetiminde dükkan filtresi
   
   // Dükkan listesi - state değişkeni olarak saklanıyor
@@ -76,6 +78,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _usersFuture = _loadUsers();
     _loadRealData();
     _setupRealtimeSubscription();
   }
@@ -84,6 +87,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void dispose() {
     _reportsChannel?.unsubscribe();
     _ticketsChannel?.unsubscribe();
+    _userSearchController.dispose();
     super.dispose();
   }
 
@@ -1135,8 +1139,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildUsersContent() {
+    if (_usersFuture == null) {
+      _usersFuture = _loadUsers();
+    }
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _loadUsers(),
+      future: _usersFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -1158,10 +1165,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 final username = (user['username'] as String?)?.toLowerCase() ?? '';
                 final fullName = (user['full_name'] as String?)?.toLowerCase() ?? '';
                 final email = (user['email'] as String?)?.toLowerCase() ?? '';
+                final phone = (user['phone'] as String?)?.toLowerCase() ?? '';
                 
                 return username.contains(query) ||
                        fullName.contains(query) ||
-                       email.contains(query);
+                       email.contains(query) ||
+                       phone.contains(query);
               }).toList();
         
         // İstatistikler (tüm kullanıcılar üzerinden)
@@ -1188,18 +1197,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 
                 // Arama TextField
                 TextField(
+                  controller: _userSearchController,
                   onChanged: (value) {
                     setState(() {
                       _userSearchQuery = value;
                     });
                   },
                   decoration: InputDecoration(
-                    hintText: 'Kullanıcı ara (isim, email, kullanıcı adı)...',
+                    hintText: 'Kullanıcı ara (isim, email, kullanıcı adı, telefon)...',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _userSearchQuery.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.clear),
                             onPressed: () {
+                              _userSearchController.clear();
                               setState(() {
                                 _userSearchQuery = '';
                               });
