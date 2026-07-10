@@ -10,10 +10,13 @@ import '../services/order_service.dart';
 import '../services/cart_service.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
+import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/payment_service.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../core/services/payment_method_settings_service.dart';
+import '../../../core/services/invoice_service.dart';
+import '../../../core/widgets/invoice_info_widget.dart';
 import '../../../features/market/providers/cart_provider.dart';
 import '../../../features/market/services/address_service.dart';
 import '../../../features/market/screens/address_management_screen.dart';
@@ -47,6 +50,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final PaymentService _paymentService = PaymentService();
   final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
+  final InvoiceService _invoiceService = InvoiceService();
   final _addressController = TextEditingController();
   final _notesController = TextEditingController();
 
@@ -61,6 +65,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Admin panelden kontrol edilen sipariş ödeme yöntemi toggle'ları.
   /// load() başarısız olursa allEnabled() fallback döner (mevcut davranış korunur).
   PaymentMethodSettings _paymentSettings = const PaymentMethodSettings.allEnabled();
+  
+  // Fatura bilgileri
+  InvoiceInfo? _selectedInvoiceInfo;
 
   @override
   void initState() {
@@ -370,6 +377,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         paymentMethod: _selectedPaymentMethod,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: customerPhone,
+        invoiceInfo: _selectedInvoiceInfo,
       );
 
       // Bakiye ile ödeme ise bakiyeden düş
@@ -977,6 +985,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   ),
                 ),
+
+            const SizedBox(height: 16),
+            // Fatura Bilgileri
+            InvoiceInfoSelector(
+              invoiceService: _invoiceService,
+              addressInfo: _selectedAddress != null
+                  ? AddressInfo(
+                      fullName: _selectedAddress!.fullName,
+                      address: _selectedAddress!.fullAddress,
+                    )
+                  : null,
+              onInvoiceChanged: (info) {
+                setState(() => _selectedInvoiceInfo = info);
+              },
+            ),
 
             const SizedBox(height: 24),
 

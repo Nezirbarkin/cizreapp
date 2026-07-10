@@ -7,11 +7,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/cart_model.dart';
 import '../../../core/models/address_model.dart';
+import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../../core/services/payment_service.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../core/services/payment_method_settings_service.dart';
+import '../../../core/services/invoice_service.dart';
+import '../../../core/widgets/invoice_info_widget.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
 import '../../shop/services/order_service.dart';
@@ -40,7 +43,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final PaymentService _paymentService = PaymentService();
   final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
+  final InvoiceService _invoiceService = InvoiceService();
   final _notesController = TextEditingController();
+  
+  // Fatura bilgileri
+  InvoiceInfo? _selectedInvoiceInfo;
 
   PaymentMethod _selectedPaymentMethod = PaymentMethod.cash;
   bool _isPlacingOrder = false;
@@ -49,11 +56,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Admin panelden kontrol edilen sipariş ödeme yöntemi toggle'ları.
   /// load() başarısız olursa allEnabled() fallback döner (mevcut davranış korunur).
   PaymentMethodSettings _paymentSettings = const PaymentMethodSettings.allEnabled();
+  Future<CartSummary>? _cartSummaryFuture;
 
   @override
   void initState() {
     super.initState();
     _loadPaymentSettings();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId != null) {
+      _cartSummaryFuture = _cartService.getCartSummary(userId);
+    }
   }
 
   Future<void> _loadPaymentSettings() async {
@@ -637,6 +649,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         paymentMethod: PaymentMethod.balance,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: selectedAddress.phone,
+        invoiceInfo: _selectedInvoiceInfo,
       );
       
       if (order != null) {
@@ -920,6 +933,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         paymentMethod: _selectedPaymentMethod,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: customerPhone,
+        invoiceInfo: _selectedInvoiceInfo,
       );
 
       if (order != null) {
@@ -986,7 +1000,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           body: SafeArea(
             child: FutureBuilder<CartSummary>(
-              future: _cartService.getCartSummary(userId),
+              future: _cartSummaryFuture ??= _cartService.getCartSummary(userId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -1019,6 +1033,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           title: Text(widget.shopName),
                           subtitle: const Text('Dükkan'),
                         ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Fatura Bilgileri
+                      InvoiceInfoSelector(
+                        invoiceService: _invoiceService,
+                        addressInfo: addressProvider.selectedAddress != null
+                            ? AddressInfo(
+                                fullName: addressProvider.selectedAddress!.fullName,
+                                address: addressProvider.selectedAddress!.fullAddress,
+                              )
+                            : null,
+                        onInvoiceChanged: (info) {
+                          setState(() => _selectedInvoiceInfo = info);
+                        },
                       ),
                       const SizedBox(height: 16),
 

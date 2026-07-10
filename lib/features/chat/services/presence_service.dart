@@ -31,6 +31,9 @@ class PresenceService {
   ///   - Retry mekanizması: track başarısız olursa tekrar dene
   ///   - DB'deki is_online=true olarak da işaretle (fallback)
   ///   - Presence state değişikliklerini de logla
+  /// DÜZELTME (2026-07-10):
+  ///   - is_online_enabled kontrolü: kullanıcı çevrimdışı tercih etmişse
+  ///     is_online=true yazma, sadece last_seen güncelle
   Future<void> startGlobalPresence(String userId) async {
     _userId = userId;
 
@@ -39,14 +42,16 @@ class PresenceService {
     } catch (_) {}
     _globalChannel = null;
 
-    // FALLBACK: DB'deki is_online=true da yap.
-    // Presence channel çalışmasa bile DB'de online görünür.
+    // ÖNCE kullanıcının çevrimiçi görünme tercihini kontrol et
+    final isOnlineEnabled = await _isOnlineEnabled(userId);
+
+    // Tercih açıksa is_online=true yaz, kapalıysa sadece last_seen güncelle
     try {
       await Supabase.instance.client.from('profiles').update({
-        'is_online': true,
+        'is_online': isOnlineEnabled,
         'last_seen': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', userId);
-      debugPrint('✅ DB is_online=true set for user=$userId');
+      debugPrint('✅ DB is_online=$isOnlineEnabled set for user=$userId');
     } catch (e) {
       debugPrint('⚠️ DB is_online update failed: $e');
     }
@@ -139,6 +144,24 @@ class PresenceService {
     }
   }
 
+  /// Kullanıcının çevrimiçi görünme tercihini kontrol eder.
+  /// DÜZELTME (2026-07-10): Presence her zaman is_online=true yazıyordu,
+  /// bu da kullanıcının çevrimdışı tercihini eziyordu.
+  Future<bool> _isOnlineEnabled(String userId) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('is_online_enabled')
+          .eq('id', userId)
+          .maybeSingle();
+      // Sütun yoksa veya hata durumunda default true döner (eski davranış)
+      return response?['is_online_enabled'] as bool? ?? true;
+    } catch (e) {
+      debugPrint('⚠️ _isOnlineEnabled check failed: $e');
+      return true; // Hata durumunda default açık kabul et
+    }
+  }
+
   /// Uygulama arka plana atılınça track'i bırak.
   Future<void> pauseGlobal() async {
     final ch = _globalChannel;
@@ -151,9 +174,27 @@ class PresenceService {
   }
 
   /// Uygulama öne gelince tekrar track.
+  /// DÜZELTME (2026-07-10): Ayrıca is_online alanını da tercihe göre günceller.
   Future<void> resumeGlobal() async {
     final ch = _globalChannel;
     if (ch == null || _userId == null) return;
+    
+    // ÖNCE tercihi kontrol et
+    final userId = _userId!;
+    final isOnlineEnabled = await _isOnlineEnabled(userId);
+    
+    // Tercihe göre is_online alanını güncelle
+    try {
+      await Supabase.instance.client.from('profiles').update({
+        'is_online': isOnlineEnabled,
+        'last_seen': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', userId);
+      debugPrint('✅ resumeGlobal: is_online=$isOnlineEnabled for user=$_userId');
+    } catch (e) {
+      debugPrint('⚠️ resumeGlobal DB update failed: $e');
+    }
+    
+    // Presence track et
     try {
       await ch.track({
         'user_id': _userId,

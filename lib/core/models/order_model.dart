@@ -1,4 +1,6 @@
 
+import 'invoice_info_model.dart';
+
 enum OrderStatus {
   pending,      // Beklemede
   confirmed,    // Onaylandı
@@ -208,6 +210,15 @@ class Order {
   final String? orderGroupId;        // Grup sipariş ID
   final String? groupOrderNumber;     // Grup sipariş numarası (müşteriye gösterilen)
 
+  // Fatura bilgileri (sipariş anındaki snapshot)
+  final String? invoiceType;         // 'individual' veya 'corporate'
+  final String? invoiceFullName;     // Fatura ünvanı / ad soyad
+  final String? invoiceTaxNumber;   // Vergi no (kurumsal)
+  final String? invoiceTcNo;         // T.C. kimlik no (bireysel)
+  final String? invoiceTaxOffice;    // Vergi dairesi (kurumsal)
+  final String? invoiceAddress;      // Fatura adresi (kurumsal)
+  final String? invoiceEmail;        // Fatura e-postası
+
   Order({
     required this.id,
     required this.userId,
@@ -247,7 +258,32 @@ class Order {
     // Grup sipariş alanları
     this.orderGroupId,
     this.groupOrderNumber,
+    // Fatura bilgileri
+    this.invoiceType,
+    this.invoiceFullName,
+    this.invoiceTaxNumber,
+    this.invoiceTcNo,
+    this.invoiceTaxOffice,
+    this.invoiceAddress,
+    this.invoiceEmail,
   });
+
+  /// Fatura bilgisi var mı?
+  bool get hasInvoice => invoiceFullName != null && invoiceFullName!.isNotEmpty;
+
+  /// Fatura bilgilerini InvoiceInfo olarak döndürür
+  InvoiceInfo? get invoiceInfo {
+    if (!hasInvoice) return null;
+    return InvoiceInfo(
+      type: InvoiceType.fromString(invoiceType),
+      fullName: invoiceFullName,
+      taxNumber: invoiceTaxNumber,
+      tcNo: invoiceTcNo,
+      taxOffice: invoiceTaxOffice,
+      address: invoiceAddress,
+      email: invoiceEmail,
+    );
+  }
 
   factory Order.fromJson(Map<String, dynamic> json) {
     final itemsData = json['order_items'] as List? ?? [];
@@ -321,6 +357,14 @@ class Order {
       // Grup sipariş alanları
       orderGroupId: json['order_group_id'] as String?,
       groupOrderNumber: json['group_order_number'] as String?,
+      // Fatura bilgileri
+      invoiceType: json['invoice_type'] as String?,
+      invoiceFullName: json['invoice_full_name'] as String?,
+      invoiceTaxNumber: json['invoice_tax_number'] as String?,
+      invoiceTcNo: json['invoice_tc_no'] as String?,
+      invoiceTaxOffice: json['invoice_tax_office'] as String?,
+      invoiceAddress: json['invoice_address'] as String?,
+      invoiceEmail: json['invoice_email'] as String?,
     );
   }
 
@@ -359,6 +403,14 @@ class Order {
       // Grup sipariş alanları
       'order_group_id': orderGroupId,
       'group_order_number': groupOrderNumber,
+      // Fatura bilgileri
+      'invoice_type': invoiceType,
+      'invoice_full_name': invoiceFullName,
+      'invoice_tax_number': invoiceTaxNumber,
+      'invoice_tc_no': invoiceTcNo,
+      'invoice_tax_office': invoiceTaxOffice,
+      'invoice_address': invoiceAddress,
+      'invoice_email': invoiceEmail,
     };
   }
 
@@ -427,6 +479,22 @@ class Order {
     double? commissionDebt,
     DateTime? commissionCalculatedAt,
     bool? hasOwnCourier,
+    // Müşteri telefonu
+    String? customerPhone,
+    // Kupon alanları
+    String? couponId,
+    double? couponDiscount,
+    // Grup sipariş alanları
+    String? orderGroupId,
+    String? groupOrderNumber,
+    // Fatura bilgileri
+    String? invoiceType,
+    String? invoiceFullName,
+    String? invoiceTaxNumber,
+    String? invoiceTcNo,
+    String? invoiceTaxOffice,
+    String? invoiceAddress,
+    String? invoiceEmail,
   }) {
     return Order(
       id: id ?? this.id,
@@ -458,6 +526,18 @@ class Order {
       commissionDebt: commissionDebt ?? this.commissionDebt,
       commissionCalculatedAt: commissionCalculatedAt ?? this.commissionCalculatedAt,
       hasOwnCourier: hasOwnCourier ?? this.hasOwnCourier,
+      customerPhone: customerPhone ?? this.customerPhone,
+      couponId: couponId ?? this.couponId,
+      couponDiscount: couponDiscount ?? this.couponDiscount,
+      orderGroupId: orderGroupId ?? this.orderGroupId,
+      groupOrderNumber: groupOrderNumber ?? this.groupOrderNumber,
+      invoiceType: invoiceType ?? this.invoiceType,
+      invoiceFullName: invoiceFullName ?? this.invoiceFullName,
+      invoiceTaxNumber: invoiceTaxNumber ?? this.invoiceTaxNumber,
+      invoiceTcNo: invoiceTcNo ?? this.invoiceTcNo,
+      invoiceTaxOffice: invoiceTaxOffice ?? this.invoiceTaxOffice,
+      invoiceAddress: invoiceAddress ?? this.invoiceAddress,
+      invoiceEmail: invoiceEmail ?? this.invoiceEmail,
     );
   }
 }

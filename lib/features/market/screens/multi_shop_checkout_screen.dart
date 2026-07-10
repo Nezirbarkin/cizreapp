@@ -6,9 +6,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/address_model.dart';
+import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../core/services/payment_method_settings_service.dart';
+import '../../../core/services/invoice_service.dart';
+import '../../../core/widgets/invoice_info_widget.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
 import '../../shop/services/order_service.dart';
@@ -30,7 +33,11 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   final CartService _cartService = CartService();
   final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
+  final InvoiceService _invoiceService = InvoiceService();
   final _notesController = TextEditingController();
+  
+  // Fatura bilgileri
+  InvoiceInfo? _selectedInvoiceInfo;
   /// Supabase client'ı güvenli şekilde al (lazy)
   SupabaseClient get _supabase {
     try {
@@ -237,6 +244,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
             ? _notesController.text.trim()
             : null,
         customerPhone: selectedAddress.phone,
+        invoiceInfo: _selectedInvoiceInfo,
       );
 
       // Bakiye ile ödeme ise sipariş sipariş dene; başarısız siparişleri iptal et.
@@ -871,6 +879,21 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                                 
                                 // Dükkanlar ve Ürünler
                                 _buildShopsSection(),
+                                const SizedBox(height: 24),
+                                
+                                // Fatura Bilgileri
+                                InvoiceInfoSelector(
+                                  invoiceService: _invoiceService,
+                                  addressInfo: selectedAddress != null
+                                      ? AddressInfo(
+                                          fullName: selectedAddress.fullName,
+                                          address: selectedAddress.fullAddress,
+                                        )
+                                      : null,
+                                  onInvoiceChanged: (info) {
+                                    setState(() => _selectedInvoiceInfo = info);
+                                  },
+                                ),
                                 const SizedBox(height: 24),
                                 
                                 // Ödeme Yöntemi

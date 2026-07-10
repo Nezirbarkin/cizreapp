@@ -1,6 +1,10 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # Privacy sayfası için özel yönlendirme - Google Play Store gereksinimi
+  RewriteRule ^privacy/?$ privacy.html [L,NC]
+  RewriteRule ^privacy$ privacy.html [L,NC,R=301]
+
   # Eğer dosya veya dizin gerçekten varsa, dokunma
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/balance_transaction_model.dart';
 import '../../../core/services/balance_service.dart';
 
-/// İşlem Geçmişi Ekranı
+/// İşlem Geçmişi Ekranı - Modern Tasarım
 class TransactionHistoryScreen extends StatefulWidget {
   const TransactionHistoryScreen({super.key});
 
@@ -73,36 +73,51 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('İşlem Geçmişi'),
+        title: const Text(
+          'İşlem Geçmişi',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        centerTitle: false,
         actions: [
-          PopupMenuButton<String?>(
-            icon: const Icon(Icons.filter_list),
-            tooltip: 'Filtrele',
-            onSelected: (value) {
-              setState(() {
-                _filterType = value;
-              });
-              _loadTransactions(refresh: true);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: null,
-                child: Text('Tümü'),
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: PopupMenuButton<String?>(
+              icon: Icon(
+                Icons.filter_list_rounded,
+                color: Theme.of(context).colorScheme.primary,
               ),
-              const PopupMenuItem(
-                value: 'topup',
-                child: Text('Yüklemeler'),
-              ),
-              const PopupMenuItem(
-                value: 'order_payment',
-                child: Text('Sipariş Ödemeleri'),
-              ),
-              const PopupMenuItem(
-                value: 'refund',
-                child: Text('İadeler'),
-              ),
-            ],
+              tooltip: 'Filtrele',
+              onSelected: (value) {
+                setState(() {
+                  _filterType = value;
+                });
+                _loadTransactions(refresh: true);
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: null,
+                  child: _buildFilterItem(null, 'Tümü', Icons.list_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'topup',
+                  child: _buildFilterItem('topup', 'Yüklemeler', Icons.add_circle_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'order_payment',
+                  child: _buildFilterItem('order_payment', 'Sipariş Ödemeleri', Icons.shopping_cart_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'refund',
+                  child: _buildFilterItem('refund', 'İadeler', Icons.replay_rounded),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -110,68 +125,156 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     );
   }
 
+  Widget _buildFilterItem(String? value, String label, IconData icon) {
+    final isSelected = _filterType == value;
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade600,
+        ),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? Theme.of(context).colorScheme.primary : null,
+          ),
+        ),
+        if (isSelected) ...[
+          const Spacer(),
+          Icon(
+            Icons.check_rounded,
+            size: 18,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildBody() {
     if (_isLoading && _transactions.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('İşlemler yükleniyor...'),
+          ],
+        ),
+      );
     }
 
     if (_error != null && _transactions.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red.shade400),
-            const SizedBox(height: 16),
-            Text('Hata: $_error', textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _refresh,
-              child: const Text('Tekrar Dene'),
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.error_outline_rounded,
+                  size: 48,
+                  color: Colors.red.shade400,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Bir hata oluştu',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Tekrar Dene'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     if (_transactions.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            Text(
-              'Henüz işlem yok',
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.receipt_long_rounded,
+                  size: 56,
+                  color: Colors.grey.shade400,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              Text(
+                'Henüz işlem yapılmadı',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Bakiye yükleyerek başlayın',
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         itemCount: _transactions.length + (_hasMore ? 1 : 0),
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           if (index >= _transactions.length) {
-            // Yükleme göstergesi
             _loadMore();
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(),
-              ),
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
             );
           }
 
           final transaction = _transactions[index];
-          return _buildTransactionCard(transaction);
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: index < _transactions.length - 1 ? 14 : 0,
+            ),
+            child: _buildTransactionCard(transaction),
+          );
         },
       ),
     );
@@ -184,138 +287,189 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     final hasBankInfo = transaction.bankName != null || transaction.bankAccountName != null;
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              // İkon
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: amountColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                // İkon
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: amountColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(icon, color: amountColor, size: 26),
                 ),
-                child: Icon(icon, color: amountColor, size: 24),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 16),
 
-              // Bilgiler
-              Expanded(
+                // Bilgiler
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        transaction.type.label,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 14,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            transaction.shortDate,
+                            style: TextStyle(
+                              color: Colors.grey.shade500,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (transaction.description != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          transaction.description!,
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // Tutar
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: amountColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${isPositive ? '+' : '-'}₺${transaction.absoluteAmount.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: amountColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildStatusBadge(transaction.status),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Banka bilgileri (varsa)
+          if (hasBankInfo) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      transaction.type.label,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      transaction.shortDate,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (transaction.description != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        transaction.description!,
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 11,
+                    Row(
+                      children: [
+                        Icon(Icons.account_balance_rounded, size: 16, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Banka Bilgileri',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue.shade700,
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        if (transaction.bankName != null)
+                          Expanded(
+                            child: _buildBankInfoChip(
+                              Icons.account_balance,
+                              'Banka: ${transaction.bankName}',
+                            ),
+                          ),
+                        if (transaction.bankAccountName != null)
+                          Expanded(
+                            child: _buildBankInfoChip(
+                              Icons.person_outline,
+                              'Hesap: ${transaction.bankAccountName}',
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (transaction.bankIban != null) ...[
+                      const SizedBox(height: 8),
+                      _buildBankInfoChip(
+                        Icons.numbers,
+                        'IBAN: ${_maskIban(transaction.bankIban!)}',
                       ),
                     ],
                   ],
                 ),
               ),
-
-              // Tutar
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${isPositive ? '+' : '-'}₺${transaction.absoluteAmount.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: amountColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  _buildStatusBadge(transaction.status),
-                ],
-              ),
-            ],
-          ),
-
-          // Banka bilgileri (varsa)
-          if (hasBankInfo) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.account_balance, size: 14, color: Colors.blue.shade700),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Banka Bilgileri',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.blue.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  if (transaction.bankName != null)
-                    Text(
-                      'Banka: ${transaction.bankName}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                    ),
-                  if (transaction.bankAccountName != null)
-                    Text(
-                      'Hesap Sahibi: ${transaction.bankAccountName}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                    ),
-                  if (transaction.bankIban != null)
-                    Text(
-                      'IBAN: ${_maskIban(transaction.bankIban!)}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                    ),
-                ],
-              ),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildBankInfoChip(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: Colors.blue.shade600),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue.shade700,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 
@@ -326,40 +480,57 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
 
   Widget _buildStatusBadge(BalanceTransactionStatus status) {
     Color color;
+    Color bgColor;
     String text;
+    IconData icon;
 
     switch (status) {
       case BalanceTransactionStatus.completed:
         color = Colors.green;
+        bgColor = Colors.green.shade50;
         text = 'Tamamlandı';
+        icon = Icons.check_circle_outline_rounded;
         break;
       case BalanceTransactionStatus.pending:
         color = Colors.orange;
+        bgColor = Colors.orange.shade50;
         text = 'Beklemede';
+        icon = Icons.schedule_rounded;
         break;
       case BalanceTransactionStatus.failed:
         color = Colors.red;
+        bgColor = Colors.red.shade50;
         text = 'Başarısız';
+        icon = Icons.cancel_outlined;
         break;
       case BalanceTransactionStatus.cancelled:
         color = Colors.grey;
+        bgColor = Colors.grey.shade100;
         text = 'İptal';
+        icon = Icons.block_rounded;
         break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -367,17 +538,17 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   IconData _getTransactionIcon(BalanceTransactionType type) {
     switch (type) {
       case BalanceTransactionType.topup:
-        return Icons.add_circle;
+        return Icons.add_circle_rounded;
       case BalanceTransactionType.orderPayment:
-        return Icons.shopping_cart;
+        return Icons.shopping_cart_rounded;
       case BalanceTransactionType.refund:
-        return Icons.replay;
+        return Icons.replay_rounded;
       case BalanceTransactionType.withdrawal:
-        return Icons.account_balance_wallet;
+        return Icons.account_balance_wallet_rounded;
       case BalanceTransactionType.adjustment:
-        return Icons.tune;
+        return Icons.tune_rounded;
       case BalanceTransactionType.commission:
-        return Icons.monetization_on;
+        return Icons.monetization_on_rounded;
     }
   }
 }

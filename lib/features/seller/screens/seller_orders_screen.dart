@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shop/services/order_service.dart';
 import '../../../core/models/order_model.dart';
+import '../../../core/widgets/invoice_info_widget.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/services/email_service.dart';
 
@@ -1530,6 +1531,14 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                               ),
                             ],
                           ),
+                        ),
+                      ],
+
+                      // Fatura Bilgileri
+                      if (order.hasInvoice) ...[
+                        const SizedBox(height: 24),
+                        InvoiceInfoDisplay(
+                          invoiceInfo: order.invoiceInfo,
                         ),
                       ],
 

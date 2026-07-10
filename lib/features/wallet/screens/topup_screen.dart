@@ -7,7 +7,7 @@ import '../../../core/services/bank_account_service.dart';
 import '../../../core/services/transfer_service.dart';
 import '../../../core/models/bank_account_model.dart';
 
-/// Bakiye Yükleme Ekranı
+/// Bakiye Yükleme Ekranı - Modern Tasarım
 class TopupScreen extends StatefulWidget {
   const TopupScreen({super.key});
 
@@ -32,8 +32,8 @@ class _TopupScreenState extends State<TopupScreen> {
   List<BankAccount> _bankAccounts = [];
   BankAccount? _selectedBankAccount;
   bool _cardTopupEnabled = true;
-  String? _conversationId; // Aktif topup işleminin referansı (sunucu doğrulaması için)
-  bool _paymentHandled = false; // Aynı ödemenin iki kez işlenmesini önler
+  String? _conversationId;
+  bool _paymentHandled = false;
 
   final List<double> _quickAmounts = [50, 100, 200, 500];
 
@@ -54,7 +54,6 @@ class _TopupScreenState extends State<TopupScreen> {
       if (mounted && response != null) {
         setState(() {
           _cardTopupEnabled = response['card_topup_enabled'] as bool? ?? true;
-          // Eğer kart ile ödeme kapalıysa ve varsayılan yöntem kart ise havale'ye geç
           if (!_cardTopupEnabled && _selectedMethod == 'card') {
             _selectedMethod = 'transfer';
           }
@@ -84,64 +83,90 @@ class _TopupScreenState extends State<TopupScreen> {
     }
   }
 
-
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
-            child: Text('$label:', style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+            width: 72,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 16, color: Colors.blue),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            onPressed: () {
+          InkWell(
+            onTap: () {
               Clipboard.setData(ClipboardData(text: value));
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('$label kopyalandı'),
                   duration: const Duration(seconds: 1),
-                  backgroundColor: Colors.green,
+                  backgroundColor: Colors.green.shade600,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               );
             },
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              child: Icon(Icons.copy_rounded, size: 16, color: Colors.blue.shade700),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Havale bildirimini `transfer_confirmations` tablosuna gönderir
-  /// (admin onayı bekler; onaylanınca bakiye OTOMATİK eklenir ve
-  /// kullanıcıya bildirim + push gider — bkz. [TransferService]).
   Future<void> _submitTransferConfirmation(BuildContext context) async {
     final raw = _amountController.text.trim();
     if (raw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen tutar girin')),
+        SnackBar(
+          content: const Text('Lütfen tutar girin'),
+          backgroundColor: Colors.orange.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
     final amount = double.tryParse(raw) ?? 0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Geçersiz tutar')),
+        SnackBar(
+          content: const Text('Geçersiz tutar'),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
 
-    // Gönderen ad soyad doğrulama (Form validator ile)
     final form = _senderNameFormKey.currentState;
     if (form == null || !form.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen gönderen ad soyad bilgisini girin')),
+        SnackBar(
+          content: const Text('Lütfen gönderen ad soyad bilgisini girin'),
+          backgroundColor: Colors.orange.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
@@ -157,7 +182,6 @@ class _TopupScreenState extends State<TopupScreen> {
 
       if (!mounted) return;
       if (!context.mounted) return;
-      // Mevcut transfer (havale) yapılacak banka bilgisini göster
       final bankName = _selectedBankAccount?.bankName ?? 'seçili banka';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -165,8 +189,10 @@ class _TopupScreenState extends State<TopupScreen> {
             'Bildiriminiz alındı. ₺${amount.toStringAsFixed(2)} tutarındaki '
             '$bankName havaleniz admin onayından sonra bakiyenize yansıyacak.',
           ),
-          backgroundColor: Colors.green,
+          backgroundColor: Colors.green.shade600,
           duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } catch (e) {
@@ -175,8 +201,10 @@ class _TopupScreenState extends State<TopupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_friendlyError(e.toString())),
-          backgroundColor: Colors.red,
+          backgroundColor: Colors.red.shade600,
           duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } finally {
@@ -184,23 +212,22 @@ class _TopupScreenState extends State<TopupScreen> {
     }
   }
 
-  /// Hata mesajını kullanıcı dostu hale getir (RAG/edge function mesajları).
   String _friendlyError(String raw) {
     final lower = raw.toLowerCase();
     if (lower.contains('oturum') ||
         lower.contains('session') ||
         lower.contains('expired') ||
         lower.contains('unauthorized')) {
-      return 'Ödeme sağlayıcısına bağlanılamıyor. Lütfen tekrar deneyin veya yönetici ile iletişime geçin.';
+      return 'Ödeme sağlayıcısına bağlanılamıyor. Lütfen tekrar deneyin.';
     }
     if (lower.contains('yapılandırılmamış') || lower.contains('credentials')) {
-      return 'Ödeme sistemi henüz yapılandırılmamış. Lütfen yönetici ile iletişime geçin.';
+      return 'Ödeme sistemi henüz yapılandırılmamış.';
     }
     if (lower.contains('network') || lower.contains('timeout')) {
-      return 'Bağlantı sorunu. Lütfen internetinizi kontrol edip tekrar deneyin.';
+      return 'Bağlantı sorunu. İnternetinizi kontrol edin.';
     }
     if (lower.contains('rate') || lower.contains('limit')) {
-      return 'Çok fazla deneme yaptınız. Lütfen birkaç saniye sonra tekrar deneyin.';
+      return 'Çok fazla deneme yaptınız. Lütfen bekleyin.';
     }
     return 'Hata: $raw';
   }
@@ -215,17 +242,23 @@ class _TopupScreenState extends State<TopupScreen> {
   Future<void> _initializeTopup(double amount) async {
     if (amount < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Minimum yükleme tutarı 10 TL\'dir')),
+        SnackBar(
+          content: const Text('Minimum yükleme tutarı 10 TL\'dir'),
+          backgroundColor: Colors.orange.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
 
-    // Kart ile ödeme kapalıyken havale yöntemine yönlendir
     if (_selectedMethod == 'card' && !_cardTopupEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Kredi kartı ile ödeme şu an kapalı. Lütfen Havale/EFT yöntemini kullanın.'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: const Text('Kredi kartı ile ödeme şu an kapalı. Havale/EFT kullanın.'),
+          backgroundColor: Colors.orange.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       setState(() => _selectedMethod = 'transfer');
@@ -239,22 +272,16 @@ class _TopupScreenState extends State<TopupScreen> {
 
     try {
       final result = await _balanceService.initializeTopup(amount: amount);
-
       if (!mounted) return;
 
-      // Ödeme referansını sakla ve durumu sıfırla (sunucu doğrulaması için)
       _conversationId = result.conversationId;
       _paymentHandled = false;
-
-      // WebView ile ödemeyi aç
       _openPaymentWebView(result.paymentPageUrl);
     } catch (e) {
       if (!mounted) return;
       
-      // Hata mesajını okunaklı hale getir
       String errorMessage = e.toString();
 
-      // "Exception: " / "FriendlyException: " prefix'ini kaldır
       for (final prefix in ['Exception: ', 'FriendlyException: ']) {
         if (errorMessage.startsWith(prefix)) {
           errorMessage = errorMessage.substring(prefix.length);
@@ -262,8 +289,6 @@ class _TopupScreenState extends State<TopupScreen> {
         }
       }
 
-      // iyzico/oturum hataları → kullanıcı dostu (ham teknik mesajı gösterme)
-      // "Oturumunuzun süresi dolmuş" gibi iyzico edge function hataları burada yakalanır.
       final lower = errorMessage.toLowerCase();
       if (lower.contains('oturum') ||
           lower.contains('session') ||
@@ -273,7 +298,6 @@ class _TopupScreenState extends State<TopupScreen> {
           lower.contains('credentials')) {
         errorMessage = _friendlyError(errorMessage);
       } else if (errorMessage.contains('"code"') && errorMessage.contains('"message"')) {
-        // JSON parse deneyerek kullanıcı dostu mesajı al
         try {
           final match = RegExp(r'"message"\s*:\s*"([^"]+)"').firstMatch(errorMessage);
           if (match != null) {
@@ -290,8 +314,10 @@ class _TopupScreenState extends State<TopupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
-          backgroundColor: Colors.red,
+          backgroundColor: Colors.red.shade600,
           duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -305,19 +331,15 @@ class _TopupScreenState extends State<TopupScreen> {
         ..setNavigationDelegate(
           NavigationDelegate(
             onPageStarted: (String url) {
-              debugPrint('🌐 WebView: $url');
-              
-              // Başarı kontrolü
+              debugPrint('WebView: $url');
               if (url.contains('balance-success') || url.contains('success')) {
                 _handlePaymentSuccess();
-              }
-              // Başarısızlık kontrolü
-              else if (url.contains('balance-failed') || url.contains('fail')) {
+              } else if (url.contains('balance-failed') || url.contains('fail')) {
                 _handlePaymentFailed();
               }
             },
             onPageFinished: (String url) {
-              debugPrint('✅ WebView finished: $url');
+              debugPrint('WebView finished: $url');
             },
             onNavigationRequest: (NavigationRequest request) {
               return NavigationDecision.navigate;
@@ -332,18 +354,14 @@ class _TopupScreenState extends State<TopupScreen> {
     if (!_isWebViewOpen || _paymentHandled) return;
     _paymentHandled = true;
 
-    // WebView'i kapat ve doğrulama ekranı göster
     setState(() {
       _isWebViewOpen = false;
       _webViewController = null;
       _isLoading = true;
     });
 
-    // ÖNEMLİ: URL'de "success" görünmesi ödemenin gerçekten tamamlandığı
-    // anlamına gelmez. Sunucudan (balance_transactions.status) teyit alıyoruz.
     bool confirmed = false;
     if (_conversationId != null) {
-      // Callback'in işlenmesi için kısa retry (birkaç saniye gecikebilir)
       for (int i = 0; i < 5; i++) {
         confirmed = await _balanceService.checkTopupStatus(_conversationId!);
         if (confirmed) break;
@@ -356,21 +374,22 @@ class _TopupScreenState extends State<TopupScreen> {
     if (confirmed) {
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bakiye başarıyla yüklendi!'),
-          backgroundColor: Colors.green,
+        SnackBar(
+          content: const Text('Bakiye başarıyla yüklendi!'),
+          backgroundColor: Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } else {
-      // Ödeme henüz teyit edilemedi - yanlış "başarılı" göstermiyoruz
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Ödeme alındı, bakiyeye yansıması birkaç dakika sürebilir. '
-              'Yansımazsa lütfen destek ile iletişime geçin.'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 5),
+        SnackBar(
+          content: const Text('Ödeme alındı, bakiyeye yansıması birkaç dakika sürebilir.'),
+          backgroundColor: Colors.orange.shade600,
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -384,9 +403,11 @@ class _TopupScreenState extends State<TopupScreen> {
       _isLoading = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Ödeme başarısız oldu'),
-        backgroundColor: Colors.red,
+      SnackBar(
+        content: const Text('Ödeme başarısız oldu'),
+        backgroundColor: Colors.red.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -401,12 +422,14 @@ class _TopupScreenState extends State<TopupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     if (_isWebViewOpen && _webViewController != null) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Ödeme'),
           leading: IconButton(
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close_rounded),
             onPressed: _closeWebView,
           ),
         ),
@@ -415,208 +438,66 @@ class _TopupScreenState extends State<TopupScreen> {
     }
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Bakiye Yükle'),
+        title: const Text(
+          'Bakiye Yükle',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        centerTitle: false,
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          16 + MediaQuery.of(context).padding.bottom,
-        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Açıklama
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Kredi kartınızla bakiye yükleyebilirsiniz.\nMinimum yükleme: 10 TL',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Üst Bilgi Kartı
+            _buildHeaderCard(theme),
             const SizedBox(height: 24),
 
             // Ödeme Yöntemi Seçimi
-            Text(
-              'Ödeme Yöntemi',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            // Kredi Kartı (sadece aktif ise göster)
-            if (_cardTopupEnabled) ...[
-              InkWell(
-                onTap: () {
-                  setState(() => _selectedMethod = 'card');
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: _selectedMethod == 'card' ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _selectedMethod == 'card' ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                      width: _selectedMethod == 'card' ? 2 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.credit_card, color: _selectedMethod == 'card' ? Theme.of(context).colorScheme.primary : Colors.grey.shade600),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Kredi Kartı / Banka Kartı', style: TextStyle(fontWeight: FontWeight.w600, color: _selectedMethod == 'card' ? Theme.of(context).colorScheme.primary : Colors.black)),
-                            const SizedBox(height: 2),
-                            Text('İyzico güvenli ödeme', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                          ],
-                        ),
-                      ),
-                      if (_selectedMethod == 'card')
-                        Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-            ] else ...[
-              // Kredi kartı pasif uyarısı
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Kredi kartı ile ödeme şu an kapalıdır. Bakiye yüklemek için lütfen Havale/EFT yöntemini kullanın.',
-                        style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-            // Havale / EFT
-            InkWell(
-              onTap: () {
-                setState(() => _selectedMethod = 'transfer');
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _selectedMethod == 'transfer' ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _selectedMethod == 'transfer' ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                    width: _selectedMethod == 'transfer' ? 2 : 1,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.account_balance, color: _selectedMethod == 'transfer' ? Theme.of(context).colorScheme.primary : Colors.grey.shade600),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Havale / EFT', style: TextStyle(fontWeight: FontWeight.w600, color: _selectedMethod == 'transfer' ? Theme.of(context).colorScheme.primary : Colors.black)),
-                          const SizedBox(height: 2),
-                          Text('Banka havalesi ile yükleme', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                        ],
-                      ),
-                    ),
-                    if (_selectedMethod == 'transfer')
-                      Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Hızlı seçenekler
-            Text(
-              'Hızlı Seç',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _quickAmounts.map((amount) {
-                return OutlinedButton(
-                  onPressed: _isLoading ? null : () {
-                    _amountController.text = amount.toString();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: Text('₺$amount'),
-                );
-              }).toList(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _buildPaymentMethods(theme),
             ),
             const SizedBox(height: 24),
 
-            // Tutar girişi
-            Text(
-              'veya tutar girin',
-              style: Theme.of(context).textTheme.titleMedium,
+            // Hızlı Seçenekler
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _buildQuickAmounts(theme),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Tutar (TL)',
-                prefixText: '₺ ',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-              ),
+            const SizedBox(height: 20),
+
+            // Tutar Girişi
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _buildAmountInput(theme),
             ),
 
-            // Havale bilgileri
+            // Havale Bilgileri
             if (_selectedMethod == 'transfer') ...[
-              const SizedBox(height: 20),
-              if (_isLoadingBanks)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_bankAccounts.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(16),
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildTransferSection(theme),
+              ),
+            ],
+
+            // Yükle Butonu
+            if (_selectedMethod == 'card') ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildTopupButton(theme),
+              ),
+            ],
+
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(12),
@@ -625,227 +506,761 @@ class _TopupScreenState extends State<TopupScreen> {
                   child: Row(
                     children: [
                       Icon(Icons.error_outline, color: Colors.red.shade700),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Şu anda aktif banka hesabı bulunmuyor. Lütfen kredi kartı ile yükleme yapın veya daha sonra tekrar deneyin.',
-                          style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                          _error!,
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 13),
                         ),
                       ),
                     ],
                   ),
-                )
-              else ...[
-                // Birden fazla banka varsa seçim
-                if (_bankAccounts.length > 1) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.purple.shade200),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.account_balance, color: Colors.purple.shade700, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Havale Yapılacak Banka',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple.shade700),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButton<BankAccount>(
-                          isExpanded: true,
-                          value: _selectedBankAccount,
-                          items: _bankAccounts.map((bank) {
-                            return DropdownMenuItem<BankAccount>(
-                              value: bank,
-                              child: Text('${bank.bankName} - ${bank.accountName}'),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedBankAccount = value;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.blue.shade600,
+            Colors.blue.shade800,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withValues(alpha: 0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.info_outline_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Bakiye Yükleme',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 12),
-                ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Minimum yükleme: 10 TL',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentMethods(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Ödeme Yöntemi',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Kredi Kartı
+        if (_cardTopupEnabled) ...[
+          _buildMethodCard(
+            theme,
+            icon: Icons.credit_card_rounded,
+            title: 'Kredi Kartı / Banka Kartı',
+            subtitle: 'İyzico güvenli ödeme',
+            method: 'card',
+            color: Colors.blue,
+          ),
+          const SizedBox(height: 12),
+        ] else ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: Colors.orange.shade700),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Kredi kartı ile ödeme şu an kapalıdır.',
+                    style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Havale / EFT
+        _buildMethodCard(
+          theme,
+          icon: Icons.account_balance_rounded,
+          title: 'Havale / EFT',
+          subtitle: 'Banka havalesi ile yükleme',
+          method: 'transfer',
+          color: Colors.purple,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMethodCard(
+    ThemeData theme, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String method,
+    required Color color,
+  }) {
+    final isSelected = _selectedMethod == method;
+    
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        color: isSelected ? color.withValues(alpha: 0.08) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isSelected ? color : Colors.grey.shade200,
+          width: isSelected ? 2 : 1,
+        ),
+        boxShadow: isSelected
+            ? [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _selectedMethod = method),
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.shade200),
+                    color: isSelected ? color.withValues(alpha: 0.15) : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
                   ),
+                  child: Icon(
+                    icon,
+                    color: isSelected ? color : Colors.grey.shade600,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Havale Bilgileri',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade700),
-                          ),
-                        ],
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          color: isSelected ? color : Colors.black87,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      _buildInfoRow('Banka', _selectedBankAccount?.bankName ?? '-'),
-                      _buildInfoRow('Hesap Adı', _selectedBankAccount?.accountName ?? '-'),
-                      _buildInfoRow('IBAN', _selectedBankAccount?.iban ?? '-'),
-                      if (_selectedBankAccount?.branch != null &&
-                          _selectedBankAccount!.branch!.isNotEmpty)
-                        _buildInfoRow('Şube', _selectedBankAccount!.branch!),
-                      if (_selectedBankAccount?.description != null &&
-                          _selectedBankAccount!.description!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isSelected)
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickAmounts(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Hızlı Seç',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: _quickAmounts.map((amount) {
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: amount != _quickAmounts.last ? 10 : 0,
+                ),
+                child: _buildQuickAmountChip(theme, amount),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickAmountChip(ThemeData theme, double amount) {
+    final isSelected = _amountController.text == amount.toString();
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _isLoading
+            ? null
+            : () {
+                setState(() {
+                  _amountController.text = amount.toString();
+                });
+              },
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? theme.colorScheme.primary.withValues(alpha: 0.1)
+                : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected
+                  ? theme.colorScheme.primary
+                  : Colors.grey.shade200,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              '₺$amount',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: isSelected
+                    ? theme.colorScheme.primary
+                    : Colors.grey.shade700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAmountInput(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'veya tutar girin',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: _amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+            decoration: InputDecoration(
+              labelText: 'Tutar',
+              prefixText: '₺ ',
+              prefixStyle: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTransferSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Banka Seçimi
+        if (_isLoadingBanks)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Center(child: CircularProgressIndicator()),
+          )
+        else if (_bankAccounts.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, color: Colors.red.shade700),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Aktif banka hesabı bulunmuyor.',
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          // Banka Seçimi
+          if (_bankAccounts.length > 1) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.purple.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_balance_rounded, color: Colors.purple.shade700),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Havale Yapılacak Banka',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.purple.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButton<BankAccount>(
+                      isExpanded: true,
+                      underline: const SizedBox(),
+                      value: _selectedBankAccount,
+                      items: _bankAccounts.map((bank) {
+                        return DropdownMenuItem<BankAccount>(
+                          value: bank,
+                          child: Text('${bank.bankName} - ${bank.accountName}'),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedBankAccount = value;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Havale Bilgileri
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: Colors.orange.shade700, size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Havale Bilgileri',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange.shade700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _buildInfoRow('Banka', _selectedBankAccount?.bankName ?? '-'),
+                _buildInfoRow('Hesap', _selectedBankAccount?.accountName ?? '-'),
+                _buildInfoRow('IBAN', _selectedBankAccount?.iban ?? '-'),
+                if (_selectedBankAccount?.branch != null &&
+                    _selectedBankAccount!.branch!.isNotEmpty)
+                  _buildInfoRow('Şube', _selectedBankAccount!.branch!),
+                if (_selectedBankAccount?.description != null &&
+                    _selectedBankAccount!.description!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.note_outlined, size: 14, color: Colors.amber),
+                        const SizedBox(width: 6),
+                        Expanded(
                           child: Text(
-                            '📝 ${_selectedBankAccount!.description!}',
-                            style: TextStyle(fontSize: 11, color: Colors.amber.shade900),
+                            _selectedBankAccount!.description!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.amber.shade900,
+                            ),
                           ),
                         ),
                       ],
-                      const SizedBox(height: 8),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.access_time_rounded, size: 14, color: Colors.orange.shade800),
+                      const SizedBox(width: 6),
                       Text(
-                        '',
-                        style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Bakiye 0-1 saatte otamtik yansıtılır.',
-                        style: TextStyle(fontSize: 12, color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+                        'Bakiye 0-1 saatte otomatik yansıtılır.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              // Gönderen ad soyad + Bildirim butonu (Form ile doğrulama)
-              Form(
-                key: _senderNameFormKey,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Bildirim Formu
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Form(
+              key: _senderNameFormKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.notifications_active, color: Colors.green.shade700, size: 20),
-                          const SizedBox(width: 8),
-                          Text('Havale Yaptınız Mı?', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700)),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
+                      Icon(Icons.notifications_active_rounded, color: Colors.green.shade700),
+                      const SizedBox(width: 8),
                       Text(
-                        'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
-                        style: TextStyle(fontSize: 12, color: Colors.green.shade800),
-                      ),
-                      const SizedBox(height: 12),
-                      // Gönderen Ad Soyad — admin onaylarken kimin gönderdiğini görebilsin
-                      TextFormField(
-                        controller: _senderNameController,
-                        textCapitalization: TextCapitalization.words,
-                        textInputAction: TextInputAction.done,
-                        decoration: InputDecoration(
-                          labelText: 'Gönderen Ad Soyad *',
-                          hintText: 'Havaleyi yapan kişinin adı soyadı',
-                          helperText: '  '
-                              '',
-                          prefixIcon: const Icon(Icons.person_outline, size: 20),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
-                        ),
-                        validator: (value) {
-                          final v = value?.trim() ?? '';
-                          if (v.isEmpty) {
-                            return 'Gönderen ad soyad zorunludur';
-                          }
-                          if (v.length < 3) {
-                            return 'En az 3 karakter girin';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isLoading ? null : () => _submitTransferConfirmation(context),
-                          icon: const Icon(Icons.send, size: 18),
-                          label: const Text('Sisteme Bildir'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
+                        'Havale Yaptınız Mı?',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade700,
+                          fontSize: 16,
                         ),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
+                    style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _senderNameController,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: 'Gönderen Ad Soyad *',
+                      hintText: 'Havaleyi yapan kişinin adı soyadı',
+                      prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.green.shade700, width: 2),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    validator: (value) {
+                      final v = value?.trim() ?? '';
+                      if (v.isEmpty) {
+                        return 'Gönderen ad soyad zorunludur';
+                      }
+                      if (v.length < 3) {
+                        return 'En az 3 karakter girin';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green.shade600, Colors.green.shade700],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _isLoading ? null : () => _submitTransferConfirmation(context),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (_isLoading)
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                else
+                                  const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Sisteme Bildir',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
-            // Yükle butonu (sadece kart ile ödemede gösterilir)
-            if (_selectedMethod == 'card') ...[
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : () {
+  Widget _buildTopupButton(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primary,
+            theme.colorScheme.secondary,
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoading
+              ? null
+              : () {
                   final amount = double.tryParse(_amountController.text) ?? 0;
                   _initializeTopup(amount);
                 },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Colors.white,
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Ödemeye Geç'),
-              ),
-            ],
-
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: const TextStyle(color: Colors.red),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ],
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_isLoading)
+                  const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                else ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.lock_open_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Ödemeye Geç',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
+import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/email_service.dart';
 
@@ -33,6 +34,7 @@ class OrderService {
     PaymentMethod paymentMethod = PaymentMethod.cash,
     String? notes,
     String? customerPhone, // Müşteri telefonu eklendi
+    InvoiceInfo? invoiceInfo, // Fatura bilgileri eklendi
   }) async {
     try {
       debugPrint('🛒 ORDER: Sipariş oluşturuluyor...');
@@ -50,6 +52,9 @@ class OrderService {
       // Not: Komisyon alanları SQL trigger tarafından otomatik doldurulur
       // (admin_commission, admin_delivery_fee, seller_net_amount, commission_status)
       try {
+        // Fatura bilgilerini hazırla
+        final invoiceData = invoiceInfo?.toOrderSnapshot() ?? {};
+        
         await _supabase.from('orders').insert({
           'order_number': orderNumber,
           'user_id': userId,
@@ -69,6 +74,14 @@ class OrderService {
           'notes': notes,
           'created_at': DateTime.now().toIso8601String(),
           'updated_at': DateTime.now().toIso8601String(),
+          // Fatura bilgileri
+          if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
+          if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
+          if (invoiceData['invoice_tax_number'] != null) 'invoice_tax_number': invoiceData['invoice_tax_number'],
+          if (invoiceData['invoice_tc_no'] != null) 'invoice_tc_no': invoiceData['invoice_tc_no'],
+          if (invoiceData['invoice_tax_office'] != null) 'invoice_tax_office': invoiceData['invoice_tax_office'],
+          if (invoiceData['invoice_address'] != null) 'invoice_address': invoiceData['invoice_address'],
+          if (invoiceData['invoice_email'] != null) 'invoice_email': invoiceData['invoice_email'],
         });
         debugPrint('✅ ORDER: INSERT basarili');
       } catch (insertError) {
@@ -679,6 +692,7 @@ class OrderService {
     required PaymentMethod paymentMethod,
     String? notes,
     String? customerPhone, // Müşteri telefonu eklendi
+    InvoiceInfo? invoiceInfo, // Fatura bilgileri eklendi
   }) async {
     try {
       debugPrint('🛒 MULTI-SHOP ORDER: Çok dükkanlı sipariş oluşturuluyor...');
@@ -729,6 +743,9 @@ class OrderService {
           // Sipariş numarası oluştur
           final orderNumber = 'ORD${DateTime.now().millisecondsSinceEpoch}_${shopId.substring(0, 6)}';
           
+          // Fatura bilgilerini hazırla
+          final invoiceData = invoiceInfo?.toOrderSnapshot() ?? {};
+          
           // Siparişi oluştur
           await _supabase.from('orders').insert({
             'order_number': orderNumber,
@@ -749,6 +766,14 @@ class OrderService {
             'group_order_number': groupOrderNumber,
             'created_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
+            // Fatura bilgileri
+            if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
+            if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
+            if (invoiceData['invoice_tax_number'] != null) 'invoice_tax_number': invoiceData['invoice_tax_number'],
+            if (invoiceData['invoice_tc_no'] != null) 'invoice_tc_no': invoiceData['invoice_tc_no'],
+            if (invoiceData['invoice_tax_office'] != null) 'invoice_tax_office': invoiceData['invoice_tax_office'],
+            if (invoiceData['invoice_address'] != null) 'invoice_address': invoiceData['invoice_address'],
+            if (invoiceData['invoice_email'] != null) 'invoice_email': invoiceData['invoice_email'],
           });
           
           // Siparişi getir

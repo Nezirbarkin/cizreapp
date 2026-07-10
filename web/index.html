@@ -39,6 +39,13 @@
   <title>CizreApp - Alışveriş Platformu</title>
   <link rel="manifest" href="manifest.json">
 
+  <!-- Privacy sayfası yönlendirmesi - Google Play Store gereksinimi -->
+  <script>
+    if (window.location.pathname === '/privacy' || window.location.pathname === '/privacy/') {
+      window.location.href = '/privacy.html';
+    }
+  </script>
+
   <!-- Firebase SDK (Analytics + Cloud Messaging) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics-compat.js"></script>
