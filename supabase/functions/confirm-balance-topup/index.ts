@@ -2,6 +2,7 @@
 // iyzico callback sonrası bakiyeyi günceller
 // Bu fonksiyon iyzico tarafından callback olarak çağrılır (yetkilendirme gerektirmez)
 // Deploy: supabase functions deploy confirm-balance-topup --no-verify-jwt
+// GÜVENLİK: Rate limiting, replay attack koruması, audit logging eklenmiştir
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
@@ -205,38 +206,72 @@ serve(async (req: Request) => {
       const userId = txn.user_id;
 
       // ─────────────────────────────────────────────────────────────
-      // ATOMİK BAKİYE YÜKLEME (FIX-HATA-1: race condition)
+      // GÜVENLİK: Client bilgilerini al
       // ─────────────────────────────────────────────────────────────
-      // Önceki sürüm JS tarafında ayrı SELECT→UPDATE yapıyordu.
-      // Aynı token ile gelen iki eşzamanlı callback'te her ikisi de aynı
-      // balance_before okuyup üzerine yazabilirdi → 50 TL bakiye kaybı.
-      //
-      // Çözüm: PostgreSQL transaction içinde FOR UPDATE lock kullanarak
-      // aynı satırı kilitliyoruz. İkinci callback bu satırın kilidini
-      // bekler, böylece sıralı okuma-yazma garanti altında.
-      //
-      // supabase.rpc() ile SQL fonksiyonu çağırıyoruz — bu service role
-      // yetkisiyle çalışır ve SECURITY DEFINER fonksiyonu tetikler.
+      const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+                       req.headers.get("x-real-ip") || null;
+      const userAgent = req.headers.get("user-agent") || null;
+      // Cihaz parmak izi - User-Agent + Accept-Language kombinasyonu
+      const acceptLang = req.headers.get("accept-language") || "";
+      let deviceFingerprint: string | null = null;
+      if (userAgent) {
+        const fpData = new TextEncoder().encode(userAgent + "|" + acceptLang);
+        const fpHash = await crypto.subtle.digest("SHA-256", fpData);
+        deviceFingerprint = Array.from(new Uint8Array(fpHash))
+          .map(b => b.toString(16).padStart(2, "0")).join("");
+      }
+
       // ─────────────────────────────────────────────────────────────
-      const result = await supabase.rpc("atomic_add_balance_topup", {
+      // GÜVENLİ ATOMİK BAKİYE YÜKLEME (FIX-HATA-1: race condition + GÜVENLİK)
+      // ─────────────────────────────────────────────────────────────
+      // atomic_add_balance_topup_secure fonksiyonu şunları yapar:
+      // - Replay attack koruması (aynı txn iki kez işlenemez)
+      // - Rate limit kontrolü (günlük/aylık limitler)
+      // - Çoklu IP/Cihaz tespiti
+      // - Risk skoru hesaplama
+      // - Şüpheli işlemleri otomatik engelleme
+      // - Tüm işlemlerin detaylı loglanması
+      // - FOR UPDATE lock ile atomik güncelleme
+      // ─────────────────────────────────────────────────────────────
+      const result = await supabase.rpc("atomic_add_balance_topup_secure", {
         p_user_id: userId,
         p_amount: amount,
         p_pending_txn_id: txn.id,
         p_payment_id: paymentResult.paymentId,
         p_paid_price: parseFloat(paymentResult.paidPrice || "0"),
+        p_ip_address: clientIp,
+        p_user_agent: userAgent,
+        p_device_fingerprint: deviceFingerprint,
       });
 
       if (result.error) {
-        console.error("❌ atomic_add_balance_topup RPC hatası:", result.error);
+        console.error("❌ atomic_add_balance_topup_secure RPC hatası:", result.error);
         throw new Error(`Bakiye yüklenemedi: ${result.error.message}`);
       }
 
-      // RPC tek satır döndürür: { balance_before, balance_after }
+      // RPC tek satır döndürür: { success, balance_before, balance_after, error_message, blocked_reason, security_log_id }
       const row = Array.isArray(result.data) ? result.data[0] : result.data;
+      
+      // Güvenlik kontrolü başarısız olduysa
+      if (row?.success === false) {
+        const blockedReason = row?.blocked_reason || row?.error_message || "İşlem güvenlik kontrolünden geçemedi";
+        console.error("🚨 İşlem güvenlik tarafından engellendi:", {
+          userId,
+          amount,
+          reason: blockedReason,
+          securityLogId: row?.security_log_id
+        });
+        
+        return new Response(
+          `<html><body><script>window.location.href="/balance-failed?error=${encodeURIComponent(blockedReason)}";</script></body></html>`,
+          { headers: { ...corsHeaders, "Content-Type": "text/html" } }
+        );
+      }
+      
       const balanceBefore = row?.balance_before ?? 0;
       const balanceAfter = row?.balance_after ?? 0;
 
-      console.log("✅ Bakiye yüklendi (atomic):", { userId, amount, balanceBefore, balanceAfter });
+      console.log("✅ Bakiye yüklendi (atomic + secure):", { userId, amount, balanceBefore, balanceAfter });
 
       // ────────── Bildirimler (sadece başarılı bakiye yüklemede) ──────────
       // 1) Kullanıcıya push notification gönder
@@ -323,6 +358,19 @@ serve(async (req: Request) => {
           metadata: { ...txn.metadata, failed_at: new Date().toISOString(), error: paymentResult },
         })
         .eq("id", txn.id);
+
+      // Güvenlik logu - başarısız ödeme
+      await supabase.rpc("log_balance_security_event", {
+        p_event_type: "topup_failed",
+        p_user_id: txn.user_id,
+        p_amount: parseFloat(txn.amount),
+        p_payment_method: "card",
+        p_reference_id: txn.id,
+        p_payment_reference: conversationId || token,
+        p_status: "failed",
+        p_failure_reason: errorMsg,
+        p_risk_score: 5,
+      });
 
       console.log("❌ Bakiye yükleme başarısız:", errorMsg);
 

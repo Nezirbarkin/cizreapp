@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
+import '../../shop/services/cancellation_request_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/services/return_request_service.dart';
 
@@ -21,8 +22,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   late Order _currentOrder;
   final OrderService _orderService = OrderService();
   final ReturnRequestService _returnRequestService = ReturnRequestService();
+  final CancellationRequestService _cancellationService = CancellationRequestService();
   RealtimeChannel? _orderChannel;
   bool _hasReturnRequest = false;
+  // Bekleyen iptal talebi (admin onayı bekliyorsa)
+  CancellationRequest? _pendingCancellation;
 
   @override
   void initState() {
@@ -30,6 +34,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _currentOrder = widget.order;
     _setupRealtimeSubscription();
     _checkReturnRequest();
+    _checkPendingCancellation();
   }
 
   Future<void> _checkReturnRequest() async {
@@ -37,6 +42,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     if (mounted) {
       setState(() {
         _hasReturnRequest = returnRequest != null;
+      });
+    }
+  }
+
+  /// Bekleyen iptal talebini kontrol et (admin onayındaysa butonu devre dışı bırak)
+  Future<void> _checkPendingCancellation() async {
+    final pending = await _cancellationService.getMyPendingRequest(_currentOrder.id);
+    if (mounted) {
+      setState(() {
+        _pendingCancellation = pending;
       });
     }
   }
@@ -169,14 +184,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
     return Column(
       children: [
-        // İptal Butonu
-        if (canCancel)
+        // Bekleyen iptal talebi varsa: badge + iade bilgisi
+        if (canCancel && _pendingCancellation != null) ...[
+          _buildPendingCancellationBadge(),
+          const SizedBox(height: 12),
+        ] else if (canCancel)
+          // İptal Talebi Butonu (admin onaylı akış)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => _showCancelDialog(),
+              onPressed: () => _showCancelRequestDialog(),
               icon: const Icon(Icons.cancel_outlined, color: Colors.red),
-              label: const Text('Siparişi İptal Et'),
+              label: const Text('İptal Talebi Oluştur'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.red,
                 side: const BorderSide(color: Colors.red),
@@ -212,59 +231,189 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  Future<void> _showCancelDialog() async {
-    final confirmed = await showDialog<bool>(
+  /// Bekleyen iptal talebi badge'i (admin onayında)
+  Widget _buildPendingCancellationBadge() {
+    final req = _pendingCancellation!;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.hourglass_top, color: Colors.orange.shade700, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'İptal talebiniz admin onayında bekliyor.',
+                  style: TextStyle(
+                    color: Colors.orange.shade900,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Sebep: ${req.reason}',
+            style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+          ),
+          if (req.hasRefund) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Onaylandığında ₺${req.refundAmount.toStringAsFixed(2)} bakiyenize iade edilecek.',
+              style: TextStyle(color: Colors.green.shade700, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// İptal talebi oluşturma dialog'u (admin onayına düşer)
+  Future<void> _showCancelRequestDialog() async {
+    final reasonController = TextEditingController();
+
+    // İade önizlemesi (nihai tutar DB snapshot'ında kilitlenir)
+    final hasRefundPreview = _currentOrder.paymentMethod == PaymentMethod.balance ||
+                             _currentOrder.paymentMethod == PaymentMethod.online;
+    final refundPreview = _currentOrder.totalAmount;
+
+    final result = await showDialog<Map<String, dynamic>?>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            Icon(Icons.cancel_outlined, color: Colors.red),
             SizedBox(width: 8),
-            Text('Siparişi İptal Et'),
+            Text('İptal Talebi Oluştur'),
           ],
         ),
-        content: const Text(
-          'Bu siparişi iptal etmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sipariş #${_currentOrder.id.substring(0, 8).toUpperCase()} için iptal talebi oluşturacaksınız.',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: Colors.grey.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Talebiniz admin onayından sonra işleme alınacak.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (hasRefundPreview) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet, size: 18, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Onaylandığında ₺${refundPreview.toStringAsFixed(2)} bakiyenize iade edilecek.',
+                        style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'İptal sebebi',
+                hintText: 'Örn: Vazgeçtim, yanlış ürün, vs.',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(ctx, null),
             child: const Text('Vazgeç'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('İptal Et'),
+            onPressed: () {
+              final reason = reasonController.text.trim();
+              if (reason.length < 3) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('İptal sebebi en az 3 karakter olmalı'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(ctx, {'reason': reason});
+            },
+            child: const Text('Talebi Gönder'),
           ),
         ],
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await _orderService.cancelOrder(_currentOrder.id);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Sipariş başarıyla iptal edildi'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          // Sipariş detaylarını yenile
-          await _loadOrderDetails();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('İptal işlemi başarısız: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+    if (result == null) return;
+    final reason = result['reason'] as String;
+
+    try {
+      await _cancellationService.createRequest(
+        orderId: _currentOrder.id,
+        reason: reason,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('İptal talebiniz oluşturuldu. Admin onayı bekleniyor.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        await _checkPendingCancellation();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('İptal talebi oluşturulamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }

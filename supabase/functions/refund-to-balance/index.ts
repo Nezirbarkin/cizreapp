@@ -1,6 +1,16 @@
 // refund-to-balance Edge Function
 // Sipariş iptal/iade durumunda bakiyeye iade yapar
 // Deploy: supabase functions deploy refund-to-balance
+//
+// @deprecated (2026-07-09) Bu edge function yeni iptal akışında KULLANILMIYOR.
+// Yeni akış: müşteri iptal talebi açar → admin onaylar →
+//   approve_cancellation_request RPC (DB) atomik olarak:
+//     1) orders.status='cancelled', payment_status='refunded'
+//     2) add_to_balance RPC ile bakiyeye iade (refund_amount > 0 ise)
+//     3) restore_product_stock trigger
+//     4) müşteriye notification
+// Bu fonksiyon yalnızca ileriye dönük "admin manuel iade" senaryoları için
+// bırakıldı. BalanceService.refundToBalance() yeni akışta çağrılmamalı.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";

@@ -339,10 +339,16 @@ class BalanceService {
   /// Admin: Tüm işlemleri getir
   /// Sadece başarılı (status='completed') işlemleri listeler.
   /// pending ve failed kayıtlar cüzdan yönetimi işlem geçmişinde gösterilmez.
+  ///
+  /// 2026-07-09 güncellemesi: İşlem yapılan kullanıcının profil bilgileri (id,
+  /// full_name, phone, avatar_url, username) `profiles` tablosundan eklenir.
+  /// joinForeignTables desteği yok (eski projede PostgREST FK tanımı olmayabilir);
+  /// bu yüzden iki aşamalı sorgu kullanılır.
   Future<List<Map<String, dynamic>>> getAllTransactions() async {
     try {
       debugPrint('💰 BALANCE: Tüm işlemler getiriliyor...');
 
+      // 1) İşlemleri çek
       final response = await _supabase
           .from('balance_transactions')
           .select('*')
@@ -350,7 +356,42 @@ class BalanceService {
           .order('created_at', ascending: false)
           .limit(100);
 
-      return List<Map<String, dynamic>>.from(response);
+      final transactions = List<Map<String, dynamic>>.from(response);
+      if (transactions.isEmpty) return transactions;
+
+      // 2) İşlemlerdeki user_id'lerin profil bilgilerini toplu çek
+      final userIds = transactions
+          .map((t) => t['user_id'])
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      if (userIds.isEmpty) return transactions;
+
+      try {
+        final profilesResp = await _supabase
+            .from('profiles')
+            .select('id, full_name, username, phone, avatar_url')
+            .inFilter('id', userIds);
+
+        final profilesById = <String, Map<String, dynamic>>{};
+        for (final p in profilesResp as List) {
+          profilesById[p['id'] as String] = p as Map<String, dynamic>;
+        }
+
+        // 3) Her işleme user_profile anahtarı ile profili ekle
+        for (final tx in transactions) {
+          final uid = tx['user_id'] as String?;
+          if (uid != null && profilesById.containsKey(uid)) {
+            tx['user_profile'] = profilesById[uid];
+          }
+        }
+      } catch (e) {
+        // Profil yüklenemezse işlemleri yine de döndür (eski davranış)
+        debugPrint('⚠️ BALANCE: İşlem profili yüklenemedi - $e');
+      }
+
+      return transactions;
     } catch (e) {
       debugPrint('❌ BALANCE: İşlemler getirme hatası - $e');
       return [];

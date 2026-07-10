@@ -22,7 +22,10 @@ class TransferService {
   /// Kullanıcı havale bildirimi gönderir (pending kayıt oluşturur).
   ///
   /// [amount] yüklenecek tutar, [note] opsiyonel dekont/açıklama notu,
-  /// [bankAccountId] seçili banka hesabı id'si (UI'dan).
+  /// [bankAccountId] seçili banka hesabı id'si (UI'dan),
+  /// [senderFullName] havaleyi YAPAN kişinin ad soyadı (admin onaylarken
+  /// görmesi için; kullanıcı kendi hesabından yapıyorsa kendi adını girer,
+  /// başkasının hesabından yapıyorsa o kişinin adını girer). Zorunlu.
   ///
   /// RLS: user_id = auth.uid() ve status = 'pending' kontrolü INSERT policy'de
   /// var, bu yüzden kullanıcı başkası adına veya status='approved' ile kayıt
@@ -32,6 +35,7 @@ class TransferService {
   /// kontrolü yok (kasıtlı: kullanıcı yeni tutar için yeni bildirim gönderebilir).
   Future<void> submitTransferConfirmation({
     required double amount,
+    required String senderFullName,
     String? note,
     String? bankAccountId,
   }) async {
@@ -49,6 +53,7 @@ class TransferService {
         'amount': amount,
         'note': note,
         'bank_account_id': bankAccountId,
+        'sender_full_name': senderFullName.trim(),
         'status': 'pending',
       });
     } on PostgrestException catch (e) {
@@ -66,7 +71,7 @@ class TransferService {
           .from('transfer_confirmations')
           .select('''
             id, user_id, amount, note, status, created_at,
-            bank_account_id, receipt_url,
+            bank_account_id, receipt_url, sender_full_name,
             bank_account:bank_accounts ( bank_name, account_name, iban ),
             user:profiles!transfer_confirmations_user_id_fkey (
               full_name, phone

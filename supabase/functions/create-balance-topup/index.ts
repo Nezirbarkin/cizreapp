@@ -1,6 +1,7 @@
 // create-balance-topup Edge Function
 // Bakiye yükleme için iyzico ödeme başlatır
 // Deploy: supabase functions deploy create-balance-topup
+// GÜVENLİK: Rate limiting, input validation, audit logging eklenmiştir
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
@@ -286,13 +287,36 @@ serve(async (req: Request) => {
 
     // Request body
     const body = await req.json();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK 1: Input Validation - Tip ve format kontrolü
+    // ═══════════════════════════════════════════════════════════════════════
+    if (typeof body.amount !== 'number' && typeof body.amount !== 'string') {
+      throw new Error("Geçersiz tutar formatı");
+    }
+
     const amount = parseFloat(body.amount);
+
+    // NaN ve Infinity kontrolü
+    if (isNaN(amount) || !isFinite(amount)) {
+      throw new Error("Geçersiz tutar");
+    }
+
+    // Çok küçük veya çok büyük sayılar (overflow/underflow koruması)
+    if (amount <= 0 || amount > 1000000) {
+      throw new Error("Geçersiz tutar aralığı");
+    }
+
+    // Ondalık hassasiyet kontrolü (sadece 2 hane)
+    if (Math.round(amount * 100) !== amount * 100) {
+      throw new Error("Tutar en fazla 2 ondalık basamak içerebilir");
+    }
 
     // Tutar validasyonu
     const minAmount = settings?.min_topup_amount || 10;
     const maxAmount = settings?.max_topup_amount || 10000;
 
-    if (isNaN(amount) || amount < minAmount) {
+    if (amount < minAmount) {
       throw new Error(`Minimum yükleme tutarı ${minAmount} TL'dir`);
     }
 
@@ -306,17 +330,133 @@ serve(async (req: Request) => {
     // Callback URL
     const callbackUrl = `${supabaseUrl}/functions/v1/confirm-balance-topup`;
 
-    // Client IP
-    const clientIp =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "127.0.0.1";
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK 2: Client IP güvenli çıkarma
+    // ═══════════════════════════════════════════════════════════════════════
+    let clientIp: string | null = null;
+    const forwardedFor = req.headers.get("x-forwarded-for");
+    if (forwardedFor) {
+      const firstIp = forwardedFor.split(",")[0]?.trim();
+      // Basit IP validasyonu
+      if (firstIp && /^[\d.:a-fA-F]+$/.test(firstIp) && firstIp.length < 45) {
+        clientIp = firstIp;
+      }
+    }
+    if (!clientIp) {
+      clientIp = req.headers.get("x-real-ip") || null;
+    }
+    if (!clientIp || !/^[\d.:a-fA-F]+$/.test(clientIp)) {
+      clientIp = "127.0.0.1"; // Fallback
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK 3: User Agent ve Cihaz Parmak İzi
+    // ═══════════════════════════════════════════════════════════════════════
+    const userAgent = req.headers.get("user-agent") || null;
+    const acceptLang = req.headers.get("accept-language") || "";
+    let deviceFingerprint: string | null = null;
+    if (userAgent) {
+      const fpData = new TextEncoder().encode(userAgent + "|" + acceptLang);
+      const fpHash = await crypto.subtle.digest("SHA-256", fpData);
+      deviceFingerprint = Array.from(new Uint8Array(fpHash))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK 4: Rate Limit Kontrolü
+    // ═══════════════════════════════════════════════════════════════════════
+    const { data: rateCheck, error: rateError } = await supabase.rpc(
+      "check_balance_rate_limit",
+      {
+        p_user_id: user.id,
+        p_amount: amount,
+        p_ip_address: clientIp,
+        p_device_fingerprint: deviceFingerprint,
+      }
+    );
+
+    if (rateError) {
+      console.error("⚠️ Rate limit kontrol hatası:", rateError);
+      // Hata durumunda işlemi durdurmuyoruz, sadece logluyoruz
+    } else {
+      const rateRow = Array.isArray(rateCheck) ? rateCheck[0] : rateCheck;
+      
+      if (rateRow?.allowed === false) {
+        const reason = rateRow?.reason || "İşlem limiti aşıldı";
+        console.warn("🚨 Rate limit aşıldı:", {
+          userId: user.id,
+          amount,
+          reason,
+          currentCount: rateRow?.current_count,
+          currentAmount: rateRow?.current_amount,
+          riskScore: rateRow?.risk_score,
+        });
+
+        // Güvenlik logu
+        await supabase.rpc("log_balance_security_event", {
+          p_event_type: "rate_limit_exceeded",
+          p_user_id: user.id,
+          p_ip_address: clientIp,
+          p_user_agent: userAgent,
+          p_device_fingerprint: deviceFingerprint,
+          p_amount: amount,
+          p_payment_method: "card",
+          p_payment_reference: conversationId,
+          p_status: "blocked",
+          p_failure_reason: reason,
+          p_risk_score: rateRow?.risk_score || 0,
+          p_risk_factors: rateRow?.risk_factors || "[]",
+          p_metadata: JSON.stringify({
+            current_count: rateRow?.current_count,
+            current_amount: rateRow?.current_amount,
+            limit_count: rateRow?.limit_count,
+            limit_amount: rateRow?.limit_amount,
+          }),
+        });
+
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            error: reason,
+          }),
+          {
+            status: 429, // Too Many Requests
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      // Yüksek risk skoru varsa uyar (engelleme değil)
+      if (rateRow?.risk_score >= 40) {
+        console.warn("⚠️ Yüksek riskli işlem:", {
+          userId: user.id,
+          amount,
+          riskScore: rateRow?.risk_score,
+          factors: rateRow?.risk_factors,
+        });
+      }
+    }
 
     console.log("💰 Bakiye yükleme başlatılıyor:", {
       userId: user.id,
       amount,
       conversationId,
       clientIp,
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK 5: İşlem başladı logu
+    // ═══════════════════════════════════════════════════════════════════════
+    await supabase.rpc("log_balance_security_event", {
+      p_event_type: "topup_initiated",
+      p_user_id: user.id,
+      p_ip_address: clientIp,
+      p_user_agent: userAgent,
+      p_device_fingerprint: deviceFingerprint,
+      p_amount: amount,
+      p_payment_method: "card",
+      p_payment_reference: conversationId,
+      p_status: "pending",
     });
 
     // Mevcut bakiyeyi al (balance_before için)

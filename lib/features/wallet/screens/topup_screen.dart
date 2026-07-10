@@ -20,6 +20,8 @@ class _TopupScreenState extends State<TopupScreen> {
   final BankAccountService _bankAccountService = BankAccountService();
   final TransferService _transferService = TransferService();
   final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _senderNameController = TextEditingController();
+  final _senderNameFormKey = GlobalKey<FormState>();
 
   bool _isLoading = false;
   bool _isWebViewOpen = false;
@@ -135,11 +137,21 @@ class _TopupScreenState extends State<TopupScreen> {
       return;
     }
 
+    // Gönderen ad soyad doğrulama (Form validator ile)
+    final form = _senderNameFormKey.currentState;
+    if (form == null || !form.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lütfen gönderen ad soyad bilgisini girin')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       await _transferService.submitTransferConfirmation(
         amount: amount,
+        senderFullName: _senderNameController.text.trim(),
         bankAccountId: _selectedBankAccount?.id,
       );
 
@@ -196,6 +208,7 @@ class _TopupScreenState extends State<TopupScreen> {
   @override
   void dispose() {
     _amountController.dispose();
+    _senderNameController.dispose();
     super.dispose();
   }
 
@@ -710,7 +723,7 @@ class _TopupScreenState extends State<TopupScreen> {
                       ],
                       const SizedBox(height: 8),
                       Text(
-                        '⚠️ Açıklama kısmına CizreApp kullanıcı bilginizi yazınız.',
+                        '',
                         style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
                       ),
                       const SizedBox(height: 12),
@@ -723,44 +736,77 @@ class _TopupScreenState extends State<TopupScreen> {
                 ),
               ],
               const SizedBox(height: 16),
-              // Bildirim butonu
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.notifications_active, color: Colors.green.shade700, size: 20),
-                        const SizedBox(width: 8),
-                        Text('Havale Yaptınız Mı?', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
-                      style: TextStyle(fontSize: 12, color: Colors.green.shade800),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : () => _submitTransferConfirmation(context),
-                        icon: const Icon(Icons.send, size: 18),
-                        label: const Text('Sisteme Bildir'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+              // Gönderen ad soyad + Bildirim butonu (Form ile doğrulama)
+              Form(
+                key: _senderNameFormKey,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.notifications_active, color: Colors.green.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Text('Havale Yaptınız Mı?', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
+                        style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+                      ),
+                      const SizedBox(height: 12),
+                      // Gönderen Ad Soyad — admin onaylarken kimin gönderdiğini görebilsin
+                      TextFormField(
+                        controller: _senderNameController,
+                        textCapitalization: TextCapitalization.words,
+                        textInputAction: TextInputAction.done,
+                        decoration: InputDecoration(
+                          labelText: 'Gönderen Ad Soyad *',
+                          hintText: 'Havaleyi yapan kişinin adı soyadı',
+                          helperText: '  '
+                              '',
+                          prefixIcon: const Icon(Icons.person_outline, size: 20),
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        validator: (value) {
+                          final v = value?.trim() ?? '';
+                          if (v.isEmpty) {
+                            return 'Gönderen ad soyad zorunludur';
+                          }
+                          if (v.length < 3) {
+                            return 'En az 3 karakter girin';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isLoading ? null : () => _submitTransferConfirmation(context),
+                          icon: const Icon(Icons.send, size: 18),
+                          label: const Text('Sisteme Bildir'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],

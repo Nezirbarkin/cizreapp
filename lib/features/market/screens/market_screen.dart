@@ -89,6 +89,9 @@ class _MarketScreenState extends State<MarketScreen> {
   int _unreadNotificationCount = 0;
   int _unreadChatCount = 0;
   bool _globalOrdersEnabled = true;
+  // Anasayfa kategori kartlarında gösterilecek maksimum kategori sayısı.
+  // Admin panelinden değiştirilebilir (app_about_settings.home_category_limit).
+  int _homeCategoryLimit = 4;
 
   // Animasyon ayarları
   String _appSlogan = 'Her an her kapıda!';
@@ -218,7 +221,7 @@ class _MarketScreenState extends State<MarketScreen> {
       final directCount = await _chatService.getUnreadCount();
       final groupCount = await _groupChatService.getTotalUnreadCount();
       final totalCount = directCount + groupCount;
-      
+
       if (mounted) {
         setState(() => _unreadChatCount = totalCount);
       }
@@ -331,7 +334,7 @@ class _MarketScreenState extends State<MarketScreen> {
         _globalOrdersEnabled = settingsResponse['global_orders_enabled'] as bool? ?? true;
       }
 
-      // Animasyon ayarlarını yükle (AppAboutService üzerinden)
+      // Animasyon ve görünüm ayarlarını yükle (AppAboutService üzerinden)
       try {
         final appAbout = await _aboutService.getAboutSettings();
         if (appAbout != null) {
@@ -340,6 +343,8 @@ class _MarketScreenState extends State<MarketScreen> {
             _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
             _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
             _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+            // Anasayfa kategori kartı sayısı limiti (admin panelinden ayarlanabilir)
+            _homeCategoryLimit = appAbout.homeCategoryLimit;
           });
         }
       } catch (e) {
@@ -935,7 +940,7 @@ class _MarketScreenState extends State<MarketScreen> {
                   GestureDetector(
                     onTap: () => _showAllCategories(context),
                     child: Text(
-                      'Tümü',
+                      'Tüm Kategoriler',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -966,7 +971,12 @@ class _MarketScreenState extends State<MarketScreen> {
                     final category = _categories[index];
                     return _buildCategoryCard(category);
                   },
-                  childCount: _categories.length > 4 ? 4 : _categories.length,
+                  // Admin panelinden ayarlanan _homeCategoryLimit kullanılır.
+                  // Eski hardcoded 4 değerinin yerine dinamik olarak güncellenir.
+                  childCount:
+                      _categories.length > _homeCategoryLimit
+                          ? _homeCategoryLimit
+                          : _categories.length,
                 ),
               ),
             ),
@@ -1000,7 +1010,7 @@ class _MarketScreenState extends State<MarketScreen> {
                   GestureDetector(
                     onTap: () => _showAllDiscountedProducts(context),
                     child: Text(
-                      'Tümü',
+                      'Tüm İndirimler',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade400,
@@ -1056,7 +1066,7 @@ class _MarketScreenState extends State<MarketScreen> {
                   GestureDetector(
                     onTap: () => _showAllShops(context),
                     child: Text(
-                      'Tümü',
+                      'Tüm Dükkanlar',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,

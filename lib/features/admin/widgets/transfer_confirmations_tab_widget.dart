@@ -196,6 +196,16 @@ class _TransferConfirmationsTabWidgetState
     return 'Bilinmeyen kullanıcı';
   }
 
+  /// Bildirimi gönderen kişinin (havaleyi yapan) adı. UI'da en belirgin
+  /// gösterilecek alan — admin'in onay kararı için kritik bilgi.
+  /// Eski kayıtlarda null olabilir (migration öncesi), bu durumda
+  /// "Belirtilmemiş" döner.
+  String _senderName(Map<String, dynamic> item) {
+    final s = item['sender_full_name'] as String?;
+    if (s == null || s.trim().isEmpty) return 'Belirtilmemiş';
+    return s.trim();
+  }
+
   String _bankSummary(Map<String, dynamic> item) {
     // PostgREST join sözdizimi: bank_account:bank_accounts(...) → sonuç
     // 'bank_account' key'i altında döner. FK kolonu 'bank_account_id'
@@ -256,13 +266,14 @@ class _TransferConfirmationsTabWidgetState
                   Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: Colors.blue.shade100,
+                        backgroundColor: Colors.green.shade100,
                         child: Text(
-                          _userName(item).isNotEmpty
-                              ? _userName(item)[0].toUpperCase()
+                          _senderName(item).isNotEmpty &&
+                                  _senderName(item) != 'Belirtilmemiş'
+                              ? _senderName(item)[0].toUpperCase()
                               : '?',
                           style: TextStyle(
-                            color: Colors.blue.shade800,
+                            color: Colors.green.shade800,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -272,13 +283,32 @@ class _TransferConfirmationsTabWidgetState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Gönderen (havaleyi yapan) — en belirgin
+                            Row(
+                              children: [
+                                Icon(Icons.person, size: 14, color: Colors.green.shade700),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    'Gönderen: ${_senderName(item)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            // Hesap sahibi (bildirim gönderen kullanıcı)
                             Text(
-                              _userName(item),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                              'Hesap: ${_userName(item)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
                               ),
                             ),
+                            const SizedBox(height: 2),
                             Text(
                               _bankSummary(item),
                               style: TextStyle(

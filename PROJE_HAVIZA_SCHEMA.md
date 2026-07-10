@@ -40,6 +40,8 @@ Project Ref: `xsbukxkgtmdyickknqzf`
   - `conversations.unread_count`: o conv sahibinin okumadığı (sender_id != user_id, is_read=false) mesaj sayısı. TEK YETKİLİ yöneticisi `message_insert_trigger` (satır-bazlı). Sohbet listesi rozeti + yüzen mesaj ikonu bu değerden beslenir. Yeniden hesap: 20260703_CHAT_UNREAD_RECOUNT.sql.
   - `conversations.deleted_for_user_id`: soft-delete; yeni mesaj gelince ilgili taraf için NULL'a döner (sohbet geri gelir).
   - `messages.is_read`: alıcı kopyasında karşı taraf okuyunca true olur (okundu tiki). Gönderenin kendi kopyasında hep true (anlamsız) — okundu bilgisi partner kopyasından okunur.
+  - `mark_messages_as_read` (2026-07-09 FIX): reader yalnızca KENDİ conv'unda partner mesajlarını is_read=true yapar + KENDİ conv'unun unread_count=0 yapar. PARTNER conv'una DOKUNMAZ. (Eski sürüm partner conv'unu da unread_count=0 yapıyordu → B sohbeti açıkken A'nın rozeti saniyede sönüyordu; asıl kök neden 2026-07-09). Detay: PROJE_HAVIZA_FUNCTIONS.md §2.6.
+  - `message_replicate_to_recipient` trigger KALDIRILDI (2026-07-09): `send_message_with_recipient` RPC zaten iki kopya eklediği için çift kopya + is_read karışıklığı yapıyordu.
   - `app_about_settings` banka/bakiye/animasyon kolonları: bkz. §2.10 notu + toJson eşleşmesi.
 
 ### 2.4 Ticaret / Katalog
@@ -85,6 +87,7 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `verification_codes`, `registration_otps`, `password_reset_otps`, `account_deletion_codes`
 - `achievements`, `user_achievements`, `user_unlocked_achievements`
 - `push_notifications`
+- `admin_broadcasts` (20260709 — admin TOPLU duyuruları): id UUID PK, title TEXT, content TEXT, icon_type TEXT (announcement|discount|campaign|news|event|update|warning|gift|info), target_audience TEXT (all/customers/sellers), is_active BOOLEAN, created_by UUID FK auth.users, created_at, expires_at. RLS ON; aktif broadcast'leri her authenticated okur (SELECT is_active=TRUE), sadece admin INSERT/UPDATE/DELETE. Index: (is_active, created_at DESC) WHERE is_active=TRUE. Frontend (`notifications_screen.dart` + `notifications_content_v2.dart`) toplu duyuruları bu tablodan "Duyurular" bölümünde gösterir; kişiye özel admin bildirimleri ayrı `notifications` tablosunda kalır. Migration: `20260709_NOTIFICATION_FIX.sql` Bölüm B.
 
 ## 3) Kritik FK Notları
 

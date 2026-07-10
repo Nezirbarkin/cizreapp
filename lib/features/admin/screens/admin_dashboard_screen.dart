@@ -29,6 +29,8 @@ import 'about_settings_screen.dart';
 import '../../../core/services/balance_service.dart';
 import '../widgets/bank_accounts_tab_widget.dart';
 import '../widgets/transfer_confirmations_tab_widget.dart';
+import '../widgets/cancellation_requests_tab_widget.dart';
+import '../../shop/services/cancellation_request_service.dart';
 import '../../../core/services/transfer_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -56,10 +58,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _unansweredComplaintCount = 0; // Yanıtlanmamış şikayet sayısı
   int _unansweredTicketCount = 0; // Yanıtlanmamış destek talebi sayısı
   bool _isLoading = true;
-  
+
   // Realtime subscriptions
   RealtimeChannel? _reportsChannel;
   RealtimeChannel? _ticketsChannel;
+  // Admin tek-adım sipariş iptal+iade servisi (admin_cancel_with_refund RPC)
+  final CancellationRequestService _cancellationService = CancellationRequestService();
   String _selectedMenu = 'Dashboard';
   String _selectedPeriod = 'weekly'; // Raporlar için seçili dönem
   String _userSearchQuery = ''; // Kullanıcı arama sorgusu
@@ -4204,16 +4208,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
+                // İptal seçilirse: iade onay diyaloğu + admin_cancel_with_refund RPC
+                if (selectedStatus == 'cancelled') {
+                  await _confirmAdminCancel(order);
+                  return;
+                }
+
                 try {
                   debugPrint('📝 Sipariş durumu güncelleniyor: ${order['id']} -> $selectedStatus');
-                  
+                   
                   await Supabase.instance.client
                       .from('orders')
                       .update({'status': selectedStatus})
                       .eq('id', order['id']);
-                  
+                   
                   debugPrint('✅ Sipariş durumu başarıyla güncellendi');
-                  
+                   
                   if (mounted) {
                     Navigator.pop(context);
                     setState(() {});
@@ -4242,6 +4252,158 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
     );
+  }
+
+  /// Admin iptal onay diyaloğu: iade bilgisi gösterilir, admin onayladığında
+  /// admin_cancel_with_refund RPC ile tek adımda sipariş iptal + bakiye iade.
+  Future<void> _confirmAdminCancel(Map<String, dynamic> order) async {
+    final orderId = order['id'] as String;
+    final paymentMethod = order['payment_method'] as String? ?? 'cash';
+    final total = (order['total'] as num?)?.toDouble() ?? 0;
+    final hasRefund = paymentMethod == 'balance' || paymentMethod == 'online';
+
+    final reasonController = TextEditingController(
+      text: 'Admin tarafından iptal edildi',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Sipariş İptal + İade'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Sipariş #${orderId.substring(0, 8).toUpperCase()} iptal edilecek.'),
+            const SizedBox(height: 8),
+            if (hasRefund)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet,
+                        size: 18, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Onayladığınızda ₺${total.toStringAsFixed(2)} '
+                        'müşterinin CizreApp bakiyesine otomatik iade edilecek.',
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.green.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Colors.grey.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bu siparişte iade yok ($paymentMethod). '
+                        'Sadece sipariş iptal edilecek.',
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'İptal sebebi (müşteriye bildirilecek)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('İptal Et + İade Yap'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final reason = reasonController.text.trim();
+    if (reason.length < 3) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('İptal sebebi en az 3 karakter olmalı'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final result = await _cancellationService.adminCancelWithRefund(
+        orderId: orderId,
+        reason: reason,
+      );
+
+      // Durum dialogunu kapat (status seçim dialogu hâlâ açık)
+      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.hasRefund
+                  ? 'İptal edildi. ₺${result.refundAmount.toStringAsFixed(2)} bakiyeye iade edildi.'
+                  : 'Sipariş iptal edildi (iade yok).',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('İptal başarısız: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
   
   Widget _buildStatusOption({
@@ -15392,14 +15554,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // ========== CÜZDAN YÖNETİMİ İÇERİĞİ ==========
+  // AppBar sağ üst köşede toplam bekleyen işlem bildirim rozeti gösterilir.
+  // (havale onayları + iptal talepleri + destek talepleri)
   Widget _buildWalletManagementContent() {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cüzdan Yönetimi'),
         backgroundColor: Colors.white,
+        actions: [
+          // 2026-07-09: Admin anabaşlık rozeti — bekleyen işlem sayısı
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _WalletNotificationBell(),
+          ),
+        ],
       ),
       body: DefaultTabController(
-        length: 6,
+        length: 7,
         child: Column(
           children: [
             TabBar(
@@ -15411,6 +15582,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 const Tab(text: 'Bakiyeli Kullanıcılar'),
                 const Tab(text: 'Banka Hesapları'),
                 const Tab(text: 'Bakiye Ayarları'),
+                Tab(child: _CancellationRequestsTabLabel()),
               ],
               labelColor: Colors.blue,
               unselectedLabelColor: Colors.grey,
@@ -15425,6 +15597,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   _buildUsersWithBalanceTab(),
                   BankAccountsTabWidget(),
                   const _WalletSettingsTabWidget(),
+                  const CancellationRequestsTabWidget(),
                 ],
               ),
             ),
@@ -15683,9 +15856,220 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+  // İşlem geçmişi kartını oluşturur.
+  // Her kart tıklanabilir; tıklanınca kişi detayı dialogu açılır.
+  Widget _buildTransactionCard(Map<String, dynamic> tx) {
+    final isPositive = (tx['net_amount'] as num) > 0;
+    final userProfile = tx['user_profile'] as Map<String, dynamic>?;
+    final userName = userProfile?['full_name'] as String? ??
+        userProfile?['username'] as String? ?? 'Bilinmeyen';
+    final userPhone = userProfile?['phone'] as String? ?? '-';
+    final userAvatar = userProfile?['avatar_url'] as String?;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showTransactionDetailDialog(context, tx),
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: isPositive ? Colors.green.shade100 : Colors.red.shade100,
+            child: Icon(
+              isPositive ? Icons.add : Icons.remove,
+              color: isPositive ? Colors.green : Colors.red,
+            ),
+          ),
+          title: Text(
+            '${isPositive ? '+' : ''}₺${(tx['net_amount'] as num).toStringAsFixed(2)}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: isPositive ? Colors.green : Colors.red,
+            ),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                userName,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+              Text(
+                '${tx['description'] ?? tx['type']} • ${tx['created_at']}',
+                style: const TextStyle(fontSize: 11),
+              ),
+            ],
+          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        ),
+      ),
+    );
+  }
+
+  // İşlem detay dialogu — eski/yeni bakiye, kişi profili bilgilerini gösterir.
+  void _showTransactionDetailDialog(
+      BuildContext context, Map<String, dynamic> tx) {
+    final isPositive = (tx['net_amount'] as num) > 0;
+    final userProfile = tx['user_profile'] as Map<String, dynamic>?;
+    final userName = userProfile?['full_name'] as String? ??
+        userProfile?['username'] as String? ?? 'Bilinmeyen';
+    final userPhone = userProfile?['phone'] as String? ?? '-';
+    final userAvatar = userProfile?['avatar_url'] as String?;
+
+    // balance_before / balance_after SQL migration sonrası mevcut olabilir.
+    final balanceBefore = tx['balance_before'] as num?;
+    final balanceAfter = tx['balance_after'] as num?;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              isPositive ? Icons.add_circle : Icons.remove_circle,
+              color: isPositive ? Colors.green : Colors.red,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'İşlem Detayı',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isPositive ? Colors.green : Colors.red,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Kişi profili
+              Center(
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Colors.blue.shade100,
+                      backgroundImage: userAvatar != null
+                          ? NetworkImage(userAvatar)
+                          : null,
+                      child: userAvatar == null
+                          ? Text(
+                              userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+                              style: TextStyle(
+                                fontSize: 24,
+                                color: Colors.blue.shade700,
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      userName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      userPhone,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // İşlem tutarı
+              _detailRow(
+                'İşlem Tutarı',
+                '${isPositive ? '+' : ''}₺${(tx['net_amount'] as num).toStringAsFixed(2)}',
+                valueColor: isPositive ? Colors.green : Colors.red,
+              ),
+              const SizedBox(height: 8),
+
+              // Eski bakiye (varsa)
+              if (balanceBefore != null)
+                _detailRow(
+                  'Eski Bakiye',
+                  '₺${balanceBefore.toStringAsFixed(2)}',
+                ),
+              if (balanceBefore != null) const SizedBox(height: 8),
+
+              // Yeni bakiye (varsa)
+              if (balanceAfter != null)
+                _detailRow(
+                  'Yeni Bakiye',
+                  '₺${balanceAfter.toStringAsFixed(2)}',
+                ),
+              if (balanceAfter != null) const SizedBox(height: 8),
+
+              // Açıklama
+              if (tx['description'] != null || tx['type'] != null) ...[
+                const SizedBox(height: 4),
+                _detailRow('Açıklama', tx['description'] ?? tx['type']),
+              ],
+              const SizedBox(height: 8),
+
+              // Tarih
+              _detailRow('Tarih', tx['created_at'] ?? '-'),
+              const SizedBox(height: 8),
+
+              // İşlem türü
+              if (tx['type'] != null)
+                _detailRow('Tür', tx['type']),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Dialog satırı: etiket + değer
+  Widget _detailRow(String label, String value, {Color? valueColor}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: valueColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildTransactionHistoryTab() {
     final balanceService = BalanceService();
-    
+
     return FutureBuilder(
       future: balanceService.getAllTransactions(),
       builder: (context, snapshot) {
@@ -15703,30 +16087,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           itemCount: transactions.length,
           itemBuilder: (context, index) {
             final tx = transactions[index];
-            final isPositive = (tx['net_amount'] as num) > 0;
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isPositive ? Colors.green.shade100 : Colors.red.shade100,
-                  child: Icon(
-                    isPositive ? Icons.add : Icons.remove,
-                    color: isPositive ? Colors.green : Colors.red,
-                  ),
-                ),
-                title: Text(
-                  '${isPositive ? '+' : ''}₺${(tx['net_amount'] as num).toStringAsFixed(2)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isPositive ? Colors.green : Colors.red,
-                  ),
-                ),
-                subtitle: Text(
-                  '${tx['description'] ?? tx['type']}\n${tx['created_at']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
-            );
+            return _buildTransactionCard(tx);
           },
         );
       },
@@ -15803,6 +16164,143 @@ class _TransferConfirmationsTabLabelState
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+// ========== İPTAL TALEPLERİ TAB ETİKETİ (bekleyen sayısı rozeti) ==========
+class _CancellationRequestsTabLabel extends StatefulWidget {
+  @override
+  State<_CancellationRequestsTabLabel> createState() =>
+      _CancellationRequestsTabLabelState();
+}
+
+class _CancellationRequestsTabLabelState
+    extends State<_CancellationRequestsTabLabel> {
+  final CancellationRequestService _service = CancellationRequestService();
+  int _pendingCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final count = await _service.getPendingCount();
+    if (!mounted) return;
+    setState(() => _pendingCount = count);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('İptal Talepleri'),
+        if (_pendingCount > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$_pendingCount',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ========== CÜZDAN YÖNETİMİ APPBAR ROZETİ (bekleyen işlem sayısı) ==========
+// Cüzdan Yönetimi anabaşlığında sağ üstte bildirim zil ikonu + toplam badge gösterir.
+// Havale onayları + iptal talepleri sayısını toplar.
+class _WalletNotificationBell extends StatefulWidget {
+  @override
+  State<_WalletNotificationBell> createState() => _WalletNotificationBellState();
+}
+
+class _WalletNotificationBellState extends State<_WalletNotificationBell> {
+  final TransferService _transferService = TransferService();
+  final CancellationRequestService _cancellationService = CancellationRequestService();
+  int _totalPending = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final results = await Future.wait<int>([
+        _transferService.getPendingCount(),
+        _cancellationService.getPendingCount(),
+      ]);
+      final transferCount = results[0];
+      final cancellationCount = results[1];
+      if (!mounted) return;
+      setState(() => _totalPending = transferCount + cancellationCount);
+    } catch (e) {
+      debugPrint('WalletNotificationBell yüklenemedi: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        IconButton(
+          icon: Icon(
+            _totalPending > 0 ? Icons.notifications_active : Icons.notifications_none,
+            color: _totalPending > 0 ? Colors.red : Colors.grey,
+          ),
+          onPressed: () {
+            // Bildirimler sayfasına git veya tab'ı Havale Onayları'na atla
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  _totalPending > 0
+                      ? '$_totalPending bekleyen işlem var'
+                      : 'Bekleyen işlem yok',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+        ),
+        if (_totalPending > 0)
+          Positioned(
+            right: 6,
+            top: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              constraints: const BoxConstraints(minWidth: 18),
+              child: Text(
+                _totalPending > 99 ? '99+' : '$_totalPending',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -16252,6 +16750,8 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
   bool _orderCardOnDeliveryEnabled = true;
   bool _orderOnlineEnabled = true;
   bool _orderBalanceEnabled = true;
+  // 2026-07-09: Anasayfa kategori kartı sayısı limiti (admin panelinden ayarlanabilir)
+  int _homeCategoryLimit = 4;
   bool _isSaving = false;
 
   @override
@@ -16273,7 +16773,8 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
             'card_topup_enabled, balance_enabled, min_topup_amount, '
             'max_topup_amount, withdrawal_fee_percent, min_withdrawal_amount, '
             'online_payment_enabled, '
-            'order_cod_enabled, order_card_on_delivery_enabled, order_balance_enabled',
+            'order_cod_enabled, order_card_on_delivery_enabled, order_balance_enabled, '
+            'home_category_limit',
           )
           .maybeSingle();
 
@@ -16290,6 +16791,8 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
           _orderCodEnabled = response['order_cod_enabled'] as bool? ?? true;
           _orderCardOnDeliveryEnabled = response['order_card_on_delivery_enabled'] as bool? ?? true;
           _orderBalanceEnabled = response['order_balance_enabled'] as bool? ?? true;
+          // Anasayfa kategori kartı sayısı limiti (yeni kolon — migration yoksa varsayılan 4)
+          _homeCategoryLimit = response['home_category_limit'] as int? ?? 4;
           _isLoading = false;
         });
       } else {
@@ -16335,6 +16838,8 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
             'order_cod_enabled': _orderCodEnabled,
             'order_card_on_delivery_enabled': _orderCardOnDeliveryEnabled,
             'order_balance_enabled': _orderBalanceEnabled,
+            // 2026-07-09: Anasayfa kategori kartı sayısı limiti
+            'home_category_limit': _homeCategoryLimit,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', existing['id']);
@@ -16625,6 +17130,71 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 2026-07-09: Anasayfa Görünüm Ayarları
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.home_outlined, color: Colors.teal.shade700),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Anasayfa Görünüm Ayarları',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.teal.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Anasayfadaki kategori kartı sayısını belirleyin.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: const Text('Kategori Kartı Sayısı'),
+                  subtitle: Text(
+                    '1-20 arası değer girilebilir. Varsayılan: 4',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                  trailing: SizedBox(
+                    width: 80,
+                    child: TextField(
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        border: OutlineInputBorder(),
+                      ),
+                      controller: TextEditingController(
+                          text: _homeCategoryLimit.toString()),
+                      onChanged: (value) {
+                        final parsed = int.tryParse(value);
+                        if (parsed != null && parsed >= 1 && parsed <= 20) {
+                          setState(() => _homeCategoryLimit = parsed);
+                        }
+                      },
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.zero,
                 ),
               ],
             ),

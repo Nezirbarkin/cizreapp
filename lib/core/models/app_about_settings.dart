@@ -50,7 +50,12 @@ class AppAboutSettings {
   final int animationPrimaryDurationMs;
   final int animationSecondaryDurationMs;
   final int animationTransitionDurationMs;
-  
+
+  // Anasayfa Görünüm Ayarları
+  /// Anasayfa kategori kartlarında gösterilecek maksimum kategori sayısı.
+  /// Admin panelinden değiştirilebilir. 1-20 arası, varsayılan 4.
+  final int homeCategoryLimit;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -92,6 +97,7 @@ class AppAboutSettings {
     this.animationPrimaryDurationMs = 6000,
     this.animationSecondaryDurationMs = 3000,
     this.animationTransitionDurationMs = 700,
+    this.homeCategoryLimit = 4,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -147,6 +153,7 @@ class AppAboutSettings {
       animationPrimaryDurationMs: json['animation_primary_duration_ms'] as int? ?? 6000,
       animationSecondaryDurationMs: json['animation_secondary_duration_ms'] as int? ?? 3000,
       animationTransitionDurationMs: json['animation_transition_duration_ms'] as int? ?? 700,
+      homeCategoryLimit: json['home_category_limit'] as int? ?? 4,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -186,6 +193,7 @@ class AppAboutSettings {
       'animation_primary_duration_ms': animationPrimaryDurationMs,
       'animation_secondary_duration_ms': animationSecondaryDurationMs,
       'animation_transition_duration_ms': animationTransitionDurationMs,
+      'home_category_limit': homeCategoryLimit,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -228,6 +236,7 @@ class AppAboutSettings {
     int? animationPrimaryDurationMs,
     int? animationSecondaryDurationMs,
     int? animationTransitionDurationMs,
+    int? homeCategoryLimit,
   }) {
     return AppAboutSettings(
       id: id,
@@ -267,6 +276,7 @@ class AppAboutSettings {
       animationPrimaryDurationMs: animationPrimaryDurationMs ?? this.animationPrimaryDurationMs,
       animationSecondaryDurationMs: animationSecondaryDurationMs ?? this.animationSecondaryDurationMs,
       animationTransitionDurationMs: animationTransitionDurationMs ?? this.animationTransitionDurationMs,
+      homeCategoryLimit: homeCategoryLimit ?? this.homeCategoryLimit,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
