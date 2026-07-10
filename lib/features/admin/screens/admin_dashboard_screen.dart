@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously, unused_element, unnecessary_underscores, unused_local_variable
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously, unused_element, unnecessary_underscores, unused_local_variable, prefer_conditional_assignment
 
 // ignore_for_file: deprecated_member_use
 

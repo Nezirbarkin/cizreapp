@@ -1,5 +1,7 @@
 // Test helpers - Mock data and utilities for testing
 
+// ignore_for_file: avoid_relative_lib_imports
+
 import 'package:flutter_test/flutter_test.dart';
 import '../../lib/core/models/user_model.dart';
 import '../../lib/core/models/balance_model.dart';
