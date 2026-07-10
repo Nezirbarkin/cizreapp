@@ -61,21 +61,22 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   log('WidgetsFlutterBinding initialized');
 
-  // Status bar'ı göster (mobil uygulama için)
+  // Status bar/nav bar rengini ayarlamıyoruz: Android 15 edge-to-edge'i zorunlu
+  // kılıyor ve setStatusBarColor/setNavigationBarColor artık deprecated.
+  // Sadece ikon parlaklığını ayarlıyoruz, arka plan rengini widget ağacı
+  // (SafeArea/Container) belirliyor.
   if (!kIsWeb) {
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
-        statusBarColor: Colors.white, // Beyaz arka plan, status bar net görünsün
+        statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.white,
+        systemNavigationBarColor: Colors.transparent,
         systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarContrastEnforced: false,
       ),
     );
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [
-      SystemUiOverlay.top,
-      SystemUiOverlay.bottom,
-    ]);
-    log('✅ System UI overlay configured');
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    log('✅ System UI overlay configured (edge-to-edge)');
   }
 
   // Initialize date formatting for locale support
