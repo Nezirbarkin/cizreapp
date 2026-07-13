@@ -6,6 +6,7 @@ import '../../../core/models/order_model.dart';
 import '../services/order_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 import '../../market/services/shop_review_service.dart';
+import 'digital_orders_screen.dart' show DigitalOrdersContent;
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -17,8 +18,9 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMixin {
   final OrderService _orderService = OrderService();
   final ShopReviewService _reviewService = ShopReviewService();
+  late TabController _sectionController;
   late TabController _tabController;
-  
+
   List<Order> _allOrders = [];
   bool _isLoading = true;
   Set<String> _reviewedOrders = {}; // Değerlendirilmiş siparişleri takip et
@@ -35,12 +37,14 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
   @override
   void initState() {
     super.initState();
+    _sectionController = TabController(length: 2, vsync: this);
     _tabController = TabController(length: _statuses.length + 1, vsync: this);
     _loadOrders();
   }
 
   @override
   void dispose() {
+    _sectionController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -150,6 +154,38 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
         title: const Text('Siparişlerim'),
         elevation: 0,
         bottom: TabBar(
+          controller: _sectionController,
+          tabs: const [
+            Tab(text: 'Fiziksel Siparişler', icon: Icon(Icons.shopping_bag_outlined)),
+            Tab(text: 'Dijital Siparişlerim', icon: Icon(Icons.smart_toy_outlined)),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _sectionController,
+        children: [
+          _buildPhysicalOrdersSection(),
+          const DigitalOrdersContent(),
+        ],
+      ),
+      floatingActionButton: AnimatedBuilder(
+        animation: _sectionController,
+        builder: (context, _) {
+          if (_sectionController.index != 0) return const SizedBox.shrink();
+          return FloatingActionButton.extended(
+            onPressed: _loadOrders,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Yenile'),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPhysicalOrdersSection() {
+    return Column(
+      children: [
+        TabBar(
           controller: _tabController,
           isScrollable: true,
           tabs: [
@@ -162,23 +198,20 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
             Tab(text: _statuses[5].label),
           ],
         ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                // Tümü
-                _buildOrdersList(null),
-                // Her status için bir tab
-                ..._statuses.map((status) => _buildOrdersList(status)),
-              ],
-            ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _loadOrders,
-        icon: const Icon(Icons.refresh_rounded),
-        label: const Text('Yenile'),
-      ),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Tümü
+                    _buildOrdersList(null),
+                    // Her status için bir tab
+                    ..._statuses.map((status) => _buildOrdersList(status)),
+                  ],
+                ),
+        ),
+      ],
     );
   }
 

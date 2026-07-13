@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_SCHEMA
 
-Son güncelleme: 2026-07-02
+Son güncelleme: 2026-07-13
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Şemalar
@@ -72,6 +72,12 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 ### 2.9 AI
 - `ai_settings`, `ai_conversations`, `ai_messages`, `ai_daily_usage`, `ai_quick_prompts`, `ai_prompt_images`
 
+### 2.9b SMM (Dijital Ürün / Sosyal Medya Panel) — 2026-07-10/13
+- `smm_providers`: `id`, `owner_type` (enum `smm_owner_type`: admin|seller), `owner_id` (admin→profiles.id, seller→shops.id), `name`, `api_url` (varsayılan `https://smmget.com/api/v2`), `api_key` (SADECE service_role okur, client'a hiç dönmez), `is_active`. Admin kendi panelini veya satıcı kendi panelini tanımlayabilir (satıcı için `shops.can_use_own_smm_api=true` şartı).
+- `digital_orders`: SMM siparişleri — `orders` tablosuyla İLİŞKİLİ DEĞİL, bağımsız kayıt. `user_id`, `product_id`, `provider_id`, `target_url`, `quantity`, `unit_price` NUMERIC(12,4), `total_price`, `external_order_id`, `status` (enum `digital_order_status`: pending/in_progress/completed/partial/canceled/refunded/failed), `start_count`, `remains`, `last_checked_at`, `error_message`, `balance_transaction_id`. 20260713000001 ile eklendi: `seller_credited` BOOLEAN, `commission_amount`, `net_seller_amount` (idempotent satıcı hakediş takibi).
+- `products` tablosu genişletildi: `smm_provider_id`, `smm_service_id`, `price_per_1000`, `min_quantity`, `max_quantity`, `smm_disabled_reason`; `product_type` check'e `'digital'` eklendi; `chk_digital_fields` constraint — `product_type='digital'` ise bu 5 kolon zorunlu.
+- `shops` tablosu genişletildi: `can_use_own_smm_api` BOOLEAN (varsayılan false, sadece admin verebilir — bkz. RLS §4.1.6), `digital_commission_rate` NUMERIC(5,2) (nullable, fiziksel `commission_rate`'den ayrı; NULL ise Edge Function'da %10 varsayılan).
+
 ### 2.10 Destek / Sistem
 - `support_tickets`, `support_ticket_messages`, `faqs`
 - `user_reports`, `report_rate_limit`, `audit_log`
@@ -112,6 +118,8 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `is_admin()` — admin kontrolü (SECURITY DEFINER, authenticated EXECUTE gerektirir; bkz. PROJE_HAVIZA_RLS.md § 4.1.1)
 - `auth_is_admin()` — admin kontrolü (STABLE, SECURITY DEFINER değil; bkz. PROJE_HAVIZA_RLS.md § 4.1.1)
 - `sync_assigned_courier_to_order()` — courier ataması yapıldığında orders.assigned_courier_id'yi senkronize eder (trigger, SECURITY DEFINER)
+- `create_digital_order(p_user_id, p_product_id, p_target_url, p_quantity)` — SMM sipariş oluşturma (SECURITY DEFINER, atomik bakiye düşürme; bkz. PROJE_HAVIZA_FUNCTIONS.md §1.5)
+- `prevent_seller_self_grant_smm()` — satıcının kendi `shops.can_use_own_smm_api` alanını admin onayı olmadan açmasını engelleyen trigger (SECURITY DEFINER; bkz. PROJE_HAVIZA_RLS.md §4.1.6)
 
 ## 4) Sistem Şemaları (özet)
 

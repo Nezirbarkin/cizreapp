@@ -50,6 +50,13 @@ class Product {
   final List<int> shoeSizes; // Ayakkabı numaraları
   final List<ProductColor> colors; // Renk listesi
 
+  // Dijital ürün (SMM panel) alanları - productType == 'digital' iken kullanılır
+  final String? smmProviderId;
+  final String? smmServiceId;
+  final double? pricePer1000;
+  final int? minQuantity;
+  final int? maxQuantity;
+
   // Puanlama alanları (veritabanından çekilir)
   final double _rating;
   final int _totalReviews;
@@ -75,6 +82,11 @@ class Product {
     this.sizes = const [],
     this.shoeSizes = const [],
     this.colors = const [],
+    this.smmProviderId,
+    this.smmServiceId,
+    this.pricePer1000,
+    this.minQuantity,
+    this.maxQuantity,
     double rating = 0.0,
     int totalReviews = 0,
   })  : _rating = rating,
@@ -150,14 +162,17 @@ class Product {
   // Yorumlar var mı?
   bool get hasReviews => totalReviews > 0;
 
-  // Varyant gerektiriyor mu?
-  bool get hasVariants => productType != 'normal';
+  // Varyant gerektiriyor mu? (dijital ürünler varyant/stok mantığına girmez)
+  bool get hasVariants => productType != 'normal' && productType != 'digital';
   
   // Giyim ürünü mü?
   bool get isClothing => productType == 'clothing';
   
   // Ayakkabı mı?
   bool get isShoes => productType == 'shoes';
+
+  // Dijital (SMM panel) ürünü mü?
+  bool get isDigital => productType == 'digital';
 
   factory Product.fromJson(Map<String, dynamic> json) {
     // sizes parsing
@@ -228,6 +243,11 @@ class Product {
       sizes: sizesList,
       shoeSizes: shoeSizesList,
       colors: colorsList,
+      smmProviderId: json['smm_provider_id'] as String?,
+      smmServiceId: json['smm_service_id'] as String?,
+      pricePer1000: (json['price_per_1000'] as num?)?.toDouble(),
+      minQuantity: json['min_quantity'] as int?,
+      maxQuantity: json['max_quantity'] as int?,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
     );
@@ -255,6 +275,11 @@ class Product {
       'sizes': sizes,
       'shoe_sizes': shoeSizes,
       'colors': colors.map((c) => c.toJson()).toList(),
+      'smm_provider_id': smmProviderId,
+      'smm_service_id': smmServiceId,
+      'price_per_1000': pricePer1000,
+      'min_quantity': minQuantity,
+      'max_quantity': maxQuantity,
       'rating': rating,
       'total_reviews': totalReviews,
     };
@@ -281,6 +306,11 @@ class Product {
     List<String>? sizes,
     List<int>? shoeSizes,
     List<ProductColor>? colors,
+    String? smmProviderId,
+    String? smmServiceId,
+    double? pricePer1000,
+    int? minQuantity,
+    int? maxQuantity,
     double? rating,
     int? totalReviews,
   }) {
@@ -305,6 +335,11 @@ class Product {
       sizes: sizes ?? this.sizes,
       shoeSizes: shoeSizes ?? this.shoeSizes,
       colors: colors ?? this.colors,
+      smmProviderId: smmProviderId ?? this.smmProviderId,
+      smmServiceId: smmServiceId ?? this.smmServiceId,
+      pricePer1000: pricePer1000 ?? this.pricePer1000,
+      minQuantity: minQuantity ?? this.minQuantity,
+      maxQuantity: maxQuantity ?? this.maxQuantity,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,
     );

@@ -198,14 +198,27 @@ class _ProductsScreenState extends State<ProductsScreen> {
     if (confirmed != true) return;
 
     try {
-      await _productService.deleteProduct(product.id);
+      final deleted = await _productService.deleteProduct(product.id);
       setState(() {
-        _products.removeWhere((p) => p.id == product.id);
+        if (deleted) {
+          _products.removeWhere((p) => p.id == product.id);
+        } else {
+          final index = _products.indexWhere((p) => p.id == product.id);
+          if (index != -1) {
+            _products[index] = _products[index].copyWith(isAvailable: false);
+          }
+        }
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ürün silindi')),
+          SnackBar(
+            content: Text(
+              deleted
+                  ? 'Ürün silindi'
+                  : 'Bu ürüne ait sipariş geçmişi olduğu için silinemedi, bunun yerine devre dışı bırakıldı.',
+            ),
+          ),
         );
       }
     } catch (e) {

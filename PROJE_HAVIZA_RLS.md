@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_RLS
 
-Son güncelleme: 2026-07-04
+Son güncelleme: 2026-07-13
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Genel RLS Durumu
@@ -92,6 +92,12 @@ orders policy'lerde admin kontrolü için `is_admin()` helper fonksiyonu KULLANI
 Kanonik/güncel durum: `20260704_GROUP_SYSTEM_SECURITY_FIX_FINAL.sql` — bu dosya idempotenttir, tekrar çalıştırılabilir, hangi eski migration sırayla uygulanmış olursa olsun tutarlı son durumu garanti eder. **Bu tabloda yeni bir politika değişikliği yapılacaksa önce bu dosya referans alınmalı**, eski dosyalardan biri tekrar çalıştırılmamalı.
 
 Ayrıca RLS/trigger içi yardımcı fonksiyonlar (`is_group_admin`, `is_group_member`, trigger fonksiyonu) ve `admin_add_group_member` RPC'si `anon` rolüne gereksiz şekilde açıktı (linter uyarısı) — `20260704_GROUP_LINTER_SECURITY_FIX.sql` ile EXECUTE yetkisi kısıtlandı.
+
+#### 4.1.6 SMM (`smm_providers` / `digital_orders`) — 2026-07-10/13
+- `smm_providers`: RLS açık; `REVOKE ALL FROM authenticated, anon` sonra kolon bazlı `GRANT` — SELECT sadece gizli olmayan kolonlarda (`api_key` HARİÇ, hiçbir policy/grant client'a bu kolonu açmaz, sadece Edge Function service-role okur). `smm_providers_select`: admin hepsini görür; satıcı sadece `owner_type='seller'` ve `owner_id` kendi shop'u olan satırları görür. `smm_providers_insert`/`update`: admin her zaman; satıcı sadece kendi shop'una sahipse VE `shops.can_use_own_smm_api=true` ise. `smm_providers_delete`: sadece admin.
+- Kendi kendine yetki yükseltme koruması (group_members §4.1.5 ile AYNI DESEN): `shops.can_use_own_smm_api` kolonunu satıcı kendi UPDATE'iyle açamaz — `prevent_seller_self_grant_smm()` BEFORE UPDATE trigger'ı (SECURITY DEFINER) değişikliği admin değilse geri alır.
+- `digital_orders`: RLS açık, sadece SELECT policy'si var (`digital_orders_select` — kullanıcı kendi siparişini, admin hepsini, satıcı kendi provider'ına ait siparişleri görür). INSERT/UPDATE client policy'si YOK — tüm yazma service-role ile Edge Function üzerinden yapılır (`create_digital_order` RPC + smm-order-* fonksiyonları).
+- BUG (20260710000004 ile düzeltildi): `digital_orders`'ta RLS SELECT policy'si vardı ama `authenticated` rolüne tablo-seviyesi `GRANT SELECT` YOKTU — policy eşleşse de PostgREST erişimi reddediyordu, müşteriler kendi siparişlerini göremiyordu. `GRANT SELECT ON digital_orders TO authenticated;` + `GRANT ALL ... TO service_role` ile giderildi.
 
 ### 4.2 Standart Audit Checklist
 

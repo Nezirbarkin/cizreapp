@@ -255,12 +255,17 @@ class ProductService {
     List<String>? sizes,
     List<int>? shoeSizes,
     List<Map<String, dynamic>>? colors,
+    String? smmProviderId,
+    String? smmServiceId,
+    double? pricePer1000,
+    int? minQuantity,
+    int? maxQuantity,
   }) async {
     try {
       // Ürün limitini kaldırdık - sınırsız ürün eklenebilir
-      
+
       final slug = _generateSlug(name);
-      
+
       final response = await supabase.from('products').insert({
         'shop_id': shopId,
         'name': name,
@@ -277,6 +282,11 @@ class ProductService {
         'sizes': sizes ?? [],
         'shoe_sizes': shoeSizes ?? [],
         'colors': colors ?? [],
+        'smm_provider_id': smmProviderId,
+        'smm_service_id': smmServiceId,
+        'price_per_1000': pricePer1000,
+        'min_quantity': minQuantity,
+        'max_quantity': maxQuantity,
       }).select().single();
 
       return Product.fromJson(response);
@@ -300,6 +310,11 @@ class ProductService {
     List<String>? sizes,
     List<int>? shoeSizes,
     List<Map<String, dynamic>>? colors,
+    String? smmProviderId,
+    String? smmServiceId,
+    double? pricePer1000,
+    int? minQuantity,
+    int? maxQuantity,
   }) async {
     try {
       final updateData = {
@@ -312,12 +327,17 @@ class ProductService {
         'additional_images': additionalImages ?? [],
         'category': category,
       };
-      
+
       // Varyant alanlarını ekle
       if (productType != null) updateData['product_type'] = productType;
       if (sizes != null) updateData['sizes'] = sizes;
       if (shoeSizes != null) updateData['shoe_sizes'] = shoeSizes;
       if (colors != null) updateData['colors'] = colors;
+      if (smmProviderId != null) updateData['smm_provider_id'] = smmProviderId;
+      if (smmServiceId != null) updateData['smm_service_id'] = smmServiceId;
+      if (pricePer1000 != null) updateData['price_per_1000'] = pricePer1000;
+      if (minQuantity != null) updateData['min_quantity'] = minQuantity;
+      if (maxQuantity != null) updateData['max_quantity'] = maxQuantity;
 
       final response = await supabase
           .from('products')
@@ -332,11 +352,20 @@ class ProductService {
     }
   }
 
-  // Ürünü sil (seller için)
-  Future<void> deleteProduct(String productId) async {
+  // Ürünü sil (seller için). Sipariş geçmişi olan ürünler silinemediğinden
+  // bu durumda ürün otomatik olarak devre dışı bırakılır (soft delete).
+  // Dönüş değeri true ise ürün silindi, false ise devre dışı bırakıldı.
+  Future<bool> deleteProduct(String productId) async {
     try {
       await supabase.from('products').delete().eq('id', productId);
+      return true;
     } catch (e) {
+      if (e is PostgrestException && e.code == '23503') {
+        await supabase
+            .from('products')
+            .update({'is_available': false}).eq('id', productId);
+        return false;
+      }
       throw Exception('Ürün silinirken hata: $e');
     }
   }

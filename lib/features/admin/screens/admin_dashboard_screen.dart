@@ -26,6 +26,7 @@ import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
+import 'admin_smm_providers_screen.dart';
 import '../../../core/services/balance_service.dart';
 import '../widgets/bank_accounts_tab_widget.dart';
 import '../widgets/transfer_confirmations_tab_widget.dart';
@@ -422,6 +423,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.smart_toy_rounded,
+                    title: 'SMM Sağlayıcıları',
+                    isSelected: _selectedMenu == 'SMM Sağlayıcıları',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'SMM Sağlayıcıları');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.category_rounded,
                     title: 'Kategoriler',
                     isSelected: _selectedMenu == 'Kategoriler',
@@ -678,6 +688,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildPostsContent();
       case 'Ürünler':
         return _buildProductsContent();
+      case 'SMM Sağlayıcıları':
+        return const AdminSmmProvidersScreen();
       case 'Kategoriler':
         return _buildCategoriesContent();
       case 'Dükkanlar':
@@ -8504,6 +8516,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               } catch (e, stackTrace) {
                 debugPrint('❌ Ürün silinirken hata: $e');
                 debugPrint('📍 Stack trace: $stackTrace');
+
+                if (e is PostgrestException && e.code == '23503') {
+                  try {
+                    await Supabase.instance.client
+                        .from('products')
+                        .update({'is_available': false})
+                        .eq('id', product['id']);
+
+                    if (mounted) {
+                      Navigator.pop(context);
+                      setState(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Bu ürüne ait sipariş geçmişi olduğu için silinemedi, bunun yerine devre dışı bırakıldı.',
+                          ),
+                          backgroundColor: Colors.orange,
+                          duration: Duration(seconds: 5),
+                        ),
+                      );
+                    }
+                  } catch (e2) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Ürün devre dışı bırakılırken hata: $e2'),
+                          backgroundColor: Colors.red,
+                          duration: const Duration(seconds: 5),
+                        ),
+                      );
+                    }
+                  }
+                  return;
+                }
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

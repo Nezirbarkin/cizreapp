@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../shop/services/order_service.dart';
+import '../../shop/screens/digital_orders_screen.dart';
 import 'order_detail_screen.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -11,15 +12,23 @@ class OrderHistoryScreen extends StatefulWidget {
   State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
 }
 
-class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
+class _OrderHistoryScreenState extends State<OrderHistoryScreen> with TickerProviderStateMixin {
   final OrderService _orderService = OrderService();
   late String userId;
   OrderStatus? _selectedFilter;
+  late TabController _sectionController;
 
   @override
   void initState() {
     super.initState();
     userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    _sectionController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _sectionController.dispose();
+    super.dispose();
   }
 
   @override
@@ -36,9 +45,27 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       appBar: AppBar(
         title: const Text('Siparişlerim'),
         elevation: 0,
+        bottom: TabBar(
+          controller: _sectionController,
+          tabs: const [
+            Tab(text: 'Fiziksel Siparişler', icon: Icon(Icons.shopping_bag_outlined)),
+            Tab(text: 'Dijital Siparişlerim', icon: Icon(Icons.smart_toy_outlined)),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _sectionController,
         children: [
+          _buildPhysicalOrdersSection(),
+          const DigitalOrdersContent(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhysicalOrdersSection() {
+    return Column(
+      children: [
           // Filtre Butonları
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -136,8 +163,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildFilterChip({

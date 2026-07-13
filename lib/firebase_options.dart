@@ -60,12 +60,12 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBjHPmfsQrpXAgikxcP8fjWvHhP6q5Ynm0',
-    appId: '1:224517445508:ios:64a88239bfdc5591cbafd1',
+    apiKey: 'AIzaSyB8Fd5JTXy-ZqEpi4SS2DbHSEsdgo0SqjQ',
+    appId: '1:224517445508:ios:46068832aeb5f31ecbafd1',
     messagingSenderId: '224517445508',
     projectId: 'cizreapp-3b9a4',
     storageBucket: 'cizreapp-3b9a4.firebasestorage.app',
-    iosBundleId: 'com.cizreapp.com',
+    iosBundleId: 'com.cizreapp.app',
   );
 
   // Firebase Web Configuration

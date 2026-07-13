@@ -12,6 +12,8 @@ import 'seller_return_requests_screen.dart';
 import 'seller_reviews_screen.dart';
 import 'seller_reports_screen.dart';
 import 'coupons_screen.dart';
+import 'smm_provider_settings_screen.dart';
+import 'seller_digital_orders_screen.dart';
 
 class SellerDashboardScreen extends StatefulWidget {
   const SellerDashboardScreen({super.key});
@@ -342,6 +344,32 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                   onTap: () {
                     Navigator.pop(context);
                     _showCategoryManagement();
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.smart_toy_outlined,
+                  title: 'SMM Ayarları',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SmmProviderSettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.list_alt_outlined,
+                  title: 'Dijital Siparişler',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SellerDigitalOrdersScreen(),
+                      ),
+                    );
                   },
                 ),
                 _buildDrawerItem(

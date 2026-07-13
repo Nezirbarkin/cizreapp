@@ -11,6 +11,8 @@ import '../../../core/models/category_model.dart' as category_model;
 import '../../market/services/product_service.dart';
 import '../../market/services/category_service.dart';
 import '../../../core/widgets/color_picker_widget.dart';
+import '../../../core/models/smm_provider_model.dart';
+import '../../../core/services/smm_service.dart';
 
 class ManageProductScreen extends StatefulWidget {
   final Product? product;
@@ -37,6 +39,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   }
   final _productService = ProductService();
   final _categoryService = CategoryService();
+  final _smmService = SmmService();
 
   // Komisyon oranı
   double _commissionRate = 10.0;
@@ -69,6 +72,17 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   final List<int> _availableShoeSizes = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45];
   final Set<int> _selectedShoeSizes = {};
   final List<ProductColor> _colors = [];
+
+  // Dijital ürün (SMM panel) state
+  List<SmmProvider> _smmProviders = [];
+  String? _selectedSmmProviderId;
+  final TextEditingController _smmServiceIdController = TextEditingController();
+  final TextEditingController _pricePer1000Controller = TextEditingController();
+  final TextEditingController _minQuantityController = TextEditingController();
+  final TextEditingController _maxQuantityController = TextEditingController();
+  List<SmmProviderServiceInfo> _smmProviderServices = [];
+  String? _selectedSmmServiceKey;
+  bool _isLoadingSmmServices = false;
 
   // Renk picker için global key
   final GlobalKey<_ColorPickerWidgetState> _colorPickerKey = GlobalKey();
@@ -107,10 +121,16 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _selectedSizes.addAll(widget.product!.sizes);
       _selectedShoeSizes.addAll(widget.product!.shoeSizes);
       _colors.addAll(widget.product!.colors);
+      _selectedSmmProviderId = widget.product!.smmProviderId;
+      _smmServiceIdController.text = widget.product!.smmServiceId ?? '';
+      _pricePer1000Controller.text = widget.product!.pricePer1000?.toString() ?? '';
+      _minQuantityController.text = widget.product!.minQuantity?.toString() ?? '';
+      _maxQuantityController.text = widget.product!.maxQuantity?.toString() ?? '';
     }
 
     _loadCategories();
     _loadCommissionRate();
+    _loadSmmProviders();
   }
 
   /// Mağaza komisyon oranını yükle
@@ -138,6 +158,54 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
   }
 
+  /// Seçilen sağlayıcının hizmet listesini çeker; bir hizmet seçildiğinde servis ID,
+  /// 1000 adet fiyatı, min/max miktar ve (boşsa) açıklama otomatik doldurulur.
+  Future<void> _fetchSmmServices() async {
+    if (_selectedSmmProviderId == null) return;
+    setState(() => _isLoadingSmmServices = true);
+    try {
+      final services = await _smmService.getProviderServices(_selectedSmmProviderId!);
+      setState(() {
+        _smmProviderServices = services;
+        _selectedSmmServiceKey = null;
+      });
+      if (services.isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sağlayıcıda hizmet bulunamadı')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Servisler alınamadı: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingSmmServices = false);
+    }
+  }
+
+  void _applySmmService(SmmProviderServiceInfo service) {
+    setState(() {
+      _selectedSmmServiceKey = service.service;
+      _smmServiceIdController.text = service.service;
+      if (service.rate != null) _pricePer1000Controller.text = service.rate.toString();
+      if (service.min != null) _minQuantityController.text = service.min.toString();
+      if (service.max != null) _maxQuantityController.text = service.max.toString();
+      if (_descriptionController.text.trim().isEmpty && service.name != null) {
+        _descriptionController.text = service.name!;
+      }
+    });
+  }
+
+  /// Satıcının kullanabileceği SMM sağlayıcılarını yükle (admin + kendi provider'ı)
+  Future<void> _loadSmmProviders() async {
+    try {
+      final providers = await _smmService.getProviders();
+      if (mounted) setState(() => _smmProviders = providers.where((p) => p.isActive).toList());
+    } catch (e) {
+      debugPrint('SMM sağlayıcıları yüklenemedi: $e');
+    }
+  }
+
   /// Komisyon tutarı hesapla
   double _calculateCommission(double price) {
     return price * _commissionRate / 100;
@@ -155,6 +223,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _priceController.dispose();
     _oldPriceController.dispose();
     _stockController.dispose();
+    _smmServiceIdController.dispose();
+    _pricePer1000Controller.dispose();
+    _minQuantityController.dispose();
+    _maxQuantityController.dispose();
     super.dispose();
   }
 
@@ -335,7 +407,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
 
     // Varyantlı ürün için validasyon
-    if (_productType != 'normal') {
+    if (_productType == 'clothing' || _productType == 'shoes') {
       if (_colors.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('En az bir renk eklemelisiniz')),
@@ -351,6 +423,40 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       if (_productType == 'shoes' && _selectedShoeSizes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('En az bir numara seçmelisiniz')),
+        );
+        return;
+      }
+    }
+
+    // Dijital ürün için validasyon
+    double? pricePer1000;
+    int? minQuantity;
+    int? maxQuantity;
+    if (_productType == 'digital') {
+      if (_selectedSmmProviderId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bir SMM sağlayıcısı seçmelisiniz')),
+        );
+        return;
+      }
+      if (_smmServiceIdController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sağlayıcı servis ID zorunludur')),
+        );
+        return;
+      }
+      pricePer1000 = double.tryParse(_pricePer1000Controller.text.trim());
+      minQuantity = int.tryParse(_minQuantityController.text.trim());
+      maxQuantity = int.tryParse(_maxQuantityController.text.trim());
+      if (pricePer1000 == null || pricePer1000 <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('1000 adet için geçerli bir fiyat girin')),
+        );
+        return;
+      }
+      if (minQuantity == null || maxQuantity == null || minQuantity <= 0 || maxQuantity < minQuantity) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Geçerli min/max miktar girin')),
         );
         return;
       }
@@ -402,6 +508,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
+          smmProviderId: _productType == 'digital' ? _selectedSmmProviderId : null,
+          smmServiceId: _productType == 'digital' ? _smmServiceIdController.text.trim() : null,
+          pricePer1000: _productType == 'digital' ? pricePer1000 : null,
+          minQuantity: _productType == 'digital' ? minQuantity : null,
+          maxQuantity: _productType == 'digital' ? maxQuantity : null,
         );
 
         if (mounted) {
@@ -425,6 +536,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
+          smmProviderId: _productType == 'digital' ? _selectedSmmProviderId : null,
+          smmServiceId: _productType == 'digital' ? _smmServiceIdController.text.trim() : null,
+          pricePer1000: _productType == 'digital' ? pricePer1000 : null,
+          minQuantity: _productType == 'digital' ? minQuantity : null,
+          maxQuantity: _productType == 'digital' ? maxQuantity : null,
         );
 
         if (mounted) {
@@ -703,6 +819,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 ButtonSegment(value: 'normal', label: Text('Normal'), icon: Icon(Icons.widgets)),
                 ButtonSegment(value: 'clothing', label: Text('Giyim'), icon: Icon(Icons.checkroom)),
                 ButtonSegment(value: 'shoes', label: Text('Ayakkabı'), icon: Icon(Icons.sports_football)),
+                ButtonSegment(value: 'digital', label: Text('Dijital'), icon: Icon(Icons.smart_toy)),
               ],
               selected: {_productType},
               onSelectionChanged: (Set<String> value) {
@@ -769,8 +886,125 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               const SizedBox(height: 16),
             ],
 
-            // Renkler (tüm varyant tipleri için)
-            if (_productType != 'normal') ...[
+            // Dijital ürün (SMM panel) alanları
+            if (_productType == 'digital') ...[
+              DropdownButtonFormField<String>(
+                // ignore: deprecated_member_use
+                value: _smmProviders.any((p) => p.id == _selectedSmmProviderId) ? _selectedSmmProviderId : null,
+                decoration: const InputDecoration(
+                  labelText: 'SMM Sağlayıcısı *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.dns_outlined),
+                ),
+                items: _smmProviders.isEmpty
+                    ? [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          enabled: false,
+                          child: Text('Kullanılabilir sağlayıcı yok', style: TextStyle(color: Colors.grey)),
+                        ),
+                      ]
+                    : _smmProviders
+                        .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
+                        .toList(),
+                onChanged: _smmProviders.isEmpty
+                    ? null
+                    : (value) => setState(() {
+                          _selectedSmmProviderId = value;
+                          _smmProviderServices = [];
+                          _selectedSmmServiceKey = null;
+                        }),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: (_selectedSmmProviderId == null || _isLoadingSmmServices)
+                    ? null
+                    : _fetchSmmServices,
+                icon: _isLoadingSmmServices
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_download_outlined),
+                label: const Text('Servisleri Getir'),
+              ),
+              if (_smmProviderServices.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _selectedSmmServiceKey,
+                  decoration: const InputDecoration(
+                    labelText: 'Sağlayıcı Hizmeti (seçince alanlar otomatik doldurulur)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.list_alt),
+                  ),
+                  items: _smmProviderServices
+                      .map((s) => DropdownMenuItem(
+                            value: s.service,
+                            child: Text(
+                              '${s.name ?? s.service} (₺${s.rate?.toStringAsFixed(2) ?? '-'} / 1000)',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    final service = _smmProviderServices.firstWhere((s) => s.service == value);
+                    _applySmmService(service);
+                  },
+                ),
+              ],
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _smmServiceIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Sağlayıcı Servis ID *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.numbers),
+                  helperText: 'Sağlayıcı panelindeki hizmet (service) numarası',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _pricePer1000Controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '1000 Adet Fiyatı (₺) *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.price_change_outlined),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _minQuantityController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Min. Miktar *',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _maxQuantityController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Max. Miktar *',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Renkler (giyim/ayakkabı için)
+            if (_productType == 'clothing' || _productType == 'shoes') ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1168,10 +1402,16 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _productService.deleteProduct(widget.product!.id);
+      final deleted = await _productService.deleteProduct(widget.product!.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ürün silindi')),
+          SnackBar(
+            content: Text(
+              deleted
+                  ? 'Ürün silindi'
+                  : 'Bu ürüne ait sipariş geçmişi olduğu için silinemedi, bunun yerine devre dışı bırakıldı.',
+            ),
+          ),
         );
         Navigator.pop(context, true);
       }

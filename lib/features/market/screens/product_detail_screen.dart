@@ -18,6 +18,7 @@ import '../services/shop_service.dart';
 import '../services/product_review_service.dart';
 import '../providers/cart_provider.dart';
 import '../../seller/services/shop_analytics_service.dart';
+import '../../../core/services/smm_service.dart';
 import 'cart_screen.dart';
 import 'shop_detail_screen.dart';
 
@@ -35,6 +36,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   final ShopService _shopService = ShopService();
   final ShopAnalyticsService _analyticsService = ShopAnalyticsService();
   final ProductReviewService _reviewService = ProductReviewService();
+  final SmmService _smmService = SmmService();
+
+  // Dijital ürün (SMM panel) sipariş formu
+  final TextEditingController _digitalTargetUrlController = TextEditingController();
+  final TextEditingController _digitalQuantityController = TextEditingController();
+  int _digitalQuantity = 0;
+  bool _isSubmittingDigitalOrder = false;
 
   Product? _product;
   Shop? _shop;
@@ -71,6 +79,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   @override
   void dispose() {
     _transformationController.dispose();
+    _digitalTargetUrlController.dispose();
+    _digitalQuantityController.dispose();
     super.dispose();
   }
 
@@ -96,6 +106,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _shop = shop;
         _globalOrdersEnabled = globalEnabled;
         _isLoading = false;
+        if (product.isDigital) {
+          _digitalQuantity = product.minQuantity ?? 0;
+          _digitalQuantityController.text = _digitalQuantity.toString();
+        }
       });
 
       // Varyantlı ürünlerde varsayılan seçimleri yap
@@ -619,8 +633,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         const ClosedShopBanner(),
                       const SizedBox(height: 16),
 
-                      // Quantity Selector
-                      _buildQuantitySelector(product),
+                      // Quantity Selector / Dijital sipariş formu
+                      if (product.isDigital)
+                        _buildDigitalOrderForm(product)
+                      else
+                        _buildQuantitySelector(product),
                     ],
                   ),
                 ),
@@ -639,45 +656,165 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
         child: SafeArea(
-          child: Row(
-            children: [
-              Expanded(
-                child: SizedBox(
+          child: (_product?.isDigital ?? false)
+              ? SizedBox(
+                  width: double.infinity,
                   height: 56,
                   child: ElevatedButton.icon(
-                    onPressed: _canAddToCart ? () => _addToCart() : null,
+                    onPressed: _isSubmittingDigitalOrder ? null : () => _submitDigitalOrder(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
                       disabledBackgroundColor: Colors.grey.shade300,
                     ),
-                    icon: const Icon(Icons.shopping_cart),
-                    label: Text(_cartButtonText),
+                    icon: _isSubmittingDigitalOrder
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send),
+                    label: const Text('Bakiye ile Satın Al'),
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 56,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () => _goToCart(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: _canAddToCart ? () => _addToCart() : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.grey.shade300,
+                          ),
+                          icon: const Icon(Icons.shopping_cart),
+                          label: Text(_cartButtonText),
+                        ),
+                      ),
                     ),
-                  ),
-                  child: const Icon(Icons.shopping_bag),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: () => _goToCart(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Icon(Icons.shopping_bag),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
+  }
+
+  Widget _buildDigitalOrderForm(Product product) {
+    final unitPrice = (product.pricePer1000 ?? 0) / 1000;
+    final total = unitPrice * _digitalQuantity;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sipariş Bilgileri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _digitalTargetUrlController,
+              decoration: const InputDecoration(
+                labelText: 'Link *',
+                hintText: 'https://instagram.com/kullaniciadi',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.link),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _digitalQuantityController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Miktar (${product.minQuantity ?? 0} - ${product.maxQuantity ?? 0})',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.numbers),
+              ),
+              onChanged: (value) {
+                setState(() => _digitalQuantity = int.tryParse(value) ?? 0);
+              },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Toplam Tutar', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  '₺${total.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitDigitalOrder() async {
+    if (_product == null) return;
+    final targetUrl = _digitalTargetUrlController.text.trim();
+    if (targetUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lütfen link girin')),
+      );
+      return;
+    }
+    final minQ = _product!.minQuantity ?? 0;
+    final maxQ = _product!.maxQuantity ?? 0;
+    if (_digitalQuantity < minQ || _digitalQuantity > maxQ) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Miktar $minQ - $maxQ aralığında olmalıdır')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmittingDigitalOrder = true);
+    try {
+      final result = await _smmService.createDigitalOrder(
+        productId: _product!.id,
+        targetUrl: targetUrl,
+        quantity: _digitalQuantity,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sipariş oluşturuldu: ₺${result.totalPrice.toStringAsFixed(2)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sipariş oluşturulamadı: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmittingDigitalOrder = false);
+    }
   }
 
   Widget _buildImageGallery(Product product) {
