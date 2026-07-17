@@ -6,6 +6,31 @@ import '../../../core/models/digital_order_model.dart';
 import '../../../core/services/smm_service.dart';
 import 'digital_order_detail_screen.dart';
 
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.blue.shade700),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.blue.shade800, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
 class DigitalOrdersContent extends StatefulWidget {
   const DigitalOrdersContent({super.key});
 
@@ -108,70 +133,114 @@ class _DigitalOrdersContentState extends State<DigitalOrdersContent> with Automa
                     itemCount: _orders.length,
                     itemBuilder: (context, index) {
                       final order = _orders[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: InkWell(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => DigitalOrderDetailScreen(order: order)),
+                      final statusColor = _statusColor(order.status);
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      order.productName ?? 'Dijital Ürün',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                      overflow: TextOverflow.ellipsis,
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => DigitalOrderDetailScreen(order: order)),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [statusColor.withOpacity(0.85), statusColor],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.bolt, color: Colors.white, size: 20),
                                     ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _statusColor(order.status).withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      order.status.label,
-                                      style: TextStyle(
-                                        color: _statusColor(order.status),
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        order.productName ?? 'Dijital Ürün',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: statusColor.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        order.status.label,
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(order.targetUrl, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text('Miktar: ${order.quantity}', style: const TextStyle(fontSize: 13)),
-                                  const SizedBox(width: 16),
-                                  Text(
-                                    'Tutar: ₺${order.totalPrice.toStringAsFixed(2)}',
-                                    style: const TextStyle(fontSize: 13),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.link, size: 14, color: Colors.grey.shade500),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          order.targetUrl,
+                                          style: TextStyle(color: Colors.grey.shade700, fontSize: 12.5),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              if (order.remains != null) ...[
-                                const SizedBox(height: 4),
-                                Text('Kalan: ${order.remains}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    _InfoChip(icon: Icons.format_list_numbered, label: '${order.quantity} adet'),
+                                    const SizedBox(width: 8),
+                                    _InfoChip(icon: Icons.payments_outlined, label: '₺${order.totalPrice.toStringAsFixed(2)}'),
+                                    if (order.remains != null) ...[
+                                      const SizedBox(width: 8),
+                                      _InfoChip(icon: Icons.hourglass_bottom, label: 'Kalan ${order.remains}'),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal()),
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                                ),
                               ],
-                              const SizedBox(height: 4),
-                              Text(
-                                'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt)}',
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
                         ),
                       );
                     },

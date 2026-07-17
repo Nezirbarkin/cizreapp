@@ -266,7 +266,7 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                                 ],
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt)}',
+                                  'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())}',
                                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                                 ),
                               ],

@@ -509,7 +509,7 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                             style: TextStyle(fontSize: 12, color: Colors.green.shade700),
                           ),
                         Text(
-                          DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt),
+                          DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal()),
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                         ),
                       ],

@@ -89,9 +89,9 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                   if (order.externalOrderId != null) _row('Sağlayıcı Sipariş No', order.externalOrderId!),
                   if (order.startCount != null) _row('Başlangıç Sayısı', order.startCount.toString()),
                   if (order.remains != null) _row('Kalan', order.remains.toString()),
-                  _row('Oluşturulma', DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt)),
+                  _row('Oluşturulma', DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())),
                   if (order.lastCheckedAt != null)
-                    _row('Son Kontrol', DateFormat('dd.MM.yyyy HH:mm').format(order.lastCheckedAt!)),
+                    _row('Son Kontrol', DateFormat('dd.MM.yyyy HH:mm').format(order.lastCheckedAt!.toLocal())),
                   if (order.errorMessage != null) _row('Hata', order.errorMessage!),
                 ],
               ),

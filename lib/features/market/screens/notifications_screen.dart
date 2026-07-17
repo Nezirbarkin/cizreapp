@@ -863,7 +863,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   /// Admin duyuruları bölümü (herkese açık)
+  /// Üstte sadece en yeni 1 duyuru gösterilir. Geçmiş duyurular için
+  /// başlık satırında "Tümünü Gör" butonu vardır
+  /// (_showAllBroadcastsDialog). Takip istekleri kartındaki davranışla
+  /// birebir aynı desen.
   Widget _buildAdminBroadcastsSection() {
+    final hasMore = _adminBroadcasts.length > 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -873,20 +878,78 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             children: [
               Icon(Icons.campaign_rounded, color: Colors.blue.shade700, size: 20),
               const SizedBox(width: 8),
-              Text(
-                'Duyurular',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade800,
+              Expanded(
+                child: Text(
+                  'Duyurular',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade800,
+                  ),
                 ),
               ),
+              if (hasMore)
+                TextButton.icon(
+                  onPressed: _showAllBroadcastsDialog,
+                  icon: Icon(Icons.visibility_outlined, size: 16),
+                  label: Text(
+                    'Tümünü Gör (${_adminBroadcasts.length})',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blue.shade700,
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                ),
             ],
           ),
         ),
-        ..._adminBroadcasts.map((broadcast) => _buildAdminBroadcastCard(broadcast)),
+        // Sadece en yeni duyuruyu göster (ilk sırada, desc order)
+        _buildAdminBroadcastCard(_adminBroadcasts.first),
         const Divider(height: 1),
       ],
+    );
+  }
+
+  /// Tüm geçmiş admin duyurularını dialog içinde listeler.
+  /// En yeni üstte olacak şekilde _adminBroadcasts sırası zaten DESC.
+  void _showAllBroadcastsDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.campaign_rounded, color: Colors.blue.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Tüm Duyurular (${_adminBroadcasts.length})',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _adminBroadcasts.length,
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: EdgeInsets.only(bottom: index < _adminBroadcasts.length - 1 ? 8 : 0),
+                child: _buildAdminBroadcastCard(_adminBroadcasts[index]),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
     );
   }
 
