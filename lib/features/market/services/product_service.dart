@@ -260,6 +260,7 @@ class ProductService {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    int? maxOrdersPerUser,
   }) async {
     try {
       // Ürün limitini kaldırdık - sınırsız ürün eklenebilir
@@ -287,6 +288,7 @@ class ProductService {
         'price_per_1000': pricePer1000,
         'min_quantity': minQuantity,
         'max_quantity': maxQuantity,
+        'max_orders_per_user': maxOrdersPerUser,
       }).select().single();
 
       return Product.fromJson(response);
@@ -315,6 +317,8 @@ class ProductService {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    int? maxOrdersPerUser,
+    bool clearMaxOrdersPerUser = false,
   }) async {
     try {
       final updateData = {
@@ -338,6 +342,11 @@ class ProductService {
       if (pricePer1000 != null) updateData['price_per_1000'] = pricePer1000;
       if (minQuantity != null) updateData['min_quantity'] = minQuantity;
       if (maxQuantity != null) updateData['max_quantity'] = maxQuantity;
+      if (maxOrdersPerUser != null) {
+        updateData['max_orders_per_user'] = maxOrdersPerUser;
+      } else if (clearMaxOrdersPerUser) {
+        updateData['max_orders_per_user'] = null;
+      }
 
       final response = await supabase
           .from('products')

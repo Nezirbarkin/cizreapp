@@ -4,7 +4,9 @@ import '../../../core/models/shop_review_model.dart';
 
 /// Bekleyen değerlendirme modeli
 class PendingReview {
-  final String orderId;
+  final String? orderId;
+  final String? digitalOrderId;
+  final bool isDigital;
   final String shopId;
   final String shopName;
   final String? shopLogo;
@@ -14,7 +16,9 @@ class PendingReview {
   final String? productName;
 
   PendingReview({
-    required this.orderId,
+    this.orderId,
+    this.digitalOrderId,
+    this.isDigital = false,
     required this.shopId,
     required this.shopName,
     this.shopLogo,
@@ -26,7 +30,9 @@ class PendingReview {
 
   factory PendingReview.fromJson(Map<String, dynamic> json) {
     return PendingReview(
-      orderId: json['order_id'] as String,
+      orderId: json['order_id'] as String?,
+      digitalOrderId: json['digital_order_id'] as String?,
+      isDigital: json['is_digital'] as bool? ?? false,
       shopId: json['shop_id'] as String,
       shopName: json['shop_name'] as String,
       shopLogo: json['shop_logo'] as String?,
@@ -36,6 +42,9 @@ class PendingReview {
       productName: json['product_name'] as String?,
     );
   }
+
+  /// Skip/track listelerinde kullanılan sabit kimlik (fiziksel veya dijital sipariş)
+  String get trackingId => orderId ?? digitalOrderId!;
 }
 
 class ShopReviewService {
@@ -135,9 +144,24 @@ class ShopReviewService {
           .limit(1)
           .maybeSingle();
 
-      final hasOrder = response != null;
-      debugPrint(hasOrder ? '✅ Tamamlanmış sipariş bulundu' : '❌ Tamamlanmış sipariş yok');
-      
+      if (response != null) {
+        debugPrint('✅ Tamamlanmış sipariş bulundu');
+        return true;
+      }
+
+      // Fiziksel sipariş yoksa tamamlanmış dijital (SMM) sipariş kontrolü
+      final digitalResponse = await _supabase
+          .from('digital_orders')
+          .select('id, products!inner(shop_id)')
+          .eq('products.shop_id', shopId)
+          .eq('user_id', userId)
+          .eq('status', 'completed')
+          .limit(1)
+          .maybeSingle();
+
+      final hasOrder = digitalResponse != null;
+      debugPrint(hasOrder ? '✅ Tamamlanmış dijital sipariş bulundu' : '❌ Tamamlanmış sipariş yok');
+
       return hasOrder;
     } catch (e) {
       debugPrint('❌ Sipariş kontrolü sırasında hata: $e');
@@ -152,10 +176,11 @@ class ShopReviewService {
     required int rating,
     String? comment,
     String? orderId,
+    String? digitalOrderId,
   }) async {
     try {
       debugPrint('📝 Yorum oluşturuluyor: rating=$rating, shopId=$shopId');
-      
+
       if (rating < 1 || rating > 5) {
         throw Exception('Puan 1 ile 5 arasında olmalı');
       }
@@ -174,6 +199,7 @@ class ShopReviewService {
             'rating': rating,
             'comment': comment?.trim(),
             'order_id': orderId,
+            'digital_order_id': digitalOrderId,
             'created_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })

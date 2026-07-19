@@ -43,6 +43,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
   // Komisyon oranı
   double _commissionRate = 10.0;
+  double _digitalCommissionRate = 10.0;
   bool _isLoadingCommission = false;
 
   // Form controllers
@@ -74,12 +75,14 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   final List<ProductColor> _colors = [];
 
   // Dijital ürün (SMM panel) state
+  final TextEditingController _digitalWarningController = TextEditingController();
   List<SmmProvider> _smmProviders = [];
   String? _selectedSmmProviderId;
   final TextEditingController _smmServiceIdController = TextEditingController();
   final TextEditingController _pricePer1000Controller = TextEditingController();
   final TextEditingController _minQuantityController = TextEditingController();
   final TextEditingController _maxQuantityController = TextEditingController();
+  final TextEditingController _maxOrdersPerUserController = TextEditingController();
   List<SmmProviderServiceInfo> _smmProviderServices = [];
   String? _selectedSmmServiceKey;
   bool _isLoadingSmmServices = false;
@@ -126,6 +129,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _pricePer1000Controller.text = widget.product!.pricePer1000?.toString() ?? '';
       _minQuantityController.text = widget.product!.minQuantity?.toString() ?? '';
       _maxQuantityController.text = widget.product!.maxQuantity?.toString() ?? '';
+      _maxOrdersPerUserController.text = widget.product!.maxOrdersPerUser?.toString() ?? '';
     }
 
     _loadCategories();
@@ -142,14 +146,22 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
       final shopResponse = await _supabase
           .from('shops')
-          .select('commission_rate')
+          .select('commission_rate, digital_commission_rate, digital_warning_note')
           .eq('owner_id', userId)
           .maybeSingle();
 
-      if (shopResponse != null && shopResponse['commission_rate'] != null) {
+      if (shopResponse != null) {
+        if (shopResponse['commission_rate'] != null) {
+          setState(() {
+            _commissionRate = (shopResponse['commission_rate'] as num).toDouble();
+          });
+        }
         setState(() {
-          _commissionRate = (shopResponse['commission_rate'] as num).toDouble();
+          _digitalCommissionRate = (shopResponse['digital_commission_rate'] as num?)?.toDouble() ?? 10.0;
         });
+        if (shopResponse['digital_warning_note'] != null) {
+          _digitalWarningController.text = shopResponse['digital_warning_note'] as String;
+        }
       }
     } catch (e) {
       debugPrint('Komisyon oranı yüklenemedi: $e');
@@ -216,10 +228,21 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     return price - _calculateCommission(price);
   }
 
+  /// Dijital ürün komisyon tutarı hesapla
+  double _calculateDigitalCommission(double price) {
+    return price * _digitalCommissionRate / 100;
+  }
+
+  /// Dijital ürün net kazanç hesapla
+  double _calculateDigitalNetEarnings(double price) {
+    return price - _calculateDigitalCommission(price);
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _digitalWarningController.dispose();
     _priceController.dispose();
     _oldPriceController.dispose();
     _stockController.dispose();
@@ -227,6 +250,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _pricePer1000Controller.dispose();
     _minQuantityController.dispose();
     _maxQuantityController.dispose();
+    _maxOrdersPerUserController.dispose();
     super.dispose();
   }
 
@@ -432,6 +456,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     double? pricePer1000;
     int? minQuantity;
     int? maxQuantity;
+    int? maxOrdersPerUser;
     if (_productType == 'digital') {
       if (_selectedSmmProviderId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -445,12 +470,13 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         );
         return;
       }
-      pricePer1000 = double.tryParse(_pricePer1000Controller.text.trim());
+      // Türkçe klavyede ondalık ayırıcı virgül olabilir (örn. 12,50); double.tryParse için noktaya çevir.
+      pricePer1000 = double.tryParse(_pricePer1000Controller.text.trim().replaceAll(',', '.'));
       minQuantity = int.tryParse(_minQuantityController.text.trim());
       maxQuantity = int.tryParse(_maxQuantityController.text.trim());
-      if (pricePer1000 == null || pricePer1000 <= 0) {
+      if (pricePer1000 == null || pricePer1000 < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('1000 adet için geçerli bir fiyat girin')),
+          const SnackBar(content: Text('1000 adet için geçerli bir fiyat girin (0 veya üzeri)')),
         );
         return;
       }
@@ -459,6 +485,15 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           const SnackBar(content: Text('Geçerli min/max miktar girin')),
         );
         return;
+      }
+      if (_maxOrdersPerUserController.text.trim().isNotEmpty) {
+        maxOrdersPerUser = int.tryParse(_maxOrdersPerUserController.text.trim());
+        if (maxOrdersPerUser == null || maxOrdersPerUser <= 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Kullanıcı başına sipariş limiti geçerli bir sayı olmalı')),
+          );
+          return;
+        }
       }
     }
 
@@ -480,15 +515,26 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
       final shopId = shopResponse['id'] as String;
 
+      if (_productType == 'digital') {
+        await _supabase
+            .from('shops')
+            .update({'digital_warning_note': _digitalWarningController.text.trim()})
+            .eq('id', shopId);
+      }
+
       final imageUrls = await _uploadImages(shopId);
       final primaryImageUrl = imageUrls.isNotEmpty ? imageUrls.first : null;
       final additionalImageUrls = imageUrls.length > 1 ? imageUrls.sublist(1) : <String>[];
 
-      final price = double.parse(_priceController.text);
-      final oldPrice = _hasDiscount && _oldPriceController.text.isNotEmpty
+      // Dijital ürünlerde fiyatlandırma/stok bölümü gösterilmez; gerçek fiyat
+      // pricePer1000 üzerinden hesaplanır, komisyon mantığı fizikselden ayrıdır.
+      final price = _productType == 'digital'
+          ? (pricePer1000 ?? 0)
+          : double.parse(_priceController.text);
+      final oldPrice = _productType != 'digital' && _hasDiscount && _oldPriceController.text.isNotEmpty
           ? double.parse(_oldPriceController.text)
           : null;
-      final stock = int.parse(_stockController.text);
+      final stock = _productType == 'digital' ? 0 : int.parse(_stockController.text);
 
       // Renkleri JSON formatına çevir
       final colorsJson = _colors.map((c) => c.toJson()).toList();
@@ -513,6 +559,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           pricePer1000: _productType == 'digital' ? pricePer1000 : null,
           minQuantity: _productType == 'digital' ? minQuantity : null,
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
+          maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
         );
 
         if (mounted) {
@@ -541,6 +588,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           pricePer1000: _productType == 'digital' ? pricePer1000 : null,
           minQuantity: _productType == 'digital' ? minQuantity : null,
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
+          maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
+          clearMaxOrdersPerUser: _productType == 'digital' && maxOrdersPerUser == null,
         );
 
         if (mounted) {
@@ -592,7 +641,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   const SizedBox(height: 24),
                   _buildVariantSection(),
                   const SizedBox(height: 24),
-                  _buildPricingSection(),
+                  if (_productType != 'digital') _buildPricingSection(),
                   const SizedBox(height: 32),
                   _buildSaveButton(),
                 ],
@@ -968,10 +1017,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               TextFormField(
                 controller: _pricePer1000Controller,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: '1000 Adet Fiyatı (₺) *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.price_change_outlined),
+                  helperText: 'Ücretsiz ürün için 0 girebilirsiniz',
                 ),
               ),
               const SizedBox(height: 16),
@@ -999,6 +1050,51 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _maxOrdersPerUserController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Kullanıcı Başına Sipariş Limiti (opsiyonel)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person_outline),
+                  helperText: 'Boş bırakılırsa limitsiz. Özellikle 0 TL ürünlerde kötüye kullanımı önlemek için önerilir.',
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildDigitalCommissionCalculation(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.purple.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Dijital ürün fiyatı 1000 adet başına girdiğiniz tutara göre hesaplanır. Fiziksel ürünlerdeki stok, indirim ve komisyon oranı bu ürün tipine uygulanmaz.',
+                        style: TextStyle(color: Colors.purple.shade700, fontWeight: FontWeight.w500, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _digitalWarningController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Uyarı Notu (tüm dijital ürünlerinizde sabit gösterilir)',
+                  hintText: 'Örn: Hesap bilgilerinizi kimseyle paylaşmayın',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.warning_amber_outlined),
+                ),
               ),
               const SizedBox(height: 16),
             ],
@@ -1188,7 +1284,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'Fiyat gerekli';
                       final price = double.tryParse(value);
-                      if (price == null || price <= 0) return 'Geçerli bir fiyat girin';
+                      if (price == null || price < 0) return 'Geçerli bir fiyat girin';
                       return null;
                     },
                   ),
@@ -1333,6 +1429,60 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Dijital ürün (1000 adet fiyatı) için kazanç hesaplama kartı
+  Widget _buildDigitalCommissionCalculation() {
+    final price = double.tryParse(_pricePer1000Controller.text.trim().replaceAll(',', '.')) ?? 0.0;
+    final commission = _calculateDigitalCommission(price);
+    final netEarnings = _calculateDigitalNetEarnings(price);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green.shade50, Colors.green.shade100],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.account_balance_wallet, color: Colors.green.shade700, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Kazanç Hesaplaması (1000 Adet)',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade700,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          _buildCalculationRow('1000 Adet Fiyatı', price, Colors.grey),
+          const SizedBox(height: 8),
+          _buildCalculationRow(
+            'Platform Komisyonu (%${_digitalCommissionRate.toStringAsFixed(1)})',
+            -commission,
+            Colors.red,
+          ),
+          const Divider(height: 16),
+          _buildCalculationRow(
+            'Net Kazanç (Sizin Payınız)',
+            netEarnings,
+            Colors.green,
+            bold: true,
           ),
         ],
       ),

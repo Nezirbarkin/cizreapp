@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_RLS
 
-Son güncelleme: 2026-07-13
+Son güncelleme: 2026-07-15
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Genel RLS Durumu
@@ -98,6 +98,16 @@ Ayrıca RLS/trigger içi yardımcı fonksiyonlar (`is_group_admin`, `is_group_me
 - Kendi kendine yetki yükseltme koruması (group_members §4.1.5 ile AYNI DESEN): `shops.can_use_own_smm_api` kolonunu satıcı kendi UPDATE'iyle açamaz — `prevent_seller_self_grant_smm()` BEFORE UPDATE trigger'ı (SECURITY DEFINER) değişikliği admin değilse geri alır.
 - `digital_orders`: RLS açık, sadece SELECT policy'si var (`digital_orders_select` — kullanıcı kendi siparişini, admin hepsini, satıcı kendi provider'ına ait siparişleri görür). INSERT/UPDATE client policy'si YOK — tüm yazma service-role ile Edge Function üzerinden yapılır (`create_digital_order` RPC + smm-order-* fonksiyonları).
 - BUG (20260710000004 ile düzeltildi): `digital_orders`'ta RLS SELECT policy'si vardı ama `authenticated` rolüne tablo-seviyesi `GRANT SELECT` YOKTU — policy eşleşse de PostgREST erişimi reddediyordu, müşteriler kendi siparişlerini göremiyordu. `GRANT SELECT ON digital_orders TO authenticated;` + `GRANT ALL ... TO service_role` ile giderildi.
+
+#### 4.1.7 Bakiye tabloları (`user_balances` / `balance_transactions`) — 2026-07-15 (GÜVENLİK DÜZELTMESİ)
+- BUG (kritik/orta risk): `20260621_CREATE_BALANCE_SYSTEM.sql` içinde tanımlanan `"Service can update balances"` (user_balances, FOR UPDATE) ve `"Service can insert transactions"` (balance_transactions, FOR INSERT) policy'leri `TO service_role` kısıtlaması OLMADAN yazılmıştı — isim "Service can..." olsa da `TO` belirtilmeyince policy TÜM rollere (dolayısıyla `authenticated`'a) uygulanır. `USING (true)`/`WITH CHECK (true)` olduğundan, teorik olarak herhangi bir authenticated kullanıcı PostgREST üzerinden `PATCH /rest/v1/user_balances` ile kendi bakiyesini manipüle edebilirdi. Kod tabanında bu tablolara client'tan doğrudan `.update()`/`.insert()` çağrısı yoktu (sadece Edge Functions üzerinden erişim), yani aktif sömürülen bir yol yoktu, ama DB seviyesinde savunma katmanı eksikti.
+- DÜZELTME: her iki policy `TO service_role` ile sınırlandı. Migration: `20260715000001_restrict_balance_rls_to_service_role.sql`. Uygulandı ve doğrulandı (`pg_policies.roles = {service_role}`).
+- Genel mimari zaten sağlamdı ve değişmedi: tüm bakiye mutasyonları Edge Functions (`get-balance`, `create-balance-topup`, `use-balance-for-order`, `refund-to-balance`, `admin-add-balance`, `admin-deduct-balance`) + `deduct_from_balance`/`atomic_add_balance_topup_secure` RPC'leri (FOR UPDATE lock, replay/rate-limit koruması) üzerinden yürütülüyor.
+
+#### 4.1.8 Reklam Ödül Sistemi (`ad_settings` / `ad_reward_views`) — 2026-07-15
+- `ad_settings`: tekil (id=1) satır, `authenticated` rolü SELECT edebilir (reklam birim ID'lerini/limitleri client'ın okuyup reklamı yüklemesi gerekir), UPDATE/INSERT/DELETE sadece `profiles.role='admin'` doğrulaması ile (`ad_settings_admin_all`).
+- `ad_reward_views`: kullanıcı SADECE kendi kayıtlarını (`auth.uid() = user_id`) SELECT edebilir, admin hepsini görebilir. Client tarafından hiçbir INSERT/UPDATE policy'si tanımlı DEĞİL — tüm yazma `TO service_role` policy'si üzerinden `grant-ad-reward` Edge Function'ı ile yapılır. Bu, bakiye tablolarındaki §4.1.7 deseniyle aynı prensip: ödül mutasyonu istemciden asla doğrudan yapılamaz.
+- `grant-ad-reward` fonksiyonu kendi içinde günlük/saatlik/cooldown/cihaz-bazlı/platform-bütçe limitlerini uygular (bkz. PROJE_HAVIZA_CHANGELOG.md 2026-07-15 04:00 UTC kaydı).
 
 ### 4.2 Standart Audit Checklist
 

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>CizreApp - Hesap Silme</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1ABC9C 0%, #16A085 50%, #2C3E50 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 640px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+
+        .header {
+            text-align: center;
+            padding-bottom: 24px;
+            border-bottom: 2px solid #1ABC9C;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            color: #2C3E50;
+            font-size: 26px;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        h2 {
+            color: #1ABC9C;
+            font-size: 18px;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+
+        p {
+            color: #2C3E50;
+            margin-bottom: 14px;
+            font-size: 15px;
+        }
+
+        ul {
+            margin-left: 22px;
+            margin-bottom: 16px;
+            color: #2C3E50;
+            font-size: 15px;
+        }
+
+        ul li {
+            margin-bottom: 6px;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 14px 18px;
+            margin: 18px 0;
+            border-radius: 0 6px 6px 0;
+            color: #856404;
+            font-size: 14px;
+        }
+
+        .info-box {
+            background: #e8f8f5;
+            border-left: 4px solid #1ABC9C;
+            padding: 14px 18px;
+            margin: 18px 0;
+            border-radius: 0 6px 6px 0;
+            color: #2C3E50;
+            font-size: 14px;
+        }
+
+        .contact-box {
+            background: #e8f8f5;
+            border: 1px solid #1ABC9C;
+            border-radius: 8px;
+            padding: 18px;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .contact-box strong {
+            color: #1ABC9C;
+        }
+
+        a {
+            color: #1ABC9C;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 24px 18px;
+            }
+            .header h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Hesap Silme Talebi</h1>
+            <div class="subtitle">CizreApp &mdash; Son güncelleme: 15 Temmuz 2026</div>
+        </div>
+
+        <h2>1. Hesabınızı Silmek İçin İki Yöntem</h2>
+
+        <h3>Yöntem A — Uygulama İçinden (Önerilen)</h3>
+        <p>CizreApp mobil uygulamasında oturum açın ve şu adımları izleyin:</p>
+        <ul>
+            <li>Profil sekmesine gidin</li>
+            <li><strong>Ayarlar &rarr; Hesap Ayarları</strong> menüsünü açın</li>
+            <li>En alttaki <strong>&ldquo;Hesabımı Sil&rdquo;</strong> butonuna tıklayın</li>
+            <li>E-posta adresinize gönderilen 6 haneli onay kodunu girin</li>
+            <li>Onay kodunu girdikten sonra hesabınız kalıcı olarak silinir</li>
+        </ul>
+
+        <h3>Yöntem B — Web Üzerinden Talep</h3>
+        <p>Uygulamaya erişiminiz yoksa veya giriş yapamıyorsanız aşağıdaki adres üzerinden talep oluşturabilirsiniz:</p>
+        <ul>
+            <li><a href="mailto:destek@cizreapp.com?subject=Hesap%20Silme%20Talebi&body=Merhaba%2C%20hesab%C4%B1m%C4%B1%20silmek%20istiyorum.%20Kullan%C4%B1c%C4%B1%20bilgilerim%3A%0A%0A%0A">destek@cizreapp.com</a> adresine e-posta gönderin</li>
+            <li>Konu: <strong>Hesap Silme Talebi</strong></li>
+            <li>E-postada hesabınıza ait e-posta adresi ve kullanıcı adını belirtin</li>
+            <li>Ekibimiz 7 iş günü içinde hesabınızı silecek ve size onay e-postası gönderecektir</li>
+        </ul>
+
+        <div class="warning-box">
+            <strong>Uyarı:</strong> Hesap silme işlemi geri alınamaz. Tüm verileriniz kalıcı olarak silinir.
+        </div>
+
+        <h2>2. Hesabınız Silindiğinde Neler Silinir?</h2>
+        <p>KVKK ve Google Play politikaları gereği aşağıdaki verileriniz tamamen ve geri dönüşümsüz olarak silinir:</p>
+        <ul>
+            <li>Hesap bilgileriniz (ad, e-posta, telefon, kullanıcı adı)</li>
+            <li>Profil fotoğrafınız ve biyografiniz</li>
+            <li>Sipariş geçmişiniz ve fatura kayıtlarınız (yasal zorunluluk nedeniyle yalnızca anonimleştirilmiş mali kayıtlar saklanır)</li>
+            <li>Sosyal paylaşımlarınız, beğenileriniz ve yorumlarınız</li>
+            <li>AI sohbet geçmişiniz ve mesajlarınız</li>
+            <li>Cüzdan bakiyeniz ve işlem geçmişiniz (varsa kalan bakiye iade edilmez)</li>
+            <li>Kayıtlı adresleriniz ve favori ürünleriniz</li>
+            <li>Bildirim tercihleriniz ve push notification kayıtlarınız</li>
+            <li>Çerezler ve oturum verileri</li>
+        </ul>
+
+        <div class="info-box">
+            <strong>Bilgi:</strong> Yasal yükümlülük gereği vergi/fatura kayıtları anonimleştirilmiş şekilde (kişisel bilgileriniz kaldırılarak) saklanmaya devam edebilir. Bu kayıtlarda kişisel verileriniz yer almaz.
+        </div>
+
+        <h2>3. Silme Süresi</h2>
+        <p>Hesap silme talebiniz onaylandıktan sonra:</p>
+        <ul>
+            <li>Uygulama içi yöntemle: anında (onay kodunu girdiğiniz anda)</li>
+            <li>E-posta yöntemiyle: en geç <strong>7 iş günü</strong> içinde</li>
+        </ul>
+
+        <h2>4. Verilerinizin Üçüncü Taraflarla Paylaşımı</h2>
+        <p>Silme öncesinde sizinle ilgili hiçbir veri üçüncü taraflarla paylaşılmaz. AI sohbet özelliği kapsamında Google Gemini, OpenAI, Groq, OpenRouter, Pollinations ve HuggingFace servislerine gönderilen eski konuşma kayıtlarınız da silme işlemi sırasında temizlenir; ancak bu AI sağlayıcılar kendi sunucularındaki log kayıtlarını kendi politikalarına göre yönetir.</p>
+
+        <h2>5. Geri Alma</h2>
+        <p>Hesap silindikten sonra geri alma işlemi mümkün değildir. Aynı e-posta adresiyle yeniden kayıt olabilirsiniz ancak eski verileriniz kurtarılamaz.</p>
+
+        <div class="contact-box">
+            <strong>İletişim</strong><br>
+            Hesap silme talebi veya sorularınız için:<br>
+            <a href="mailto:destek@cizreapp.com">destek@cizreapp.com</a><br>
+            <a href="https://cizreapp.com">https://cizreapp.com</a>
+        </div>
+    </div>
+</body>
+</html>

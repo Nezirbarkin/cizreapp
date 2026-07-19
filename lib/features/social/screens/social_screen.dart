@@ -103,6 +103,7 @@ class _SocialScreenState extends State<SocialScreen> {
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     _currentPage = 0;
     _hasMore = true;
@@ -115,7 +116,7 @@ class _SocialScreenState extends State<SocialScreen> {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
@@ -186,6 +187,7 @@ class _SocialScreenState extends State<SocialScreen> {
         likedStatus[post.id] = likedPostIds.contains(post.id);
       }
 
+      if (!mounted) return;
       setState(() {
         _posts = posts;
         _stories = otherStories;
@@ -212,8 +214,8 @@ class _SocialScreenState extends State<SocialScreen> {
     } catch (e, stackTrace) {
       debugPrint('❌ SocialScreen _loadData hatası: $e');
       debugPrint('Stack trace: $stackTrace');
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() => _isLoading = false);
         // Kullanıcı dostu hata mesajı
         String errorMsg = 'Veriler yüklenirken bir hata oluştu';
         if (e.toString().contains('İnternet bağlantınızı') || e.toString().contains('Bağlantı zaman aşımı')) {
@@ -227,14 +229,14 @@ class _SocialScreenState extends State<SocialScreen> {
   }
 
   Future<void> _loadMorePosts() async {
-    if (_isLoadingMore) return;
+    if (_isLoadingMore || !mounted) return;
 
     setState(() => _isLoadingMore = true);
 
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        setState(() => _isLoadingMore = false);
+        if (mounted) setState(() => _isLoadingMore = false);
         return;
       }
 
@@ -274,6 +276,7 @@ class _SocialScreenState extends State<SocialScreen> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _posts.addAll(newPosts);
         _likedPosts.addAll(likedStatus);
@@ -281,9 +284,9 @@ class _SocialScreenState extends State<SocialScreen> {
         _isLoadingMore = false;
       });
     } catch (e) {
-      setState(() => _isLoadingMore = false);
       _currentPage--; // Hata olursa sayfayı geri al
       if (mounted) {
+        setState(() => _isLoadingMore = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Daha fazla gönderi yüklenirken hata: $e')),
         );

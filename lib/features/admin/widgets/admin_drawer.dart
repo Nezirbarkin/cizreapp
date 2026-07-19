@@ -193,6 +193,12 @@ class AdminDrawer extends StatelessWidget {
               title: 'Hakkında Ayarları',
               section: 'about_settings',
             ),
+            _buildDrawerItem(
+              context: context,
+              icon: Icons.play_circle_fill_rounded,
+              title: 'Reklam Ayarları',
+              section: 'Reklam Ayarları',
+            ),
             const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),

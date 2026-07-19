@@ -47,6 +47,9 @@ import 'core/services/storage_service.dart';
 import 'core/services/permission_service.dart';
 import 'core/models/cached_post_model.dart';
 import 'features/chat/services/presence_service.dart';
+import 'core/services/version_check_service.dart';
+import 'core/widgets/force_update_dialog.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 void main() async {
   // Web için path-based URL strategy kullan (hash # yerine clean URL)
@@ -189,7 +192,16 @@ void main() async {
     } catch (e) {
       log('⚠️ Initialization error: $e');
     }
-    
+
+    // AdMob SDK başlat (ödüllü reklam - web'de desteklenmiyor)
+    if (!kIsWeb) {
+      MobileAds.instance.initialize().then((_) {
+        log('✅ AdMob initialized');
+      }).catchError((e) {
+        log('⚠️ AdMob initialization failed: $e');
+      });
+    }
+
     // ⚡ iOS PERFORMANCE: Storage/Push servisleri ve izinleri ARKA PLANDA başlat
     // Bunların hiçbiri ilk frame'in çizilmesini engellemek zorunda değil;
     // runApp'ten önce beklemek splash süresini uzatıyordu.
@@ -298,6 +310,16 @@ class _CizreAppState extends State<CizreApp> {
           // Tema değiştiğinde UI'ı güncelle
           final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
           themeProvider.reloadTheme();
+        });
+
+        // Zorunlu güncelleme kontrolü
+        VersionCheckService.checkForUpdate().then((result) {
+          if (result != null && result.needsUpdate && result.isForced && mounted) {
+            final ctx = _navigatorKey.currentContext;
+            if (ctx != null) {
+              showForceUpdateDialog(ctx, result.message);
+            }
+          }
         });
       }
     });

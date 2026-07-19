@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/balance_model.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/withdrawal_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 
 /// Satıcı Çekim Talebi Ekranı
 class WithdrawalRequestScreen extends StatefulWidget {
@@ -105,7 +106,7 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e')),
+        SnackBar(content: Text(e.userMessage)),
       );
     }
   }

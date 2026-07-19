@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_SCHEMA
 
-Son güncelleme: 2026-07-13
+Son güncelleme: 2026-07-15
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Şemalar
@@ -54,6 +54,7 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `orders`, `order_items`
 - `addresses`
 - `return_requests`
+- 2026-07-15: `orders.total` için DB seviyesinde CHECK yok (zaten 0'a izin veriyordu). Uygulama tarafında kullanıcı başı ücretsiz (0 TL) sipariş limiti eklendi — `OrderService.freeOrderLimitPerUser` (varsayılan 1), `order_service.dart::createOrder` içinde `total <= 0` ise mevcut 0 TL sipariş sayısı kontrol edilir. DB'de ayrı bir constraint/trigger yok, kontrol tamamen Dart tarafında.
 
 ### 2.6 Kupon / İnceleme
 - `coupons`, `shop_coupons`, `coupon_usages`
@@ -62,9 +63,12 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 ### 2.7 Ödeme / Finans
 - `payment_transactions`
 - `user_balances`, `balance_transactions`
+  - 2026-07-15: `balance_transactions_amount_check` gevşetildi (`amount > 0` → `amount >= 0`) — checkout akışında 0 TL bakiye işlemlerine izin verir (bkz. §2.5 not, madde 5 "0 TL sipariş" özelliği). `fee >= 0` constraint'i de teyit edildi. Migration: `20260714000001_fix_balance_transactions_check.sql`.
 - `seller_bank_accounts`, `payout_requests`, `payout_transactions`, `seller_earnings`, `seller_withdrawals`
 - `bank_accounts`
 - `transfer_confirmations` (20260705 — havale onay akışı: pending/approved/rejected + admin_id + admin_note + balance_added + user_notified)
+- `ad_settings` (2026-07-15, YENİ): AdMob "İzleyerek Kazan" tekil (id=1) config satırı — `is_enabled`, `test_mode`, App ID/Reklam Birim ID'leri (Android/iOS), `reward_amount_try`, `max_views_per_day`, `max_views_per_hour`, `min_watch_seconds`, `cooldown_seconds`, `max_daily_payout_try`. RLS: authenticated SELECT, yalnızca admin UPDATE. Migration: `20260715000006_ad_reward_system.sql`.
+- `ad_reward_views` (2026-07-15, YENİ): Her ödüllü reklam izleme denemesinin kaydı (anti-fraud). Yazma SADECE `service_role` (Edge Function `grant-ad-reward`); kullanıcı kendi kayıtlarını SELECT edebilir. `balance_transaction_type` enum'una `ad_reward` değeri eklendi. Migration: `20260715000006_ad_reward_system.sql`.
 
 ### 2.8 Kurye
 - `courier_settings`, `courier_requests`, `courier_assignments`, `courier_earnings`, `courier_payment_info`, `courier_payout_requests`, `courier_status_changes`
@@ -77,6 +81,7 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `digital_orders`: SMM siparişleri — `orders` tablosuyla İLİŞKİLİ DEĞİL, bağımsız kayıt. `user_id`, `product_id`, `provider_id`, `target_url`, `quantity`, `unit_price` NUMERIC(12,4), `total_price`, `external_order_id`, `status` (enum `digital_order_status`: pending/in_progress/completed/partial/canceled/refunded/failed), `start_count`, `remains`, `last_checked_at`, `error_message`, `balance_transaction_id`. 20260713000001 ile eklendi: `seller_credited` BOOLEAN, `commission_amount`, `net_seller_amount` (idempotent satıcı hakediş takibi).
 - `products` tablosu genişletildi: `smm_provider_id`, `smm_service_id`, `price_per_1000`, `min_quantity`, `max_quantity`, `smm_disabled_reason`; `product_type` check'e `'digital'` eklendi; `chk_digital_fields` constraint — `product_type='digital'` ise bu 5 kolon zorunlu.
 - `shops` tablosu genişletildi: `can_use_own_smm_api` BOOLEAN (varsayılan false, sadece admin verebilir — bkz. RLS §4.1.6), `digital_commission_rate` NUMERIC(5,2) (nullable, fiziksel `commission_rate`'den ayrı; NULL ise Edge Function'da %10 varsayılan).
+- 2026-07-15: `shops.digital_warning_note` TEXT eklendi (nullable) — satıcının dijital ürünleri için yazdığı, mağazadaki TÜM dijital ürünlerde sabit gösterilen uyarı metni (ürün bazlı değil, mağaza bazlı). `manage_product_screen.dart` yazar, `product_detail_screen.dart` dijital ürün sayfasında turuncu uyarı kutusu olarak gösterir. Migration: `20260715000002_add_shop_digital_warning_note.sql`.
 
 ### 2.10 Destek / Sistem
 - `support_tickets`, `support_ticket_messages`, `faqs`

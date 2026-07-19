@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/seller_withdrawal_model.dart';
 import '../../../core/services/withdrawal_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 
 /// Admin: Çekim Talepleri Yönetim Ekranı
 class AdminWithdrawalScreen extends StatefulWidget {
@@ -102,7 +103,7 @@ class _AdminWithdrawalScreenState extends State<AdminWithdrawalScreen> with Sing
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(e.userMessage), backgroundColor: Colors.red),
       );
     }
   }

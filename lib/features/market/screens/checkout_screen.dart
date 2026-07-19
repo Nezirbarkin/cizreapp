@@ -14,6 +14,7 @@ import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../core/services/payment_method_settings_service.dart';
 import '../../../core/services/invoice_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/invoice_info_widget.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
@@ -174,7 +175,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Hata: $e'),
+                      content: Text(e.userMessage),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -306,7 +307,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Hata: $e'),
+                                    content: Text(e.userMessage),
                                     backgroundColor: Colors.red,
                                   ),
                                 );

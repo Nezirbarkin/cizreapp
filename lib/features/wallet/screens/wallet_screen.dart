@@ -5,6 +5,7 @@ import '../../../core/models/balance_transaction_model.dart';
 import '../../../core/services/balance_service.dart';
 import 'topup_screen.dart';
 import '../../../features/wallet/screens/transaction_history_screen.dart';
+import '../widgets/watch_ad_earn_card.dart';
 
 /// Ana Bakiye Ekranı - Modern Tasarım
 class WalletScreen extends StatefulWidget {
@@ -199,7 +200,17 @@ class _WalletScreenState extends State<WalletScreen> {
             // Yükleme Butonu
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _buildTopupButton(theme),
+              child: Column(
+                children: [
+                  _buildTopupButton(theme),
+                  WatchAdEarnCard(
+                    onRewardEarned: () {
+                      _loadBalance();
+                      _loadRecentTransactions();
+                    },
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 28),
 

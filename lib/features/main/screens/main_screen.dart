@@ -478,6 +478,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   // Filtreleme seçenekleri
   String _sortBy = 'newest'; // newest, price_asc, price_desc
   String? _selectedCategory;
+  bool _showDigitalOnly = false;
   // ignore: unused_field
   bool _showFilterSheet = false;
 
@@ -546,7 +547,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   void _applyFilters() {
     _filteredProducts = List.from(_products);
-    
+
+    // Dijital / fiziksel ürün ayrımı
+    _filteredProducts = _filteredProducts
+        .where((p) => p.isDigital == _showDigitalOnly)
+        .toList();
+
     // Kategori filtresi
     if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
       _filteredProducts = _filteredProducts
@@ -824,16 +830,53 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               children: [
                                 Icon(Icons.tune, size: 16, color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700),
                                 const SizedBox(width: 4),
-                                Text(
-                                  _selectedCategory ?? 'Filtrele',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700,
-                                    fontWeight: FontWeight.w500,
+                                Flexible(
+                                  child: Text(
+                                    _selectedCategory ?? 'Filtrele',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Dijital ürünler filtresi
+                      GestureDetector(
+                        onTap: () {
+                          setState(() { _showDigitalOnly = !_showDigitalOnly; });
+                          _applyFilters();
+                        },
+                        child: Container(
+                          width: 132,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _showDigitalOnly ? Colors.purple.shade50 : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _showDigitalOnly ? Colors.purple.shade300 : Colors.grey.shade300,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(_showDigitalOnly ? Icons.inventory_2 : Icons.bolt, size: 16, color: _showDigitalOnly ? Colors.purple.shade700 : Colors.grey.shade700),
+                              const SizedBox(width: 4),
+                              Text(
+                                _showDigitalOnly ? 'Fiziksel Ürünler' : 'Dijital Ürünler',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _showDigitalOnly ? Colors.purple.shade700 : Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

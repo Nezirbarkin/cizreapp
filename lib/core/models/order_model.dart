@@ -440,7 +440,7 @@ class Order {
   bool get hasDebt => (commissionDebt ?? 0) > 0;
   
   // Admin toplam kazancı
-  double get totalAdminEarnings => 
+  double get totalAdminEarnings =>
       (adminCommission ?? 0) + (adminDeliveryFee ?? 0);
 
   // Tarih formatı

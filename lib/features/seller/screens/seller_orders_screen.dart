@@ -10,6 +10,7 @@ import '../../shop/services/order_service.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/widgets/invoice_info_widget.dart';
 import '../../../core/services/courier_notification_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../../../core/services/email_service.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
@@ -430,7 +431,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red.shade400),
+          SnackBar(content: Text(e.userMessage), backgroundColor: Colors.red.shade400),
         );
       }
     }
@@ -1177,8 +1178,32 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                           ),
                         ],
                       ),
+                      if (order.adminCommission != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.account_balance_wallet, color: Colors.green.shade700, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Net kazanç: ₺${(order.sellerNetAmount ?? (order.totalAmount - order.totalAdminEarnings)).toStringAsFixed(2)} (komisyon: ₺${order.totalAdminEarnings.toStringAsFixed(2)})',
+                                  style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w600, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
                       const SizedBox(height: 16),
-                      
+
                       Row(
                         children: [
                           Expanded(
@@ -2720,7 +2745,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Hata: $e'),
+            content: Text(e.userMessage),
             backgroundColor: Colors.red,
           ),
         );

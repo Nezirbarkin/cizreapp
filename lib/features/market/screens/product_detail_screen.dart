@@ -46,6 +46,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Product? _product;
   Shop? _shop;
+  String? _digitalWarningNote;
   bool _isLoading = true;
   bool _globalOrdersEnabled = true;
   int _selectedImageIndex = 0;
@@ -84,6 +85,22 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     super.dispose();
   }
 
+  Future<void> _loadDigitalWarningNote(String shopId) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('shops')
+          .select('digital_warning_note')
+          .eq('id', shopId)
+          .maybeSingle();
+      final note = response?['digital_warning_note'] as String?;
+      if (mounted && note != null && note.trim().isNotEmpty) {
+        setState(() => _digitalWarningNote = note);
+      }
+    } catch (e) {
+      debugPrint('Dijital uyarı notu yüklenemedi: $e');
+    }
+  }
+
   Future<void> _loadProductData() async {
     setState(() => _isLoading = true);
 
@@ -107,10 +124,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _globalOrdersEnabled = globalEnabled;
         _isLoading = false;
         if (product.isDigital) {
-          _digitalQuantity = product.minQuantity ?? 0;
-          _digitalQuantityController.text = _digitalQuantity.toString();
+          _digitalQuantity = 0;
+          _digitalQuantityController.text = '';
         }
       });
+
+      if (product.isDigital) {
+        _loadDigitalWarningNote(product.shopId);
+      }
 
       // Varyantlı ürünlerde varsayılan seçimleri yap
       if (product.productType == 'clothing' && product.sizes.isNotEmpty) {
@@ -296,7 +317,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       if (_selectedColor!.stock <= 0) return false;
     }
     
-    return _product!.stockQuantity > 0;
+    return _product!.inStock;
   }
 
   String get _cartButtonText {
@@ -581,7 +602,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 16),
 
                       // Stock Status
-                      if (product.stockQuantity > 0)
+                      if (product.inStock)
                         const Chip(
                           label: Text(
                             'Stokta Var',
@@ -634,9 +655,33 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 16),
 
                       // Quantity Selector / Dijital sipariş formu
-                      if (product.isDigital)
-                        _buildDigitalOrderForm(product)
-                      else
+                      if (product.isDigital) ...[
+                        if (_digitalWarningNote != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.orange.shade200),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _digitalWarningNote!,
+                                    style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        _buildDigitalOrderForm(product),
+                      ] else
                         _buildQuantitySelector(product),
                     ],
                   ),
@@ -660,21 +705,40 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ? SizedBox(
                   width: double.infinity,
                   height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSubmittingDigitalOrder ? null : () => _submitDigitalOrder(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.grey.shade300,
-                    ),
-                    icon: _isSubmittingDigitalOrder
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.send),
-                    label: const Text('Bakiye ile Satın Al'),
+                  child: Builder(
+                    builder: (context) {
+                      // Dijital sipariş için geçerlilik kontrolü
+                      final product = _product;
+                      final minQ = product?.minQuantity ?? 0;
+                      final maxQ = product?.maxQuantity ?? 0;
+                      final isQuantityValid = _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
+                      final hasLink = _digitalTargetUrlController.text.trim().isNotEmpty;
+                      final isValid = isQuantityValid && hasLink && !_isSubmittingDigitalOrder;
+                      
+                      return ElevatedButton.icon(
+                        onPressed: isValid ? () => _submitDigitalOrder() : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isValid
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey.shade300,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: _isSubmittingDigitalOrder
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.send),
+                        label: Text(
+                          !hasLink
+                              ? 'Link girin'
+                              : !isQuantityValid
+                                  ? 'Miktar $minQ - $maxQ arasında olmalı'
+                                  : 'Bakiye ile Satın Al',
+                        ),
+                      );
+                    },
                   ),
                 )
               : Row(
@@ -721,6 +785,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget _buildDigitalOrderForm(Product product) {
     final unitPrice = (product.pricePer1000 ?? 0) / 1000;
     final total = unitPrice * _digitalQuantity;
+    final minQ = product.minQuantity ?? 0;
+    final maxQ = product.maxQuantity ?? 0;
+    final isQuantityValid = _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
+    
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -743,12 +811,29 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               controller: _digitalQuantityController,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: 'Miktar (${product.minQuantity ?? 0} - ${product.maxQuantity ?? 0})',
+                labelText: 'Miktar',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.numbers),
+                // Max aşılırsa uyarı göster
+                errorText: !isQuantityValid && _digitalQuantity > 0
+                    ? 'Miktar $minQ - $maxQ aralığında olmalıdır'
+                    : null,
               ),
               onChanged: (value) {
-                setState(() => _digitalQuantity = int.tryParse(value) ?? 0);
+                final newQty = int.tryParse(value) ?? 0;
+                // Max aşılırsa otomatik max'e düzelt
+                if (newQty > maxQ) {
+                  _digitalQuantityController.text = maxQ.toString();
+                  _digitalQuantity = maxQ;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Maksimum sipariş miktarı $maxQ adettir'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  setState(() => _digitalQuantity = newQty);
+                }
               },
             ),
             const SizedBox(height: 12),
@@ -1090,7 +1175,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget _buildQuantitySelector(Product product) {
     final maxQuantity = product.hasVariants && _selectedColor != null
         ? _selectedColor!.stock
-        : product.stockQuantity;
+        : (product.isDigital ? 999 : product.stockQuantity);
 
     return Row(
       children: [

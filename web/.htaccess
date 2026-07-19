@@ -1,9 +1,16 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # app-ads.txt - AdMob doğrulaması (SPA fallback'ten önce, dosyayı olduğu gibi servis et)
+  RewriteRule ^app-ads\.txt$ - [L,NC]
+
   # Privacy sayfası için özel yönlendirme - Google Play Store gereksinimi
   RewriteRule ^privacy/?$ privacy.html [L,NC]
   RewriteRule ^privacy$ privacy.html [L,NC,R=301]
+
+  # Hesap silme sayfası için özel yönlendirme - Google Play Store gereksinimi
+  RewriteRule ^delete-account/?$ delete-account.html [L,NC]
+  RewriteRule ^delete-account$ delete-account.html [L,NC,R=301]
 
   # Eğer dosya veya dizin gerçekten varsa, dokunma
   RewriteCond %{REQUEST_FILENAME} !-f

@@ -8,7 +8,10 @@ import '../../../core/services/email_service.dart';
 class OrderService {
   final NotificationService _notificationService = NotificationService();
   final EmailService _emailService = EmailService();
-  
+
+  /// Kullanıcı başına izin verilen ücretsiz (0 TL) sipariş sayısı.
+  static const int freeOrderLimitPerUser = 1;
+
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get _supabase {
     try {
@@ -41,7 +44,22 @@ class OrderService {
       debugPrint('  └─ userId: $userId');
       debugPrint('  └─ shopId: $shopId');
       debugPrint('  └─ total: $total');
-      
+
+      // 0 TL siparişler için kullanıcı başı limit kontrolü
+      if (total <= 0) {
+        final freeOrderResponse = await _supabase
+            .from('orders')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('total', 0)
+            .count(CountOption.exact);
+        final freeOrderCount = freeOrderResponse.count;
+        if (freeOrderCount >= freeOrderLimitPerUser) {
+          debugPrint('🛒 ORDER: Ücretsiz sipariş limiti aşıldı ($freeOrderCount/$freeOrderLimitPerUser)');
+          throw Exception('Ücretsiz sipariş hakkınızı kullandınız. Bu üründen sadece $freeOrderLimitPerUser kez ücretsiz sipariş verebilirsiniz.');
+        }
+      }
+
       // Sipariş numarası oluştur
       final orderNumber = 'ORD${DateTime.now().millisecondsSinceEpoch}';
       debugPrint('  └─ orderNumber: $orderNumber');

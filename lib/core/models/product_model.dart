@@ -56,6 +56,7 @@ class Product {
   final double? pricePer1000;
   final int? minQuantity;
   final int? maxQuantity;
+  final int? maxOrdersPerUser; // Satıcının belirlediği kullanıcı başına sipariş limiti (null = limitsiz)
 
   // Puanlama alanları (veritabanından çekilir)
   final double _rating;
@@ -87,6 +88,7 @@ class Product {
     this.pricePer1000,
     this.minQuantity,
     this.maxQuantity,
+    this.maxOrdersPerUser,
     double rating = 0.0,
     int totalReviews = 0,
   })  : _rating = rating,
@@ -116,7 +118,7 @@ class Product {
   }
 
   // Stokta var mı?
-  bool get inStock => stockQuantity > 0 && isAvailable;
+  bool get inStock => (isDigital || stockQuantity > 0) && isAvailable;
 
   // Geçerli fiyat (indirim varsa indirimli fiyat, yoksa normal fiyat)
   double get effectivePrice {
@@ -248,6 +250,7 @@ class Product {
       pricePer1000: (json['price_per_1000'] as num?)?.toDouble(),
       minQuantity: json['min_quantity'] as int?,
       maxQuantity: json['max_quantity'] as int?,
+      maxOrdersPerUser: json['max_orders_per_user'] as int?,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
     );
@@ -280,6 +283,7 @@ class Product {
       'price_per_1000': pricePer1000,
       'min_quantity': minQuantity,
       'max_quantity': maxQuantity,
+      'max_orders_per_user': maxOrdersPerUser,
       'rating': rating,
       'total_reviews': totalReviews,
     };
@@ -311,6 +315,7 @@ class Product {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    int? maxOrdersPerUser,
     double? rating,
     int? totalReviews,
   }) {
@@ -340,6 +345,7 @@ class Product {
       pricePer1000: pricePer1000 ?? this.pricePer1000,
       minQuantity: minQuantity ?? this.minQuantity,
       maxQuantity: maxQuantity ?? this.maxQuantity,
+      maxOrdersPerUser: maxOrdersPerUser ?? this.maxOrdersPerUser,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,
     );

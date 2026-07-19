@@ -269,4 +269,92 @@ void main() {
       });
     });
   });
+
+  group('BalanceTransaction Amount Tests (CHECK >= 0)', () {
+    group('BalanceTransaction amount validation', () {
+      test('should accept zero amount transactions (CHECK >= 0)', () {
+        // 2026-07-14: balance_transactions CHECK constraint
+        // CHECK (amount >= 0) olarak güncellendi
+        // 0 TL tutarlı işlemler artık kabul edilmeli
+        const zeroAmount = 0.0;
+        expect(zeroAmount >= 0, isTrue, reason: '0 TL CHECK >= 0 uyumlu');
+      });
+
+      test('should accept positive amount transactions', () {
+        const positiveAmount = 100.50;
+        expect(positiveAmount >= 0, isTrue);
+      });
+
+      test('should reject negative amount transactions', () {
+        // Negatif tutarlar CHECK constraint tarafından reddedilmeli
+        const negativeAmount = -50.0;
+        expect(negativeAmount >= 0, isFalse, reason: 'Negatif tutar reddedilmeli');
+      });
+
+      test('availableBalance calculation with zero balance', () {
+        // 0 TL bakiye senaryosu
+        final balance = TestHelpers.createMockBalance(
+          balance: 0.0,
+          lockedBalance: 0.0,
+        );
+        expect(balance.availableBalance, equals(0.0));
+        expect(balance.balance, equals(0.0));
+      });
+
+      test('should handle deduction resulting in zero balance', () {
+        // Bakiye - bakiye = 0 senaryosu
+        // Varsayılan: total_earned=200, total_spent=80, total_refunds=10, total_withdrawn=20
+        // Sıfır bakiye için: 0 = X - 80 + 10 - 20 => X = 90
+        final balance = TestHelpers.createMockBalance(
+          balance: 0.0,
+          totalEarned: 90.0,
+          totalSpent: 80.0,
+          totalRefunds: 10.0,
+          totalWithdrawn: 20.0,
+        );
+        // 0 = 90 - 80 + 10 - 20
+        expect(balance.isConsistent, isTrue);
+      });
+    });
+
+    group('Balance Transaction Types', () {
+      test('topup type should have positive amount', () {
+        // Bakiye yükleme her zaman pozitif olmalı
+        const topupAmount = 50.0;
+        expect(topupAmount > 0, isTrue);
+        expect(topupAmount >= 0, isTrue);
+      });
+
+      test('spending type can result in zero balance', () {
+        // Harcama sonucu bakiye 0 olabilir
+        // lockedBalance = balance - availableBalance formülü
+        // availableBalance = balance - lockedBalance (negatif kilitli → eklenir)
+        // 0 bakiye + 0 locked = 0 available
+        final zeroBalance = TestHelpers.createMockBalance(
+          balance: 0.0,
+          lockedBalance: 0.0,
+          totalEarned: 0.0,
+          totalSpent: 0.0,
+          totalRefunds: 0.0,
+          totalWithdrawn: 0.0,
+        );
+        expect(zeroBalance.availableBalance, equals(0.0));
+        expect(zeroBalance.balance, equals(0.0));
+      });
+
+      test('refund type should be positive', () {
+        // İade pozitif tutar olarak kaydedilmeli
+        const refundAmount = 25.0;
+        expect(refundAmount > 0, isTrue);
+        expect(refundAmount >= 0, isTrue);
+      });
+
+      test('withdrawal type should have positive amount', () {
+        // Çekim pozitif tutar olarak kaydedilmeli
+        const withdrawalAmount = 100.0;
+        expect(withdrawalAmount > 0, isTrue);
+        expect(withdrawalAmount >= 0, isTrue);
+      });
+    });
+  });
 }

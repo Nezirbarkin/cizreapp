@@ -66,6 +66,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
               ? null
               : _shopCommentController.text.trim(),
           orderId: widget.pendingReview.orderId,
+          digitalOrderId: widget.pendingReview.digitalOrderId,
         );
       }
 
@@ -79,6 +80,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
               ? null
               : _productCommentController.text.trim(),
           'order_id': widget.pendingReview.orderId,
+          'digital_order_id': widget.pendingReview.digitalOrderId,
         });
       }
 
@@ -525,7 +527,7 @@ class PendingReviewChecker {
       // Atlanmamış ilk siparişi bul
       PendingReview? firstNonSkipped;
       for (var review in pendingReviews) {
-        final isSkipped = await _isOrderSkipped(review.orderId);
+        final isSkipped = await _isOrderSkipped(review.trackingId);
         if (!isSkipped) {
           firstNonSkipped = review;
           break;
@@ -618,12 +620,12 @@ class PendingReviewChecker {
         pendingReview: pendingReview,
         onReviewSubmitted: () async {
           // Değerlendirme yapıldı, atlanan listesinden çıkar
-          await _removeSkippedOrder(pendingReview.orderId);
+          await _removeSkippedOrder(pendingReview.trackingId);
         },
         onSkipped: () async {
           // Atlandı olarak işaretle - bu sayede tekrar gösterilmeyecek
-          await _markOrderAsSkipped(pendingReview.orderId);
-          debugPrint('📝 Sipariş değerlendirmesi atlandı: ${pendingReview.orderId}');
+          await _markOrderAsSkipped(pendingReview.trackingId);
+          debugPrint('📝 Sipariş değerlendirmesi atlandı: ${pendingReview.trackingId}');
         },
       ),
     );

@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/app_about_settings.dart';
 import '../../../core/services/app_about_service.dart';
 
@@ -30,6 +31,12 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
   late TextEditingController _buildController;
   late TextEditingController _termsController;
   late TextEditingController _privacyController;
+
+  // Zorunlu güncelleme controllers
+  late TextEditingController _minVersionController;
+  late TextEditingController _minBuildController;
+  bool _forceUpdateEnabled = true;
+  bool _isSavingForceUpdate = false;
 
   // Feature controllers
   final List<TextEditingController> _featureControllers = [];
@@ -64,6 +71,8 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     _supportPhoneController = TextEditingController();
     _versionController = TextEditingController();
     _buildController = TextEditingController();
+    _minVersionController = TextEditingController();
+    _minBuildController = TextEditingController();
     _termsController = TextEditingController();
     _privacyController = TextEditingController();
     _instagramController = TextEditingController();
@@ -83,6 +92,8 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
     _supportPhoneController.dispose();
     _versionController.dispose();
     _buildController.dispose();
+    _minVersionController.dispose();
+    _minBuildController.dispose();
     _termsController.dispose();
     _privacyController.dispose();
     _instagramController.dispose();
@@ -103,8 +114,45 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
       _settings = settings;
       _populateControllers(settings);
     }
+    try {
+      final row = await Supabase.instance.client
+          .from('app_about_settings')
+          .select('min_version, min_build_code, force_update_enabled')
+          .eq('id', 1)
+          .single();
+      _minVersionController.text = row['min_version']?.toString() ?? '';
+      _minBuildController.text = row['min_build_code']?.toString() ?? '';
+      _forceUpdateEnabled = row['force_update_enabled'] as bool? ?? true;
+    } catch (e) {
+      debugPrint('⚠️ Zorunlu güncelleme ayarları yüklenemedi: $e');
+    }
     if (mounted) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveForceUpdateSettings() async {
+    final minVersion = _minVersionController.text.trim();
+    final minBuild = int.tryParse(_minBuildController.text.trim());
+    if (minVersion.isEmpty || minBuild == null) {
+      _showSnackBar('Geçerli bir versiyon ve build kodu girin', isError: true);
+      return;
+    }
+
+    setState(() => _isSavingForceUpdate = true);
+    try {
+      await Supabase.instance.client.from('app_about_settings').update({
+        'min_version': minVersion,
+        'min_build_code': minBuild,
+        'current_version': minVersion,
+        'current_build_code': minBuild,
+        'force_update_enabled': _forceUpdateEnabled,
+      }).eq('id', 1);
+      if (mounted) _showSnackBar('Zorunlu güncelleme ayarları kaydedildi', isError: false);
+    } catch (e) {
+      if (mounted) _showSnackBar('Hata: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isSavingForceUpdate = false);
     }
   }
 
@@ -518,6 +566,91 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ]),
+
+                  const SizedBox(height: 24),
+
+                  _buildSectionHeader('Zorunlu Güncelleme', Icons.system_update_alt),
+                  const SizedBox(height: 12),
+                  _buildCard([
+                    SwitchListTile(
+                      title: const Text(
+                        'Zorunlu Güncelleme Aktif',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        _forceUpdateEnabled
+                            ? 'Minimum sürümün altındaki kullanıcılar güncellemeye zorlanır'
+                            : 'Zorunlu güncelleme kapalı',
+                        style: TextStyle(color: _forceUpdateEnabled ? Colors.purple : Colors.grey),
+                      ),
+                      value: _forceUpdateEnabled,
+                      onChanged: (value) => setState(() => _forceUpdateEnabled = value),
+                      activeColor: Colors.purple,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTextField(
+                            controller: _minVersionController,
+                            label: 'Minimum Versiyon (örn: 1.3.0)',
+                            icon: Icons.tag,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildTextField(
+                            controller: _minBuildController,
+                            label: 'Minimum Build Kodu',
+                            icon: Icons.build,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.purple.shade100),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.purple.shade400, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Yeni bir zorunlu sürüm çıkardığında buraya pubspec.yaml\'daki versiyon ve build numarasını gir, ardından "Kaydet"e bas. Bu değerin altındaki tüm kullanıcılar açılışta güncellemeye zorlanır.',
+                              style: TextStyle(fontSize: 11, color: Colors.purple.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSavingForceUpdate ? null : _saveForceUpdateSettings,
+                        icon: _isSavingForceUpdate
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.save),
+                        label: const Text('Zorunlu Güncellemeyi Kaydet'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
                     ),
                   ]),
 
