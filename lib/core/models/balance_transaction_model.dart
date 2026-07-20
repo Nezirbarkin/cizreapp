@@ -5,8 +5,13 @@ enum BalanceTransactionType {
   refund,        // İade
   withdrawal,    // Çekim
   adjustment,    // Manuel düzeltme
-  commission;    // Komisyon (satıcı kazancı)
+  commission,    // Komisyon (satıcı kazancı)
+  adReward,      // Reklam ödülü (izleyerek kazan)
+  taskReward,    // Görev ödülü (görev yaparak kazan)
+}
 
+/// Etiket helper'ları (Dart analyzer v6.4 syntax uyumu için ayrı extension)
+extension BalanceTransactionTypeLabel on BalanceTransactionType {
   String get label {
     switch (this) {
       case BalanceTransactionType.topup:
@@ -21,6 +26,10 @@ enum BalanceTransactionType {
         return 'Düzeltme';
       case BalanceTransactionType.commission:
         return 'Komisyon';
+      case BalanceTransactionType.adReward:
+        return 'Reklam Ödülü';
+      case BalanceTransactionType.taskReward:
+        return 'Görev Ödülü';
     }
   }
 
@@ -38,7 +47,26 @@ enum BalanceTransactionType {
         return 'adjustment';
       case BalanceTransactionType.commission:
         return 'commission';
+      case BalanceTransactionType.adReward:
+        return 'ad_reward';
+      case BalanceTransactionType.taskReward:
+        return 'task_reward';
     }
+  }
+
+  /// Pozitif tutar mı? (yükleme, iade, komisyon, ödüller)
+  bool get isPositive {
+    return this == BalanceTransactionType.topup ||
+        this == BalanceTransactionType.refund ||
+        this == BalanceTransactionType.commission ||
+        this == BalanceTransactionType.adReward ||
+        this == BalanceTransactionType.taskReward;
+  }
+
+  /// Negatif tutar mı? (ödeme, çekim)
+  bool get isNegative {
+    return this == BalanceTransactionType.orderPayment ||
+        this == BalanceTransactionType.withdrawal;
   }
 
   static BalanceTransactionType fromString(String value) {
@@ -55,22 +83,13 @@ enum BalanceTransactionType {
         return BalanceTransactionType.adjustment;
       case 'commission':
         return BalanceTransactionType.commission;
+      case 'ad_reward':
+        return BalanceTransactionType.adReward;
+      case 'task_reward':
+        return BalanceTransactionType.taskReward;
       default:
         return BalanceTransactionType.topup;
     }
-  }
-
-  /// Pozitif tutar mı? (yükleme, iade)
-  bool get isPositive {
-    return this == BalanceTransactionType.topup ||
-        this == BalanceTransactionType.refund ||
-        this == BalanceTransactionType.commission;
-  }
-
-  /// Negatif tutar mı? (ödeme, çekim)
-  bool get isNegative {
-    return this == BalanceTransactionType.orderPayment ||
-        this == BalanceTransactionType.withdrawal;
   }
 }
 
@@ -79,35 +98,7 @@ enum BalanceTransactionStatus {
   pending,
   completed,
   failed,
-  cancelled;
-
-  String get label {
-    switch (this) {
-      case BalanceTransactionStatus.pending:
-        return 'Beklemede';
-      case BalanceTransactionStatus.completed:
-        return 'Tamamlandı';
-      case BalanceTransactionStatus.failed:
-        return 'Başarısız';
-      case BalanceTransactionStatus.cancelled:
-        return 'İptal Edildi';
-    }
-  }
-
-  static BalanceTransactionStatus fromString(String value) {
-    switch (value) {
-      case 'pending':
-        return BalanceTransactionStatus.pending;
-      case 'completed':
-        return BalanceTransactionStatus.completed;
-      case 'failed':
-        return BalanceTransactionStatus.failed;
-      case 'cancelled':
-        return BalanceTransactionStatus.cancelled;
-      default:
-        return BalanceTransactionStatus.pending;
-    }
-  }
+  cancelled,
 }
 
 /// Bakiye İşlem Modeli
@@ -180,7 +171,7 @@ class BalanceTransaction {
     return BalanceTransaction(
       id: json['id'] as String? ?? '',
       userId: json['user_id'] as String? ?? '',
-      type: BalanceTransactionType.fromString(json['type'] as String? ?? 'topup'),
+      type: BalanceTransactionTypeLabel.fromString(json['type'] as String? ?? 'topup'),
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       fee: (json['fee'] as num?)?.toDouble() ?? 0,
       netAmount: (json['net_amount'] as num?)?.toDouble() ?? 0,
@@ -188,7 +179,7 @@ class BalanceTransaction {
       balanceAfter: (json['balance_after'] as num?)?.toDouble() ?? 0,
       referenceType: json['reference_type'] as String?,
       referenceId: json['reference_id'] as String?,
-      status: BalanceTransactionStatus.fromString(json['status'] as String? ?? 'pending'),
+      status: _statusFromString(json['status'] as String? ?? 'pending'),
       description: json['description'] as String?,
       paymentMethod: json['payment_method'] as String?,
       paymentReference: json['payment_reference'] as String?,
@@ -259,5 +250,35 @@ class BalanceTransactionPage {
       totalPages: pagination['total_pages'] as int? ?? 0,
       hasMore: pagination['has_more'] as bool? ?? false,
     );
+  }
+}
+
+// Yardımcı fonksiyonlar — enum extension'larını ayırdığımız için
+// label/StatusString de buraya taşındı (analyzer uyumluluğu).
+String _statusLabel(BalanceTransactionStatus status) {
+  switch (status) {
+    case BalanceTransactionStatus.pending:
+      return 'Beklemede';
+    case BalanceTransactionStatus.completed:
+      return 'Tamamlandı';
+    case BalanceTransactionStatus.failed:
+      return 'Başarısız';
+    case BalanceTransactionStatus.cancelled:
+      return 'İptal Edildi';
+  }
+}
+
+BalanceTransactionStatus _statusFromString(String value) {
+  switch (value) {
+    case 'pending':
+      return BalanceTransactionStatus.pending;
+    case 'completed':
+      return BalanceTransactionStatus.completed;
+    case 'failed':
+      return BalanceTransactionStatus.failed;
+    case 'cancelled':
+      return BalanceTransactionStatus.cancelled;
+    default:
+      return BalanceTransactionStatus.pending;
   }
 }

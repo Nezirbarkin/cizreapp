@@ -699,7 +699,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ],
       ),
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: SafeArea(
           child: (_product?.isDigital ?? false)
               ? SizedBox(
@@ -801,7 +806,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               controller: _digitalTargetUrlController,
               decoration: const InputDecoration(
                 labelText: 'Link *',
-                hintText: 'https://instagram.com/kullaniciadi',
+                hintText: 'Sipariş linkini girin',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.link),
               ),

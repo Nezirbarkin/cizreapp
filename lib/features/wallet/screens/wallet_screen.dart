@@ -5,6 +5,7 @@ import '../../../core/models/balance_transaction_model.dart';
 import '../../../core/services/balance_service.dart';
 import 'topup_screen.dart';
 import '../../../features/wallet/screens/transaction_history_screen.dart';
+import 'tasks_screen.dart';
 import '../widgets/watch_ad_earn_card.dart';
 
 /// Ana Bakiye Ekranı - Modern Tasarım
@@ -209,6 +210,7 @@ class _WalletScreenState extends State<WalletScreen> {
                       _loadRecentTransactions();
                     },
                   ),
+                  _buildTaskEarnCard(theme),
                 ],
               ),
             ),
@@ -509,6 +511,80 @@ class _WalletScreenState extends State<WalletScreen> {
                   color: Colors.white70,
                   size: 20,
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Görev Yaparak Kazan Kartı — İzleyerek Kazan kartının altında
+  Widget _buildTaskEarnCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.purple.shade600, Colors.deepPurple.shade400],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () async {
+            final result = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (context) => const TasksScreen()),
+            );
+            if (result == true) {
+              _loadBalance();
+              _loadRecentTransactions();
+            }
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.assignment_turned_in_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Görev Yaparak Kazan',
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Görevleri tamamla, bakiye kazan',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_rounded, color: Colors.white70, size: 20),
               ],
             ),
           ),

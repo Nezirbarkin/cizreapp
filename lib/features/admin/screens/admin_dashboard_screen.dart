@@ -31,6 +31,8 @@ import 'admin_smm_providers_screen.dart';
 import '../../../core/services/balance_service.dart';
 import '../widgets/bank_accounts_tab_widget.dart';
 import '../widgets/transfer_confirmations_tab_widget.dart';
+import '../widgets/task_management_content.dart';
+import '../widgets/suspicious_users_content.dart';
 import '../widgets/cancellation_requests_tab_widget.dart';
 import '../../shop/services/cancellation_request_service.dart';
 import '../../../core/services/transfer_service.dart';
@@ -59,11 +61,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _totalReports = 0;
   int _unansweredComplaintCount = 0; // Yanıtlanmamış şikayet sayısı
   int _unansweredTicketCount = 0; // Yanıtlanmamış destek talebi sayısı
+  int _newPostsCount = 0; // Menü görülmeden gelen yeni gönderi sayısı
+  int _newProductsCount = 0; // Menü görülmeden gelen yeni ürün sayısı
+  int _newOrdersCount = 0; // Menü görülmeden gelen yeni sipariş sayısı
+  int _newGroupsCount = 0; // Menü görülmeden gelen yeni grup sayısı
+  int _newUsersCount = 0; // Menü görülmeden gelen yeni kullanıcı sayısı
   bool _isLoading = true;
 
   // Realtime subscriptions
   RealtimeChannel? _reportsChannel;
   RealtimeChannel? _ticketsChannel;
+  RealtimeChannel? _newItemsChannel;
   // Admin tek-adım sipariş iptal+iade servisi (admin_cancel_with_refund RPC)
   final CancellationRequestService _cancellationService = CancellationRequestService();
   String _selectedMenu = 'Dashboard';
@@ -90,6 +98,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void dispose() {
     _reportsChannel?.unsubscribe();
     _ticketsChannel?.unsubscribe();
+    _newItemsChannel?.unsubscribe();
     _userSearchController.dispose();
     super.dispose();
   }
@@ -176,6 +185,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               setState(() {
                 _unansweredTicketCount++;
               });
+            }
+          },
+        )
+        .subscribe();
+
+    // Yeni gönderi/ürün/sipariş/grup badge rozetleri için realtime dinleme
+    _newItemsChannel = Supabase.instance.client
+        .channel('admin_new_items_channel')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'posts',
+          callback: (payload) {
+            if (_selectedMenu != 'Gönderiler') {
+              setState(() => _newPostsCount++);
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'products',
+          callback: (payload) {
+            if (_selectedMenu != 'Ürünler') {
+              setState(() => _newProductsCount++);
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'orders',
+          callback: (payload) {
+            if (_selectedMenu != 'Siparişler') {
+              setState(() => _newOrdersCount++);
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'groups',
+          callback: (payload) {
+            if (_selectedMenu != 'Gruplar') {
+              setState(() => _newGroupsCount++);
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'profiles',
+          callback: (payload) {
+            if (_selectedMenu != 'Kullanıcılar') {
+              setState(() => _newUsersCount++);
             }
           },
         )
@@ -401,8 +465,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: Icons.people_rounded,
                     title: 'Kullanıcılar',
                     isSelected: _selectedMenu == 'Kullanıcılar',
+                    badgeCount: _newUsersCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'Kullanıcılar');
+                      setState(() {
+                        _selectedMenu = 'Kullanıcılar';
+                        _newUsersCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),
@@ -410,8 +478,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: Icons.post_add_rounded,
                     title: 'Gönderiler',
                     isSelected: _selectedMenu == 'Gönderiler',
+                    badgeCount: _newPostsCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'Gönderiler');
+                      setState(() {
+                        _selectedMenu = 'Gönderiler';
+                        _newPostsCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),
@@ -419,8 +491,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: Icons.shopping_bag_rounded,
                     title: 'Ürünler',
                     isSelected: _selectedMenu == 'Ürünler',
+                    badgeCount: _newProductsCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'Ürünler');
+                      setState(() {
+                        _selectedMenu = 'Ürünler';
+                        _newProductsCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),
@@ -455,8 +531,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: Icons.receipt_long_rounded,
                     title: 'Siparişler',
                     isSelected: _selectedMenu == 'Siparişler',
+                    badgeCount: _newOrdersCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'Siparişler');
+                      setState(() {
+                        _selectedMenu = 'Siparişler';
+                        _newOrdersCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),
@@ -482,8 +562,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: Icons.groups_rounded,
                     title: 'Gruplar',
                     isSelected: _selectedMenu == 'Gruplar',
+                    badgeCount: _newGroupsCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'Gruplar');
+                      setState(() {
+                        _selectedMenu = 'Gruplar';
+                        _newGroupsCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),
@@ -603,6 +687,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     isSelected: _selectedMenu == 'Cüzdan Yönetimi',
                     onTap: () {
                       setState(() => _selectedMenu = 'Cüzdan Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.assignment_turned_in_rounded,
+                    title: 'Görev Yönetimi',
+                    isSelected: _selectedMenu == 'Görev Yönetimi',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Görev Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.gpp_bad_rounded,
+                    title: 'Şüpheli Kullanıcılar',
+                    isSelected: _selectedMenu == 'Şüpheli Kullanıcılar',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Şüpheli Kullanıcılar');
                       Navigator.pop(context);
                     },
                   ),
@@ -750,6 +852,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const AdminAdSettingsScreen();
       case 'Cüzdan Yönetimi':
         return _buildWalletManagementContent();
+      case 'Görev Yönetimi':
+        return const TaskManagementContent();
+      case 'Şüpheli Kullanıcılar':
+        return const SuspiciousUsersContent();
       default:
         return _buildComingSoon();
     }

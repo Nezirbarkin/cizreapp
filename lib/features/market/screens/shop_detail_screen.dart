@@ -133,7 +133,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
       }
       
       // Stok filtresi
-      if (_showOnlyInStock && product.stockQuantity <= 0) {
+      if (_showOnlyInStock && !product.inStock) {
         return false;
       }
       
@@ -1822,7 +1822,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: isInStock
+                                  onTap: (isInStock && cartQuantity < product.stockQuantity)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(
@@ -1831,7 +1831,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: isInStock
+                                      color: (isInStock && cartQuantity < product.stockQuantity)
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

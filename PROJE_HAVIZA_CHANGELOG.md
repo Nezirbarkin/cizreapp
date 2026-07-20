@@ -1,7 +1,21 @@
 # PROJE_HAVIZA_CHANGELOG
 
-Project Ref: `xsbukxkgtmdyickknqzf`  
+Project Ref: `xsbukxkgtmdyickknqzf`
 Başlangıç tarihi: 2026-06-29
+
+## 2026-07-19 (Görev Yaparak Kazan)
+
+- `2026-07-19 16:00 UTC | SCHEMA+FUNCTION | task_categories / tasks / task_submissions / task_earning RPCs | prod | high | Yeni "Görev Yaparak Kazan" sistemi. (1) `task_categories` (id, name, icon, sort_order, is_active) — 8 başlangıç kategorisi (Instagram, YouTube, TikTok, X, Facebook, Uygulama, Anket, Diğer). (2) `tasks` — başlık/açıklama/uyarı/link/ödül/limit/süre/durum admin tarafından yönetilir. (3) `task_submissions` — kullanıcı ekran görüntüsü + onay/red. (4) Partial unique index `(task_id, user_id) WHERE status IN ('pending','approved')` — aynı kullanıcı aynı göreve 1 kez katılabilir, race condition koruması. (5) RPC `claim_task` FOR UPDATE kilit + atomik katılımcı artışı + limit dolduğunda otomatik `status='completed'`. (6) RPC `submit_task_with_proof` ekran görüntüsünü bağlar. (7) RPC `approve_task_submission` idempotent (status='approved' guard) + `add_to_balance(task_reward)` ile atomik bakiye ekleme + notifications trigger. (8) RPC `reject_task_submission` reddetme + katılımcı limiti geri açma. (9) `get_active_tasks`/`get_user_task_history`/`admin_get_task_submissions`/`get_task_stats`. (10) `task_screenshots` Storage bucket + RLS (kullanıcı yalnız kendi klasörüne, admin herkese). (11) realtime publication'a eklendi. | migration: `20260719000001_task_earning_system.sql` + `20260719000002_task_earning_rls_rpc.sql` | @owner #wallet #task #payment #schema #rls #hotfix
+
+- `2026-07-19 16:01 UTC | SCHEMA | balance_transaction_type | prod | low | `task_reward` enum değeri eklendi (regresyon değil — `IF NOT EXISTS` kontrolü). İdempotent çalışır. | migration: 20260719000001 (migration 2 içinde) | @owner #schema
+
+- `2026-07-19 16:02 UTC | CODE | task_earning_service.dart / tasks_screen.dart / task_management_content.dart | prod | high | Flutter tarafı: (1) `TaskEarningService` — `claimTask/approveSubmission/rejectSubmission` için RPC, ekran görüntüsü yüklemesi (cache-bust timestamp). (2) `TaskCategory/Task/TaskSubmission/TaskStats` modelleri. (3) `tasks_screen.dart` — kategori filtreli görev listesi, görev detay (CLAIM + ekran görüntüsü yükleme akışı), kullanıcı geçmiş ekranı. (4) `task_management_content.dart` — Admin 3 sekmeli arayüz (Görevler, Başvurular, İstatistikler); realtime `subscribeAllSubmissions` ile canlı badge. (5) `wallet_screen.dart`'a mor "Görev Yaparak Kazan" kartı eklendi (İzleyerek Kazan altında). (6) `admin_dashboard_screen.dart` drawer'a "Görev Yönetimi" menüsü eklendi. | @owner #wallet #task #admin #ui
+
+- `2026-07-19 16:03 UTC | CODE | balance_transaction_model.dart | prod | low | `BalanceTransactionType` enum'una `adReward` ve `taskReward` eklendi. `isPositive` artık bu ikisini de içeriyor. `dbValue` ve `fromString` eşleşmesi eklendi. Cüzdan geçmişi kartları görev ödüllerini yeşil (+) olarak gösterir. | @owner #wallet #model
+
+- `2026-07-19 19:50 UTC | SCHEMA | tasks.image_url + task_images bucket + 4 RLS policy | prod | medium | Görev açıklamasına admin görsel yükleyebilmesi. (1) `tasks.image_url TEXT` kolonu eklendi. (2) `task_images` storage bucket (5 MB, public, image/jpeg+png+webp). (3) RLS: SELECT public (kullanıcılar görür), INSERT/UPDATE/DELETE yalnız admin (profiles.role='admin' kontrolü ile). (4) `get_active_tasks` RPC signature genişletildi (image_url döner). | @owner #storage #rls
+
+- `2026-07-19 19:55 UTC | CODE | fullscreen_image_viewer.dart + tasks_screen.dart + task_management_content.dart | prod | medium | (1) `FullscreenImageViewer` shared widget — InteractiveViewer ile pinch-zoom (1x-5x) + çift dokunuş zoom, Hero animasyon, AppBar başlık caption. (2) Kullanıcı görev detayında ve listede görsel önizleme (tıklanabilir). (3) Kullanıcı geçmiş ekranında ekran görüntüsü thumbnail'ı (tıklanabilir). (4) Admin görev formunda görsel seçme + preview + silme butonu + yükleme progress. (5) Admin başvuru kartında ekran görüntüsü thumbnail'ı (tam ekran ikonu overlay + tıklanabilir). | @owner #ui #image
 
 Bu dosya; şema, RLS, Edge Function, Storage ve operasyonel değişikliklerin tarihçesini tutar.
 

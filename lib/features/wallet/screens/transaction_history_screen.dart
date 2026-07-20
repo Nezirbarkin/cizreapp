@@ -549,6 +549,10 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
         return Icons.tune_rounded;
       case BalanceTransactionType.commission:
         return Icons.monetization_on_rounded;
+      case BalanceTransactionType.adReward:
+        return Icons.play_circle_outline;
+      case BalanceTransactionType.taskReward:
+        return Icons.assignment_turned_in_rounded;
     }
   }
 }

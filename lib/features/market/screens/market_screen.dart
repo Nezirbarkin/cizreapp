@@ -1179,13 +1179,6 @@ class _MarketScreenState extends State<MarketScreen> {
             ],
           ),
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
         ),
         child: Material(
           color: Colors.transparent,
@@ -1275,13 +1268,6 @@ class _MarketScreenState extends State<MarketScreen> {
         margin: const EdgeInsets.only(right: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Stack(
@@ -1301,20 +1287,6 @@ class _MarketScreenState extends State<MarketScreen> {
                 color: Colors.grey.shade300,
                 child: const Center(
                   child: Icon(Icons.error_outline, size: 24),
-                ),
-              ),
-            ),
-            // Gradient overlay
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.6),
-                  ],
-                  stops: const [0.3, 1.0],
                 ),
               ),
             ),
@@ -1391,13 +1363,6 @@ class _MarketScreenState extends State<MarketScreen> {
         margin: const EdgeInsets.only(right: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Stack(
@@ -1947,7 +1912,7 @@ class _MarketScreenState extends State<MarketScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: (isInStock && isOrderable)
+                                  onTap: (isInStock && isOrderable && cartQuantity < product.stockQuantity)
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(
@@ -1956,7 +1921,7 @@ class _MarketScreenState extends State<MarketScreen> {
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: isInStock
+                                      color: (isInStock && cartQuantity < product.stockQuantity)
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

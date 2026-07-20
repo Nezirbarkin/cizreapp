@@ -109,6 +109,27 @@ Ayrıca RLS/trigger içi yardımcı fonksiyonlar (`is_group_admin`, `is_group_me
 - `ad_reward_views`: kullanıcı SADECE kendi kayıtlarını (`auth.uid() = user_id`) SELECT edebilir, admin hepsini görebilir. Client tarafından hiçbir INSERT/UPDATE policy'si tanımlı DEĞİL — tüm yazma `TO service_role` policy'si üzerinden `grant-ad-reward` Edge Function'ı ile yapılır. Bu, bakiye tablolarındaki §4.1.7 deseniyle aynı prensip: ödül mutasyonu istemciden asla doğrudan yapılamaz.
 - `grant-ad-reward` fonksiyonu kendi içinde günlük/saatlik/cooldown/cihaz-bazlı/platform-bütçe limitlerini uygular (bkz. PROJE_HAVIZA_CHANGELOG.md 2026-07-15 04:00 UTC kaydı).
 
+#### 4.1.9 Görev Yaparak Kazan Sistemi (`task_categories` / `tasks` / `task_submissions`) — 2026-07-19
+- `task_categories`: SELECT public (anon+authenticated dahil), INSERT/UPDATE/DELETE yalnızca `EXISTS(SELECT 1 FROM profiles WHERE id=auth.uid() AND role='admin')`. Doğrudan subquery kullanıldı (helper fonksiyon zinciri recursion/permission riskini önler, §4.1.3 öğrenimi).
+- `tasks`: kullanıcı yalnız `status='active' AND starts_at<=NOW() AND (expires_at IS NULL OR expires_at>NOW())` görevleri görür; admin hepsini görür (admin override). INSERT/UPDATE/DELETE yalnız admin. Partial index `WHERE status='active'` okuma performansı için.
+- `task_submissions`:
+  - SELECT: kullanıcı kendi (`user_id=auth.uid()`) VEYA admin.
+  - INSERT: kullanıcı yalnız kendi `user_id` ile, status='pending' (UPDATE-only-policy ile başvuru aşamasında `user_note/screenshot_url` güncelleyebilir).
+  - UPDATE iki koldan:
+    1. Kullanıcı kendi pending başvurusunu güncelleyebilir (yanlış yüklenen görseli değiştir).
+    2. Admin tüm kayıtları güncelleyebilir (status değişimi, review bilgileri).
+  - **KRİTİK partial unique index**: `(task_id, user_id) WHERE status IN ('pending','approved')` — aynı kullanıcı aynı göreve 1 kez katılabilir; rejected → tekrar başvurabilir. Bu, client-side kontrolden BAĞIMSIZ bir DB seviyesi race condition koruması.
+- **Bakiye mutasyonu §4.1.7 prensibi**: tüm yazma client'tan YAPILAMAZ. `approve_task_submission` RPC SECURITY DEFINER + service_role; client hiçbir zaman `user_balances` veya `balance_transactions`'a INSERT/UPDATE yapamaz. `add_to_balance` RPC atomik (FOR UPDATE) çağrılır.
+- **`task_screenshots` Storage bucket**: SELECT public (admin kolayca görüntüleyebilsin), INSERT/UPDATE yalnız kullanıcı kendi `user_id/` klasörüne (`(storage.foldername(name))[1] = auth.uid()`), DELETE sahibi veya admin.
+- **Realtime**: `task_submissions` ve `tasks` `supabase_realtime` publication'a eklendi → admin panel canlı güncellenir, kullanıcı kendi durum değişikliğini push beklemeden UI'da görür.
+- **Linter güvenliği**: Tüm RPC'lerde `REVOKE ALL ON FUNCTION ... FROM PUBLIC` (anon çağıramaz), auth-only olanlar GRANT EXECUTE TO authenticated; yetki gerektirenler authenticated + service_role. `grant-ad-reward` ile aynı desen.
+- **Anti-pattern öğrenmeleri (PROJE_HAVIZA'dan)**:
+  1. `is_admin()` helper'ı RPC İÇİNDE çağrıldı ama SECURITY DEFINER etkisine girmedi (function gövdesinde zaten postgres bağlamı). Yine de tutarlılık için profiles subquery kullanıldı — gelecekte role değişirse helper'a düşme riski azalır.
+  2. trigger/functions'ta `auth.uid()` ASLA kullanılmadı — yalnızca client param ya da `NEW.user_id` gibi doğrudan değer (PROJE_HAVIZA §4.1.5 42501 hatası tekrarı önlenir).
+  3. Storage policy'leri `TO authenticated` (anon RETAIN DEFAULT) — anonim kullanıcı yükleme yapamaz.
+  4. Realtime publication `DO ... ON CONFLICT` ile idempotent eklendi (tekrar çalıştırılabilir).
+- Test: bir kullanıcı aynı görev için 2 RPC parallel çağırdığında ikinci `claim_task` ya hata alır ya da no-op (partial unique index → INSERT çakışırsa transaction rollback). Onay + tekrar onay çağrısı → `status: 'already_approved'` (idempotent guard).
+
 ### 4.2 Standart Audit Checklist
 
 - Çok geniş (`public` rolüne açık) write policy var mı?

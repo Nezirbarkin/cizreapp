@@ -932,7 +932,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: (isInStock && isOrderable)
+                                  onTap: (isInStock && isOrderable && (product.isDigital || cartQuantity < product.stockQuantity))
                                       ? () => _updateQuantity(product, cartQuantity + 1)
                                       : null,
                                   child: SizedBox(
@@ -941,7 +941,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: isInStock
+                                      color: (isInStock && (product.isDigital || cartQuantity < product.stockQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

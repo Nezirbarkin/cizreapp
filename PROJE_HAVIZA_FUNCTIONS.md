@@ -63,6 +63,22 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 - `quick-worker`
 - `bright-processor`
 
+### 1.6 Görev Yaparak Kazan (Task Earning) — 2026-07-19
+- `claim_task(p_task_id UUID) → UUID` (SQL RPC, SECURITY DEFINER): Kullanıcı görevi alır. FOR UPDATE ile görev satırı kilitlenir, current_participants atomik artırılır, max_participants eşitse status otomatik 'completed' olur, pending submission INSERT. Kontroller: status='active', starts_at <= NOW(), expires_at NULL veya > NOW(), aynı kullanıcı pending/approved başvuru YAPMAMIŞ olmalı. Aynı kullanıcı aynı göreve 1 kez katılabilir (partial unique index). RPC REVOKE ALL FROM PUBLIC + GRANT EXECUTE TO authenticated.
+- `submit_task_with_proof(p_submission_id UUID, p_screenshot_url TEXT, p_user_note TEXT DEFAULT NULL) → VOID`: Kullanıcı ekran görüntüsünü yükler. UPDATE WHERE user_id=auth.uid() AND status='pending' atomik; FOUND değilse hata. RPC authenticated only.
+- `approve_task_submission(p_submission_id UUID, p_admin_note TEXT DEFAULT NULL) → JSONB`: Admin onayı. Önce admin mi kontrol (profiles.role='admin'). Idempotent: status='approved' ise no-op. `add_to_balance(task_reward, reference_type='task')` ile atomik bakiye ekleme. Submission'a reward_amount, balance_txn_id, reviewed_by/at yazılır. Notifications trigger ile kullanıcıya 'task_approved' bildirimi. RPC authenticated + service_role.
+- `reject_task_submission(p_submission_id UUID, p_rejection_reason TEXT) → JSONB`: Admin red. Bakiye iade YOK. tasks.current_participants-- (limit geri açılır, status='completed' ise tekrar 'active'). Notifications trigger ile kullanıcıya 'task_rejected' bildirimi. RPC authenticated + service_role.
+- `admin_get_task_submissions(p_status, p_task_id, p_limit, p_offset) → TABLE`: Admin için başvuru listesi. profiles JOIN ile full_name/avatar_url/phone, tasks JOIN ile title/reward döner. RPC authenticated + service_role.
+- `get_active_tasks(p_category_id, p_limit, p_offset) → TABLE`: Kullanıcı için aktif görevler. user_already_claimed, user_submission_id, user_submission_status kolonlarını da döner. RPC authenticated only.
+- `get_user_task_history(p_status, p_limit, p_offset) → TABLE`: Kullanıcının kendi başvuru geçmişi. task_title, reward_amount, rejection_reason, total_earned döner. RPC authenticated only.
+- `get_task_stats() → JSONB`: Admin dashboard istatistikleri — total_tasks/active_tasks/completed_tasks/paused_tasks + pending/approved/rejected_submissions + total_paid_today/total_paid_all_time. RPC authenticated + service_role.
+- **Idempotency**: (1) Partial unique index çift katılımı engeller; (2) approve_task_submission status='approved' guard → ikinci çağrı no-op; (3) balance_transactions task_reward tekil.
+- **Race condition**: claim_task FOR UPDATE ile görev satırı kilitlenir.
+- **PROJE_HAVIZA öğrenmeleri**: §4.1.7 (bakiye mutasyonu yalnız service_role üzerinden, RPC SECURITY DEFINER), §4.1.1 (admin kontrolü profiles subquery ile RLS recursion yok), §4.1.5 (trigger fonksiyonu SECURITY DEFINER ama auth.uid() kullanmıyor).
+- Dart: `TaskEarningService` (`lib/core/services/task_earning_service.dart`). Modeller: Task, TaskCategory, TaskSubmission, TaskStats. Realtime: subscribeUserSubmissions, subscribeAllSubmissions, subscribeAllTasks.
+- UI: `tasks_screen.dart` (TasksScreen + TaskDetailScreen + TaskHistoryScreen), `task_management_content.dart` (3 sekme: Görevler/Başvurular/İstatistikler + görev oluşturma formu), `wallet_screen.dart` mor kart.
+- Test: (1) çift claim → 'zaten katıldınız', (2) limit doldu → 'limit dolmuş' + status='completed', (3) approve + tekrar approve → 'already_approved', (4) reject → current_participants azalır, (5) admin realtime badge.
+
 ## 2) Fonksiyon Grupları ve Bağlı Tablolar (özet)
 
 ### 2.1 Iyzico Ödeme Akışı
