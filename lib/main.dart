@@ -15,6 +15,7 @@ import 'core/providers/theme_provider.dart';
 import 'core/providers/favorites_provider.dart';
 import 'core/services/verification_service.dart';
 import 'core/services/payment_service.dart';
+import 'core/services/ad_consent_service.dart';
 import 'firebase_options.dart';
 // ignore: unused_import
 import 'features/market/providers/cart_provider.dart';
@@ -194,8 +195,12 @@ void main() async {
     }
 
     // AdMob SDK başlat (ödüllü reklam - web'de desteklenmiyor)
+    // ÖNEMLİ: GDPR/CCPA (UMP) onayı ve iOS ATT izni, AdMob SDK'sı
+    // başlatılmadan ÖNCE istenmeli (Google AdMob EU User Consent Policy).
     if (!kIsWeb) {
-      MobileAds.instance.initialize().then((_) {
+      AdConsentService().requestConsentAndTracking().then((_) {
+        return MobileAds.instance.initialize();
+      }).then((_) {
         log('✅ AdMob initialized');
       }).catchError((e) {
         log('⚠️ AdMob initialization failed: $e');

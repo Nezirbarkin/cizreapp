@@ -109,6 +109,7 @@ dependencies:
 
   # ============ ADS (Ödüllü Reklam - Bakiye Kazanma) ============
   google_mobile_ads: ^5.3.1
+  app_tracking_transparency: ^2.0.6+1
 
 dev_dependencies:
   flutter_test:

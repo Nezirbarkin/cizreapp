@@ -88,9 +88,9 @@
 		<array>
 			<string>remote-notification</string>
 		</array>
-		<!-- AdMob App ID (TEST ID - gerçek App ID ile değiştirilmeli, bkz. PROJE_HAVIZA_CHANGELOG.md) -->
+		<!-- AdMob App ID -->
 		<key>GADApplicationIdentifier</key>
-		<string>ca-app-pub-3940256099942544~1458002511</string>
+		<string>ca-app-pub-3604161523594294~4530200113</string>
 		<!-- AdMob iOS 14+ App Tracking Transparency açıklaması -->
 		<key>NSUserTrackingUsageDescription</key>
 		<string>Bu izin, size daha ilgili reklamlar göstermek ve reklam ödüllerinin doğru şekilde kaydedilmesini sağlamak için kullanılır.</string>
