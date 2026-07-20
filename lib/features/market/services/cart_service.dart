@@ -93,6 +93,20 @@ class CartService {
     }
     
     try {
+      // Stok kontrolü - üründeki mevcut stok miktarını al
+      final productResponse = await _supabase
+          .from('products')
+          .select('stock_quantity, is_available')
+          .eq('id', productId)
+          .single();
+
+      final isAvailable = productResponse['is_available'] as bool? ?? true;
+      final stockQuantity = (productResponse['stock_quantity'] as num?)?.toInt();
+
+      if (!isAvailable) {
+        throw Exception('Bu ürün şu anda satışta değil');
+      }
+
       // Varyantlı ürünler için varyant bazlı kontrol yap
       final response = await _supabase
           .from('cart')
@@ -120,6 +134,9 @@ class CartService {
       if (existingItem != null) {
         // Varsa miktarı artır
         final newQuantity = existingItem.quantity + quantity;
+        if (stockQuantity != null && newQuantity > stockQuantity) {
+          throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
+        }
         await _supabase
             .from('cart')
             .update({'quantity': newQuantity})
@@ -151,6 +168,10 @@ class CartService {
             .single();
 
         return _mapToCartItem(updated);
+      }
+
+      if (stockQuantity != null && quantity > stockQuantity) {
+        throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
       }
 
       // Yeni ekle

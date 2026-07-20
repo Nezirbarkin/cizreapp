@@ -22,6 +22,7 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
 
   bool _isLoading = true;
   bool _isSaving = false;
+  final Set<String> _visibleKeyFields = {};
   AISettings? _settings;
   AIUsageStats? _stats;
 
@@ -34,6 +35,9 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
 
   // Settings controllers
   final _systemPromptController = TextEditingController();
+  final _dailyRequestLimitController = TextEditingController();
+  final _dailyTokenLimitController = TextEditingController();
+  final _maxMessagesController = TextEditingController();
 
   @override
   void initState() {
@@ -51,6 +55,9 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
     _openaiKeyController.dispose();
     _huggingfaceKeyController.dispose();
     _systemPromptController.dispose();
+    _dailyRequestLimitController.dispose();
+    _dailyTokenLimitController.dispose();
+    _maxMessagesController.dispose();
     super.dispose();
   }
 
@@ -67,6 +74,9 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
       _openaiKeyController.text = _settings?.openaiApiKey ?? '';
       _huggingfaceKeyController.text = _settings?.huggingfaceApiKey ?? '';
       _systemPromptController.text = _settings?.systemPrompt ?? '';
+      _dailyRequestLimitController.text = _settings?.dailyRequestLimitPerUser.toString() ?? '';
+      _dailyTokenLimitController.text = _settings?.dailyTokenLimitPerUser.toString() ?? '';
+      _maxMessagesController.text = _settings?.maxMessagesPerConversation.toString() ?? '';
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -311,13 +321,11 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
-                    controller: TextEditingController(text: _settings!.dailyRequestLimitPerUser.toString()),
+                    controller: _dailyRequestLimitController,
                     onChanged: (value) {
                       final limit = int.tryParse(value);
                       if (limit != null) {
-                        setState(() {
-                          _settings = _settings!.copyWith(dailyRequestLimitPerUser: limit);
-                        });
+                        _settings = _settings!.copyWith(dailyRequestLimitPerUser: limit);
                       }
                     },
                   ),
@@ -335,13 +343,11 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
-                    controller: TextEditingController(text: _settings!.dailyTokenLimitPerUser.toString()),
+                    controller: _dailyTokenLimitController,
                     onChanged: (value) {
                       final limit = int.tryParse(value);
                       if (limit != null) {
-                        setState(() {
-                          _settings = _settings!.copyWith(dailyTokenLimitPerUser: limit);
-                        });
+                        _settings = _settings!.copyWith(dailyTokenLimitPerUser: limit);
                       }
                     },
                   ),
@@ -359,13 +365,11 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
-                    controller: TextEditingController(text: _settings!.maxMessagesPerConversation.toString()),
+                    controller: _maxMessagesController,
                     onChanged: (value) {
                       final limit = int.tryParse(value);
                       if (limit != null) {
-                        setState(() {
-                          _settings = _settings!.copyWith(maxMessagesPerConversation: limit);
-                        });
+                        _settings = _settings!.copyWith(maxMessagesPerConversation: limit);
                       }
                     },
                   ),
@@ -661,21 +665,40 @@ class _AIManagementScreenState extends State<AIManagementScreen> with SingleTick
           const SizedBox(height: 4),
           Text(helperText, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
           const SizedBox(height: 8),
-          TextField(
-            controller: controller,
-            obscureText: true,
-            decoration: InputDecoration(
-              border: const OutlineInputBorder(),
-              hintText: isSet ? '••••••••••••••••' : 'API anahtarını girin',
-              suffixIcon: IconButton(
-                icon: Icon(controller.text.isNotEmpty ? Icons.clear : Icons.visibility),
-                onPressed: () {
-                  if (controller.text.isNotEmpty) {
-                    controller.clear();
-                  }
-                },
-              ),
-            ),
+          StatefulBuilder(
+            builder: (context, setFieldState) {
+              final isVisible = _visibleKeyFields.contains(label);
+              return TextField(
+                controller: controller,
+                obscureText: !isVisible,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: isSet ? '••••••••••••••••' : 'API anahtarını girin',
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(isVisible ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () {
+                          setFieldState(() {
+                            if (isVisible) {
+                              _visibleKeyFields.remove(label);
+                            } else {
+                              _visibleKeyFields.add(label);
+                            }
+                          });
+                        },
+                      ),
+                      if (controller.text.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () => setFieldState(() => controller.clear()),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),

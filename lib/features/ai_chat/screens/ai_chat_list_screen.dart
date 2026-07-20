@@ -20,6 +20,7 @@ class _AIChatListScreenState extends State<AIChatListScreen> {
   final AIChatService _service = AIChatService();
   List<AIConversation> _conversations = [];
   bool _isLoading = true;
+  bool _hasError = false;
   bool _includeArchived = false;
   String _searchQuery = '';
 
@@ -30,7 +31,10 @@ class _AIChatListScreenState extends State<AIChatListScreen> {
   }
 
   Future<void> _loadConversations() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
     try {
       final conversations = await _service.getConversations(includeArchived: _includeArchived);
       if (mounted) {
@@ -41,7 +45,10 @@ class _AIChatListScreenState extends State<AIChatListScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Sohbetler yüklenemedi: $e')),
         );
@@ -196,9 +203,11 @@ class _AIChatListScreenState extends State<AIChatListScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _conversations.isEmpty
-                    ? _buildEmptyState(theme)
-                    : RefreshIndicator(
+                : _hasError && _conversations.isEmpty
+                    ? _buildErrorState(theme)
+                    : _conversations.isEmpty
+                        ? _buildEmptyState(theme)
+                        : RefreshIndicator(
                         onRefresh: _loadConversations,
                         child: ListView.separated(
                           padding: const EdgeInsets.only(bottom: 24),
@@ -329,6 +338,34 @@ class _AIChatListScreenState extends State<AIChatListScreen> {
           style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
         ),
         onTap: () => _openConversation(conv),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 56, color: theme.colorScheme.error),
+            const SizedBox(height: 16),
+            Text('Sohbetler yüklenemedi', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              'Bağlantınızı kontrol edip tekrar deneyin.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadConversations,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Tekrar Dene'),
+            ),
+          ],
+        ),
       ),
     );
   }

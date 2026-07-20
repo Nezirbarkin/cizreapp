@@ -24,6 +24,7 @@ DECLARE
   v_hour_start timestamptz := v_now - interval '1 hour';
   v_today_count int;
   v_hour_count int;
+  v_oldest_hour_view timestamptz;
   v_last_view timestamptz;
   v_device_count_today int;
   v_reward numeric;
@@ -53,7 +54,7 @@ BEGIN
   FROM ad_reward_views
   WHERE user_id = p_user_id AND status = 'success' AND created_at >= v_day_start;
 
-  SELECT count(*) INTO v_hour_count
+  SELECT count(*), min(created_at) INTO v_hour_count, v_oldest_hour_view
   FROM ad_reward_views
   WHERE user_id = p_user_id AND status = 'success' AND created_at >= v_hour_start;
 
@@ -73,7 +74,7 @@ BEGIN
     RETURN jsonb_build_object(
       'error', 'Saatlik reklam izleme limitine ulaştın, biraz beklemelisin', 'status', 429,
       'limit_type', 'hourly',
-      'retry_after_seconds', GREATEST(1, ceil(60 * 60 - extract(epoch FROM (v_now - v_hour_start))))
+      'retry_after_seconds', GREATEST(1, ceil(extract(epoch FROM (v_oldest_hour_view + interval '1 hour' - v_now))))
     );
   END IF;
 

@@ -162,19 +162,8 @@ class AIChatService {
             .eq('id', 1);
       }
       
-      // Güncelleme sonrası doğrula
-      final verifyData = await _supabase
-          .from('ai_settings')
-          .select('gemini_api_key, groq_api_key, openrouter_api_key, openai_api_key')
-          .eq('id', 1)
-          .maybeSingle();
-      
-      if (verifyData != null) {
-        debugPrint('✅ AI Settings güncellendi - Gemini: ${verifyData['gemini_api_key'] != null ? 'VAR' : 'YOK'}');
-      }
     } catch (e) {
       AppLogger.error('AI ayar güncelleme hatası: $e');
-      debugPrint('❌ AI Settings güncelleme hatası detay: $e');
       rethrow;
     }
   }
@@ -398,15 +387,11 @@ class AIChatService {
   /// Edge function çağrısı — merkezi hata yönetimi
   Future<AIChatResponse> _invokeEdgeFunction({required Map<String, dynamic> body}) async {
     try {
-      debugPrint('🤖 AI Edge Function çağrılıyor: $body');
-      
       final response = await _supabase.functions.invoke(
         _functionName,
         body: body,
       );
 
-      debugPrint('🤖 AI Edge Function yanıtı: ${response.data}');
-      
       final data = response.data as Map<String, dynamic>?;
       if (data == null) {
         debugPrint('❌ AI Edge Function boş yanıt döndü');
@@ -481,12 +466,16 @@ class AIChatService {
       
       // RPC TABLE döndürdüğünde Supabase genellikle liste döner
       Map<String, dynamic> data;
-      if (response is List && response.isNotEmpty) {
-        data = Map<String, dynamic>.from(response.first);
-      } else {
+      if (response is List) {
+        if (response.isEmpty) return AIUsageStats.empty();
+        data = Map<String, dynamic>.from(response.first as Map);
+      } else if (response is Map) {
         data = Map<String, dynamic>.from(response);
+      } else {
+        AppLogger.error('AI istatistik: beklenmeyen RPC yanıt tipi: ${response.runtimeType}');
+        return AIUsageStats.empty();
       }
-      
+
       return AIUsageStats.fromMap(data);
     } catch (e) {
       AppLogger.error('AI istatistik yüklenemedi: $e');
@@ -681,7 +670,9 @@ class AIChatService {
           final path = url.split('/').last;
           try {
             await _supabase.storage.from('images').remove(['ai_prompt_images/$path']);
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.error('Storage görsel silinemedi (path: $path): $e');
+          }
         }
       }
 
