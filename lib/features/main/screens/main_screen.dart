@@ -30,6 +30,7 @@ import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
 import '../../chat/services/presence_service.dart';
 import '../../../core/services/app_about_service.dart';
+import '../../../shared/widgets/add_to_cart_fab.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -68,11 +69,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     
     // Uygulama açıldığında çevrimiçi durumunu güncelle ve heartbeat başlat
     _privacyService.onAppResumed();
-    // Uygulama yüklendikten sonra pending reviews kontrolü yap
+    // Bildirim sayısı hemen yüklenir; MarketScreen'in açılış ağ trafiğiyle
+    // çakışmaması için kritik olmayan duyuru/inceleme kontrolleri geciktirilir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkStartupAnnouncement();
-      PendingReviewChecker.checkAndShowPendingReviews(context);
       _loadNotificationCount();
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (!mounted) return;
+        _checkStartupAnnouncement();
+        PendingReviewChecker.checkAndShowPendingReviews(context);
+      });
     });
   }
 
@@ -914,40 +919,40 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
             ),
           ),
-          _isLoading
-              ? SliverFillRemaining(
-                  child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              : _products.isEmpty
-                  ? SliverFillRemaining(
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.shopping_bag_outlined,
-                              size: 48,
-                              color: Colors.grey,
-                            ),
-                            SizedBox(height: 12),
-                            Text(
-                              _searchQuery.isEmpty
-                                  ? 'Henüz ürün yok'
-                                  : 'Ürün bulunamadı',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
+            sliver: _isLoading
+                ? SliverFillRemaining(
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  )
+                : _products.isEmpty
+                    ? SliverFillRemaining(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.shopping_bag_outlined,
+                                size: 48,
+                                color: Colors.grey,
                               ),
-                            ),
-                          ],
+                              SizedBox(height: 12),
+                              Text(
+                                _searchQuery.isEmpty
+                                    ? 'Henüz ürün yok'
+                                    : 'Ürün bulunamadı',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    )
-                  : SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
-                      sliver: SliverGrid(
+                      )
+                    : SliverGrid(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
                           childAspectRatio: 0.68,
@@ -962,8 +967,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           childCount: _filteredProducts.length,
                         ),
                       ),
-                  ),
-                ],
+          ),
+        ],
               );
             }
 
@@ -1171,37 +1176,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   // Buton - tam genişlik
                   SizedBox(
                     width: double.infinity,
-                    height: 30,
+                    height: 32,
                     child: !inCart
-                        ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock || !isOrderable)
-                                ? null
-                                : () => _addToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              backgroundColor: theme.colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              minimumSize: const Size(double.infinity, 30),
-                            ),
-                            child: isAdding
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    !isOrderable
-                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
-                                        : 'Sepete Ekle',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ? Row(
+                            children: [
+                              if (!isOrderable)
+                                Expanded(
+                                  child: Text(
+                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              AddToCartFab(
+                                isLoading: isAdding,
+                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                    ? null
+                                    : () => _addToCart(product),
+                              ),
+                            ],
                           )
                         : Container(
                             decoration: BoxDecoration(

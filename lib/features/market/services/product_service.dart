@@ -23,26 +23,20 @@ class ProductService {
           .order('is_pinned', ascending: false)
           .order('created_at', ascending: false);
 
-      List<dynamic> productsList = response as List<dynamic>;
-      
+      // JSON'u tek geçişte parse et (önceden 3 kez parse ediliyordu)
+      final products = (response as List<dynamic>)
+          .map((item) => Product.fromJson(item as Map<String, dynamic>))
+          .toList();
+
       // Sponsor ve sponsor olmayan ürünleri ayır
-      final pinnedProducts = productsList.where((p) {
-        final product = Product.fromJson(p as Map<String, dynamic>);
-        return product.isPinned;
-      }).toList();
-      
-      final nonPinnedProducts = productsList.where((p) {
-        final product = Product.fromJson(p as Map<String, dynamic>);
-        return !product.isPinned;
-      }).toList();
-      
+      final pinnedProducts = products.where((p) => p.isPinned).toList();
+      final nonPinnedProducts = products.where((p) => !p.isPinned).toList();
+
       // Sponsor olmayanları karıştır (shuffle)
       nonPinnedProducts.shuffle();
-      
-      // Sponsorlar + karıştırılmış sponsor olmayanlar
-      final shuffledList = [...pinnedProducts, ...nonPinnedProducts];
 
-      return shuffledList.map((item) => Product.fromJson(item as Map<String, dynamic>)).toList();
+      // Sponsorlar + karıştırılmış sponsor olmayanlar
+      return [...pinnedProducts, ...nonPinnedProducts];
     } catch (e) {
       throw Exception('Ürünler yüklenirken hata: $e');
     }
@@ -93,7 +87,8 @@ class ProductService {
           .select()
           .eq('is_available', true)
           .or('name.ilike.%$query%,description.ilike.%$query%')
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(50);
 
       return (response as List<dynamic>)
           .map((item) => Product.fromJson(item as Map<String, dynamic>))
@@ -261,6 +256,7 @@ class ProductService {
     int? minQuantity,
     int? maxQuantity,
     int? maxOrdersPerUser,
+    String? campaignType,
   }) async {
     try {
       // Ürün limitini kaldırdık - sınırsız ürün eklenebilir
@@ -289,6 +285,7 @@ class ProductService {
         'min_quantity': minQuantity,
         'max_quantity': maxQuantity,
         'max_orders_per_user': maxOrdersPerUser,
+        'campaign_type': campaignType,
       }).select().single();
 
       return Product.fromJson(response);
@@ -319,6 +316,8 @@ class ProductService {
     int? maxQuantity,
     int? maxOrdersPerUser,
     bool clearMaxOrdersPerUser = false,
+    String? campaignType,
+    bool clearCampaignType = false,
   }) async {
     try {
       final updateData = {
@@ -331,6 +330,12 @@ class ProductService {
         'additional_images': additionalImages ?? [],
         'category': category,
       };
+
+      if (campaignType != null) {
+        updateData['campaign_type'] = campaignType;
+      } else if (clearCampaignType) {
+        updateData['campaign_type'] = null;
+      }
 
       // Varyant alanlarını ekle
       if (productType != null) updateData['product_type'] = productType;

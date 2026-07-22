@@ -519,8 +519,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 CircleAvatar(
                   radius: 45,
                   backgroundColor: _group.isPrivate ? Colors.orange[100] : Colors.green[100],
-                  backgroundImage: _group.avatarUrl != null ? NetworkImage(_group.avatarUrl!) : null,
-                  child: _group.avatarUrl == null
+                  backgroundImage: _group.avatarUrl != null && _group.avatarUrl!.isNotEmpty ? NetworkImage(_group.avatarUrl!) : null,
+                  child: _group.avatarUrl == null || _group.avatarUrl!.isEmpty
                       ? Icon(
                           _group.isPrivate ? Icons.lock : Icons.groups,
                           size: 40,
@@ -969,10 +969,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: Colors.grey[200],
-        backgroundImage: request.userAvatarUrl != null
+        backgroundImage: request.userAvatarUrl != null && request.userAvatarUrl!.isNotEmpty
             ? NetworkImage(request.userAvatarUrl!)
             : null,
-        child: request.userAvatarUrl == null
+        child: request.userAvatarUrl == null || request.userAvatarUrl!.isEmpty
             ? Text(
                 (request.userName ?? '?')[0].toUpperCase(),
                 style: const TextStyle(fontWeight: FontWeight.bold),
@@ -1057,10 +1057,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         children: [
           CircleAvatar(
             backgroundColor: Colors.deepPurple[100],
-            backgroundImage: member.avatarUrl != null
+            backgroundImage: member.avatarUrl != null && member.avatarUrl!.isNotEmpty
                 ? NetworkImage(member.avatarUrl!)
                 : null,
-            child: member.avatarUrl == null
+            child: member.avatarUrl == null || member.avatarUrl!.isEmpty
                 ? Text(
                     (member.fullName ?? '?')[0].toUpperCase(),
                     style: TextStyle(

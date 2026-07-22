@@ -142,6 +142,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
         // RPC'den geldiyse is_truly_active kolonu var
         // Fallback'ten geldiyse hesaplamamız gerek
         for (var user in users) {
+          user['id'] ??= user['user_id'] ?? user['p_user_id'];
           final isOnline = user['is_online'] as bool? ?? false;
           final lastSeen = _parseDateTime(user['last_seen']);
           final isOnlineEnabled = user['is_online_enabled'] as bool? ?? true;
@@ -392,8 +393,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             padding:
                                 const EdgeInsets.symmetric(horizontal: 6),
                             child: GestureDetector(
-                              onTap: () =>
-                                  _openUserProfile(user['id'] as String),
+                              onTap: userId != null
+                                  ? () => _openUserProfile(userId)
+                                  : null,
                               onLongPress: () =>
                                   _startChat(user, fullName, avatarUrl),
                               child: Column(
@@ -405,10 +407,10 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                                         radius: 26,
                                         backgroundColor:
                                             Colors.deepPurple[100],
-                                        backgroundImage: avatarUrl != null
+                                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
                                             ? NetworkImage(avatarUrl)
                                             : null,
-                                        child: avatarUrl == null
+                                        child: (avatarUrl == null || avatarUrl.isEmpty)
                                             ? Text(
                                                 fullName.isNotEmpty
                                                     ? fullName[0].toUpperCase()
@@ -602,13 +604,15 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
           child: Row(
             children: [
               // Avatar
-              Stack(
+              GestureDetector(
+                onTap: otherId != null ? () => _openUserProfile(otherId) : null,
+                child: Stack(
                 children: [
                   CircleAvatar(
                     radius: 28,
                     backgroundColor: hasUnread ? Colors.red[100] : Colors.deepPurple[100],
-                    backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                    child: avatarUrl == null
+                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                    child: (avatarUrl == null || avatarUrl.isEmpty)
                         ? Text(
                             fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
                             style: TextStyle(
@@ -656,6 +660,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       ),
                     ),
                 ],
+                ),
               ),
               const SizedBox(width: 12),
               // İçerik

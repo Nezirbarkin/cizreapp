@@ -142,11 +142,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       final discountType = _appliedCouponData!['discount_type']?.toString() ?? 'fixed_amount';
       final rawValue = _appliedCouponData!['discount_value'];
       final discountValue = (rawValue is num) ? rawValue.toDouble() : 0.0;
-      
+      final rawMaxDiscount = _appliedCouponData!['maximum_discount_amount'];
+      final maxDiscount = (rawMaxDiscount is num) ? rawMaxDiscount.toDouble() : null;
+
       if (discountType == 'percentage') {
         _discountAmount = _subtotal * discountValue / 100;
+        if (maxDiscount != null && _discountAmount > maxDiscount) {
+          _discountAmount = maxDiscount;
+        }
       } else {
         _discountAmount = discountValue;
+      }
+      // İndirim sepet tutarını aşamaz
+      if (_discountAmount > _subtotal) {
+        _discountAmount = _subtotal;
       }
     } else {
       _discountAmount = 0;
@@ -189,17 +198,19 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       return;
     }
 
-    try {
-      // Supabase'den kuponu kontrol et
-      final response = await Supabase.instance.client
-          .from('shop_coupons')
-          .select()
-          .eq('shop_id', _currentShopId!)
-          .eq('code', code)
-          .eq('is_active', true)
-          .maybeSingle();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
 
-      if (response == null) {
+    try {
+      // Kuponu sunucuda doğrula (süre, kullanım limiti, kullanıcı başına limit dahil)
+      final rows = await Supabase.instance.client.rpc('validate_coupon', params: {
+        'p_shop_id': _currentShopId,
+        'p_code': code,
+        'p_subtotal': _subtotal,
+        'p_user_id': userId,
+      }) as List;
+
+      if (rows.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -212,20 +223,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         return;
       }
 
-      // Min sipariş tutarı kontrolü
-      final minOrderAmount = (response['minimum_order_amount'] ?? 0).toDouble();
-      if (minOrderAmount > 0 && _subtotal < minOrderAmount) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Bu kupon için minimum ₺${minOrderAmount.toStringAsFixed(0)} tutarında alışveriş yapmalısınız'),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-        return;
-      }
+      final response = rows.first as Map<String, dynamic>;
 
       // Kuponu uygula
       setState(() {
@@ -251,12 +249,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       }
     } catch (e) {
       debugPrint('❌ CART: Kupon kontrolü hatası: $e');
+      final message = e is PostgrestException ? e.message : 'Kupon kontrolü sırasında hata oluştu';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Kupon kontrolü sırasında hata: $e'),
+            content: Text(message),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -977,6 +976,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         total: _total,
                         discountAmount: _discountAmount,
                         appliedCoupon: _appliedCoupon,
+                        appliedCouponId: _appliedCouponData?['id'] as String?,
                       ),
                     ),
                   );

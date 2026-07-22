@@ -398,8 +398,8 @@ class _GroupListScreenState extends State<GroupListScreen> {
                           : hasUnread
                               ? Colors.deepPurple[100]
                               : Colors.green[100],
-                      backgroundImage: group.avatarUrl != null ? NetworkImage(group.avatarUrl!) : null,
-                      child: group.avatarUrl == null
+                      backgroundImage: group.avatarUrl != null && group.avatarUrl!.isNotEmpty ? NetworkImage(group.avatarUrl!) : null,
+                      child: group.avatarUrl == null || group.avatarUrl!.isEmpty
                           ? Icon(
                               group.isPrivate ? Icons.lock : Icons.groups,
                               size: 28,

@@ -343,10 +343,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               CircleAvatar(
                 radius: 18,
                 backgroundColor: Colors.white.withOpacity(0.2),
-                backgroundImage: widget.otherUserAvatar != null
+                backgroundImage: widget.otherUserAvatar != null && widget.otherUserAvatar!.isNotEmpty
                     ? NetworkImage(widget.otherUserAvatar!)
                     : null,
-                child: widget.otherUserAvatar == null
+                child: widget.otherUserAvatar == null || widget.otherUserAvatar!.isEmpty
                     ? Text(
                         widget.otherUserName.isNotEmpty
                             ? widget.otherUserName[0].toUpperCase()

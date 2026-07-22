@@ -58,6 +58,9 @@ class Product {
   final int? maxQuantity;
   final int? maxOrdersPerUser; // Satıcının belirlediği kullanıcı başına sipariş limiti (null = limitsiz)
 
+  // Kampanya: şu an sadece 'buy2_get1_balance' ("2 al biri bakiye") destekleniyor
+  final String? campaignType;
+
   // Puanlama alanları (veritabanından çekilir)
   final double _rating;
   final int _totalReviews;
@@ -89,6 +92,7 @@ class Product {
     this.minQuantity,
     this.maxQuantity,
     this.maxOrdersPerUser,
+    this.campaignType,
     double rating = 0.0,
     int totalReviews = 0,
   })  : _rating = rating,
@@ -176,6 +180,9 @@ class Product {
   // Dijital (SMM panel) ürünü mü?
   bool get isDigital => productType == 'digital';
 
+  // "2 al biri bakiye" kampanyası aktif mi?
+  bool get isBuy2Get1BalanceCampaign => campaignType == 'buy2_get1_balance';
+
   factory Product.fromJson(Map<String, dynamic> json) {
     // sizes parsing
     List<String> sizesList = [];
@@ -251,6 +258,7 @@ class Product {
       minQuantity: json['min_quantity'] as int?,
       maxQuantity: json['max_quantity'] as int?,
       maxOrdersPerUser: json['max_orders_per_user'] as int?,
+      campaignType: json['campaign_type'] as String?,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
     );
@@ -284,6 +292,7 @@ class Product {
       'min_quantity': minQuantity,
       'max_quantity': maxQuantity,
       'max_orders_per_user': maxOrdersPerUser,
+      'campaign_type': campaignType,
       'rating': rating,
       'total_reviews': totalReviews,
     };
@@ -316,6 +325,7 @@ class Product {
     int? minQuantity,
     int? maxQuantity,
     int? maxOrdersPerUser,
+    String? campaignType,
     double? rating,
     int? totalReviews,
   }) {
@@ -346,6 +356,7 @@ class Product {
       minQuantity: minQuantity ?? this.minQuantity,
       maxQuantity: maxQuantity ?? this.maxQuantity,
       maxOrdersPerUser: maxOrdersPerUser ?? this.maxOrdersPerUser,
+      campaignType: campaignType ?? this.campaignType,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,
     );

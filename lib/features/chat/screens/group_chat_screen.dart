@@ -282,8 +282,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundImage: avatar != null ? NetworkImage(avatar) : null,
-                                child: avatar == null ? const Icon(Icons.person) : null,
+                                backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                                child: avatar == null || avatar.isEmpty ? const Icon(Icons.person) : null,
                               ),
                               title: Text(name),
                               subtitle: msg != null && msg.isNotEmpty ? Text(msg, maxLines: 2, overflow: TextOverflow.ellipsis) : null,
@@ -447,10 +447,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
               child: CircleAvatar(
                 radius: 18,
                 backgroundColor: Colors.white.withOpacity(0.2),
-                backgroundImage: _currentGroup.avatarUrl != null
+                backgroundImage: _currentGroup.avatarUrl != null && _currentGroup.avatarUrl!.isNotEmpty
                     ? NetworkImage(_currentGroup.avatarUrl!)
                     : null,
-                child: _currentGroup.avatarUrl == null
+                child: _currentGroup.avatarUrl == null || _currentGroup.avatarUrl!.isEmpty
                     ? Icon(
                         _currentGroup.isPrivate ? Icons.lock : Icons.groups,
                         size: 20,
@@ -574,11 +574,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
                 onTap: () => _showSenderProfile(message.senderId),
                 child: CircleAvatar(
                   radius: 15,
-                  backgroundImage: message.senderAvatarUrl != null
+                  backgroundImage: message.senderAvatarUrl != null && message.senderAvatarUrl!.isNotEmpty
                       ? NetworkImage(message.senderAvatarUrl!)
                       : null,
                   backgroundColor: senderColor.withOpacity(0.15),
-                  child: message.senderAvatarUrl == null
+                  child: message.senderAvatarUrl == null || message.senderAvatarUrl!.isEmpty
                       ? Text(
                           (message.senderName ?? 'U')[0].toUpperCase(),
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: senderColor),
@@ -1184,9 +1184,9 @@ class _MessageReadReceiptsSheetState extends State<_MessageReadReceiptsSheet> {
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                 leading: CircleAvatar(
                                   radius: 20,
-                                  backgroundImage: r.avatarUrl != null ? NetworkImage(r.avatarUrl!) : null,
+                                  backgroundImage: r.avatarUrl != null && r.avatarUrl!.isNotEmpty ? NetworkImage(r.avatarUrl!) : null,
                                   backgroundColor: Colors.grey[300],
-                                  child: r.avatarUrl == null
+                                  child: r.avatarUrl == null || r.avatarUrl!.isEmpty
                                       ? Text(
                                           r.displayName[0].toUpperCase(),
                                           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue[700]),

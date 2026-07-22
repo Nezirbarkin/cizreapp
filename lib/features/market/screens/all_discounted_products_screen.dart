@@ -7,6 +7,8 @@ import '../../../core/models/product_model.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
+import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../services/cart_service.dart';
 import '../services/shop_service.dart';
 import 'product_detail_screen.dart';
@@ -374,21 +376,13 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                     Positioned(
                       top: 4,
                       left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
+                    ),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: CampaignBadge(),
                     ),
                   // Sabitlenmiş badge (satıcı tarafından) - indirim varsa sağda
                   if (product.sellerPinned)
@@ -499,40 +493,29 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                   
                   const SizedBox(height: 4),
                   
-                  // Buton - tam genişlik
+                  // Buton
                   SizedBox(
                     width: double.infinity,
-                    height: 30,
+                    height: 32,
                     child: !inCart
-                        ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock || !isOrderable)
-                                ? null
-                                : () => _addToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              backgroundColor: theme.colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              minimumSize: const Size(double.infinity, 30),
-                            ),
-                            child: isAdding
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    !isOrderable
-                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
-                                        : 'Sepete Ekle',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ? Row(
+                            children: [
+                              if (!isOrderable)
+                                Expanded(
+                                  child: Text(
+                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              AddToCartFab(
+                                isLoading: isAdding,
+                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                    ? null
+                                    : () => _addToCart(product),
+                              ),
+                            ],
                           )
                         : Container(
                             decoration: BoxDecoration(

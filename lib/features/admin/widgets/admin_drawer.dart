@@ -171,12 +171,6 @@ class AdminDrawer extends StatelessWidget {
             const Divider(height: 24, thickness: 1),
             _buildDrawerItem(
               context: context,
-              icon: Icons.auto_awesome_rounded,
-              title: 'Yapay Zeka Yönetimi',
-              section: 'ai_management',
-            ),
-            _buildDrawerItem(
-              context: context,
               icon: Icons.api_rounded,
               title: 'API Ayarları',
               section: 'api',

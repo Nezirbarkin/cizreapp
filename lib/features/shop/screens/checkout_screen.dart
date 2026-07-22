@@ -29,6 +29,7 @@ class CheckoutScreen extends StatefulWidget {
   final double total;
   final double discountAmount;
   final String? appliedCoupon;
+  final String? appliedCouponId;
 
   const CheckoutScreen({
     super.key,
@@ -38,6 +39,7 @@ class CheckoutScreen extends StatefulWidget {
     required this.total,
     this.discountAmount = 0,
     this.appliedCoupon,
+    this.appliedCouponId,
   });
 
   @override
@@ -380,6 +382,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         customerPhone: customerPhone,
         invoiceInfo: _selectedInvoiceInfo,
       );
+
+      // "2 al biri bakiye" kampanyalı ürünler varsa ödülü bakiyeye yansıt
+      if (order != null) {
+        try {
+          await Supabase.instance.client.rpc('apply_campaign_rewards_for_order', params: {
+            'p_order_id': order.id,
+          });
+        } catch (campaignError) {
+          debugPrint('⚠️ Kampanya ödülü uygulanamadı: $campaignError');
+        }
+      }
+
+      // Kupon kullanıldıysa DB'de kullanım kaydını tut (limitleri tekrar kontrol eder)
+      if (widget.appliedCouponId != null && order != null) {
+        try {
+          await Supabase.instance.client.rpc('use_coupon', params: {
+            'p_coupon_id': widget.appliedCouponId,
+            'p_order_id': order.id,
+            'p_user_id': userId,
+            'p_discount_amount': widget.discountAmount,
+          });
+        } catch (couponError) {
+          debugPrint('⚠️ Kupon kullanım kaydı oluşturulamadı: $couponError');
+        }
+      }
 
       // Bakiye ile ödeme ise bakiyeden düş
       if (_selectedPaymentMethod == PaymentMethod.balance && order != null) {

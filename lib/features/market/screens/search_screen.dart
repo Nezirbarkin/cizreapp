@@ -9,6 +9,8 @@ import '../../../core/models/product_model.dart';
 import '../../../core/models/category_model.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
+import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../services/shop_service.dart';
 import '../services/product_service.dart';
 import '../services/category_service.dart';
@@ -533,65 +535,64 @@ class _SearchScreenState extends State<SearchScreen> {
       return CustomScrollView(
         slivers: [
           // Diğer sonuçlar (Dükkanlar, Kategoriler, Kişiler)
-          if (nonProducts.isNotEmpty)
-            SliverList(
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final item = nonProducts[index];
+                if (item is Shop) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildShopTile(item),
+                  );
+                } else if (item is Category) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildCategoryTile(item),
+                  );
+                } else if (item is Map<String, dynamic>) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildUserTile(item),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+              childCount: nonProducts.length,
+            ),
+          ),
+          // Ürünler başlığı
+          SliverToBoxAdapter(
+            child: products.isEmpty
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: Text(
+                      'Ürünler (${products.length})',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+          ),
+          // Ürünler grid
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+                childAspectRatio: 0.68,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
-                  final item = nonProducts[index];
-                  if (item is Shop) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildShopTile(item),
-                    );
-                  } else if (item is Category) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildCategoryTile(item),
-                    );
-                  } else if (item is Map<String, dynamic>) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildUserTile(item),
-                    );
-                  }
-                  return const SizedBox.shrink();
+                  return _buildProductCardForGrid(products[index]);
                 },
-                childCount: nonProducts.length,
+                childCount: products.length,
               ),
             ),
-          // Ürünler başlığı
-          if (products.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Text(
-                  'Ürünler (${products.length})',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ),
-          // Ürünler grid
-          if (products.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
-                  childAspectRatio: 0.68,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    return _buildProductCardForGrid(products[index]);
-                  },
-                  childCount: products.length,
-                ),
-              ),
-            ),
+          ),
           const SliverToBoxAdapter(child: SizedBox(height: 16)),
         ],
       );
@@ -734,21 +735,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     Positioned(
                       top: 4,
                       left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
+                    ),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: CampaignBadge(),
                     ),
                   // Sabitlenmiş badge
                   if (product.sellerPinned)
@@ -859,40 +852,29 @@ class _SearchScreenState extends State<SearchScreen> {
                   
                   const SizedBox(height: 4),
                   
-                  // Buton - tam genişlik
+                  // Buton
                   SizedBox(
                     width: double.infinity,
-                    height: 30,
+                    height: 32,
                     child: !inCart
-                        ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock || !isOrderable)
-                                ? null
-                                : () => _addToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              backgroundColor: theme.colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              minimumSize: const Size(double.infinity, 30),
-                            ),
-                            child: isAdding
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    !isOrderable
-                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
-                                        : 'Sepete Ekle',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ? Row(
+                            children: [
+                              if (!isOrderable)
+                                Expanded(
+                                  child: Text(
+                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              AddToCartFab(
+                                isLoading: isAdding,
+                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                    ? null
+                                    : () => _addToCart(product),
+                              ),
+                            ],
                           )
                         : Container(
                             decoration: BoxDecoration(

@@ -313,8 +313,8 @@ class _MembersScreenState extends State<MembersScreen> {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.deepPurple[100],
-                  backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                  child: avatarUrl == null
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
                       ? Text(
                           fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
                           style: TextStyle(

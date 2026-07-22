@@ -16,13 +16,12 @@ import '../../../core/widgets/story_card.dart';
 import '../../../core/widgets/html_iframe_widget.dart';
 import '../../../core/widgets/animated_app_title.dart';
 import '../../../core/widgets/floating_message_button.dart';
-import '../../../core/widgets/floating_ai_chat_button.dart';
 import '../../../core/widgets/settings_sidebar.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
+import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/services/balance_service.dart';
 import '../../wallet/screens/wallet_screen.dart';
-import '../../ai_chat/screens/ai_chat_meta_screen.dart';
-import '../../ai_chat/screens/ai_chat_list_screen.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/order_availability_service.dart';
@@ -106,8 +105,8 @@ class _MarketScreenState extends State<MarketScreen> {
   final Set<String> _addingToCart = {};
   final Map<String, int> _cartQuantities = {};
   Timer? _dealTimer;
-  // ignore: unused_field
-  int _timerTick = 0; // Her saniye güncellenir, widget'ları rebuild eder
+  // Sadece fırsat kartları geri sayımını tetikler; tüm ekranı rebuild ETMEZ.
+  final ValueNotifier<int> _dealTick = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -130,7 +129,7 @@ class _MarketScreenState extends State<MarketScreen> {
     // Geri sayım için timer başlat (her saniye güncelle)
     _dealTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() => _timerTick++);
+        _dealTick.value++;
       }
     });
 
@@ -265,6 +264,7 @@ class _MarketScreenState extends State<MarketScreen> {
   @override
   void dispose() {
     _dealTimer?.cancel();
+    _dealTick.dispose();
     if (_conversationsChannel != null) {
       Supabase.instance.client.removeChannel(_conversationsChannel!);
     }
@@ -312,13 +312,8 @@ class _MarketScreenState extends State<MarketScreen> {
           debugPrint('Fırsat kartları yüklenirken hata: $e');
           return <DailyDeal>[];
         }),
-        // 8. Son gönderiler
-        _postService.getFeed(limit: 5, offset: 0, useCache: false).catchError((e) {
-          debugPrint('Recent Posts yüklenirken hata: $e');
-          return <Post>[];
-        }),
       ]);
-      
+
       // Sonuçları çıkar
       final settingsResponse = results[0] as Map<String, dynamic>?;
       final categories = results[1] as List<Category>;
@@ -327,8 +322,7 @@ class _MarketScreenState extends State<MarketScreen> {
       final discountedProducts = results[4] as List<Product>;
       final categoryShopCounts = results[5] as Map<String, int>;
       final deals = results[6] as List<DailyDeal>;
-      final recentPosts = results[7] as List<Post>;
-      
+
       // Global sipariş durumunu ayarla
       if (settingsResponse != null) {
         _globalOrdersEnabled = settingsResponse['global_orders_enabled'] as bool? ?? true;
@@ -351,24 +345,6 @@ class _MarketScreenState extends State<MarketScreen> {
         debugPrint('Animasyon ayarları yüklenirken hata: $e');
       }
       
-      // Son gönderilerin kullanıcı bilgilerini yükle
-      Map<String, Map<String, dynamic>> postUsersMap = {};
-      if (recentPosts.isNotEmpty) {
-        try {
-          final userIds = recentPosts.map((p) => p.userId).toSet().toList();
-          final usersResponse = await Supabase.instance.client
-              .from('profiles')
-              .select('id, full_name, username, avatar_url')
-              .inFilter('id', userIds);
-          
-          for (var user in usersResponse) {
-            postUsersMap[user['id']] = user;
-          }
-        } catch (e) {
-          debugPrint('Post kullanıcı bilgileri yüklenirken hata: $e');
-        }
-      }
-
       // Her yenilemede farklı sıralama için ürünleri karıştır (dükkanlar karıştırılmaz - sponsorlar en üstte)
       discountedProducts.shuffle();
       // Sponsor dükkanları en üstte tut
@@ -385,10 +361,12 @@ class _MarketScreenState extends State<MarketScreen> {
         _discountedProducts = discountedProducts;
         _categoryShopCounts = categoryShopCounts;
         _deals = deals;
-        _recentPosts = recentPosts;
-        _postUsersMap = postUsersMap;
         _isLoading = false;
       });
+
+      // Kritik olmayan "Son Gönderiler" bölümü ilk render'ı bloklamasın,
+      // arka planda ayrı yüklenir.
+      _loadRecentPosts();
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -399,10 +377,47 @@ class _MarketScreenState extends State<MarketScreen> {
     }
   }
 
+  Future<void> _loadRecentPosts() async {
+    try {
+      final recentPosts = await _postService.getFeed(limit: 5, offset: 0, useCache: false);
+
+      Map<String, Map<String, dynamic>> postUsersMap = {};
+      if (recentPosts.isNotEmpty) {
+        final userIds = recentPosts.map((p) => p.userId).toSet().toList();
+        final usersResponse = await Supabase.instance.client
+            .from('profiles')
+            .select('id, full_name, username, avatar_url')
+            .inFilter('id', userIds);
+
+        for (var user in usersResponse) {
+          postUsersMap[user['id']] = user;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _recentPosts = recentPosts;
+          _postUsersMap = postUsersMap;
+        });
+      }
+    } catch (e) {
+      debugPrint('Son gönderiler yüklenirken hata: $e');
+    }
+  }
+
   // Dükkan ID -> Shop haritası. Ürünlerin sipariş alınabilirliğini
   // hızlıca kontrol etmek için _shops listesinden türetilir.
-  Map<String, Shop> get _shopsById =>
-      {for (final s in _shops) s.id: s};
+  // _shops değişmediği sürece yeniden hesaplanmaz (her ürün kartı build'inde
+  // O(n) map inşa etmemek için).
+  Map<String, Shop>? _shopsByIdCache;
+  List<Shop>? _shopsByIdSource;
+  Map<String, Shop> get _shopsById {
+    if (_shopsByIdSource != _shops) {
+      _shopsByIdSource = _shops;
+      _shopsByIdCache = {for (final s in _shops) s.id: s};
+    }
+    return _shopsByIdCache!;
+  }
 
   // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
   // Global kapatma veya dükkan geçici kapalıysa false.
@@ -673,23 +688,6 @@ class _MarketScreenState extends State<MarketScreen> {
               ).then((_) => _loadChatUnreadCount());
             },
           ),
-          // Animasyonlu yapay zeka sohbet butonu (mesaj butonunun üstünde)
-          FloatingAIChatButton(
-            show: true,
-            onTap: () {
-              final currentUser = Supabase.instance.client.auth.currentUser;
-              if (currentUser == null) {
-                Navigator.pushNamed(context, '/login');
-                return;
-              }
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AIMetaScreen(conversationId: null),
-                ),
-              );
-            },
-          ),
         ],
       ),
     );
@@ -899,28 +897,35 @@ class _MarketScreenState extends State<MarketScreen> {
           // Üst boşluk
           const SliverToBoxAdapter(child: SizedBox(height: 4)),
 
-          // Fırsat Kartları
-          if (_deals.isNotEmpty) ...[
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 160,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _deals.length,
-                  itemBuilder: (context, index) {
-                    final deal = _deals[index];
-                    return Container(
-                      width: 300,
-                      margin: const EdgeInsets.only(right: 12),
-                      child: _buildDynamicDealCard(deal),
-                    );
-                  },
-                ),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
-          ],
+          // Fırsat Kartları - sadece geri sayım her saniye burada rebuild olur
+          SliverToBoxAdapter(
+            child: _deals.isEmpty
+                ? const SizedBox.shrink()
+                : ValueListenableBuilder<int>(
+                    valueListenable: _dealTick,
+                    builder: (context, _, __) => Column(
+                      children: [
+                        SizedBox(
+                          height: 160,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _deals.length,
+                            itemBuilder: (context, index) {
+                              final deal = _deals[index];
+                              return Container(
+                                width: 300,
+                                margin: const EdgeInsets.only(right: 12),
+                                child: _buildDynamicDealCard(deal),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    ),
+                  ),
+          ),
 
           // Kategoriler
           SliverToBoxAdapter(
@@ -956,8 +961,7 @@ class _MarketScreenState extends State<MarketScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
           // Kategori kartları - Grid
-          if (_categories.isNotEmpty)
-            SliverPadding(
+          SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               sliver: SliverGrid(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -1026,25 +1030,26 @@ class _MarketScreenState extends State<MarketScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
           // İndirimdekiler - Horizontal Scroll (Gerçek indirimli ürünler)
-          if (_discountedProducts.isNotEmpty)
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 170,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _discountedProducts.length,
-                  itemBuilder: (context, index) {
-                    final product = _discountedProducts[index];
-                    return Container(
-                      width: 130,
-                      margin: const EdgeInsets.only(right: 8),
-                      child: _buildDiscountedProductCard(product),
-                    );
-                  },
-                ),
-              ),
-            ),
+          SliverToBoxAdapter(
+            child: _discountedProducts.isEmpty
+                ? const SizedBox.shrink()
+                : SizedBox(
+                    height: 170,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _discountedProducts.length,
+                      itemBuilder: (context, index) {
+                        final product = _discountedProducts[index];
+                        return Container(
+                          width: 130,
+                          margin: const EdgeInsets.only(right: 8),
+                          child: _buildDiscountedProductCard(product),
+                        );
+                      },
+                    ),
+                  ),
+          ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
@@ -1082,81 +1087,75 @@ class _MarketScreenState extends State<MarketScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
           // Dükkan listesi
-          if (_shops.isEmpty)
-            const SliverFillRemaining(
-              child: Center(
-                child: Text('Henüz dükkan bulunmuyor'),
-              ),
-            )
-          else ...[
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final shop = _shops[index];
-                    return _buildShopCard(shop);
-                  },
-                  childCount: _shops.length,
-                ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (_shops.isEmpty) {
+                    return const SizedBox(
+                      height: 200,
+                      child: Center(
+                        child: Text('Henüz dükkan bulunmuyor'),
+                      ),
+                    );
+                  }
+                  final shop = _shops[index];
+                  return _buildShopCard(shop);
+                },
+                childCount: _shops.isEmpty ? 1 : _shops.length,
               ),
             ),
+          ),
 
-            // En Son Gönderiler
-            if (_recentPosts.isNotEmpty) ...[
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
+          // En Son Gönderiler
+          SliverToBoxAdapter(
+            child: _recentPosts.isEmpty
+                ? const SizedBox(height: 100)
+                : Column(
                     children: [
-                      const Text(
-                        'En Son Gönderiler',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black87,
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            const Text(
+                              'En Son Gönderiler',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text(
+                              '✨',
+                              style: TextStyle(fontSize: 16),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '✨',
-                        style: const TextStyle(fontSize: 16),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 280,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _recentPosts.length,
+                          itemBuilder: (context, index) {
+                            final post = _recentPosts[index];
+                            return Container(
+                              width: 200,
+                              margin: const EdgeInsets.only(right: 12),
+                              child: _buildRecentPostCard(post),
+                            );
+                          },
+                        ),
                       ),
+                      const SizedBox(height: 120),
                     ],
                   ),
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 8)),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 280,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _recentPosts.length,
-                    itemBuilder: (context, index) {
-                      final post = _recentPosts[index];
-                      return Container(
-                        width: 200,
-                        margin: const EdgeInsets.only(right: 12),
-                        child: _buildRecentPostCard(post),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 120,
-                ),
-              ),
-            ] else
-              // Gönderi yoksa da alt padding ekle (bottom navigation için)
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 100),
-              ),
-          ],
+          ),
         ],
       ),
     );
@@ -1671,8 +1670,11 @@ class _MarketScreenState extends State<MarketScreen> {
     int cartQuantity;
     bool inCart;
     try {
-      final cartProvider = context.watch<CartProvider>();
-      cartQuantity = cartProvider.getProductQuantityFromCache(product.id);
+      // select: sadece BU ürünün miktarı değiştiğinde bu kart rebuild olur
+      // (watch tüm sepet değişikliklerinde tüm görünür kartları rebuild ederdi).
+      cartQuantity = context.select<CartProvider, int>(
+        (p) => p.getProductQuantityFromCache(product.id),
+      );
       inCart = cartQuantity > 0;
     } catch (_) {
       cartQuantity = _getCartQuantity(product.id);
@@ -1735,21 +1737,13 @@ class _MarketScreenState extends State<MarketScreen> {
                     Positioned(
                       top: 4,
                       left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
+                    ),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: CampaignBadge(),
                     ),
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
@@ -1839,40 +1833,29 @@ class _MarketScreenState extends State<MarketScreen> {
                   
                   const SizedBox(height: 4),
                   
-                  // Buton - tam genişlik
+                  // Buton
                   SizedBox(
                     width: double.infinity,
-                    height: 30,
+                    height: 32,
                     child: !inCart
-                        ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock || !isOrderable)
-                                ? null
-                                : () => _addToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              backgroundColor: theme.colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              minimumSize: const Size(double.infinity, 30),
-                            ),
-                            child: isAdding
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    !isOrderable
-                                        ? (_globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı')
-                                        : 'Sepete Ekle',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ? Row(
+                            children: [
+                              if (!isOrderable)
+                                Expanded(
+                                  child: Text(
+                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              AddToCartFab(
+                                isLoading: isAdding,
+                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                    ? null
+                                    : () => _addToCart(product),
+                              ),
+                            ],
                           )
                         : Container(
                             decoration: BoxDecoration(

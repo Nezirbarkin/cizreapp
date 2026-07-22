@@ -21,7 +21,6 @@ import '../widgets/reports_content.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
 import '../widgets/daily_deals_content.dart';
-import 'ai_management_screen.dart';
 import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
@@ -637,15 +636,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
-                    icon: Icons.auto_awesome_rounded,
-                    title: 'Yapay Zeka Yönetimi',
-                    isSelected: _selectedMenu == 'Yapay Zeka Yönetimi',
-                    onTap: () {
-                      setState(() => _selectedMenu = 'Yapay Zeka Yönetimi');
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _buildDrawerItem(
                     icon: Icons.api_rounded,
                     title: 'API Ayarları',
                     isSelected: _selectedMenu == 'API Ayarları',
@@ -840,8 +830,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildAnalyticsContent();
       case 'Loglar':
         return _buildLogsContent();
-      case 'Yapay Zeka Yönetimi':
-        return const AIManagementScreen();
       case 'API Ayarları':
         return _buildAPISettingsContent();
       case 'Ayarlar':

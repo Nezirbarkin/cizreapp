@@ -94,7 +94,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
       // API key yüklendikten sonra otomatik olarak mevcut konumu al
       if (apiKey != null && MapsApiKeyService.isValidApiKey(apiKey)) {
         // Kısa bir gecikme ile konum al (harita yüklenmesini bekle)
-        Future.delayed(const Duration(milliseconds: 1500), () {
+        Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) {
             _getCurrentLocation();
           }

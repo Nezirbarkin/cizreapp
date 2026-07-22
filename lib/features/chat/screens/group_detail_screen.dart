@@ -122,8 +122,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                       child: CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.white.withOpacity(0.2),
-                        backgroundImage: group.avatarUrl != null ? NetworkImage(group.avatarUrl!) : null,
-                        child: group.avatarUrl == null
+                        backgroundImage: group.avatarUrl != null && group.avatarUrl!.isNotEmpty ? NetworkImage(group.avatarUrl!) : null,
+                        child: group.avatarUrl == null || group.avatarUrl!.isEmpty
                             ? Icon(
                                 group.isPrivate ? Icons.lock : Icons.groups,
                                 size: 50,
@@ -201,10 +201,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                               children: [
                                 CircleAvatar(
                                   radius: 22,
-                                  backgroundImage: _creatorProfile?['avatar_url'] != null
+                                  backgroundImage: (_creatorProfile?['avatar_url'] as String?)?.isNotEmpty == true
                                       ? NetworkImage(_creatorProfile!['avatar_url'])
                                       : null,
-                                  child: _creatorProfile?['avatar_url'] == null
+                                  child: (_creatorProfile?['avatar_url'] as String?)?.isNotEmpty != true
                                       ? const Icon(Icons.person)
                                       : null,
                                 ),
@@ -249,10 +249,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                                   dense: true,
                                   leading: CircleAvatar(
                                     radius: 18,
-                                    backgroundImage: m['avatar_url'] != null
+                                    backgroundImage: (m['avatar_url'] as String?)?.isNotEmpty == true
                                         ? NetworkImage(m['avatar_url'])
                                         : null,
-                                    child: m['avatar_url'] == null
+                                    child: (m['avatar_url'] as String?)?.isNotEmpty != true
                                         ? const Icon(Icons.person, size: 18)
                                         : null,
                                   ),

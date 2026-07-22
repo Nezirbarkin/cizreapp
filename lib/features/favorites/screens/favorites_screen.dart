@@ -8,6 +8,7 @@ import '../../../core/models/product_model.dart';
 import '../../../core/models/post_model.dart' show Post;
 import '../../market/screens/product_detail_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
 
 /// Favorilerim Ekranı - Ürün ve Gönderi favorilerini gösterir
 class FavoritesScreen extends StatefulWidget {
@@ -267,24 +268,7 @@ class _ProductCard extends StatelessWidget {
                     Positioned(
                       top: 8,
                       left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage} İndirim',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0),
                     ),
                   // Kalp ikonu (favori)
                   Positioned(

@@ -338,6 +338,9 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
   final _districtController = TextEditingController(text: 'Cizre'); // Varsayılan Cizre
   bool _isDefault = false;
   bool _isSaving = false;
+  double? _pickedLatitude;
+  double? _pickedLongitude;
+  String? _pickedPlaceId;
 
   @override
   void initState() {
@@ -351,6 +354,14 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
       _cityController.text = widget.address!.city;
       _districtController.text = widget.address!.district ?? '';
       _isDefault = widget.address!.isDefault;
+      _pickedLatitude = widget.address!.latitude;
+      _pickedLongitude = widget.address!.longitude;
+      _pickedPlaceId = widget.address!.placeId;
+    } else {
+      // Yeni adres eklerken haritayı otomatik aç, konumu direkt al
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openMapPicker(context);
+      });
     }
   }
 
@@ -375,12 +386,15 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
     );
     
     if (result != null) {
-      // Haritadan seçilen adresi forma doldur
+      // Haritadan seçilen adresi ve konumu forma doldur
       setState(() {
         _addressLine1Controller.text = result.addressLine1;
         if (result.district != null) {
           _districtController.text = result.district!;
         }
+        _pickedLatitude = result.latitude;
+        _pickedLongitude = result.longitude;
+        _pickedPlaceId = result.placeId;
       });
     }
   }
@@ -422,6 +436,9 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
           addressLine2: _addressLine2Controller.text.isNotEmpty ? _addressLine2Controller.text : null,
           city: _cityController.text,
           district: _districtController.text.isNotEmpty ? _districtController.text : null,
+          latitude: _pickedLatitude,
+          longitude: _pickedLongitude,
+          placeId: _pickedPlaceId,
           isDefault: _isDefault,
         ).timeout(
           const Duration(seconds: 15),
@@ -444,6 +461,9 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
           addressLine2: _addressLine2Controller.text.isNotEmpty ? _addressLine2Controller.text : null,
           city: _cityController.text,
           district: _districtController.text.isNotEmpty ? _districtController.text : null,
+          latitude: _pickedLatitude,
+          longitude: _pickedLongitude,
+          placeId: _pickedPlaceId,
           isDefault: _isDefault,
         ).timeout(
           const Duration(seconds: 15),

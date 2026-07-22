@@ -10,6 +10,8 @@ import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_review_model.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/skeleton_loader.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
+import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../services/product_service.dart';
 import '../services/shop_review_service.dart';
 import '../providers/cart_provider.dart';
@@ -773,47 +775,48 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
           ),
 
           // Geçici Kapalı veya Global Kapalı Banner
-          if (!_globalOrdersEnabled || (_shop != null && !_shop!.isAcceptingOrders))
-            SliverToBoxAdapter(
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                color: Colors.red.shade50,
-                child: Row(
-                  children: [
-                    Icon(Icons.block, color: Colors.red.shade700, size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            !_globalOrdersEnabled
-                                ? '🚫 Sipariş Alma Geçici Olarak Kapalı'
-                                : '🚫 Geçici Kapalı',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.red.shade700,
-                              fontSize: 14,
-                            ),
+          SliverToBoxAdapter(
+            child: (!_globalOrdersEnabled || (_shop != null && !_shop!.isAcceptingOrders))
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    color: Colors.red.shade50,
+                    child: Row(
+                      children: [
+                        Icon(Icons.block, color: Colors.red.shade700, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                !_globalOrdersEnabled
+                                    ? '🚫 Sipariş Alma Geçici Olarak Kapalı'
+                                    : '🚫 Geçici Kapalı',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red.shade700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                !_globalOrdersEnabled
+                                    ? 'Tüm mağazalarda sipariş alma geçici olarak durduruldu.'
+                                    : 'Bu dükkan şu anda sipariş almıyor.',
+                                style: TextStyle(
+                                  color: Colors.red.shade600,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            !_globalOrdersEnabled
-                                ? 'Tüm mağazalarda sipariş alma geçici olarak durduruldu.'
-                                : 'Bu dükkan şu anda sipariş almıyor.',
-                            style: TextStyle(
-                              color: Colors.red.shade600,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  )
+                : const SizedBox.shrink(),
+          ),
 
           // Shop Info
           SliverToBoxAdapter(
@@ -983,11 +986,24 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     ],
                   ),
                   
-                  if (_shop!.description != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      _shop!.description!,
-                      style: TextStyle(color: Colors.grey.shade700),
+                  if (_shop!.description != null && _shop!.description!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Text(
+                        _shop!.description!,
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
                     ),
                   ],
 
@@ -1016,88 +1032,71 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   //   ),
                   // ],
 
-                  // Teslimat Bilgileri - Kompakt
-                  const SizedBox(height: 12),
-                  
-                  // Kompakt Teslimat Bilgileri
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                    ),
+                  // Teslimat Bilgileri - Modern kart satırı
+                  const SizedBox(height: 14),
+
+                  IntrinsicHeight(
                     child: Row(
-                      children: [
-                        Icon(Icons.delivery_dining, size: 18, color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Teslimat',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  if (_shop!.deliveryTime != null)
-                                    Text(
-                                      _shop!.deliveryTime!,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                        color: Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                  if (_shop!.deliveryTime != null) const SizedBox(width: 8),
-                                  Text(
-                                    _shop!.deliveryFee > 0
-                                        ? '₺${_shop!.deliveryFee.toStringAsFixed(0)}'
-                                        : 'Ücretsiz',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: _shop!.deliveryFee > 0
-                                          ? Colors.orange.shade700
-                                          : Colors.green.shade700,
-                                    ),
-                                  ),
-                                  if (_shop!.minOrderAmount > 0) ...[
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Min. ₺${_shop!.minOrderAmount.toStringAsFixed(0)}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade500,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              if (_shop!.freeDeliveryMinAmount != null && _shop!.freeDeliveryMinAmount! > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    '₺${_shop!.freeDeliveryMinAmount!.toStringAsFixed(0)} üzeri ücretsiz',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.green.shade600,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _ShopInfoTile(
+                          icon: Icons.delivery_dining_rounded,
+                          iconColor: Colors.blue.shade600,
+                          iconBg: Colors.blue.shade50,
+                          label: 'Teslimat Ücreti',
+                          value: _shop!.deliveryFee > 0
+                              ? '₺${_shop!.deliveryFee.toStringAsFixed(0)}'
+                              : 'Ücretsiz',
+                          valueColor: _shop!.deliveryFee > 0
+                              ? Colors.orange.shade700
+                              : Colors.green.shade700,
+                          subtitle: _shop!.deliveryTime,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _ShopInfoTile(
+                          icon: Icons.shopping_bag_rounded,
+                          iconColor: Colors.purple.shade600,
+                          iconBg: Colors.purple.shade50,
+                          label: 'Min. Sipariş',
+                          value: _shop!.minOrderAmount > 0
+                              ? '₺${_shop!.minOrderAmount.toStringAsFixed(0)}'
+                              : 'Yok',
+                          valueColor: Colors.grey.shade800,
+                        ),
+                      ),
+                    ],
                   ),
+                  ),
+
+                  if (_shop!.freeDeliveryMinAmount != null && _shop!.freeDeliveryMinAmount! > 0) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.green.shade100),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_shipping_rounded, size: 16, color: Colors.green.shade700),
+                          const SizedBox(width: 8),
+                          Text(
+                            '₺${_shop!.freeDeliveryMinAmount!.toStringAsFixed(0)} ve üzeri siparişlerde ücretsiz teslimat',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 12),
 
@@ -1332,45 +1331,48 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
           ),
 
           // Products Grid
-          _filteredProducts.isEmpty
-              ? SliverFillRemaining(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.search_off,
-                          size: 64,
-                          color: Colors.grey.shade400,
+          SliverPadding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: 16 + MediaQuery.of(context).padding.bottom + 60,
+            ),
+            sliver: _filteredProducts.isEmpty
+                ? SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 48),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 64,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Ürün bulunamadı',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Filtreleri değiştirmeyi deneyin',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Ürün bulunamadı',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Filtreleri değiştirmeyi deneyin',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                )
-              : SliverPadding(
-                  padding: EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top: 16,
-                    bottom: 16 + MediaQuery.of(context).padding.bottom + 60,
-                  ),
-                  sliver: SliverGrid(
+                  )
+                : SliverGrid(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
                       childAspectRatio: 0.68,
@@ -1385,7 +1387,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                       childCount: _filteredProducts.length,
                     ),
                   ),
-                ),
+          ),
         ],
       ),
     );
@@ -1617,21 +1619,13 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     Positioned(
                       top: 4,
                       left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
+                    ),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: CampaignBadge(),
                     ),
                   // Sabitlenmiş badge (satıcı tarafından) - indirim varsa sağda
                   if (product.sellerPinned)
@@ -1752,37 +1746,29 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   
                   const SizedBox(height: 4),
                   
-                  // Buton - tam genişlik
+                  // Buton
                   SizedBox(
                     width: double.infinity,
-                    height: 30,
+                    height: 32,
                     child: !inCart
-                        ? ElevatedButton(
-                            onPressed: (isAdding || !isInStock || isShopClosed)
-                                ? null
-                                : () => _addToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              backgroundColor: theme.colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              minimumSize: const Size(double.infinity, 30),
-                            ),
-                            child: isAdding
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Sepete Ekle',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ? Row(
+                            children: [
+                              if (isShopClosed)
+                                const Expanded(
+                                  child: Text(
+                                    'Kapalı',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              AddToCartFab(
+                                isLoading: isAdding,
+                                onPressed: (isAdding || !isInStock || isShopClosed)
+                                    ? null
+                                    : () => _addToCart(product),
+                              ),
+                            ],
                           )
                         : Container(
                             decoration: BoxDecoration(
@@ -1876,6 +1862,87 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
             fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Dükkan detay sayfasında teslimat/min. sipariş gibi bilgileri gösteren modern kart
+class _ShopInfoTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final String label;
+  final String value;
+  final Color? valueColor;
+  final String? subtitle;
+
+  const _ShopInfoTile({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.label,
+    required this.value,
+    this.valueColor,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: valueColor ?? Colors.grey.shade900,
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle!,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

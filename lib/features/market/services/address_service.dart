@@ -68,6 +68,9 @@ class AddressService {
     required String city,
     String? district,
     String? postalCode,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     bool isDefault = false,
   }) async {
     try {
@@ -91,6 +94,9 @@ class AddressService {
             'city': city,
             'district': district,
             'postal_code': postalCode,
+            'latitude': latitude,
+            'longitude': longitude,
+            'place_id': placeId,
             'is_default': isDefault,
           })
           .select()
@@ -114,6 +120,9 @@ class AddressService {
     required String city,
     String? district,
     String? postalCode,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     bool isDefault = false,
   }) async {
     try {
@@ -137,6 +146,9 @@ class AddressService {
             'city': city,
             'district': district,
             'postal_code': postalCode,
+            'latitude': latitude,
+            'longitude': longitude,
+            'place_id': placeId,
             'is_default': isDefault,
             'updated_at': DateTime.now().toIso8601String(),
           })

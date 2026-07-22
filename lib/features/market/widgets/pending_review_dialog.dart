@@ -2,7 +2,6 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/shop_review_service.dart';
 import '../../shop/services/order_service.dart';
@@ -420,8 +419,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
 class PendingReviewChecker {
   static final _reviewService = ShopReviewService();
   static bool _hasCheckedThisSession = false;
-  static const String _skippedOrdersKey = 'skipped_review_orders';
-  
+
   /// Push bildiriminden gelen sipariş ID'si (bildirim tıklandığında ayarlanır)
   static String? _pendingOrderIdFromPush;
   
@@ -438,62 +436,20 @@ class PendingReviewChecker {
     return orderId;
   }
 
-  /// Atlanan siparişi kaydet
-  static Future<void> _markOrderAsSkipped(String orderId) async {
+  /// Siparişin hatırlatıcısını veritabanında kalıcı olarak atlanmış işaretle
+  /// (cihaz/uygulama değişse bile tekrar sorulmaz)
+  static Future<void> _markOrderAsSkipped(PendingReview review) async {
     try {
-      debugPrint('🔄 Sipariş atlanıyor: $orderId');
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Önce mevcut listeyi oku
-      await prefs.reload(); // Cache'i yenile
-      final skippedOrders = prefs.getStringList(_skippedOrdersKey) ?? [];
-      debugPrint('📋 Mevcut atlanan siparişler: $skippedOrders');
-      
-      if (!skippedOrders.contains(orderId)) {
-        skippedOrders.add(orderId);
-        final saved = await prefs.setStringList(_skippedOrdersKey, skippedOrders);
-        debugPrint('✅ Sipariş atlanan listesine eklendi: $orderId (Başarılı: $saved)');
-        debugPrint('📋 Güncel liste: $skippedOrders');
-        
-        // Verilerin disk'e yazıldığından emin ol
-        // Android'de SharedPreferences otomatik persist eder,
-        // ancak bazen gecikme olabilir
-      } else {
-        debugPrint('⚠️ Sipariş zaten atlanan listede: $orderId');
-      }
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      await Supabase.instance.client.rpc('dismiss_review_reminder', params: {
+        'p_order_id': review.orderId,
+        'p_digital_order_id': review.digitalOrderId,
+        'p_user_id': userId,
+      });
+      debugPrint('✅ Sipariş hatırlatıcısı DB\'de atlandı olarak işaretlendi: ${review.trackingId}');
     } catch (e) {
       debugPrint('❌ Atlanan sipariş kaydedilemedi: $e');
-    }
-  }
-
-  /// Siparişin daha önce atlanıp atlanmadığını kontrol et
-  static Future<bool> _isOrderSkipped(String orderId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.reload(); // Cache'i yenile - disk'ten oku
-      final skippedOrders = prefs.getStringList(_skippedOrdersKey) ?? [];
-      final isSkipped = skippedOrders.contains(orderId);
-      debugPrint('🔍 Sipariş kontrolü: $orderId -> ${isSkipped ? "ATLANDI" : "YENİ"}');
-      debugPrint('📋 Atlanan liste: $skippedOrders');
-      return isSkipped;
-    } catch (e) {
-      debugPrint('❌ Atlanan sipariş kontrolü hatası: $e');
-      return false;
-    }
-  }
-
-  /// Atlanan siparişleri temizle (değerlendirme yapıldıktan sonra)
-  static Future<void> _removeSkippedOrder(String orderId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final skippedOrders = prefs.getStringList(_skippedOrdersKey) ?? [];
-      if (skippedOrders.contains(orderId)) {
-        skippedOrders.remove(orderId);
-        await prefs.setStringList(_skippedOrdersKey, skippedOrders);
-        debugPrint('✅ Sipariş atlanan listesinden çıkarıldı: $orderId');
-      }
-    } catch (e) {
-      debugPrint('❌ Atlanan sipariş silinemedi: $e');
     }
   }
 
@@ -521,28 +477,16 @@ class PendingReviewChecker {
       if (!isFirstCheck) return; // İlk kontrol değilse atla
 
       final pendingReviews = await _reviewService.getPendingReviews(userId);
-      
-      if (pendingReviews.isEmpty) return;
 
-      // Atlanmamış ilk siparişi bul
-      PendingReview? firstNonSkipped;
-      for (var review in pendingReviews) {
-        final isSkipped = await _isOrderSkipped(review.trackingId);
-        if (!isSkipped) {
-          firstNonSkipped = review;
-          break;
-        }
-      }
+      if (pendingReviews.isEmpty) return; // Atlanmış siparişler zaten DB tarafında filtreleniyor
 
-      if (firstNonSkipped == null) return; // Hepsi atlanmış
-
-      // İlk atlanmamış değerlendirmeyi göster
+      // İlk bekleyen değerlendirmeyi göster
       if (context.mounted) {
         // Biraz bekle, uygulama tam yüklensin
         await Future.delayed(const Duration(seconds: 1));
-        
+
         if (context.mounted) {
-          _showPendingReviewDialog(context, firstNonSkipped);
+          _showPendingReviewDialog(context, pendingReviews.first);
         }
       }
     } catch (e) {
@@ -566,8 +510,12 @@ class PendingReviewChecker {
       }
 
       // Atlanmış mı kontrol et (atlanmışsa gösterme)
-      final isSkipped = await _isOrderSkipped(orderId);
-      if (isSkipped) {
+      final orderRow = await Supabase.instance.client
+          .from('orders')
+          .select('review_reminder_dismissed')
+          .eq('id', orderId)
+          .maybeSingle();
+      if (orderRow?['review_reminder_dismissed'] == true) {
         debugPrint('⚠️ Sipariş atlanmış, değerlendirme gösterilmiyor: $orderId');
         return;
       }
@@ -594,11 +542,9 @@ class PendingReviewChecker {
             barrierDismissible: false,
             builder: (dialogContext) => PendingReviewDialog(
               pendingReview: pendingReview,
-              onReviewSubmitted: () async {
-                await _removeSkippedOrder(orderId);
-              },
+              onReviewSubmitted: () async {},
               onSkipped: () async {
-                await _markOrderAsSkipped(orderId);
+                await _markOrderAsSkipped(pendingReview);
               },
             ),
           );
@@ -618,13 +564,10 @@ class PendingReviewChecker {
       barrierDismissible: false,
       builder: (dialogContext) => PendingReviewDialog(
         pendingReview: pendingReview,
-        onReviewSubmitted: () async {
-          // Değerlendirme yapıldı, atlanan listesinden çıkar
-          await _removeSkippedOrder(pendingReview.trackingId);
-        },
+        onReviewSubmitted: () async {},
         onSkipped: () async {
-          // Atlandı olarak işaretle - bu sayede tekrar gösterilmeyecek
-          await _markOrderAsSkipped(pendingReview.trackingId);
+          // Atlandı olarak DB'de işaretle - bu sayede tekrar gösterilmeyecek
+          await _markOrderAsSkipped(pendingReview);
           debugPrint('📝 Sipariş değerlendirmesi atlandı: ${pendingReview.trackingId}');
         },
       ),
@@ -634,16 +577,5 @@ class PendingReviewChecker {
   /// Oturum kontrolünü sıfırla (test için)
   static void resetSessionCheck() {
     _hasCheckedThisSession = false;
-  }
-
-  /// Tüm atlanan siparişleri temizle (test/debug için)
-  static Future<void> clearSkippedOrders() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_skippedOrdersKey);
-      debugPrint('✅ Tüm atlanan siparişler temizlendi');
-    } catch (e) {
-      debugPrint('❌ Atlanan siparişler temizlenemedi: $e');
-    }
   }
 }

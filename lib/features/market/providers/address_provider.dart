@@ -68,6 +68,9 @@ class AddressProvider with ChangeNotifier {
     required String city,
     String? district,
     String? postalCode,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     bool isDefault = false,
   }) async {
     try {
@@ -81,6 +84,9 @@ class AddressProvider with ChangeNotifier {
         city: city,
         district: district,
         postalCode: postalCode,
+        latitude: latitude,
+        longitude: longitude,
+        placeId: placeId,
         isDefault: isDefault,
       );
 
@@ -109,6 +115,9 @@ class AddressProvider with ChangeNotifier {
     required String city,
     String? district,
     String? postalCode,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     bool isDefault = false,
   }) async {
     try {
@@ -123,6 +132,9 @@ class AddressProvider with ChangeNotifier {
         city: city,
         district: district,
         postalCode: postalCode,
+        latitude: latitude,
+        longitude: longitude,
+        placeId: placeId,
         isDefault: isDefault,
       );
 

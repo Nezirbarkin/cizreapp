@@ -337,8 +337,8 @@ class _GroupSearchScreenState extends State<GroupSearchScreen> {
           child: CircleAvatar(
             radius: 24,
             backgroundColor: isPrivate ? Colors.orange[100] : Colors.green[100],
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
+            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+            child: avatarUrl == null || avatarUrl.isEmpty
                 ? Icon(
                     isPrivate ? Icons.lock : Icons.groups,
                     color: isPrivate ? Colors.orange[700] : Colors.green[700],

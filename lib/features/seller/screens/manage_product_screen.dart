@@ -65,6 +65,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   List<XFile> _selectedImages = [];
   final int _maxImages = 5;
   bool _hasDiscount = false;
+  bool _hasBuy2Get1BalanceCampaign = false;
 
   // Varyant state
   String _productType = 'normal';
@@ -117,6 +118,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
     
     _hasDiscount = widget.product?.hasDiscount ?? false;
+    _hasBuy2Get1BalanceCampaign = widget.product?.isBuy2Get1BalanceCampaign ?? false;
 
     // Varyant verilerini yükle
     if (widget.product != null) {
@@ -560,6 +562,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           minQuantity: _productType == 'digital' ? minQuantity : null,
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
+          campaignType: _hasBuy2Get1BalanceCampaign ? 'buy2_get1_balance' : null,
         );
 
         if (mounted) {
@@ -590,6 +593,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
           clearMaxOrdersPerUser: _productType == 'digital' && maxOrdersPerUser == null,
+          campaignType: _hasBuy2Get1BalanceCampaign ? 'buy2_get1_balance' : null,
+          clearCampaignType: !_hasBuy2Get1BalanceCampaign,
         );
 
         if (mounted) {
@@ -1352,6 +1357,15 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 },
               ),
             ],
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('"2 Al Biri Bakiye" Kampanyası'),
+              subtitle: const Text('Bu üründen 2 adet alan müşteriye 1 adedin tutarı bakiye olarak iade edilir'),
+              value: _hasBuy2Get1BalanceCampaign,
+              onChanged: (value) => setState(() => _hasBuy2Get1BalanceCampaign = value),
+              activeTrackColor: Colors.green.shade200,
+              activeThumbColor: Colors.green.shade700,
+            ),
           ],
         ),
       ),
