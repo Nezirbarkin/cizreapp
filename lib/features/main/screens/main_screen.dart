@@ -31,6 +31,8 @@ import '../../market/screens/notifications_screen.dart';
 import '../../chat/services/presence_service.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
+import '../../user_courier/widgets/animated_courier_fab.dart';
+import '../../user_courier/screens/send_package_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -261,6 +263,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
               children: [
+                Positioned(
+                  right: 20,
+                  bottom: 80,
+                  child: AnimatedCourierFab(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SendPackageScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
                 FloatingActionButton(
                   backgroundColor: const Color(0xFFEEFF41),
                   elevation: 8,

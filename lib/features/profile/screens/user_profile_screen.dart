@@ -20,6 +20,7 @@ import '../../social/screens/post_detail_screen.dart';
 import '../../social/screens/story_viewer_screen.dart';
 import '../services/profile_service.dart';
 import '../services/follow_request_service.dart';
+import 'followers_screen.dart';
 import '../../chat/services/chat_service.dart';
 import '../../chat/screens/chat_detail_screen.dart';
 
@@ -927,10 +928,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                _buildStatItem('${_userPosts.length}', 'Gönderi'),
-                                _buildStatItem('$_followersCount', 'Takipçi'),
-                                _buildStatItem('$_followingCount', 'Takip'),
-                                _buildStatItem('$_friendsCount', 'Arkadaş'),
+                                _buildStatItem('${_userPosts.length}', 'Gönderi', null),
+                                _buildStatItem('$_followersCount', 'Takipçi', () => _navigateToFollowList(FollowListType.followers)),
+                                _buildStatItem('$_followingCount', 'Takip', () => _navigateToFollowList(FollowListType.following)),
+                                _buildStatItem('$_friendsCount', 'Arkadaş', () => _navigateToFollowList(FollowListType.friends)),
                               ],
                             ),
                           ),
@@ -1130,28 +1131,46 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
     );
   }
 
-  Widget _buildStatItem(String count, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          count,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.5,
+  Widget _buildStatItem(String count, String label, VoidCallback? onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            count,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToFollowList(FollowListType listType) {
+    final username = _userProfile?['username'] ?? 'Kullanıcı';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FollowListScreen(
+          userId: widget.userId,
+          listType: listType,
+          username: username,
         ),
-      ],
+      ),
     );
   }
 

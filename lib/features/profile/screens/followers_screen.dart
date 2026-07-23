@@ -311,10 +311,10 @@ class _FollowListScreenState extends State<FollowListScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: Text(_getTitle()),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
+        title: Text(
+          _getTitle(),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         centerTitle: true,
       ),
       body: _isLoading
