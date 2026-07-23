@@ -43,6 +43,7 @@ class _AnimatedCourierFabState extends State<AnimatedCourierFab>
         elevation: 8,
         onPressed: widget.onTap,
         tooltip: 'Kargo Gönder',
+        heroTag: 'courier_fab',
         child: const Icon(
           Icons.two_wheeler,
           color: Colors.white,
