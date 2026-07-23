@@ -338,4 +338,52 @@ class EmailService {
       return false;
     }
   }
+
+  /// Kurye ödeme isteği oluşturduğunda admine email bildirimi gönder
+  Future<bool> sendCourierPayoutRequestEmailToAdmin({
+    required String courierName,
+    required double amount,
+  }) async {
+    try {
+      debugPrint('📧 EMAIL: Kurye ödeme isteği bildirimi gönderiliyor (Admin)...');
+
+      final adminProfiles = await _supabase
+          .from('profiles')
+          .select('email')
+          .eq('role', 'admin');
+
+      if (adminProfiles.isEmpty) {
+        debugPrint('⚠️ EMAIL: Admin bulunamadı');
+        return false;
+      }
+
+      int successCount = 0;
+      for (final admin in adminProfiles) {
+        final adminEmail = admin['email'] as String?;
+        if (adminEmail != null && adminEmail.isNotEmpty) {
+          final response = await _supabase.functions.invoke(
+            'send-order-email',
+            body: {
+              'type': 'courier_payout_request',
+              'to': adminEmail,
+              'data': {
+                'courierName': courierName,
+                'totalAmount': amount.toStringAsFixed(2),
+              },
+            },
+          );
+
+          if (response.status == 200) {
+            successCount++;
+            debugPrint('✅ EMAIL: Admin ödeme isteği bildirimi gönderildi - $adminEmail');
+          }
+        }
+      }
+
+      return successCount > 0;
+    } catch (e) {
+      debugPrint('❌ EMAIL: Admin ödeme isteği emaili gönderilirken hata: $e');
+      return false;
+    }
+  }
 }

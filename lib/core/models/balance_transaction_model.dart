@@ -8,6 +8,7 @@ enum BalanceTransactionType {
   commission,    // Komisyon (satıcı kazancı)
   adReward,      // Reklam ödülü (izleyerek kazan)
   taskReward,    // Görev ödülü (görev yaparak kazan)
+  courierPayment, // Paket gönderim ücreti (kurye)
 }
 
 /// Etiket helper'ları (Dart analyzer v6.4 syntax uyumu için ayrı extension)
@@ -30,6 +31,8 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return 'Reklam Ödülü';
       case BalanceTransactionType.taskReward:
         return 'Görev Ödülü';
+      case BalanceTransactionType.courierPayment:
+        return 'Paket Gönderim Ücreti';
     }
   }
 
@@ -51,6 +54,8 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return 'ad_reward';
       case BalanceTransactionType.taskReward:
         return 'task_reward';
+      case BalanceTransactionType.courierPayment:
+        return 'courier_payment';
     }
   }
 
@@ -66,7 +71,8 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
   /// Negatif tutar mı? (ödeme, çekim)
   bool get isNegative {
     return this == BalanceTransactionType.orderPayment ||
-        this == BalanceTransactionType.withdrawal;
+        this == BalanceTransactionType.withdrawal ||
+        this == BalanceTransactionType.courierPayment;
   }
 
   static BalanceTransactionType fromString(String value) {
@@ -87,6 +93,8 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return BalanceTransactionType.adReward;
       case 'task_reward':
         return BalanceTransactionType.taskReward;
+      case 'courier_payment':
+        return BalanceTransactionType.courierPayment;
       default:
         return BalanceTransactionType.topup;
     }

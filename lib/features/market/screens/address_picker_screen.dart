@@ -29,15 +29,22 @@ class AddressPickerScreen extends StatefulWidget {
 class _AddressPickerScreenState extends State<AddressPickerScreen> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _neighborhoodController = TextEditingController();
+  final TextEditingController _streetController = TextEditingController();
+  final TextEditingController _noController = TextEditingController();
+  final TextEditingController _floorController = TextEditingController();
+  final TextEditingController _apartmentController = TextEditingController();
   
   GoogleMapController? _mapController;
-  
+
   double? _selectedLatitude;
   double? _selectedLongitude;
   String _selectedAddress = '';
   bool _isSearching = false;
   bool _isLoadingLocation = false;
   bool _isApiKeyLoaded = false;
+  bool _isGeocoding = false;
+  Timer? _geocodeDebounce;
   
   // Cizre varsayılan koordinatları
   static const LatLng _defaultCizre = LatLng(37.3255, 42.1876);
@@ -55,10 +62,15 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
     _selectedLongitude = widget.initialLongitude;
     _selectedAddress = widget.initialAddress ?? '';
     _addressController.text = _selectedAddress;
-    
+    _streetController.text = _selectedAddress;
+
+    // Mahalle ve sokak değişikliklerini dinle
+    _neighborhoodController.addListener(_onAddressFieldChanged);
+    _streetController.addListener(_onAddressFieldChanged);
+
     // API Key'i yükle
     _loadApiKey();
-    
+
     // Başlangıçta marker ayarla
     _updateMarker();
   }
@@ -91,8 +103,9 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         _isApiKeyLoaded = true;
       });
       
-      // API key yüklendikten sonra otomatik olarak mevcut konumu al
-      if (apiKey != null && MapsApiKeyService.isValidApiKey(apiKey)) {
+      // Sadece başlangıç konumu verilmediyse otomatik olarak mevcut konumu al
+      final hasInitialLocation = widget.initialLatitude != null && widget.initialLongitude != null;
+      if (!hasInitialLocation && apiKey != null && MapsApiKeyService.isValidApiKey(apiKey)) {
         // Kısa bir gecikme ile konum al (harita yüklenmesini bekle)
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) {
@@ -105,10 +118,62 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
 
   @override
   void dispose() {
+    _geocodeDebounce?.cancel();
     _searchController.dispose();
     _addressController.dispose();
+    _neighborhoodController.dispose();
+    _streetController.dispose();
+    _noController.dispose();
+    _floorController.dispose();
+    _apartmentController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  void _onAddressFieldChanged() {
+    _geocodeDebounce?.cancel();
+    _geocodeDebounce = Timer(const Duration(milliseconds: 800), _geocodeAddressFromFields);
+  }
+
+  Future<void> _geocodeAddressFromFields() async {
+    final neighborhood = _neighborhoodController.text.trim();
+    final street = _streetController.text.trim();
+
+    if (neighborhood.isEmpty || street.isEmpty) {
+      return;
+    }
+
+    if (_googleMapsApiKey == null || !MapsApiKeyService.isValidApiKey(_googleMapsApiKey)) {
+      return;
+    }
+
+    setState(() => _isGeocoding = true);
+
+    try {
+      final query = '$neighborhood, $street, Cizre, Şırnak, Türkiye';
+      final data = await _geocode(query);
+
+      if (data != null && data['status'] == 'OK' && (data['results'] as List).isNotEmpty) {
+        final location = data['results'][0]['geometry']['location'];
+        final lat = (location['lat'] as num).toDouble();
+        final lng = (location['lng'] as num).toDouble();
+
+        if (mounted) {
+          setState(() {
+            _selectedLatitude = lat;
+            _selectedLongitude = lng;
+          });
+          _updateMarker();
+          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 17));
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Mahalle/Sokak geocode hatası: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isGeocoding = false);
+      }
+    }
   }
 
   void _updateMarker() {
@@ -246,21 +311,33 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
           String streetAddress = '';
           String neighborhood = '';
           String district = '';
-          
+
           final components = result['address_components'] as List;
+          debugPrint('📋 Adres bileşenleri:');
           for (var component in components) {
             final types = component['types'] as List;
             final longName = component['long_name'] as String;
-            
+            debugPrint('  - $longName: $types');
+
             if (types.contains('route')) {
               streetAddress = longName;
             } else if (types.contains('neighborhood') || types.contains('sublocality')) {
               neighborhood = longName;
+            } else if (types.contains('administrative_area_level_4')) {
+              // Türkiye'de mahalle genellikle level_4
+              if (neighborhood.isEmpty) {
+                neighborhood = longName;
+              }
+            } else if (types.contains('administrative_area_level_3')) {
+              // Alternatif mahalle seviyesi
+              if (neighborhood.isEmpty) {
+                neighborhood = longName;
+              }
             } else if (types.contains('administrative_area_level_2')) {
               district = longName;
             }
           }
-          
+
           // Adresi oluştur
           String fullAddress = '';
           if (neighborhood.isNotEmpty) {
@@ -281,6 +358,8 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
             setState(() {
               _selectedAddress = fullAddress;
               _addressController.text = fullAddress;
+              if (neighborhood.isNotEmpty) _neighborhoodController.text = neighborhood;
+              if (streetAddress.isNotEmpty) _streetController.text = streetAddress;
             });
           }
         } else {
@@ -293,31 +372,61 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
     }
   }
 
+  Future<Map<String, dynamic>?> _geocode(String address) async {
+    try {
+      final encodedQuery = Uri.encodeComponent(address);
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json?address=$encodedQuery&key=$_googleMapsApiKey&language=tr',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      debugPrint('🔍 Geocode "$address" -> status=${data['status']}');
+      return data;
+    } catch (e) {
+      debugPrint('❌ Geocode isteği hatası: $e');
+      return null;
+    }
+  }
+
   Future<void> _searchAddress() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
 
+    if (_googleMapsApiKey == null || !MapsApiKeyService.isValidApiKey(_googleMapsApiKey)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Harita servisi hazır değil')),
+      );
+      return;
+    }
+
     setState(() => _isSearching = true);
 
     try {
-      // Google Maps arama URL'si
-      final encodedQuery = Uri.encodeComponent('$query, Cizre, Şırnak, Türkiye');
-      final searchUrl = 'https://www.google.com/maps/search/?api=1&query=$encodedQuery';
-      
-      if (await canLaunchUrl(Uri.parse(searchUrl))) {
-        await launchUrl(
-          Uri.parse(searchUrl),
-          mode: LaunchMode.externalApplication,
+      Map<String, dynamic>? data = await _geocode('$query, Cizre, Şırnak, Türkiye');
+      if (data == null || data['status'] != 'OK' || (data['results'] as List).isEmpty) {
+        // Bölge eki sonuç bulamadıysa sade sorguyla tekrar dene
+        data = await _geocode(query);
+      }
+
+      if (data != null && data['status'] == 'OK' && (data['results'] as List).isNotEmpty) {
+        final location = data['results'][0]['geometry']['location'];
+        final lat = (location['lat'] as num).toDouble();
+        final lng = (location['lng'] as num).toDouble();
+
+        setState(() {
+          _selectedLatitude = lat;
+          _selectedLongitude = lng;
+        });
+        _updateMarker();
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 17));
+        await _fetchAddressFromCoordinates(lat, lng);
+      } else if (mounted) {
+        final status = data?['status'] ?? 'ERROR';
+        final errorMessage = data?['error_message'];
+        debugPrint('❌ Geocode sonuç yok: status=$status error=$errorMessage');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Konum bulunamadı ($status)')),
         );
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Haritadan konumu seçin'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
       }
     } catch (e) {
       debugPrint('❌ Arama hatası: $e');
@@ -340,14 +449,26 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
   }
 
   void _saveAddress() {
-    final address = _addressController.text.trim();
-    
-    if (address.isEmpty) {
+    final neighborhood = _neighborhoodController.text.trim();
+    final street = _streetController.text.trim();
+
+    if (neighborhood.isEmpty || street.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen adres girin')),
+        const SnackBar(content: Text('Lütfen mahalle ve sokak girin')),
       );
       return;
     }
+
+    final line1 = [
+      neighborhood,
+      street,
+      if (_noController.text.trim().isNotEmpty) 'No:${_noController.text.trim()}',
+    ].join(' ');
+
+    final line2Parts = [
+      if (_floorController.text.trim().isNotEmpty) 'Kat:${_floorController.text.trim()}',
+      if (_apartmentController.text.trim().isNotEmpty) 'Daire:${_apartmentController.text.trim()}',
+    ];
 
     final selectedAddress = Address(
       id: '',
@@ -355,7 +476,8 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
       title: 'Seçili Konum',
       fullName: '',
       phone: '',
-      addressLine1: address,
+      addressLine1: line1,
+      addressLine2: line2Parts.isEmpty ? null : line2Parts.join(' '),
       city: 'Şırnak',
       district: 'Cizre',
       latitude: _selectedLatitude,
@@ -472,7 +594,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         children: [
           // Google Maps
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Stack(
               children: [
                 GoogleMap(
@@ -573,7 +695,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
           ),
           // Koordinat ve adres bilgisi
           Expanded(
-            flex: 1,
+            flex: 4,
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -747,18 +869,74 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                   fontSize: 16,
                 ),
               ),
+              const Spacer(),
+              if (_isGeocoding)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: _addressController,
-            maxLines: 3,
+            controller: _neighborhoodController,
+            enabled: !_isGeocoding,
             decoration: InputDecoration(
-              hintText: 'Mahalle, sokak, bina numarası...',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              labelText: 'Mahalle',
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _streetController,
+            enabled: !_isGeocoding,
+            decoration: InputDecoration(
+              labelText: 'Sokak / Cadde',
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _noController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'No',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _floorController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Kat',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _apartmentController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Daire',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           SizedBox(

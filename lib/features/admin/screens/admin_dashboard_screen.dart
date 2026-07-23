@@ -682,15 +682,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
-                    icon: Icons.two_wheeler,
-                    title: 'Kurye Yönetimi',
-                    isSelected: _selectedMenu == 'Kurye Yönetimi',
-                    onTap: () {
-                      setState(() => _selectedMenu = 'Kurye Yönetimi');
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _buildDrawerItem(
                     icon: Icons.assignment_turned_in_rounded,
                     title: 'Görev Yönetimi',
                     isSelected: _selectedMenu == 'Görev Yönetimi',
@@ -819,7 +810,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       case 'Siparişler':
         return _buildOrdersContent();
       case 'Kurye Yönetimi':
-        return const CourierQuickSettingsScreen();
+        return DefaultTabController(
+          length: 3,
+          child: Column(
+            children: [
+              const TabBar(
+                labelColor: Colors.teal,
+                tabs: [
+                  Tab(text: 'Kuryeler', icon: Icon(Icons.delivery_dining)),
+                  Tab(text: 'Paketler', icon: Icon(Icons.inventory_2)),
+                  Tab(text: 'Ayarlar', icon: Icon(Icons.settings)),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildCourierManagementContent(),
+                    const AdminPackageRequestsTab(),
+                    const CourierQuickSettingsScreen(embedded: true),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
       case 'Gruplar':
         return const GroupsManagementContent();
       case 'Bildirimler':
@@ -11389,11 +11403,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'user_id': courierId,
           'type': 'courier_payout_approved',
           'title': '💰 Ödemeniz Hesabınıza Aktarıldı!',
-          'body': '₺${pendingAmount.toStringAsFixed(2)} tutarındaki ödemeniz hesabınıza aktarıldı.',
+          'content': '₺${pendingAmount.toStringAsFixed(2)} tutarındaki ödemeniz hesabınıza aktarıldı.',
           'data': {
             'type': 'courier_payout',
             'amount': pendingAmount,
           },
+          'is_read': false,
+          'created_at': DateTime.now().toIso8601String(),
         });
       } catch (e) {
         debugPrint('Kurye bildirim hatası: $e');
@@ -11706,12 +11722,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'user_id': payout['courier_id'],
           'type': 'courier_payout_approved',
           'title': '💰 Ödemeniz Onaylandı!',
-          'body': '₺${amount.toStringAsFixed(2)} tutarındaki ödemeniz onaylandı ve kısa süre içinde hesabınıza aktarılacaktır.',
+          'content': '₺${amount.toStringAsFixed(2)} tutarındaki ödemeniz onaylandı ve kısa süre içinde hesabınıza aktarılacaktır.',
           'data': {
             'payout_id': payoutId,
             'amount': amount,
             'type': 'courier_payout',
           },
+          'is_read': false,
+          'created_at': DateTime.now().toIso8601String(),
         });
 
         // Push bildirimi gonder (varsa FCM token ile)
@@ -17790,6 +17808,311 @@ class _WalletSettingsTabWidgetState extends State<_WalletSettingsTabWidget> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ==================== ADMIN - PAKET TALEPLERİ SEKMESİ ====================
+
+class AdminPackageRequestsTab extends StatefulWidget {
+  const AdminPackageRequestsTab({super.key});
+
+  @override
+  State<AdminPackageRequestsTab> createState() => _AdminPackageRequestsTabState();
+}
+
+class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
+  List<Map<String, dynamic>> _requests = [];
+  bool _isLoading = true;
+  String? _error;
+
+  Future<void> _openLocation(num? lat, num? lng) async {
+    if (lat == null || lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu adres için konum bilgisi yok')),
+      );
+      return;
+    }
+    final url = Uri.parse('https://www.google.com/maps?q=$lat,$lng');
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  Widget _buildAddressLine(String label, dynamic address, dynamic lat, dynamic lng) {
+    final hasLocation = lat != null && lng != null;
+    return InkWell(
+      onTap: () => _openLocation(lat as num?, lng as num?),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              '$label: ${address ?? '-'}',
+              style: TextStyle(
+                fontSize: 13,
+                color: hasLocation ? Colors.blue.shade700 : null,
+                decoration: hasLocation ? TextDecoration.underline : null,
+              ),
+            ),
+          ),
+          if (hasLocation)
+            Icon(Icons.map_outlined, size: 16, color: Colors.blue.shade700),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final response = await Supabase.instance.client
+          .from('courier_requests')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(100);
+      final requests = List<Map<String, dynamic>>.from(response as List);
+
+      // courier_requests.courier_id -> auth.users(id) olduğu için PostgREST
+      // FK embed'i profiles ile ilişki kuramıyor; kurye bilgisini manuel eşleştiriyoruz.
+      final courierIds = requests
+          .map((r) => r['courier_id'] as String?)
+          .where((id) => id != null)
+          .cast<String>()
+          .toSet()
+          .toList();
+
+      if (courierIds.isNotEmpty) {
+        final couriers = await Supabase.instance.client
+            .from('profiles')
+            .select('id, full_name, phone')
+            .inFilter('id', courierIds);
+        final courierMap = {
+          for (final c in List<Map<String, dynamic>>.from(couriers)) c['id'] as String: c,
+        };
+        for (final r in requests) {
+          final courierId = r['courier_id'] as String?;
+          if (courierId != null) r['courier'] = courierMap[courierId];
+        }
+      }
+
+      setState(() {
+        _requests = requests;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _notify(Map<String, dynamic> request, String title, String content, {required String type}) async {
+    final senderId = request['sender_id'] as String?;
+    if (senderId == null) return;
+    try {
+      await NotificationService().createNotification(
+        userId: senderId,
+        type: type,
+        title: title,
+        content: content,
+      );
+    } catch (e) {
+      debugPrint('Bildirim gönderilemedi: $e');
+    }
+  }
+
+  Future<void> _cancel(Map<String, dynamic> request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Paketi İptal Et'),
+        content: const Text('Bu paket talebini iptal etmek istediğine emin misin? Ücret gönderene iade edilecek.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('İptal Et')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('courier_requests')
+          .update({'status': 'cancelled'}).eq('id', request['id']);
+
+      final totalFee = (request['total_fee'] as num?)?.toDouble() ?? 0;
+      final senderId = request['sender_id'] as String?;
+      if (totalFee > 0 && senderId != null) {
+        try {
+          await Supabase.instance.client.rpc('add_to_balance', params: {
+            'p_user_id': senderId,
+            'p_amount': totalFee,
+            'p_type': 'refund',
+            'p_reference_type': 'courier_request',
+            'p_reference_id': request['id'],
+            'p_description': 'İptal edilen paket talebi iadesi',
+          });
+        } catch (e) {
+          debugPrint('İade RPC hatası: $e');
+        }
+      }
+
+      await _notify(request, 'Paket İptal Edildi', 'Gönderdiğiniz paket talebi admin tarafından iptal edildi ve ücret hesabınıza iade edildi.', type: 'cancellation_approved');
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _markDelivered(Map<String, dynamic> request) async {
+    try {
+      await Supabase.instance.client.from('courier_requests').update({
+        'status': 'delivered',
+        'delivered_at': DateTime.now().toIso8601String(),
+      }).eq('id', request['id']);
+
+      await _notify(request, 'Paketiniz Teslim Edildi', 'Gönderdiğiniz paket teslim edildi olarak işaretlendi.', type: 'courier_delivered');
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'pending':
+        return 'Bekliyor';
+      case 'accepted':
+        return 'Kurye Yolda';
+      case 'delivered':
+        return 'Teslim Edildi';
+      case 'cancelled':
+        return 'İptal Edildi';
+      default:
+        return status ?? '-';
+    }
+  }
+
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'pending':
+        return Colors.orange;
+      case 'accepted':
+        return Colors.blue;
+      case 'delivered':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: Text('Hata: $_error'));
+    if (_requests.isEmpty) return const Center(child: Text('Henüz paket talebi yok'));
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _requests.length,
+        itemBuilder: (context, index) {
+          final r = _requests[index];
+          final courier = r['courier'] as Map<String, dynamic>?;
+          final totalFee = (r['total_fee'] as num?)?.toDouble() ?? 0;
+          final status = r['status'] as String?;
+          final isFinal = status == 'delivered' || status == 'cancelled';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Gönderen: ${r['sender_name'] ?? '-'}',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _statusColor(status).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _statusLabel(status),
+                          style: TextStyle(color: _statusColor(status), fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildAddressLine('Alım', r['pickup_address'], r['pickup_lat'], r['pickup_lng']),
+                  _buildAddressLine('Teslim', r['delivery_address'], r['delivery_lat'], r['delivery_lng']),
+                  const SizedBox(height: 6),
+                  Text(
+                    courier != null
+                        ? 'Atanan Kurye: ${courier['full_name'] ?? '-'} (${courier['phone'] ?? '-'})'
+                        : 'Atanan Kurye: Henüz atanmadı',
+                    style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('${totalFee.toStringAsFixed(2)} ₺',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                  if (!isFinal) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => _cancel(r),
+                            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                            child: const Text('İptal Et'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => _markDelivered(r),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Teslim Edildi'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

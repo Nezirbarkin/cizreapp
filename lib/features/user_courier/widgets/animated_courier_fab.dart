@@ -11,7 +11,7 @@ class AnimatedCourierFab extends StatelessWidget {
       backgroundColor: const Color(0xFFFF6B00),
       elevation: 8,
       onPressed: onTap,
-      tooltip: 'Kargo Gönder',
+      tooltip: 'Paket Gönder',
       heroTag: 'courier_fab',
       child: const Icon(
         Icons.two_wheeler,

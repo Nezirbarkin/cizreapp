@@ -454,9 +454,91 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (e) {
       setState(() => _isPlacingOrder = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sipariş oluşturulurken hata: $e')),
-        );
+        // Yetersiz bakiye hatası kontrolü
+        final errorMessage = e.toString();
+        if (errorMessage.contains('Insufficient balance') || errorMessage.contains('yetersiz bakiye')) {
+          // Bakiye miktarlarını ayıkla
+          String? availableText;
+          String? requiredText;
+          try {
+            if (errorMessage.contains('Available:')) {
+              availableText = errorMessage.split('Available:')[1].split(',')[0].trim();
+              requiredText = errorMessage.split('Required:')[1].split(',')[0].trim();
+            }
+          } catch (_) {}
+
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Yetersiz Bakiye'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Siparişinizi tamamlamak için yeterli bakiyeniz yok.'),
+                  if (availableText != null && requiredText != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Mevcut bakiye: ₺$availableText',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          const SizedBox(height: 4),
+                          Text('Gerekli miktar: ₺$requiredText',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  const Text('Bakiye yüklemek ister misiniz?',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.pushNamed(context, '/wallet');
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                  ),
+                  child: const Text('Bakiye Yükle'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          // Diğer hatalar için genel mesaj
+          String userFriendlyMessage = 'Siparişiniz oluşturulurken bir sorun oluştu.';
+
+          if (errorMessage.contains('P0001') || errorMessage.contains('PostgrestException')) {
+            userFriendlyMessage = 'İşlem sırasında bir sorun oluştu. Lütfen tekrar deneyiniz.';
+          } else if (errorMessage.contains('timeout') || errorMessage.contains('Timeout')) {
+            userFriendlyMessage = 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyiniz.';
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(userFriendlyMessage),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }

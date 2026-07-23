@@ -108,15 +108,17 @@ class _MarketScreenState extends State<MarketScreen> {
   Timer? _dealTimer;
   // Sadece fırsat kartları geri sayımını tetikler; tüm ekranı rebuild ETMEZ.
   final ValueNotifier<int> _dealTick = ValueNotifier<int>(0);
+  bool _courierServiceActive = false;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    
+
     // ⚡ iOS PERFORMANCE: Başlatma işlemlerini PARALEL yap
     _loadData();
-    
+    _loadCourierServiceStatus();
+
     // Arka planda yükle - kullanıcıyı bekletmez
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Bağımsız yükleme işlemlerini paralel yap
@@ -283,9 +285,24 @@ class _MarketScreenState extends State<MarketScreen> {
     }
   }
 
+  Future<void> _loadCourierServiceStatus() async {
+    try {
+      final settings = await Supabase.instance.client
+          .from('courier_service_settings')
+          .select('enabled, allows_user_requests')
+          .limit(1)
+          .maybeSingle();
+      final active = (settings?['enabled'] as bool? ?? false) &&
+          (settings?['allows_user_requests'] as bool? ?? false);
+      if (mounted) setState(() => _courierServiceActive = active);
+    } catch (e) {
+      debugPrint('Kurye servisi durumu yüklenemedi: $e');
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    
+
     try {
       // ⚡ iOS PERFORMANCE: Tüm bağımsız veri yükleme işlemlerini PARALEL yap
       final results = await Future.wait([
@@ -669,30 +686,31 @@ class _MarketScreenState extends State<MarketScreen> {
             ],
           ),
           
-          // Moto kurye iconu (sohbet ikonunun üstünde)
-          Positioned(
-            right: 20,
-            bottom: 210,
-            child: FloatingActionButton(
-              backgroundColor: const Color(0xFFFF6B00),
-              elevation: 8,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SendPackageScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Kargo Gönder',
-              heroTag: 'courier_fab_market',
-              child: const Icon(
-                Icons.two_wheeler,
-                color: Colors.white,
-                size: 28,
+          // Moto kurye iconu (sohbet ikonunun üstünde) - sadece aktif olduğunda göster
+          if (_courierServiceActive)
+            Positioned(
+              right: 20,
+              bottom: 210,
+              child: FloatingActionButton(
+                backgroundColor: const Color(0xFFFF6B00),
+                elevation: 8,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SendPackageScreen(),
+                    ),
+                  );
+                },
+                tooltip: 'Paket Gönder',
+                heroTag: 'courier_fab_market',
+                child: const Icon(
+                  Icons.two_wheeler,
+                  color: Colors.white,
+                  size: 28,
+                ),
               ),
             ),
-          ),
 
           // Floating mesaj butonu
           FloatingMessageButton(

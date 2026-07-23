@@ -161,6 +161,51 @@ function createOrderEmailHtml(
   `;
 }
 
+// Kurye ödeme isteği e-posta içeriği oluştur (Admin'e)
+function createCourierPayoutRequestEmailHtml(
+  courierName: string,
+  amount: string
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Yeni Kurye Ödeme İsteği</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: linear-gradient(135deg, #F97316 0%, #FB923C 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0; text-align: center;">💰 Yeni Kurye Ödeme İsteği</h1>
+      </div>
+
+      <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #eee; border-top: none;">
+        <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>Kurye:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${courierName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;"><strong>İstenen Tutar:</strong></td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #eee;">₺${amount}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="background: #F97316; color: white; padding: 20px; border-radius: 8px; text-align: center;">
+          <h2 style="margin: 0;">Admin panelinden onaylayabilirsiniz</h2>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+        © ${new Date().getFullYear()} CizreApp. Tüm hakları saklıdır.
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 // Kuryeye yeni sipariş atandığında email içeriği oluştur
 function createCourierOrderEmailHtml(
   courierName: string,
@@ -238,7 +283,37 @@ serve(async (req) => {
     if (body.type && body.to && body.data) {
       const directReq = body as DirectRequest;
       console.log(`📧 Direct mode - Processing ${directReq.type} email to ${directReq.to}`);
-      
+
+      // Basit durum bildirimi emaili (paket kabul/teslim vs.)
+      if (directReq.type === 'package_status') {
+        const title = (directReq.data as any).title || 'Paket Bildirimi';
+        const message = (directReq.data as any).message || '';
+        const html = `<div style="font-family:sans-serif;padding:24px">
+          <h2>${title}</h2>
+          <p>${message}</p>
+        </div>`;
+        const success = await sendEmail(directReq.to, title, html);
+        return new Response(
+          JSON.stringify({ success, mode: "direct", type: directReq.type }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: success ? 200 : 500 }
+        );
+      }
+
+      // Kurye ödeme isteği emaili (admine)
+      if (directReq.type === 'courier_payout_request') {
+        const { courierName, totalAmount } = directReq.data as any;
+        const html = createCourierPayoutRequestEmailHtml(
+          courierName || 'Kurye',
+          totalAmount || '0.00'
+        );
+        const subject = `💰 Kurye Ödeme İsteği - ${courierName || 'Kurye'} (₺${totalAmount || '0.00'})`;
+        const success = await sendEmail(directReq.to, subject, html);
+        return new Response(
+          JSON.stringify({ success, mode: "direct", type: directReq.type }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: success ? 200 : 500 }
+        );
+      }
+
       // Kurye emaili için özel işlem
       if (directReq.type === 'new_order_courier') {
         const { courierName, shopName, orderNumber, totalAmount, deliveryAddress } = directReq.data;

@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously, unnecessary_brace_in_string_interps
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,6 +10,7 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/privacy_service.dart';
+import '../../../core/services/email_service.dart';
 import '../../market/screens/cart_screen.dart';
 import '../../social/screens/social_screen.dart';
 import '../../profile/screens/profile_screen.dart';
@@ -344,6 +346,16 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       final deliveries = List<Map<String, dynamic>>.from(response);
       _weeklyDeliveries = deliveries.length;
       _weeklyEarnings = deliveries.fold(0.0, (sum, d) => sum + ((d['fee_amount'] as num?)?.toDouble() ?? 0));
+
+      final packages = await Supabase.instance.client
+          .from('courier_requests')
+          .select('courier_fee')
+          .eq('courier_id', userId)
+          .eq('status', 'delivered')
+          .gte('delivered_at', startOfWeek.toIso8601String());
+      final packageList = List<Map<String, dynamic>>.from(packages);
+      _weeklyDeliveries += packageList.length;
+      _weeklyEarnings += packageList.fold(0.0, (sum, d) => sum + ((d['courier_fee'] as num?)?.toDouble() ?? 0));
     } catch (e) {
       debugPrint('Haftalık istatistikler yüklenirken hata: $e');
     }
@@ -367,6 +379,16 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       final deliveries = List<Map<String, dynamic>>.from(response);
       _monthlyDeliveries = deliveries.length;
       _monthlyEarnings = deliveries.fold(0.0, (sum, d) => sum + ((d['fee_amount'] as num?)?.toDouble() ?? 0));
+
+      final packages = await Supabase.instance.client
+          .from('courier_requests')
+          .select('courier_fee')
+          .eq('courier_id', userId)
+          .eq('status', 'delivered')
+          .gte('delivered_at', startOfMonth.toIso8601String());
+      final packageList = List<Map<String, dynamic>>.from(packages);
+      _monthlyDeliveries += packageList.length;
+      _monthlyEarnings += packageList.fold(0.0, (sum, d) => sum + ((d['courier_fee'] as num?)?.toDouble() ?? 0));
     } catch (e) {
       debugPrint('Aylık istatistikler yüklenirken hata: $e');
     }
@@ -1200,6 +1222,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
   List<Map<String, dynamic>> _availableOrders = [];
   List<Map<String, dynamic>> _myOrders = [];
   bool _isLoading = true;
+  double _commissionPercent = 20;
 
   /// Kurye ücretini al
   Future<double> _getCourierFee() async {
@@ -1234,6 +1257,17 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
+
+      try {
+        final settings = await Supabase.instance.client
+            .from('courier_service_settings')
+            .select('commission_percent')
+            .limit(1)
+            .maybeSingle();
+        _commissionPercent = (settings?['commission_percent'] as num?)?.toDouble() ?? 20;
+      } catch (e) {
+        debugPrint('Komisyon oranı yüklenemedi: $e');
+      }
 
       debugPrint('========== KURYE SİPARİŞ YÜKLEME ==========');
       debugPrint('Kullanıcı ID: $userId');
@@ -1331,9 +1365,36 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
 
       debugPrint('===========================================');
 
+      // Paket gönderim talepleri (courier_requests) de aynı listelere eklenir
+      List<Map<String, dynamic>> availablePackages = [];
+      List<Map<String, dynamic>> myPackages = [];
+      try {
+        final pending = await serviceClient
+            .from('courier_requests')
+            .select()
+            .eq('status', 'pending')
+            .order('created_at', ascending: false);
+        availablePackages = List<Map<String, dynamic>>.from(pending as List)
+            .where((r) => !List<String>.from(r['rejected_by'] as List? ?? []).contains(userId))
+            .map((r) => {...r, '_type': 'package'})
+            .toList();
+
+        final accepted = await serviceClient
+            .from('courier_requests')
+            .select()
+            .eq('courier_id', userId)
+            .inFilter('status', ['accepted', 'delivered'])
+            .order('created_at', ascending: false);
+        myPackages = List<Map<String, dynamic>>.from(accepted as List)
+            .map((r) => {...r, '_type': 'package'})
+            .toList();
+      } catch (e) {
+        debugPrint('❌ Paket talepleri hatası: $e');
+      }
+
       setState(() {
-        _availableOrders = availableFiltered;
-        _myOrders = myOrdersList;
+        _availableOrders = [...availablePackages, ...availableFiltered];
+        _myOrders = [...myPackages, ...myOrdersList];
         _isLoading = false;
       });
     } catch (e, stackTrace) {
@@ -1400,6 +1461,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
         itemCount: _availableOrders.length,
         itemBuilder: (context, index) {
           final order = _availableOrders[index];
+          if (order['_type'] == 'package') return _buildPackageCard(order, isMine: false);
           return _buildAvailableOrderCard(order);
         },
       ),
@@ -1877,6 +1939,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
         itemCount: _myOrders.length,
         itemBuilder: (context, index) {
           final order = _myOrders[index];
+          if (order['_type'] == 'package') return _buildPackageCard(order, isMine: true);
           return _buildMyOrderCard(order);
         },
       ),
@@ -2455,12 +2518,334 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
   void _navigateToAddress(Map<String, dynamic> order) async {
     final address = order['delivery_address_text'] ?? '';
     if (address.isEmpty) return;
-    
+
     final encodedAddress = Uri.encodeComponent(address);
     final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encodedAddress');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
+  }
+
+  Future<void> _sendPackagePickupEmails(Map<String, dynamic> request) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final courier = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name, phone, email')
+          .eq('id', userId)
+          .maybeSingle();
+      final courierName = courier?['full_name'] ?? 'Kurye';
+      final courierPhone = courier?['phone'] ?? '-';
+      final message =
+          'Kurye: $courierName ($courierPhone)\nAlım: ${request['pickup_address'] ?? '-'}\nTeslim: ${request['delivery_address'] ?? '-'}';
+
+      final recipients = <String>[];
+      final courierEmail = courier?['email'] as String?;
+      if (courierEmail != null && courierEmail.isNotEmpty) {
+        recipients.add(courierEmail);
+      } else {
+        debugPrint('⚠️ Kuryenin profiles.email alanı boş, kuryeye mail gönderilemeyecek (userId=$userId)');
+      }
+
+      final admins = await Supabase.instance.client
+          .from('profiles')
+          .select('email')
+          .eq('role', 'admin');
+      final adminList = List<Map<String, dynamic>>.from(admins);
+      debugPrint('📧 Bulunan admin sayısı: ${adminList.length}');
+      for (final a in adminList) {
+        final email = a['email'] as String?;
+        if (email != null && email.isNotEmpty) {
+          recipients.add(email);
+        } else {
+          debugPrint('⚠️ Bir admin profilinde email boş');
+        }
+      }
+
+      debugPrint('📧 Paket alım maili gönderilecek adresler: $recipients');
+      int sent = 0;
+      for (final to in recipients) {
+        try {
+          final res = await Supabase.instance.client.functions.invoke('send-order-email', body: {
+            'type': 'package_status',
+            'to': to,
+            'data': {'title': 'Paket Alındı', 'message': message},
+          });
+          debugPrint('📧 $to -> status=${res.status} data=${res.data}');
+          if (res.status == 200) sent++;
+        } catch (e) {
+          debugPrint('❌ $to adresine mail gönderilemedi: $e');
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bildirim maili: $sent/${recipients.length} adrese gönderildi')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Paket alım emaili gönderilemedi: $e');
+    }
+  }
+
+  Future<void> _notifyPackageSender(Map<String, dynamic> request, String title, String content, {required String type}) async {
+    final senderId = request['sender_id'] as String?;
+    if (senderId == null) return;
+    try {
+      await NotificationService().createNotification(
+        userId: senderId,
+        type: type,
+        title: title,
+        content: content,
+      );
+    } catch (e) {
+      debugPrint('Bildirim gönderilemedi: $e');
+    }
+  }
+
+  Future<void> _acceptPackage(Map<String, dynamic> request) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    try {
+      final settings = await Supabase.instance.client
+          .from('courier_service_settings')
+          .select('commission_percent')
+          .limit(1)
+          .maybeSingle();
+      final commission = (settings?['commission_percent'] as num?)?.toDouble() ?? 20;
+      final totalFee = (request['total_fee'] as num?)?.toDouble() ?? 0;
+      final courierFee = totalFee * (1 - commission / 100);
+      final adminCommission = totalFee - courierFee;
+
+      final updated = await Supabase.instance.client.from('courier_requests').update({
+        'status': 'accepted',
+        'courier_id': userId,
+        'courier_fee': courierFee,
+        'admin_commission': adminCommission,
+      }).eq('id', request['id']).select();
+
+      if ((updated as List).isEmpty) {
+        throw Exception('Talep güncellenemedi (yetki sorunu veya başka kurye almış olabilir)');
+      }
+
+      await _notifyPackageSender(request, 'Kurye Atandı', 'Paket talebiniz bir kurye tarafından kabul edildi ve yola çıkacak.', type: 'courier_assigned');
+      await _sendPackagePickupEmails(request);
+      _loadOrders();
+    } catch (e) {
+      debugPrint('Paket kabul hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectPackage(Map<String, dynamic> request) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    try {
+      final rejectedBy = List<String>.from(request['rejected_by'] as List? ?? []);
+      if (!rejectedBy.contains(userId)) rejectedBy.add(userId);
+      await Supabase.instance.client
+          .from('courier_requests')
+          .update({'rejected_by': rejectedBy}).eq('id', request['id']);
+      _loadOrders();
+    } catch (e) {
+      debugPrint('Paket reddetme hatası: $e');
+    }
+  }
+
+  Future<void> _deliverPackage(Map<String, dynamic> request) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+
+      final updated = await Supabase.instance.client.from('courier_requests').update({
+        'status': 'delivered',
+        'delivered_at': DateTime.now().toIso8601String(),
+      }).eq('id', request['id']).select();
+
+      if ((updated as List).isEmpty) {
+        throw Exception('Talep güncellenemedi (yetki sorunu olabilir)');
+      }
+
+      // Teslimat sayısını artır ve kazanç tablosuna kayıt ekle (siparişlerle aynı akış)
+      if (userId != null) {
+        try {
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select('delivered_count')
+              .eq('id', userId)
+              .maybeSingle();
+          final currentCount = (profile?['delivered_count'] as int?) ?? 0;
+          await Supabase.instance.client
+              .from('profiles')
+              .update({'delivered_count': currentCount + 1})
+              .eq('id', userId);
+
+          final totalFee = (request['total_fee'] as num?)?.toDouble() ?? 0;
+          final storedCourierFee = (request['courier_fee'] as num?)?.toDouble();
+          final courierFee = storedCourierFee ?? (totalFee * (1 - _commissionPercent / 100));
+
+          await Supabase.instance.client.from('courier_earnings').insert({
+            'courier_id': userId,
+            'package_request_id': request['id'],
+            'amount': courierFee,
+            'status': 'pending',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (e) {
+          debugPrint('⚠️ Paket teslimat kaydı güncellenemedi: $e');
+        }
+      }
+
+      await _notifyPackageSender(request, 'Paketiniz Teslim Edildi', 'Gönderdiğiniz paket alıcısına teslim edildi.', type: 'courier_delivered');
+      _loadOrders();
+    } catch (e) {
+      debugPrint('Paket teslim hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _openPackageLocation(num? lat, num? lng) async {
+    if (lat == null || lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu adres için konum bilgisi yok')),
+      );
+      return;
+    }
+    final url = Uri.parse('https://www.google.com/maps?q=$lat,$lng');
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  Widget _buildPackageAddressLine(String label, dynamic address, dynamic lat, dynamic lng) {
+    final hasLocation = lat != null && lng != null;
+    return InkWell(
+      onTap: () => _openPackageLocation(lat as num?, lng as num?),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              '$label: ${address ?? '-'}',
+              style: TextStyle(
+                fontSize: 13,
+                color: hasLocation ? Colors.blue.shade700 : null,
+                decoration: hasLocation ? TextDecoration.underline : null,
+              ),
+            ),
+          ),
+          if (hasLocation) Icon(Icons.map_outlined, size: 16, color: Colors.blue.shade700),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPackageCard(Map<String, dynamic> request, {required bool isMine}) {
+    final totalFee = (request['total_fee'] as num?)?.toDouble() ?? 0;
+    final storedCourierFee = (request['courier_fee'] as num?)?.toDouble();
+    final storedCommission = (request['admin_commission'] as num?)?.toDouble();
+    final courierFee = storedCourierFee ?? (totalFee * (1 - _commissionPercent / 100));
+    final adminCommission = storedCommission ?? (totalFee - courierFee);
+    final pickupLat = request['pickup_lat'] as num?;
+    final pickupLng = request['pickup_lng'] as num?;
+    final deliveryLat = request['delivery_lat'] as num?;
+    final deliveryLng = request['delivery_lng'] as num?;
+
+    // Kayıtlı distance_km yoksa/eksikse koordinatlardan anlık gerçek mesafeyi hesapla
+    double? distanceKm = (request['distance_km'] as num?)?.toDouble();
+    if ((distanceKm == null || distanceKm == 0) &&
+        pickupLat != null && pickupLng != null && deliveryLat != null && deliveryLng != null) {
+      final meters = Geolocator.distanceBetween(
+        pickupLat.toDouble(), pickupLng.toDouble(),
+        deliveryLat.toDouble(), deliveryLng.toDouble(),
+      );
+      distanceKm = meters / 1000;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.inventory_2, size: 18, color: Colors.deepOrange),
+                const SizedBox(width: 6),
+                Text('Paket - Gönderen: ${request['sender_name'] ?? '-'}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _buildPackageAddressLine('Alım', request['pickup_address'], pickupLat, pickupLng),
+            _buildPackageAddressLine('Teslim', request['delivery_address'], deliveryLat, deliveryLng),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(distanceKm != null ? '${distanceKm.toStringAsFixed(1)} km' : '-'),
+                Text('Toplam: ${totalFee.toStringAsFixed(2)} ₺',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Komisyon: -${adminCommission.toStringAsFixed(2)} ₺',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                Text('Net: ${courierFee.toStringAsFixed(2)} ₺',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              ],
+            ),
+            if (request['status'] == 'delivered') ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text('Teslim Edildi', style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ] else ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (!isMine)
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _rejectPackage(request),
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      child: const Text('Reddet'),
+                    ),
+                  ),
+                if (!isMine) const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => isMine ? _deliverPackage(request) : _acceptPackage(request),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text(isMine ? 'Teslim Edildi' : 'Kabul Et'),
+                  ),
+                ),
+              ],
+            ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -2500,8 +2885,33 @@ class _CourierDeliveryHistoryScreenState extends State<CourierDeliveryHistoryScr
           .order('delivered_at', ascending: false)
           .limit(50);
 
+      final assignmentDeliveries = List<Map<String, dynamic>>.from(response);
+
+      List<Map<String, dynamic>> packageDeliveries = [];
+      try {
+        final packages = await Supabase.instance.client
+            .from('courier_requests')
+            .select()
+            .eq('courier_id', userId)
+            .eq('status', 'delivered')
+            .order('delivered_at', ascending: false)
+            .limit(50);
+        packageDeliveries = List<Map<String, dynamic>>.from(packages)
+            .map((p) => {...p, '_type': 'package'})
+            .toList();
+      } catch (e) {
+        debugPrint('Teslim edilen paketler yüklenirken hata: $e');
+      }
+
+      final combined = [...assignmentDeliveries, ...packageDeliveries];
+      combined.sort((a, b) {
+        final aDate = a['delivered_at'] as String? ?? '';
+        final bDate = b['delivered_at'] as String? ?? '';
+        return bDate.compareTo(aDate);
+      });
+
       setState(() {
-        _deliveries = List<Map<String, dynamic>>.from(response);
+        _deliveries = combined;
         _isLoading = false;
       });
     } catch (e) {
@@ -2539,8 +2949,16 @@ class _CourierDeliveryHistoryScreenState extends State<CourierDeliveryHistoryScr
                   itemCount: _deliveries.length,
                   itemBuilder: (context, index) {
                     final delivery = _deliveries[index];
-                    final order = delivery['orders'];
-                    final shopName = order?['shops']?['name'] ?? 'Dükkan';
+                    final isPackage = delivery['_type'] == 'package';
+
+                    final title = isPackage
+                        ? 'Paket - ${delivery['sender_name'] ?? 'Gönderen'}'
+                        : (delivery['orders']?['shops']?['name'] ?? 'Dükkan');
+                    final fee = isPackage
+                        ? (delivery['courier_fee'] as num?)?.toDouble() ?? 0
+                        : (delivery['fee_amount'] as num?)?.toDouble() ?? 0;
+                    final totalFee = isPackage ? (delivery['total_fee'] as num?)?.toDouble() ?? 0 : null;
+                    final commission = isPackage ? (delivery['admin_commission'] as num?)?.toDouble() ?? 0 : null;
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -2551,16 +2969,22 @@ class _CourierDeliveryHistoryScreenState extends State<CourierDeliveryHistoryScr
                             color: Colors.green.shade100,
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(Icons.check, color: Colors.green.shade700),
+                          child: Icon(
+                            isPackage ? Icons.inventory_2 : Icons.check,
+                            color: Colors.green.shade700,
+                          ),
                         ),
-                        title: Text(shopName),
+                        title: Text(title),
                         subtitle: Text(
-                          delivery['delivered_at'] != null
-                              ? _formatDate(delivery['delivered_at'])
-                              : '-',
+                          isPackage && totalFee != null
+                              ? '${delivery['delivered_at'] != null ? _formatDate(delivery['delivered_at']) : '-'}\nToplam ₺${totalFee.toStringAsFixed(2)} • Komisyon -₺${commission!.toStringAsFixed(2)}'
+                              : (delivery['delivered_at'] != null
+                                  ? _formatDate(delivery['delivered_at'])
+                                  : '-'),
                         ),
+                        isThreeLine: isPackage,
                         trailing: Text(
-                          '₺${(delivery['fee_amount'] as num?)?.toStringAsFixed(2) ?? '0.00'}',
+                          '₺${fee.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.green,
@@ -2607,28 +3031,83 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      final response = await Supabase.instance.client
-          .from('courier_earnings')
-          .select()
-          .eq('courier_id', userId)
-          .order('created_at', ascending: false)
-          .limit(100);
+      // Gerçek teslimatlar: sipariş atamaları (sabit ücret) + paket talepleri (komisyonlu)
+      List<Map<String, dynamic>> assignmentDeliveries = [];
+      try {
+        final assignments = await Supabase.instance.client
+            .from('courier_assignments')
+            .select('id, fee_amount, delivered_at, orders(shops(name))')
+            .eq('courier_id', userId)
+            .eq('status', 'delivered')
+            .order('delivered_at', ascending: false)
+            .limit(100);
+        assignmentDeliveries = List<Map<String, dynamic>>.from(assignments)
+            .map((a) => {
+                  '_type': 'order',
+                  'title': a['orders']?['shops']?['name'] ?? 'Sipariş',
+                  'amount': (a['fee_amount'] as num?)?.toDouble() ?? 0,
+                  'total_fee': null,
+                  'commission': null,
+                  'created_at': a['delivered_at'],
+                })
+            .toList();
+      } catch (e) {
+        debugPrint('Sipariş teslimatları yüklenemedi: $e');
+      }
 
-      final earnings = List<Map<String, dynamic>>.from(response);
+      List<Map<String, dynamic>> packageDeliveries = [];
+      try {
+        final packages = await Supabase.instance.client
+            .from('courier_requests')
+            .select('id, courier_fee, total_fee, admin_commission, delivered_at, sender_name')
+            .eq('courier_id', userId)
+            .eq('status', 'delivered')
+            .order('delivered_at', ascending: false)
+            .limit(100);
+        packageDeliveries = List<Map<String, dynamic>>.from(packages)
+            .map((p) => {
+                  '_type': 'package',
+                  'title': 'Paket - ${p['sender_name'] ?? 'Gönderen'}',
+                  'amount': (p['courier_fee'] as num?)?.toDouble() ?? 0,
+                  'total_fee': (p['total_fee'] as num?)?.toDouble(),
+                  'commission': (p['admin_commission'] as num?)?.toDouble(),
+                  'created_at': p['delivered_at'],
+                })
+            .toList();
+      } catch (e) {
+        debugPrint('Paket teslimatları yüklenemedi: $e');
+      }
 
+      final combined = [...assignmentDeliveries, ...packageDeliveries];
+      combined.sort((a, b) => (b['created_at'] as String? ?? '').compareTo(a['created_at'] as String? ?? ''));
+
+      // Bekleyen ve ödenen tutarlar courier_earnings tablosundaki gerçek
+      // durumdan (status) hesaplanır. Eski yöntem "tüm zamanların canlı
+      // teslimat tutarı - tüm zamanların ödenen tutarı" şeklindeydi; bu,
+      // ödenen tutar geçmişte teslimat tutarını aştığında (örn. sadece
+      // paket teslim eden bir kuryenin geçmiş sipariş ödemeleri varsa)
+      // her zaman 0'a sabitleniyordu.
       double pending = 0;
       double paid = 0;
-      for (final e in earnings) {
-        final amount = (e['amount'] as num?)?.toDouble() ?? 0;
-        if (e['status'] == 'pending') {
-          pending += amount;
-        } else if (e['status'] == 'paid') {
-          paid += amount;
+      try {
+        final earningsRows = await Supabase.instance.client
+            .from('courier_earnings')
+            .select('amount, status')
+            .eq('courier_id', userId);
+        for (final row in List<Map<String, dynamic>>.from(earningsRows)) {
+          final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+          if (row['status'] == 'pending') {
+            pending += amount;
+          } else if (row['status'] == 'paid') {
+            paid += amount;
+          }
         }
+      } catch (e) {
+        debugPrint('Kazanç durumu yüklenemedi: $e');
       }
 
       setState(() {
-        _earnings = earnings;
+        _earnings = combined;
         _totalPending = pending;
         _totalPaid = paid;
         _isLoading = false;
@@ -2694,6 +3173,40 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
           .eq('courier_id', userId)
           .eq('status', 'pending');
 
+      // Admine bildirim ve email gönder (isteğin gecikmeden fark edilmesi için)
+      try {
+        final courierProfile = await Supabase.instance.client
+            .from('profiles')
+            .select('full_name, username')
+            .eq('id', userId)
+            .maybeSingle();
+        final courierName = courierProfile?['full_name'] ?? courierProfile?['username'] ?? 'Kurye';
+
+        final admins = await Supabase.instance.client
+            .from('profiles')
+            .select('id')
+            .eq('role', 'admin');
+
+        for (final admin in List<Map<String, dynamic>>.from(admins)) {
+          await Supabase.instance.client.from('notifications').insert({
+            'user_id': admin['id'],
+            'type': 'courier_payout_request',
+            'title': '💰 Yeni Kurye Ödeme İsteği',
+            'content': '$courierName ₺${_totalPending.toStringAsFixed(2)} ödeme talep etti.',
+            'data': {'courier_id': userId, 'amount': _totalPending},
+            'is_read': false,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+
+        await EmailService().sendCourierPayoutRequestEmailToAdmin(
+          courierName: courierName,
+          amount: _totalPending,
+        );
+      } catch (e) {
+        debugPrint('⚠️ Admin bildirimi/emaili gönderilemedi: $e');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -2756,7 +3269,7 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _buildEarningStat('Teslimat', '${_earnings.where((e) => e['status'] == 'delivered').length}'),
+                            _buildEarningStat('Teslimat', '${_earnings.length}'),
                             Container(width: 1, height: 40, color: Colors.white24),
                             _buildEarningStat('Ödenen', '₺${_totalPaid.toStringAsFixed(2)}'),
                           ],
@@ -2804,32 +3317,38 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final earning = _earnings[index];
+                        final isPackage = earning['_type'] == 'package';
+                        final totalFee = earning['total_fee'] as double?;
+                        final commission = earning['commission'] as double?;
                         return Card(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                           child: ListTile(
+                            isThreeLine: isPackage && totalFee != null,
                             leading: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: earning['status'] == 'paid'
-                                    ? Colors.green.shade100
-                                    : Colors.orange.shade100,
+                                color: Colors.green.shade100,
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
-                                earning['status'] == 'paid' ? Icons.check : Icons.hourglass_empty,
-                                color: earning['status'] == 'paid' ? Colors.green : Colors.orange,
+                                isPackage ? Icons.inventory_2 : Icons.check,
+                                color: Colors.green.shade700,
                               ),
                             ),
                             title: Text(
-                              earning['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+                              earning['title'] as String? ?? (isPackage ? 'Paket' : 'Sipariş'),
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
-                            subtitle: Text(earning['created_at'] != null ? _formatDate(earning['created_at']) : '-'),
+                            subtitle: Text(
+                              isPackage && totalFee != null && commission != null
+                                  ? '${earning['created_at'] != null ? _formatDate(earning['created_at']) : '-'}\nToplam ₺${totalFee.toStringAsFixed(2)} • Komisyon -₺${commission.toStringAsFixed(2)}'
+                                  : (earning['created_at'] != null ? _formatDate(earning['created_at']) : '-'),
+                            ),
                             trailing: Text(
                               '₺${(earning['amount'] as num?)?.toStringAsFixed(2) ?? '0.00'}',
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: earning['status'] == 'paid' ? Colors.green : Colors.orange,
+                                color: Colors.green,
                               ),
                             ),
                           ),
