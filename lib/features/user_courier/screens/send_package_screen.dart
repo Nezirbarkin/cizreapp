@@ -70,7 +70,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
       );
 
       await Supabase.instance.client.from('courier_requests').insert({
-        'user_id': userId,
+        'sender_id': userId,
         'recipient_name': _recipientController.text,
         'recipient_phone': _recipientPhoneController.text,
         'delivery_address': _addressController.text,

@@ -51,7 +51,7 @@ ON CONFLICT DO NOTHING;
 -- Kullanıcı kargo talepleri tablosu
 CREATE TABLE IF NOT EXISTS courier_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   recipient_name VARCHAR(255) NOT NULL,
   recipient_phone VARCHAR(20) NOT NULL,
   delivery_address TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS courier_requests (
 );
 
 -- İndeksler
-CREATE INDEX idx_courier_requests_user_id ON courier_requests(user_id);
+CREATE INDEX idx_courier_requests_sender_id ON courier_requests(sender_id);
 CREATE INDEX idx_courier_requests_status ON courier_requests(status);
 CREATE INDEX idx_courier_requests_courier_id ON courier_requests(courier_id);
 
@@ -74,17 +74,17 @@ ALTER TABLE courier_requests ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "courier_requests_user_read" ON courier_requests
   FOR SELECT TO authenticated USING (
-    auth.uid() = user_id OR
+    auth.uid() = sender_id OR
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
 CREATE POLICY "courier_requests_user_insert" ON courier_requests
   FOR INSERT TO authenticated WITH CHECK (
-    auth.uid() = user_id
+    auth.uid() = sender_id
   );
 
 CREATE POLICY "courier_requests_user_update" ON courier_requests
   FOR UPDATE TO authenticated USING (
-    auth.uid() = user_id OR
+    auth.uid() = sender_id OR
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
