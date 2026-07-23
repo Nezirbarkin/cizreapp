@@ -265,20 +265,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               clipBehavior: Clip.none,
               children: [
                 Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 80,
-                  child: Center(
-                    child: AnimatedCourierFab(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SendPackageScreen(),
-                          ),
-                        );
-                      },
-                    ),
+                  right: 72,
+                  bottom: 64,
+                  child: AnimatedCourierFab(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SendPackageScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 FloatingActionButton(
