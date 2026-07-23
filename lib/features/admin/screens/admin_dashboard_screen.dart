@@ -819,7 +819,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       case 'Siparişler':
         return _buildOrdersContent();
       case 'Kurye Yönetimi':
-        return _buildCourierManagementContent();
+        return const CourierQuickSettingsScreen();
       case 'Gruplar':
         return const GroupsManagementContent();
       case 'Bildirimler':
@@ -850,8 +850,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const AdminAdSettingsScreen();
       case 'Cüzdan Yönetimi':
         return _buildWalletManagementContent();
-      case 'Kurye Yönetimi':
-        return const CourierQuickSettingsScreen();
       case 'Görev Yönetimi':
         return const TaskManagementContent();
       case 'Şüpheli Kullanıcılar':
