@@ -262,19 +262,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             body: _getScreen(_selectedIndex),
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
+              clipBehavior: Clip.none,
               children: [
                 Positioned(
-                  right: 20,
+                  left: 0,
+                  right: 0,
                   bottom: 80,
-                  child: AnimatedCourierFab(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SendPackageScreen(),
-                        ),
-                      );
-                    },
+                  child: Center(
+                    child: AnimatedCourierFab(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SendPackageScreen(),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
                 FloatingActionButton(
