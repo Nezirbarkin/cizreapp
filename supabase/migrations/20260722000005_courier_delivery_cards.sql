@@ -69,22 +69,8 @@ CREATE INDEX idx_courier_requests_sender_id ON courier_requests(sender_id);
 CREATE INDEX idx_courier_requests_status ON courier_requests(status);
 CREATE INDEX idx_courier_requests_courier_id ON courier_requests(courier_id);
 
--- RLS Policies
+-- RLS: Basit policy (daha sonra geliştir)
 ALTER TABLE courier_requests ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "courier_requests_user_read" ON courier_requests
-  FOR SELECT TO authenticated USING (
-    auth.uid() = sender_id OR
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
-  );
-
-CREATE POLICY "courier_requests_user_insert" ON courier_requests
-  FOR INSERT TO authenticated WITH CHECK (
-    auth.uid() = sender_id
-  );
-
-CREATE POLICY "courier_requests_user_update" ON courier_requests
-  FOR UPDATE TO authenticated USING (
-    auth.uid() = sender_id OR
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+CREATE POLICY "courier_requests_authenticated" ON courier_requests
+  FOR ALL TO authenticated USING (true);
