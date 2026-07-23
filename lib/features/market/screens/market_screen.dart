@@ -50,6 +50,7 @@ import '../../social/screens/story_viewer_screen.dart';
 import '../../shop/screens/cart_screen.dart' as shop_cart;
 import 'product_detail_screen.dart';
 import '../../../core/services/app_about_service.dart';
+import '../../user_courier/screens/send_package_screen.dart';
 
 class MarketScreen extends StatefulWidget {
   const MarketScreen({super.key});
@@ -668,6 +669,31 @@ class _MarketScreenState extends State<MarketScreen> {
             ],
           ),
           
+          // Moto kurye iconu (sohbet ikonunun üstünde)
+          Positioned(
+            right: 20,
+            bottom: 210,
+            child: FloatingActionButton(
+              backgroundColor: const Color(0xFFFF6B00),
+              elevation: 8,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SendPackageScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Kargo Gönder',
+              heroTag: 'courier_fab_market',
+              child: const Icon(
+                Icons.two_wheeler,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+          ),
+
           // Floating mesaj butonu
           FloatingMessageButton(
             show: true,
