@@ -276,18 +276,38 @@ class _TaskCard extends StatelessWidget {
 
   const _TaskCard({required this.task, required this.onClaimed});
 
+  bool get _isApproved =>
+      task.userAlreadyClaimed && task.userSubmissionStatus == TaskSubmissionStatus.approved;
+  bool get _isRejected =>
+      task.userAlreadyClaimed && task.userSubmissionStatus == TaskSubmissionStatus.rejected;
+  bool get _isPending =>
+      task.userAlreadyClaimed && task.userSubmissionStatus == TaskSubmissionStatus.pending;
+
+  Color get _accentColor {
+    if (_isApproved) return Colors.green.shade500;
+    if (_isRejected) return Colors.red.shade400;
+    if (_isPending) return Colors.orange.shade500;
+    if (task.status == TaskStatus.paused || task.status == TaskStatus.completed) {
+      return Colors.grey.shade400;
+    }
+    if (!task.isActive) return Colors.grey.shade400;
+    return Colors.purple.shade500;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final accent = _accentColor;
+
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         color: Colors.white,
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: accent.withValues(alpha: 0.10),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -295,231 +315,249 @@ class _TaskCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TaskDetailScreen(taskId: task.id),
-          ),
-        ).then((_) => onClaimed()),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Görsel önizleme (varsa — üst kısımda, tıklanabilir)
-            if (task.imageUrl != null && task.imageUrl!.isNotEmpty)
-              GestureDetector(
-                onTap: () => FullscreenImageViewer.open(
-                  context,
-                  imageUrl: task.imageUrl!,
-                  heroTag: 'task_list_${task.id}',
-                  caption: task.title,
-                ),
-                child: Hero(
-                  tag: 'task_list_${task.id}',
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
-                    child: Image.network(
-                      task.imageUrl!,
-                      height: 130,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                  ),
-                ),
-              ),
+          borderRadius: BorderRadius.circular(22),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TaskDetailScreen(taskId: task.id),
+            ),
+          ).then((_) => onClaimed()),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Sol renk şeridi
+                Container(width: 5, color: accent),
 
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header: kategori + ödül
-              Row(
-                children: [
-                  if (task.categoryIcon != null) ...[
-                    Text(task.categoryIcon!, style: const TextStyle(fontSize: 20)),
-                    const SizedBox(width: 6),
-                  ],
-                  if (task.categoryName != null)
-                    Flexible(
-                      child: Text(
-                        task.categoryName!,
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.green.shade600, Colors.green.shade400],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '₺${task.rewardAmount.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Kategori ikon rozeti / görsel
+                            _buildLeadingBadge(accent),
+                            const SizedBox(width: 12),
 
-              // Başlık
-              Text(
-                task.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 6),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (task.categoryName != null)
+                                    Text(
+                                      task.categoryName!.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.4,
+                                        color: accent,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    task.title,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15.5,
+                                      height: 1.25,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
 
-              // Açıklama
-              Text(
-                task.description,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-
-              // Uyarı varsa
-              if (task.warningText != null && task.warningText!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade700),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          task.warningText!,
-                          style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                            // Ödül rozeti
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.savings_rounded, size: 13, color: Colors.green.shade700),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '₺${task.rewardAmount.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+
+                        Text(
+                          task.description,
+                          style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+
+                        if (task.warningText != null && task.warningText!.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_rounded, size: 14, color: Colors.orange.shade600),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  task.warningText!,
+                                  style: TextStyle(fontSize: 11.5, color: Colors.orange.shade800),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+
+                        const SizedBox(height: 12),
+
+                        Row(
+                          children: [
+                            Expanded(child: _buildSlotIndicator(accent)),
+                            const SizedBox(width: 10),
+                            _buildStatusPill(accent),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
-
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-
-              // Alt: katılımcı + durum
-              Row(
-                children: [
-                  Icon(Icons.people_outline, size: 16, color: Colors.grey.shade500),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      '${task.remainingSlots} / ${task.maxParticipants} yer kaldı',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildStatusChip(),
-                ],
-              ),
-                ],
-              ),
             ),
-          ],
-        ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildStatusChip() {
-    if (task.userAlreadyClaimed) {
-      final status = task.userSubmissionStatus;
-      Color color;
-      String label;
-      IconData icon;
-
-      if (status == TaskSubmissionStatus.approved) {
-        color = Colors.green;
-        label = 'Onaylandı ✓';
-        icon = Icons.check_circle;
-      } else if (status == TaskSubmissionStatus.rejected) {
-        color = Colors.red;
-        label = 'Reddedildi';
-        icon = Icons.cancel;
-      } else {
-        color = Colors.orange;
-        label = 'Onay Bekliyor';
-        icon = Icons.hourglass_empty;
-      }
-
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
+  Widget _buildLeadingBadge(Color accent) {
+    if (task.imageUrl != null && task.imageUrl!.isNotEmpty) {
+      return Hero(
+        tag: 'task_list_${task.id}',
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.network(
+            task.imageUrl!,
+            width: 52,
+            height: 52,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _categoryAvatar(accent),
+          ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600),
+      );
+    }
+    return _categoryAvatar(accent);
+  }
+
+  Widget _categoryAvatar(Color accent) {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      alignment: Alignment.center,
+      child: task.categoryIcon != null
+          ? Text(task.categoryIcon!, style: const TextStyle(fontSize: 22))
+          : Icon(Icons.assignment_rounded, color: accent, size: 22),
+    );
+  }
+
+  Widget _buildSlotIndicator(Color accent) {
+    final progress = task.maxParticipants > 0
+        ? 1 - (task.remainingSlots / task.maxParticipants).clamp(0.0, 1.0)
+        : 0.0;
+    return Row(
+      children: [
+        Icon(Icons.people_alt_rounded, size: 14, color: Colors.grey.shade400),
+        const SizedBox(width: 5),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 5,
+              backgroundColor: Colors.grey.shade100,
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
             ),
-          ],
+          ),
         ),
-      );
+        const SizedBox(width: 6),
+        Text(
+          '${task.remainingSlots}/${task.maxParticipants}',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusPill(Color accent) {
+    IconData icon;
+    String label;
+
+    if (task.userAlreadyClaimed) {
+      if (_isApproved) {
+        icon = Icons.check_circle_rounded;
+        label = 'Onaylandı';
+      } else if (_isRejected) {
+        icon = Icons.cancel_rounded;
+        label = 'Reddedildi';
+      } else {
+        icon = Icons.hourglass_top_rounded;
+        label = 'Bekliyor';
+      }
+    } else if (task.status == TaskStatus.paused) {
+      icon = Icons.pause_circle_rounded;
+      label = 'Duraklatıldı';
+    } else if (task.status == TaskStatus.completed) {
+      icon = Icons.flag_circle_rounded;
+      label = 'Tamamlandı';
+    } else if (!task.isActive) {
+      icon = Icons.schedule_rounded;
+      label = task.remainingSlots > 0 ? 'Yakında' : 'Dolu';
+    } else {
+      icon = Icons.arrow_forward_rounded;
+      label = 'Katıl';
     }
 
-    if (!task.isActive) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          task.remainingSlots > 0 ? 'Yakında' : 'Dolu',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-      );
-    }
+    final filled = !task.userAlreadyClaimed && task.isActive;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.shade600, Colors.purple.shade400],
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: filled ? accent : accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.play_arrow, size: 14, color: Colors.white),
-          SizedBox(width: 4),
+          Icon(icon, size: 13, color: filled ? Colors.white : accent),
+          const SizedBox(width: 4),
           Text(
-            'Göreve Git',
-            style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: filled ? Colors.white : accent,
+            ),
           ),
         ],
       ),
@@ -833,7 +871,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(height: 24),
 
           // Görev durumuna göre içerik
-          if (task.userAlreadyClaimed) ...[
+          if (task.userAlreadyClaimed || _mySubmissionId != null) ...[
             _buildClaimedContent(theme),
           ] else if (task.canClaim) ...[
             _buildClaimButton(),
@@ -1044,9 +1082,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              _task!.remainingSlots > 0
-                  ? 'Bu görev henüz başlamadı'
-                  : 'Bu görev için yer kalmadı',
+              _task!.status == TaskStatus.paused
+                  ? 'Bu görev şu anda duraklatıldı'
+                  : _task!.status == TaskStatus.completed
+                      ? 'Bu görev tamamlandı'
+                      : _task!.remainingSlots > 0
+                          ? 'Bu görev henüz başlamadı'
+                          : 'Bu görev için yer kalmadı',
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ),

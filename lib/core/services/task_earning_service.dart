@@ -309,8 +309,8 @@ class TaskEarningService {
             'image_urls': imageUrls,
             'reward_amount': rewardAmount,
             'max_participants': maxParticipants,
-            'starts_at': (startsAt ?? DateTime.now()).toIso8601String(),
-            'expires_at': expiresAt?.toIso8601String(),
+            'starts_at': (startsAt ?? DateTime.now()).toUtc().toIso8601String(),
+            'expires_at': expiresAt?.toUtc().toIso8601String(),
             'status': status.name,
             'created_by': adminId,
           })
@@ -354,8 +354,8 @@ class TaskEarningService {
       if (imageUrls != null) update['image_urls'] = imageUrls;
       if (rewardAmount != null) update['reward_amount'] = rewardAmount;
       if (maxParticipants != null) update['max_participants'] = maxParticipants;
-      if (startsAt != null) update['starts_at'] = startsAt.toIso8601String();
-      if (expiresAt != null) update['expires_at'] = expiresAt.toIso8601String();
+      if (startsAt != null) update['starts_at'] = startsAt.toUtc().toIso8601String();
+      if (expiresAt != null) update['expires_at'] = expiresAt.toUtc().toIso8601String();
       if (clearExpiresAt) update['expires_at'] = null;
       if (status != null) update['status'] = status.name;
 

@@ -97,7 +97,10 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
           Marker(
             markerId: const MarkerId('user_location'),
             position: LatLng(_userLocation!.latitude, _userLocation!.longitude),
-            infoWindow: const InfoWindow(title: 'Benim Konumum'),
+            infoWindow: const InfoWindow(
+              title: 'Benim Konumum',
+              snippet: '👤 Kullanıcı',
+            ),
             icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueBlue,
             ),
@@ -106,7 +109,7 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
         debugPrint('👤 Kullanıcı konumu: ${_userLocation!.latitude}, ${_userLocation!.longitude}');
       }
 
-      // Kuryeler marker'larını ekle
+      // Kuryeler marker'larını ekle - motor ikonu ile
       for (final courier in List<Map<String, dynamic>>.from(couriers)) {
         final lat = (courier['last_known_lat'] as num?)?.toDouble();
         final lng = (courier['last_known_lng'] as num?)?.toDouble();
@@ -120,13 +123,14 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
               position: LatLng(lat, lng),
               infoWindow: InfoWindow(
                 title: name ?? 'Kurye',
+                snippet: '🏍️ Motor ile yolda',
               ),
               icon: BitmapDescriptor.defaultMarkerWithHue(
                 BitmapDescriptor.hueRed,
               ),
             ),
           );
-          debugPrint('🚗 Kurye: $name - $lat, $lng');
+          debugPrint('🏍️ Kurye: $name - $lat, $lng');
         }
       }
 

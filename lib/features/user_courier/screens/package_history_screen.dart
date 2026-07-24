@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package_tracking_screen.dart';
 
 class PackageHistoryScreen extends StatefulWidget {
   const PackageHistoryScreen({super.key});
@@ -84,6 +85,7 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
                       final r = _requests[index];
                       final totalFee = (r['total_fee'] as num?)?.toDouble() ?? 0;
                       final status = r['status'] as String?;
+                      final canTrack = status == 'accepted' || status == 'pending' || status == 'delivered';
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -114,9 +116,31 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
                               Text('Alım: ${r['pickup_address'] ?? '-'}', style: const TextStyle(fontSize: 13)),
                               Text('Teslim: ${r['delivery_address'] ?? '-'}', style: const TextStyle(fontSize: 13)),
                               const SizedBox(height: 8),
-                              Text(
-                                '-${totalFee.toStringAsFixed(2)} ₺',
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '-${totalFee.toStringAsFixed(2)} ₺',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                                  ),
+                                  if (canTrack)
+                                    ElevatedButton.icon(
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => PackageTrackingScreen(
+                                            packageId: r['id'] as String,
+                                            packageTitle: 'Paket Takibi - ${r['pickup_address'] ?? 'Paket'}',
+                                          ),
+                                        ),
+                                      ),
+                                      icon: const Icon(Icons.two_wheeler, size: 16),
+                                      label: const Text('Takip Et', style: TextStyle(fontSize: 12)),
+                                      style: ElevatedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ),

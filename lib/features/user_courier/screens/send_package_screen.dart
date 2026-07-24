@@ -30,6 +30,8 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
 
+  List<Map<String, dynamic>> _serviceNotices = [];
+
   double? get _distanceKm {
     if (_pickupAddress?.latitude == null ||
         _pickupAddress?.longitude == null ||
@@ -56,6 +58,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   void initState() {
     super.initState();
     _loadPricing();
+    _loadServiceNotices();
   }
 
   Future<void> _loadPricing() async {
@@ -74,6 +77,23 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
       debugPrint('Ücret ayarları yükleme hatası: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadServiceNotices() async {
+    try {
+      final notices = await Supabase.instance.client
+          .from('courier_service_notices')
+          .select()
+          .eq('show_on_send_package_screen', true)
+          .order('priority', ascending: false)
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() => _serviceNotices = List<Map<String, dynamic>>.from(notices));
+      }
+    } catch (e) {
+      debugPrint('Uyarılar yükleme hatası: $e');
     }
   }
 
@@ -308,6 +328,239 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
     );
   }
 
+  Widget _buildServiceNotices() {
+    if (_serviceNotices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: [
+        ..._serviceNotices.map((notice) {
+          final noticeType = notice['notice_type'] as String? ?? 'info';
+          final title = notice['title'] as String? ?? '';
+          final message = notice['message'] as String? ?? '';
+          final priority = notice['priority'] as int? ?? 0;
+
+          Color bgColor;
+          Color borderColor;
+          Color textColor;
+          IconData icon;
+
+          switch (noticeType) {
+            case 'warning':
+              bgColor = Colors.orange.shade50;
+              borderColor = Colors.orange.shade200;
+              textColor = Colors.orange.shade900;
+              icon = Icons.warning_amber_rounded;
+              break;
+            case 'alert':
+              bgColor = Colors.red.shade50;
+              borderColor = Colors.red.shade200;
+              textColor = Colors.red.shade900;
+              icon = Icons.error_rounded;
+              break;
+            case 'success':
+              bgColor = Colors.green.shade50;
+              borderColor = Colors.green.shade200;
+              textColor = Colors.green.shade900;
+              icon = Icons.check_circle_rounded;
+              break;
+            default: // info
+              bgColor = Colors.blue.shade50;
+              borderColor = Colors.blue.shade200;
+              textColor = Colors.blue.shade900;
+              icon = Icons.info_rounded;
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border.all(color: borderColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, color: textColor, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (priority > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: priority > 1
+                                    ? Colors.red.shade300
+                                    : Colors.orange.shade300,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                priority > 1 ? 'ACİL' : 'ÖNEMLİ',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        message,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchNearbyCoriers() async {
+    try {
+      final couriers = await Supabase.instance.client
+          .from('profiles')
+          .select('id, full_name, last_known_lat, last_known_lng')
+          .eq('role', 'courier')
+          .not('last_known_lat', 'is', null)
+          .not('last_known_lng', 'is', null)
+          .limit(5);
+      return List<Map<String, dynamic>>.from(couriers);
+    } catch (e) {
+      debugPrint('Yakın kuryeler yükleme hatası: $e');
+      return [];
+    }
+  }
+
+  Widget _buildNearbyCourriersList() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchNearbyCoriers(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.two_wheeler, color: Colors.blue.shade700, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Kuryeler yükleniyor...',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade900,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final couriers = snapshot.data!;
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.two_wheeler, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Yakın Kuryeler (${couriers.length})',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade900,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...couriers.map((courier) {
+                final name = courier['full_name'] as String? ?? 'Kurye';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text('🏍️', style: TextStyle(fontSize: 12)),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade900,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -334,9 +587,13 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
+              physics: const BouncingScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Admin uyarıları
+                  _buildServiceNotices(),
+
                   const Text(
                     'Alım ve Teslim Noktası',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -356,11 +613,19 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     onTap: () => _pickAddress(isPickup: false),
                   ),
                   const SizedBox(height: 12),
-                  CouriersMapCard(
-                    pickupLat: _pickupAddress?.latitude,
-                    pickupLng: _pickupAddress?.longitude,
-                    deliveryLat: _deliveryAddress?.latitude,
-                    deliveryLng: _deliveryAddress?.longitude,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CouriersMapCard(
+                        pickupLat: _pickupAddress?.latitude,
+                        pickupLng: _pickupAddress?.longitude,
+                        deliveryLat: _deliveryAddress?.latitude,
+                        deliveryLng: _deliveryAddress?.longitude,
+                      ),
+                      const SizedBox(height: 12),
+                      // Yakın kuryeler listesi
+                      _buildNearbyCourriersList(),
+                    ],
                   ),
                   if (totalFee != null) ...[
                     const SizedBox(height: 12),

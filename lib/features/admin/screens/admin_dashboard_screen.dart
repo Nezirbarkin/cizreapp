@@ -36,6 +36,7 @@ import '../widgets/cancellation_requests_tab_widget.dart';
 import '../../shop/services/cancellation_request_service.dart';
 import '../../../core/services/transfer_service.dart';
 import 'courier_quick_settings_screen.dart';
+import '../widgets/courier_notices_management_content.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -691,6 +692,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.notification_important,
+                    title: 'Kurye Uyarıları',
+                    isSelected: _selectedMenu == 'Kurye Uyarıları',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Kurye Uyarıları');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.gpp_bad_rounded,
                     title: 'Şüpheli Kullanıcılar',
                     isSelected: _selectedMenu == 'Şüpheli Kullanıcılar',
@@ -866,6 +876,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildWalletManagementContent();
       case 'Görev Yönetimi':
         return const TaskManagementContent();
+      case 'Kurye Uyarıları':
+        return const CourierNoticesManagementContent();
       case 'Şüpheli Kullanıcılar':
         return const SuspiciousUsersContent();
       default:

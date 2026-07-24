@@ -259,7 +259,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
   Map<String, dynamic>? _profile;
   double _feePerDelivery = 15.0;
   bool _isLoading = true;
-  
+
   // Haftalık istatistikler
   int _weeklyDeliveries = 0;
   double _weeklyEarnings = 0;
@@ -268,6 +268,8 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
   // Kurye online/offline tercihi (is_online_enabled). DB'den yüklenir.
   // false ise kurye manuel çevrimdışı: app ön plana gelse bile otomatik online yapılmaz.
   bool _isOnlineEnabled = true;
+
+  List<Map<String, dynamic>> _serviceNotices = [];
 
   @override
   void initState() {
@@ -316,9 +318,12 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
 
       // Haftalık istatistikleri yükle
       await _loadWeeklyStats();
-      
+
       // Aylık istatistikleri yükle
       await _loadMonthlyStats();
+
+      // Uyarıları yükle
+      await _loadServiceNotices();
 
       setState(() => _isLoading = false);
     } catch (e) {
@@ -840,6 +845,9 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                     padding: const EdgeInsets.all(16),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
+                        // Admin uyarıları
+                        _buildServiceNotices(),
+
                         const Text(
                           'Hızlı İşlemler',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -1204,6 +1212,142 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       MaterialPageRoute(
         builder: (context) => const CourierEarningsScreen(),
       ),
+    );
+  }
+
+  Future<void> _loadServiceNotices() async {
+    try {
+      final notices = await Supabase.instance.client
+          .from('courier_service_notices')
+          .select()
+          .eq('show_on_courier_panel', true)
+          .order('priority', ascending: false)
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() => _serviceNotices = List<Map<String, dynamic>>.from(notices));
+      }
+    } catch (e) {
+      debugPrint('Uyarılar yükleme hatası: $e');
+    }
+  }
+
+  Widget _buildServiceNotices() {
+    if (_serviceNotices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: [
+        ..._serviceNotices.map((notice) {
+          final noticeType = notice['notice_type'] as String? ?? 'info';
+          final title = notice['title'] as String? ?? '';
+          final message = notice['message'] as String? ?? '';
+          final priority = notice['priority'] as int? ?? 0;
+
+          Color bgColor;
+          Color borderColor;
+          Color textColor;
+          IconData icon;
+
+          switch (noticeType) {
+            case 'warning':
+              bgColor = Colors.orange.shade50;
+              borderColor = Colors.orange.shade200;
+              textColor = Colors.orange.shade900;
+              icon = Icons.warning_amber_rounded;
+              break;
+            case 'alert':
+              bgColor = Colors.red.shade50;
+              borderColor = Colors.red.shade200;
+              textColor = Colors.red.shade900;
+              icon = Icons.error_rounded;
+              break;
+            case 'success':
+              bgColor = Colors.green.shade50;
+              borderColor = Colors.green.shade200;
+              textColor = Colors.green.shade900;
+              icon = Icons.check_circle_rounded;
+              break;
+            default: // info
+              bgColor = Colors.blue.shade50;
+              borderColor = Colors.blue.shade200;
+              textColor = Colors.blue.shade900;
+              icon = Icons.info_rounded;
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border.all(color: borderColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, color: textColor, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (priority > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: priority > 1
+                                    ? Colors.red.shade300
+                                    : Colors.orange.shade300,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                priority > 1 ? 'ACİL' : 'ÖNEMLİ',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        message,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 12),
+      ],
     );
   }
 }
