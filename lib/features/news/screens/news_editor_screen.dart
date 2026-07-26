@@ -129,6 +129,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isBreaking: _isBreaking,
           locationName: _locationController.text,
           thumbnailUrl: _uploadedImageUrl,
+          publishedAt: _isPublished ? DateTime.now() : null,
         );
         if (result != null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +153,8 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isFeatured: _isFeatured,
           isBreaking: _isBreaking,
           locationName: _locationController.text,
-          thumbnailUrl: _uploadedImageUrl,
+          thumbnailUrl: _uploadedImageUrl ?? widget.news!.thumbnailUrl,
+          publishedAt: _isPublished ? DateTime.now() : null,
         );
         if (success && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

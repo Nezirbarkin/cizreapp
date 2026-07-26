@@ -311,11 +311,14 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      news.title,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    GestureDetector(
+                      onTap: () => _editNewsTitle(news),
+                      child: Text(
+                        news.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -457,6 +460,57 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
     }
   }
 
+  Future<void> _editNewsTitle(NewsModel news) async {
+    final titleController = TextEditingController(text: news.title);
+
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('✏️ Başlığı Düzenle'),
+        content: TextField(
+          controller: titleController,
+          decoration: InputDecoration(
+            hintText: 'Yeni başlık',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, titleController.text),
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+
+    if (newTitle != null && newTitle.isNotEmpty && newTitle != news.title) {
+      try {
+        await _newsService.updateNews(
+          id: news.id,
+          title: newTitle,
+        );
+        _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ Başlık güncellendi')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ Güncelleme hatası: $e')),
+          );
+        }
+      }
+    }
+    titleController.dispose();
+  }
+
   Future<void> _deleteNews(NewsModel news) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -477,7 +531,7 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
         ],
       ),
     );
-    
+
     if (confirmed == true) {
       try {
         await _newsService.deleteNews(news.id);

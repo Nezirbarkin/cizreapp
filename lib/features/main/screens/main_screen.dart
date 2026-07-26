@@ -31,7 +31,8 @@ import '../../market/screens/notifications_screen.dart';
 import '../../chat/services/presence_service.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
-import '../../news/screens/news_screen.dart';
+import '../../news/services/news_service.dart';
+import '../../news/screens/news_detail_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -57,8 +58,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         case 1: return const ProductsScreen();
         case 2: return const CartScreen(isMainTab: true);
         case 3: return const SocialScreen();
-        case 4: return const NewsScreen();
-        case 5: return const ProfileScreen();
+        case 4: return const ProfileScreen();
         default: return const MarketScreen();
       }
     });
@@ -342,17 +342,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       notificationCount: 0, // Alt navigasyonda badge yok
                     ),
                     _buildNavItem(
-                      icon: Icons.newspaper_outlined,
-                      activeIcon: Icons.newspaper,
-                      label: "Haberler",
-                      index: 4,
-                      primaryColor: primaryColor,
-                    ),
-                    _buildNavItem(
                       icon: Icons.person_outline,
                       activeIcon: Icons.person,
                       label: "Profil",
-                      index: 5,
+                      index: 4,
                       primaryColor: primaryColor,
                     ),
                   ],
@@ -815,6 +808,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget _buildProductsList(CartProvider cartProvider) {
     return CustomScrollView(
       slivers: [
+          // Cizreden Haberler
+          SliverToBoxAdapter(
+            child: _buildNewsSection(),
+          ),
           // Ürünler listesi
           SliverToBoxAdapter(
             child: Padding(
@@ -978,6 +975,131 @@ class _ProductsScreenState extends State<ProductsScreen> {
         ],
               );
             }
+
+  Widget _buildNewsSection() {
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([
+        NewsService().getLatestNews(limit: 3),
+      ]).then((results) => results.first),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final news = snapshot.data!;
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Cizreden Haberler',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => Navigator.pushNamed(context, '/news'),
+                      child: Text(
+                        'Tümünü Gör',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                children: news.map((newsItem) {
+                  return _buildNewsCardItem(newsItem);
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNewsCardItem(dynamic newsItem) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => NewsDetailScreen(news: newsItem),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Colors.grey[200]!)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: newsItem.thumbnailUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: newsItem.thumbnailUrl!,
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: 80,
+                      height: 80,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.newspaper, size: 32),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    newsItem.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    newsItem.summary ?? newsItem.content.substring(0, (newsItem.content.length > 80 ? 80 : newsItem.content.length)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildProductCard(Product product, CartProvider cartProvider) {
     final theme = Theme.of(context);

@@ -861,9 +861,3 @@ class NewsService {
     }
   }
 }
-
-/// Debug print için
-void debugPrint(String message) {
-  // ignore: avoid_print
-  print(message);
-}
