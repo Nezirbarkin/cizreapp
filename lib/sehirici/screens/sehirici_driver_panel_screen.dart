@@ -1,7 +1,9 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/sehirici_models.dart';
@@ -34,6 +36,7 @@ class _SehiriciDriverPanelScreenState
   // Timer ve çalışma saatleri
   Timer? _tripTimer;
   Duration _tripDuration = Duration.zero;
+  LatLng? _droppedLocation;
 
   @override
   void initState() {
@@ -304,6 +307,80 @@ class _SehiriciDriverPanelScreenState
     final minutes = d.inMinutes % 60;
     final seconds = d.inSeconds % 60;
     return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildDroppedLocationCard(SehiriciActiveTrip trip, SehiriciLine line) {
+    if (_droppedLocation == null || trip.currentLat == null || trip.currentLng == null) {
+      return const SizedBox.shrink();
+    }
+
+    final vehiclePos = LatLng(trip.currentLat!, trip.currentLng!);
+    final distance = _calculateDistance(vehiclePos, _droppedLocation!);
+    final eta = _calculateETA(distance.round());
+
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(14),
+      color: Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.location_on, color: Colors.blue, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Düşürülen Konum',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                  ),
+                  Text(
+                    '${(distance / 1000).toStringAsFixed(1)} km uzakta • '
+                    '~$eta dk sonra varış',
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 20),
+              onPressed: () => setState(() => _droppedLocation = null),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  double _calculateDistance(LatLng start, LatLng end) {
+    const earthRadius = 6371000.0;
+    final dLat = _toRadians(end.latitude - start.latitude);
+    final dLng = _toRadians(end.longitude - start.longitude);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(start.latitude)) *
+            math.cos(_toRadians(end.latitude)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  double _toRadians(double degrees) => degrees * math.pi / 180;
+
+  int _calculateETA(int distanceMeters, {double speedKmh = 30.0}) {
+    if (distanceMeters <= 0) return 0;
+    final distanceKm = distanceMeters / 1000;
+    final hours = distanceKm / speedKmh;
+    return (hours * 60).round();
   }
 
   Future<void> _showSettingsDialog() async {
@@ -662,13 +739,25 @@ class _SehiriciDriverPanelScreenState
         // Harita
         Expanded(
           child: city != null
-              ? SehiriciLiveMap(
-                  lines: [line],
-                  activeTrips: [trip],
-                  center: city,
-                  zoomLevel: city.zoomLevel,
-                  height: double.infinity,
-                  interactive: true,
+              ? Stack(
+                  children: [
+                    SehiriciLiveMap(
+                      lines: [line],
+                      activeTrips: [trip],
+                      center: city,
+                      zoomLevel: city.zoomLevel,
+                      height: double.infinity,
+                      interactive: true,
+                      onLongPress: (pos) => setState(() => _droppedLocation = pos),
+                    ),
+                    if (_droppedLocation != null)
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 12,
+                        child: _buildDroppedLocationCard(trip, line),
+                      ),
+                  ],
                 )
               : const Center(child: CircularProgressIndicator()),
         ),

@@ -43,6 +43,9 @@ class SehiriciLiveMap extends StatefulWidget {
   /// Live update aralığı (saniye)
   final int updateIntervalSeconds;
 
+  /// Long press callback (konum düşürme)
+  final ValueChanged<LatLng>? onLongPress;
+
   const SehiriciLiveMap({
     super.key,
     required this.lines,
@@ -56,6 +59,7 @@ class SehiriciLiveMap extends StatefulWidget {
     this.showTraffic = true,
     this.enableLiveUpdates = true,
     this.updateIntervalSeconds = 30,
+    this.onLongPress,
   });
 
   @override
@@ -1233,6 +1237,10 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
                           () => EagerGestureRecognizer()),
                     }
                   : const <Factory<OneSequenceGestureRecognizer>>{},
+              onLongPress: (LatLng pos) {
+                setState(() => _draggedPosition = pos);
+                widget.onLongPress?.call(pos);
+              },
             ),
             if (_selectedLine != null)
               Positioned(
