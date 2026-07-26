@@ -31,6 +31,7 @@ import '../../market/screens/notifications_screen.dart';
 import '../../chat/services/presence_service.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
+import '../../news/screens/news_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -56,7 +57,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         case 1: return const ProductsScreen();
         case 2: return const CartScreen(isMainTab: true);
         case 3: return const SocialScreen();
-        case 4: return const ProfileScreen();
+        case 4: return const NewsScreen();
+        case 5: return const ProfileScreen();
         default: return const MarketScreen();
       }
     });
@@ -340,10 +342,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       notificationCount: 0, // Alt navigasyonda badge yok
                     ),
                     _buildNavItem(
+                      icon: Icons.newspaper_outlined,
+                      activeIcon: Icons.newspaper,
+                      label: "Haberler",
+                      index: 4,
+                      primaryColor: primaryColor,
+                    ),
+                    _buildNavItem(
                       icon: Icons.person_outline,
                       activeIcon: Icons.person,
                       label: "Profil",
-                      index: 4,
+                      index: 5,
                       primaryColor: primaryColor,
                     ),
                   ],
