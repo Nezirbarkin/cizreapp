@@ -34,7 +34,6 @@ class _SehiriciDriverPanelScreenState
   // Timer ve çalışma saatleri
   Timer? _tripTimer;
   Duration _tripDuration = Duration.zero;
-  bool _showRoute = false;
 
   @override
   void initState() {
@@ -627,47 +626,31 @@ class _SehiriciDriverPanelScreenState
                 style: TextStyle(color: Colors.grey.shade700),
               ),
               const SizedBox(height: 12),
-              Column(
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _togglePause,
-                          icon: Icon(
-                            trip.status == SehiriciTripStatus.active
-                                ? Icons.pause
-                                : Icons.play_arrow,
-                          ),
-                          label: Text(
-                            trip.status == SehiriciTripStatus.active
-                                ? 'Mola'
-                                : 'Devam',
-                          ),
-                        ),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _togglePause,
+                      icon: Icon(
+                        trip.status == SehiriciTripStatus.active
+                            ? Icons.pause
+                            : Icons.play_arrow,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _endTrip,
-                          icon: const Icon(Icons.stop),
-                          label: const Text('Seferi Bitir'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red,
-                          ),
-                        ),
+                      label: Text(
+                        trip.status == SehiriciTripStatus.active
+                            ? 'Mola'
+                            : 'Devam',
                       ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: FilledButton.icon(
-                      onPressed: () => setState(() => _showRoute = !_showRoute),
-                      icon: Icon(_showRoute ? Icons.route : Icons.map),
-                      label: Text(_showRoute ? 'Rotayı Gizle' : 'İlk Rotasını Göster'),
+                      onPressed: _endTrip,
+                      icon: const Icon(Icons.stop),
+                      label: const Text('Seferi Bitir'),
                       style: FilledButton.styleFrom(
-                        backgroundColor: _showRoute ? Colors.blue.shade700 : Colors.blue,
+                        backgroundColor: Colors.red,
                       ),
                     ),
                   ),
@@ -680,7 +663,7 @@ class _SehiriciDriverPanelScreenState
         Expanded(
           child: city != null
               ? SehiriciLiveMap(
-                  lines: _showRoute ? [line] : [],
+                  lines: [line],
                   activeTrips: [trip],
                   center: city,
                   zoomLevel: city.zoomLevel,
