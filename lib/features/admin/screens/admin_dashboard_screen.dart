@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously, unused_element, unnecessary_underscores, unused_local_variable, prefer_conditional_assignment
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously, unused_element, unnecessary_underscores, unused_local_variable, prefer_conditional_assignment, unnecessary_brace_in_string_interps
 
 // ignore_for_file: deprecated_member_use
 
@@ -37,6 +37,8 @@ import '../../shop/services/cancellation_request_service.dart';
 import '../../../core/services/transfer_service.dart';
 import 'courier_quick_settings_screen.dart';
 import '../widgets/courier_notices_management_content.dart';
+import '../../../sehirici/admin/sehirici_admin_management_content.dart';
+import '../../news/widgets/news_management_content.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -79,6 +81,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _logsSearchQuery = '';
   String _selectedPeriod = 'weekly'; // Raporlar için seçili dönem
   String _userSearchQuery = ''; // Kullanıcı arama sorgusu
+  String? _roleFilter; // Kullanıcı listesi rol filtresi (kart tıklayınca)
   final TextEditingController _userSearchController = TextEditingController();
   Future<List<Map<String, dynamic>>>? _usersFuture;
   String? _selectedShopFilter; // Sipariş yönetiminde dükkan filtresi
@@ -489,6 +492,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.newspaper_rounded,
+                    title: 'Haberler',
+                    isSelected: _selectedMenu == 'Haberler',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Haberler');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.shopping_bag_rounded,
                     title: 'Ürünler',
                     isSelected: _selectedMenu == 'Ürünler',
@@ -674,6 +686,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.directions_bus_rounded,
+                    title: 'Şehiriçi Yönetimi',
+                    isSelected: _selectedMenu == 'Şehiriçi Yönetimi',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Şehiriçi Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.account_balance_wallet,
                     title: 'Cüzdan Yönetimi',
                     isSelected: _selectedMenu == 'Cüzdan Yönetimi',
@@ -809,6 +830,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return _buildUsersContent();
       case 'Gönderiler':
         return _buildPostsContent();
+      case 'Haberler':
+        return const NewsManagementContent();
       case 'Ürünler':
         return _buildProductsContent();
       case 'SMM Sağlayıcıları':
@@ -878,6 +901,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const TaskManagementContent();
       case 'Kurye Uyarıları':
         return const CourierNoticesManagementContent();
+      case 'Şehiriçi Yönetimi':
+        return const SehiriciAdminManagementContent();
       case 'Şüpheli Kullanıcılar':
         return const SuspiciousUsersContent();
       default:
@@ -1323,27 +1348,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
         final allUsers = snapshot.data!;
         
-        // Arama filtrelemesi
-        final users = _userSearchQuery.isEmpty
-            ? allUsers
-            : allUsers.where((user) {
-                final query = _userSearchQuery.toLowerCase();
-                final username = (user['username'] as String?)?.toLowerCase() ?? '';
-                final fullName = (user['full_name'] as String?)?.toLowerCase() ?? '';
-                final email = (user['email'] as String?)?.toLowerCase() ?? '';
-                final phone = (user['phone'] as String?)?.toLowerCase() ?? '';
-                
-                return username.contains(query) ||
-                       fullName.contains(query) ||
-                       email.contains(query) ||
-                       phone.contains(query);
-              }).toList();
+        // Arama + rol filtrelemesi
+        final users = allUsers.where((user) {
+          // Rol filtresi
+          if (_roleFilter != null && user['role'] != _roleFilter) {
+            return false;
+          }
+          // Arama filtresi
+          if (_userSearchQuery.isNotEmpty) {
+            final query = _userSearchQuery.toLowerCase();
+            final username = (user['username'] as String?)?.toLowerCase() ?? '';
+            final fullName = (user['full_name'] as String?)?.toLowerCase() ?? '';
+            final email = (user['email'] as String?)?.toLowerCase() ?? '';
+            final phone = (user['phone'] as String?)?.toLowerCase() ?? '';
+            return username.contains(query) ||
+                   fullName.contains(query) ||
+                   email.contains(query) ||
+                   phone.contains(query);
+          }
+          return true;
+        }).toList();
         
         // İstatistikler (tüm kullanıcılar üzerinden)
         final totalUsers = allUsers.length;
         final adminCount = allUsers.where((u) => u['role'] == 'admin').length;
         final sellerCount = allUsers.where((u) => u['role'] == 'seller').length;
         final courierCount = allUsers.where((u) => u['role'] == 'courier').length;
+        final driverCount = allUsers.where((u) => u['role'] == 'driver').length;
         final bannedCount = 0; // is_banned kolonu veritabanında mevcut değil
         
         return RefreshIndicator(
@@ -1405,6 +1436,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         value: '$totalUsers',
                         color: Colors.blue,
                         gradient: [Colors.blue.shade400, Colors.blue.shade600],
+                        onTap: () => setState(() => _roleFilter = null),
                       ),
                     ),
                     SizedBox(
@@ -1415,6 +1447,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         value: '$adminCount',
                         color: Colors.purple,
                         gradient: [Colors.purple.shade400, Colors.purple.shade600],
+                        onTap: () => setState(() => _roleFilter = 'admin'),
                       ),
                     ),
                     SizedBox(
@@ -1425,6 +1458,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         value: '$sellerCount',
                         color: Colors.orange,
                         gradient: [Colors.orange.shade400, Colors.orange.shade600],
+                        onTap: () => setState(() => _roleFilter = 'seller'),
                       ),
                     ),
                     SizedBox(
@@ -1435,10 +1469,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         value: '$courierCount',
                         color: Colors.teal,
                         gradient: [Colors.teal.shade400, Colors.teal.shade600],
+                        onTap: () => setState(() => _roleFilter = 'courier'),
+                      ),
+                    ),
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
+                      child: _buildStatCard(
+                        icon: Icons.directions_bus,
+                        title: 'Şoför',
+                        value: '$driverCount',
+                        color: Colors.indigo,
+                        gradient: [Colors.indigo.shade400, Colors.indigo.shade600],
+                        onTap: () => setState(() => _roleFilter = 'driver'),
                       ),
                     ),
                   ],
                 ),
+                if (_roleFilter != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Row(
+                      children: [
+                        Chip(
+                          label: Text('Filtre: ${_roleFilter}'),
+                          onDeleted: () => setState(() => _roleFilter = null),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 24),
                 
                 // Filtrelenmiş sonuç bilgisi
@@ -1500,109 +1558,113 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(12),
-                        leading: CircleAvatar(
-                          radius: 24,
-                          backgroundImage: user['avatar_url'] != null
-                              ? NetworkImage(user['avatar_url'])
-                              : null,
-                          child: user['avatar_url'] == null
-                              ? Text(
-                                  (user['username'] as String?)?.substring(0, 1).toUpperCase() ?? '?',
-                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                )
-                              : null,
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                user['full_name'] ?? user['username'] ?? '-',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            _buildRoleBadge(user['role']),
-                          ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(Icons.email, size: 12, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    user['email'] ?? '-',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _showEditUserDialog(user),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.all(12),
+                          leading: CircleAvatar(
+                            radius: 24,
+                            backgroundImage: _isValidImageUrl(user['avatar_url'])
+                                ? NetworkImage(user['avatar_url'])
+                                : null,
+                            child: !_isValidImageUrl(user['avatar_url'])
+                                ? Text(
+                                    (user['username'] as String?)?.substring(0, 1).toUpperCase() ?? '?',
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  )
+                                : null,
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  user['full_name'] ?? user['username'] ?? '-',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Row(
-                              children: [
-                                Icon(Icons.person, size: 12, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '@${user['username'] ?? '-'}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                              _buildRoleBadge(user['role']),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(Icons.email, size: 12, color: Colors.grey.shade600),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      user['email'] ?? '-',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Icon(Icons.person, size: 12, color: Colors.grey.shade600),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '@${user['username'] ?? '-'}',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            icon: Icon(Icons.more_vert, color: Colors.grey.shade700),
+                            onSelected: (value) {
+                              switch (value) {
+                                case 'edit':
+                                  _showEditUserDialog(user);
+                                  break;
+                                case 'change_role':
+                                  _showChangeRoleDialog(user);
+                                  break;
+                                case 'delete':
+                                  _showDeleteUserDialog(user);
+                                  break;
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Düzenle'),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          icon: Icon(Icons.more_vert, color: Colors.grey.shade700),
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'edit':
-                                _showEditUserDialog(user);
-                                break;
-                              case 'change_role':
-                                _showChangeRoleDialog(user);
-                                break;
-                              case 'delete':
-                                _showDeleteUserDialog(user);
-                                break;
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Düzenle'),
-                                ],
                               ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'change_role',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.admin_panel_settings, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Rol Değiştir'),
-                                ],
+                              const PopupMenuItem(
+                                value: 'change_role',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.admin_panel_settings, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Rol Değiştir'),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.delete, size: 18, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('Sil', style: TextStyle(color: Colors.red)),
-                                ],
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete, size: 18, color: Colors.red),
+                                    SizedBox(width: 8),
+                                    Text('Sil', style: TextStyle(color: Colors.red)),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -1636,6 +1698,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         color = Colors.teal;
         icon = Icons.delivery_dining;
         label = 'Kurye';
+        break;
+      case 'driver':
+        color = Colors.indigo;
+        icon = Icons.directions_bus;
+        label = 'Şoför';
         break;
       default:
         color = Colors.blue;
@@ -1795,12 +1862,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               RadioListTile<String>(
                 title: Row(
                   children: [
+                    Icon(Icons.directions_bus, color: Colors.indigo, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Şoför'),
+                  ],
+                ),
+                value: 'driver',
+                groupValue: selectedRole,
+                onChanged: (value) {
+                  setDialogState(() => selectedRole = value!);
+                },
+              ),
+              RadioListTile<String>(
+                title: Row(
+                  children: [
                     Icon(Icons.admin_panel_settings, color: Colors.purple, size: 20),
                     const SizedBox(width: 8),
                     const Text('Admin'),
                   ],
                 ),
                 value: 'admin',
+                groupValue: selectedRole,
+                onChanged: (value) {
+                  setDialogState(() => selectedRole = value!);
+                },
+              ),
+              RadioListTile<String>(
+                title: Row(
+                  children: [
+                    Icon(Icons.newspaper, color: Colors.blueGrey, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Haberci'),
+                  ],
+                ),
+                value: 'news',
                 groupValue: selectedRole,
                 onChanged: (value) {
                   setDialogState(() => selectedRole = value!);
@@ -9762,6 +9857,96 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     required String value,
     required Color color,
     required List<Color> gradient,
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: gradient,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCardOld({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+    required List<Color> gradient,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -16676,6 +16861,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ],
     );
   }
+
+  bool _isValidImageUrl(dynamic url) {
+    if (url == null) return false;
+    final urlStr = url.toString().trim();
+    if (urlStr.isEmpty) return false;
+    return urlStr.startsWith('http://') || urlStr.startsWith('https://');
+  }
 }
 
 // ========== HAVALE ONAYLARI TAB ETİKETİ (bekleyen sayısı rozeti) ==========
@@ -18127,5 +18319,12 @@ class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
         },
       ),
     );
+  }
+
+  bool _isValidImageUrl(dynamic url) {
+    if (url == null) return false;
+    final urlStr = url.toString().trim();
+    if (urlStr.isEmpty) return false;
+    return urlStr.startsWith('http://') || urlStr.startsWith('https://');
   }
 }
