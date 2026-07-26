@@ -76,7 +76,7 @@ class NewsService {
             .range(offset, offset + limit - 1);
       }
 
-      return data.map((e) => NewsModel.fromJson(e as Map<String, dynamic>)).toList();
+      return data.map((e) => NewsModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Haber listeleme hatası: $e');
       return [];
@@ -178,7 +178,7 @@ class NewsService {
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
 
-      return (data).map((e) => NewsModel.fromJson(e as Map<String, dynamic>)).toList();
+      return (data).map((e) => NewsModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Kullanıcı haberleri getirme hatası: $e');
       return [];
