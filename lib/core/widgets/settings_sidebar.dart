@@ -18,7 +18,7 @@ import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
-// import '../../features/news/screens/news_panel_screen.dart';
+import '../../features/news/screens/news_reporter_panel_screen.dart';
 import '../../sehirici/sehirici.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import 'balance_header_widget.dart';
@@ -443,7 +443,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const SizedBox(),
+                                        builder: (context) => const NewsReporterPanelScreen(),
                                       ),
                                     );
                                   },

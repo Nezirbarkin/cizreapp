@@ -219,7 +219,8 @@ class NewsService {
           .eq('id', user.id)
           .maybeSingle();
 
-      final data = await _client.from('news').insert({
+      // Önce insert yap
+      final insertResponse = await _client.from('news').insert({
         'title': title,
         'slug': slug,
         'content': content,
@@ -237,11 +238,20 @@ class NewsService {
         'latitude': latitude,
         'longitude': longitude,
         'published_at': publishedAt?.toIso8601String(),
-      }).select('''
-        *,
-        news_categories(name, slug, color, icon),
-        institutions(name, slug, logo_url, is_verified)
-      ''').single();
+      }).select('id').single();
+
+      final newsId = insertResponse['id'] as String;
+
+      // Sonra joined data ile select yap
+      final data = await _client
+          .from('news')
+          .select('''
+            *,
+            news_categories(name, slug, color, icon),
+            institutions(name, slug, logo_url, is_verified)
+          ''')
+          .eq('id', newsId)
+          .single();
 
       return NewsModel.fromJson(Map<String, dynamic>.from(data));
     } catch (e) {

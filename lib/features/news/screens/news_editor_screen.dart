@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿// ignore_for_file: deprecated_member_use
+
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/models/news_model.dart';
@@ -116,7 +118,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
 
     try {
       if (widget.news == null) {
-        await _newsService.createNews(
+        final result = await _newsService.createNews(
           title: _titleController.text,
           content: _contentController.text,
           summary: _summaryController.text,
@@ -128,14 +130,18 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           locationName: _locationController.text,
           thumbnailUrl: _uploadedImageUrl,
         );
-        if (mounted) {
+        if (result != null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Haber basariyla olusturuldu')),
           );
           Navigator.pop(context, true);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Hata: Haber kaydedilemedi')),
+          );
         }
       } else {
-        await _newsService.updateNews(
+        final success = await _newsService.updateNews(
           id: widget.news!.id,
           title: _titleController.text,
           content: _contentController.text,
@@ -148,11 +154,15 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           locationName: _locationController.text,
           thumbnailUrl: _uploadedImageUrl,
         );
-        if (mounted) {
+        if (success && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Haber basariyla guncellendi')),
           );
           Navigator.pop(context, true);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Hata: Haber guncellenemedi')),
+          );
         }
       }
     } catch (e) {
