@@ -13,12 +13,14 @@ import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/favorites_provider.dart';
+import 'sehirici/providers/sehirici_location_provider.dart';
 import 'core/services/verification_service.dart';
 import 'core/services/payment_service.dart';
 import 'core/services/ad_consent_service.dart';
 import 'firebase_options.dart';
 // ignore: unused_import
 import 'features/market/providers/cart_provider.dart';
+import 'sehirici/sehirici.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/login_screen_v2.dart';
 import 'features/auth/screens/register_screen.dart';
@@ -257,6 +259,9 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
+        ChangeNotifierProvider(create: (_) => SehiriciLocationProvider()),
+        // Şehiriçi servis modülü (singleton provider)
+        ChangeNotifierProvider(create: (_) => SehiriciProvider()..initialize()),
         // CartProvider - Auth durumuna göre dinamik olarak oluşturulacak
         // Not: Kullanıcı giriş yaptıktan sonra MainScreen'de oluşturulur
       ],
@@ -683,19 +688,11 @@ class _CizreAppState extends State<CizreApp> {
           debugShowCheckedModeBanner: false,
           navigatorKey: _navigatorKey,
           theme: themeProvider.themeData,
+          darkTheme: themeProvider.themeData,
+          themeMode: themeProvider.themeMode,
           // Web'de scroll davranışını özelleştir - tarayıcı scroll kaymasını önle
           scrollBehavior: kIsWeb ? const _WebScrollBehavior() : null,
           builder: (context, child) {
-            // Web'de viewport kaymasını önle
-            if (kIsWeb) {
-              return MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  // ViewInsets'i sıfırla (klavye açıldığında viewport kaymasını önle)
-                  viewInsets: EdgeInsets.zero,
-                ),
-                child: child ?? const SizedBox.shrink(),
-              );
-            }
             return child ?? const SizedBox.shrink();
           },
           // Web'de URL'ye göre doğrudan doğru ekranı yükle
@@ -777,6 +774,11 @@ class _CizreAppState extends State<CizreApp> {
             '/main': (context) => const MainScreen(),
             '/admin': (context) => const AdminDashboardScreen(),
             '/courier': (context) => const CourierPanelScreen(),
+            '/sehirici-lines': (context) => const SehiriciLinesScreen(),
+            '/sehirici-favorites': (context) =>
+                const SehiriciFavoritesScreen(),
+            '/sehirici-driver': (context) =>
+                const SehiriciDriverPanelScreen(),
           },
           showPerformanceOverlay: false,
         );

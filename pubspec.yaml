@@ -58,6 +58,9 @@ dependencies:
   
   # ============ DATE & TIME ============
   intl: ^0.20.2
+
+  # ============ UTILITIES ============
+  uuid: ^4.0.0
   
   # ============ UI & ANIMATIONS ============
   animated_stack_widget: ^0.0.3
@@ -108,6 +111,11 @@ dependencies:
   # ============ ADS (Ödüllü Reklam - Bakiye Kazanma) ============
   google_mobile_ads: ^5.3.1
   app_tracking_transparency: ^2.0.6+1
+
+  # ============ LIVE SHOPPING (Agora Video) ============
+  # permission_handler zaten dependencies'te (kamera/mikrofon izinleri için)
+  # Production token için Edge Function gerekir (Token Server önerilir).
+  agora_rtc_engine: ^6.5.3
 
 dev_dependencies:
   flutter_test:

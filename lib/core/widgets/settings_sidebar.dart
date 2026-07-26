@@ -18,6 +18,8 @@ import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
+// import '../../features/news/screens/news_panel_screen.dart';
+import '../../sehirici/sehirici.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import 'balance_header_widget.dart';
 
@@ -429,8 +431,43 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     );
                                   },
                                 ),
-                              if (_userRole == UserRole.admin || _userRole == UserRole.seller || _userRole == UserRole.courier)
-                                const SizedBox(height: 24),
+                              if (_userRole == UserRole.news)
+                                _buildPanelButton(
+                                  context: context,
+                                  icon: Icons.newspaper,
+                                  title: 'Haberci Paneli',
+                                  subtitle: 'Haber Yönetimi',
+                                  color: Colors.blueGrey,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const SizedBox(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              // Şehiriçi Şoför Paneli (sadece driver rolü)
+                              if (_userRole == UserRole.driver)
+                                _buildPanelButton(
+                                  context: context,
+                                  icon: Icons.directions_bus,
+                                  title: 'Şoför Paneli',
+                                  subtitle: 'Şehiriçi Servis Seferi',
+                                  color: Colors.indigo,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const SehiriciDriverPanelScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              const SizedBox(height: 24),
                               
                               // Hesabım bölümü
                               const Text(

@@ -81,7 +81,6 @@ class _CourierPanelScreenState extends State<CourierPanelScreen> with WidgetsBin
           final cartProvider = context.watch<CartProvider>();
 
           return Scaffold(
-            resizeToAvoidBottomInset: false,
             extendBody: true,
             body: IndexedStack(
               index: _selectedIndex,

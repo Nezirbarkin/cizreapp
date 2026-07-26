@@ -4,9 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeProvider with ChangeNotifier {
   Color _primaryColor = const Color(0xFFD91A73); // Vibrant pink
-  
+
   // Otomatik tema değişimi için
   bool _autoThemeEnabled = true;
+
+  // Dark mode desteği
+  ThemeMode _themeMode = ThemeMode.system;
+  bool get isDarkMode => _themeMode == ThemeMode.dark;
   
   // Mevcut temalar (Yeşil, Mavi, Pembe)
   static const List<Color> availableThemes = [
@@ -26,9 +30,17 @@ class ThemeProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final themeValue = prefs.getInt('theme_color') ?? 0xFFD91A73;
     _primaryColor = Color(themeValue);
-    
+
     // Otomatik tema ayarını yükle
     _autoThemeEnabled = prefs.getBool('auto_theme_enabled') ?? true;
+
+    // Dark mode'u yükle
+    final themeModeStr = prefs.getString('theme_mode');
+    if (themeModeStr != null) {
+      _themeMode = ThemeMode.values
+          .firstWhere((m) => m.toString() == themeModeStr, orElse: () => ThemeMode.system);
+    }
+
     notifyListeners();
   }
 
@@ -99,14 +111,54 @@ class ThemeProvider with ChangeNotifier {
     await _loadTheme();
   }
 
+  /// Dark mode'u aç
+  Future<void> setDarkMode() async {
+    _themeMode = ThemeMode.dark;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('theme_mode', ThemeMode.dark.toString());
+    notifyListeners();
+  }
+
+  /// Light mode'u aç
+  Future<void> setLightMode() async {
+    _themeMode = ThemeMode.light;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('theme_mode', ThemeMode.light.toString());
+    notifyListeners();
+  }
+
+  /// Sistem tema'sını kullan
+  Future<void> setSystemMode() async {
+    _themeMode = ThemeMode.system;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('theme_mode');
+    notifyListeners();
+  }
+
+  /// Tema'yı toggle et
+  Future<void> toggleTheme() async {
+    if (_themeMode == ThemeMode.dark) {
+      await setLightMode();
+    } else {
+      await setDarkMode();
+    }
+  }
+
+  ThemeMode get themeMode => _themeMode;
+
   ThemeData get themeData {
+    final isDark = _themeMode == ThemeMode.dark;
+
     return ThemeData(
       useMaterial3: true,
+      brightness: isDark ? Brightness.dark : Brightness.light,
       colorScheme: ColorScheme.fromSeed(
         seedColor: _primaryColor,
         primary: _primaryColor,
+        brightness: isDark ? Brightness.dark : Brightness.light,
       ),
-      scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor:
+          isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA),
       appBarTheme: AppBarTheme(
         backgroundColor: _primaryColor,
         elevation: 0,
@@ -116,6 +168,11 @@ class ThemeProvider with ChangeNotifier {
           fontSize: 20,
           fontWeight: FontWeight.bold,
         ),
+      ),
+      cardColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      dialogTheme: DialogThemeData(
+        backgroundColor:
+            isDark ? const Color(0xFF1E1E1E) : Colors.white,
       ),
     );
   }

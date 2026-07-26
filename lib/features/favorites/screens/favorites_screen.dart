@@ -7,6 +7,10 @@ import '../../../core/models/favorite_models.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/post_model.dart' show Post;
 import '../../market/screens/product_detail_screen.dart';
+import '../../market/screens/my_price_alerts_screen.dart';
+import '../../market/screens/flash_sales_screen.dart';
+import '../../market/screens/live_sessions_screen.dart';
+import '../../market/widgets/flash_sale_entry_banner.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 
@@ -43,6 +47,32 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorilerim'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.live_tv_outlined),
+            tooltip: 'Canlı Yayınlar',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LiveSessionsScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_active_outlined),
+            tooltip: 'Fiyat Alarmlarım',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MyPriceAlertsScreen(),
+                ),
+              );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -51,11 +81,57 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          _ProductFavoritesTab(),
-          _PostFavoritesTab(),
+      body: Column(
+        children: [
+          // Aktif flash sale varsa giriş bandı
+          const FlashSaleEntryBanner(),
+          // Tüm Flash Satışları gör butonu (her zaman görünür değil ama banner varsa
+          // yeterli; banner yoksa kompakt bir link)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LiveSessionsScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.live_tv, size: 18, color: Colors.red),
+                  label: const Text(
+                    'Canlı Yayınlar',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const FlashSalesScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.flash_on, size: 18),
+                  label: const Text('Flash Satışlar'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: const [
+                _ProductFavoritesTab(),
+                _PostFavoritesTab(),
+              ],
+            ),
+          ),
         ],
       ),
     );

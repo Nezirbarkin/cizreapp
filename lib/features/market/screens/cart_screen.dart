@@ -100,7 +100,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     
     if (userId == null) {
       return Scaffold(
-        resizeToAvoidBottomInset: false,
         body: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -135,7 +134,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     debugPrint('🟢 CartScreen.build() - itemCount: ${cartProvider.itemCount}, isEmpty: ${cartProvider.isEmpty}, isLoading: ${cartProvider.isLoading}');
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(

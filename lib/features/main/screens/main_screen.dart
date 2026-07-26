@@ -253,7 +253,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           final cartCount = cartProvider.itemCount;
 
           return Scaffold(
-            resizeToAvoidBottomInset: false,
             extendBody: true,
             // ⚡ iOS PERFORMANCE: IndexedStack yerine lazy loading
             // Sadece aktif ekranı oluşturur, bellek tasarrufu sağlar
@@ -707,7 +706,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final cartProvider = context.watch<CartProvider>();
     
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       body: Column(
         children: [
           // Üst Bar

@@ -228,7 +228,6 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     final totalUnread = _unreadCount + _groupUnreadCount;
     
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
       appBar: AppBar(
         title: const Text('Mesajlar'),

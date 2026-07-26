@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../../features/social/services/story_service.dart';
+import '../../sehirici/widgets/sehirici_story_card.dart';
 
 class StoryModel {
   final String id;
@@ -400,9 +401,16 @@ class _StoriesSectionState extends State<StoriesSection> {
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _stories.length,
+          itemCount: _stories.length + 1, // +1 for Şehiriçi card
           itemBuilder: (context, index) {
-            final story = _stories[index];
+            // İlk öğe Şehiriçi kartı
+            if (index == 0) {
+              return const SehiriciStoryCard();
+            }
+            
+            // Diğer öğeler story'ler (index-1 kullan)
+            final storyIndex = index - 1;
+            final story = _stories[storyIndex];
             final username = _usernames[story.userId] ?? 'Bilinmiyor';
             
             return Padding(
@@ -410,7 +418,7 @@ class _StoriesSectionState extends State<StoriesSection> {
               child: GestureDetector(
                 onTap: () {
                   if (widget.onStoryTap != null) {
-                    widget.onStoryTap!(index);
+                    widget.onStoryTap!(storyIndex);
                   }
                 },
                 child: SizedBox(
@@ -552,9 +560,22 @@ class _StoriesSectionState extends State<StoriesSection> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _stories.length,
+              itemCount: _stories.length + 1, // +1 for Şehiriçi
               itemBuilder: (context, index) {
-                final story = _stories[index];
+                // İlk öğe Şehiriçi kartı (full mode için özel widget)
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: SizedBox(
+                      width: cardWidth,
+                      child: const SehiriciFullStoryCard(),
+                    ),
+                  );
+                }
+                
+                // Diğer öğeler story'ler (index-1 kullan)
+                final storyIndex = index - 1;
+                final story = _stories[storyIndex];
                 final username = _usernames[story.userId] ?? 'Bilinmiyor';
                 final avatarUrl = _userAvatars[story.userId];
                 
@@ -563,7 +584,7 @@ class _StoriesSectionState extends State<StoriesSection> {
                   child: GestureDetector(
                     onTap: () {
                       if (widget.onStoryTap != null) {
-                        widget.onStoryTap!(index);
+                        widget.onStoryTap!(storyIndex);
                       }
                     },
                     child: Container(

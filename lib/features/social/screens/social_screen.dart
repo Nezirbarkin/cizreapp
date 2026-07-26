@@ -888,7 +888,6 @@ class _SocialScreenState extends State<SocialScreen> {
     final primaryColor = theme.colorScheme.primary;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       backgroundColor: primaryColor,
       body: Stack(
         children: [

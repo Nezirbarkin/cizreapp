@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class AdminDrawer extends StatelessWidget {
   final String selectedSection;
@@ -93,6 +95,12 @@ class AdminDrawer extends StatelessWidget {
               icon: Icons.post_add_rounded,
               title: 'Gönderiler',
               section: 'posts',
+            ),
+            _buildDrawerItem(
+              context: context,
+              icon: Icons.newspaper_rounded,
+              title: 'Haberler',
+              section: 'Haberler',
             ),
             _buildDrawerItem(
               context: context,
@@ -193,7 +201,32 @@ class AdminDrawer extends StatelessWidget {
               title: 'Reklam Ayarları',
               section: 'Reklam Ayarları',
             ),
-            const SizedBox(height: 16),
+            _buildDrawerItem(
+              context: context,
+              icon: Icons.directions_bus_rounded,
+              title: 'Şehiriçi Yönetimi',
+              section: 'Şehiriçi Yönetimi',
+            ),
+            const Divider(height: 24, thickness: 1),
+            Consumer<ThemeProvider>(
+              builder: (context, themeProvider, _) {
+                return ListTile(
+                  leading: Icon(
+                    themeProvider.isDarkMode
+                        ? Icons.light_mode_rounded
+                        : Icons.dark_mode_rounded,
+                  ),
+                  title: Text(
+                    themeProvider.isDarkMode
+                        ? 'Light Mode'
+                        : 'Dark Mode',
+                  ),
+                  onTap: () => themeProvider.toggleTheme(),
+                );
+              },
+            ),
+            const Divider(height: 24, thickness: 1),
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ElevatedButton.icon(
@@ -262,8 +295,10 @@ class AdminDrawer extends StatelessWidget {
           icon,
           color: isSelected
               ? Theme.of(context).colorScheme.primary
-              // ignore: deprecated_member_use
-              : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              : Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.7),
         ),
         title: Text(
           title,

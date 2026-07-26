@@ -14,6 +14,8 @@ import 'seller_reports_screen.dart';
 import 'coupons_screen.dart';
 import 'smm_provider_settings_screen.dart';
 import 'seller_digital_orders_screen.dart';
+import 'seller_flash_sales_screen.dart';
+import '../../market/screens/live_host_screen.dart';
 
 class SellerDashboardScreen extends StatefulWidget {
   const SellerDashboardScreen({super.key});
@@ -383,6 +385,50 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                         builder: (context) => const CouponsScreen(),
                       ),
                     ).then((_) => _loadDashboardData());
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.flash_on,
+                  title: 'Flash Satış Yönetimi',
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (_shopInfo == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Önce mağaza oluşturmalısınız')),
+                      );
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SellerFlashSalesScreen(
+                          shopId: _shopInfo!['id'] as String,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.live_tv,
+                  title: 'Canlı Yayın Başlat',
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (_shopInfo == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Önce mağaza oluşturmalısınız')),
+                      );
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LiveHostScreen(
+                          shopId: _shopInfo!['id'] as String,
+                          shopName:
+                              (_shopInfo!['name'] ?? 'Mağazam') as String,
+                        ),
+                      ),
+                    );
                   },
                 ),
                 _buildDrawerItem(

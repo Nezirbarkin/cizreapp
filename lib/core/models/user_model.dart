@@ -1,4 +1,4 @@
-enum UserRole { customer, seller, admin, courier }
+enum UserRole { customer, seller, admin, courier, driver, news }
 
 enum UserStatus { active, suspended, deleted }
 

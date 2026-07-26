@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/news_model.dart';
 import '../services/news_service.dart';
-import '../screens/news_detail_screen.dart';
+import '../screens/news_editor_screen.dart';
 
 /// Admin Panel Haber Yönetimi İçeriği
 class NewsManagementContent extends StatefulWidget {
@@ -397,7 +397,7 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => NewsDetailScreen(
+        builder: (context) => NewsEditorScreen(
           news: news,
           categories: _categories,
           institutions: _institutions,
@@ -413,7 +413,8 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
   Future<void> _togglePublish(NewsModel news) async {
     try {
       await _newsService.updateNews(
-        news.copyWith(isPublished: !news.isPublished),
+        id: news.id,
+        isPublished: !news.isPublished,
       );
       _loadData();
       if (mounted) {
@@ -431,7 +432,8 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
   Future<void> _toggleFeatured(NewsModel news) async {
     try {
       await _newsService.updateNews(
-        news.copyWith(isFeatured: !news.isFeatured),
+        id: news.id,
+        isFeatured: !news.isFeatured,
       );
       _loadData();
     } catch (e) {
@@ -444,7 +446,8 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
   Future<void> _toggleBreaking(NewsModel news) async {
     try {
       await _newsService.updateNews(
-        news.copyWith(isBreaking: !news.isBreaking),
+        id: news.id,
+        isBreaking: !news.isBreaking,
       );
       _loadData();
     } catch (e) {

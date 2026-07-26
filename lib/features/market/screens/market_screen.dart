@@ -33,6 +33,7 @@ import '../services/cart_service.dart';
 import '../services/daily_deal_service.dart';
 import '../providers/cart_provider.dart';
 import '../../social/services/story_service.dart';
+import '../../../sehirici/sehirici.dart';
 import '../../social/services/post_service.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../chat/services/chat_service.dart';
@@ -51,6 +52,7 @@ import '../../shop/screens/cart_screen.dart' as shop_cart;
 import 'product_detail_screen.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../user_courier/screens/send_package_screen.dart';
+// import '../../news/widgets/news_section_widget.dart';
 
 class MarketScreen extends StatefulWidget {
   const MarketScreen({super.key});
@@ -656,7 +658,6 @@ class _MarketScreenState extends State<MarketScreen> {
     final primaryColor = theme.colorScheme.primary;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       backgroundColor: primaryColor,
       body: Stack(
         children: [
@@ -920,7 +921,7 @@ class _MarketScreenState extends State<MarketScreen> {
             const SizedBox(height: 6),
           ],
           
-          // Stories section - Dinamik boyut
+          // Stories section - Dinamik boyut (Şehiriçi kartı içinde)
           StoriesSection(
             isCompact: false,
             forceCompact: _isStoriesCompact,
@@ -1152,6 +1153,11 @@ class _MarketScreenState extends State<MarketScreen> {
             ),
           ),
 
+          // Bölgeden Haberler
+          // const SliverToBoxAdapter(
+          //   child: NewsSectionWidget(maxItems: 5, showViewAll: true),
+          // ),
+
           // En Son Gönderiler
           SliverToBoxAdapter(
             child: _recentPosts.isEmpty
@@ -1179,24 +1185,25 @@ class _MarketScreenState extends State<MarketScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       SizedBox(
-                        height: 280,
+                        height: 196,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           itemCount: _recentPosts.length,
                           itemBuilder: (context, index) {
                             final post = _recentPosts[index];
                             return Container(
-                              width: 200,
-                              margin: const EdgeInsets.only(right: 12),
+                              width: 140,
+                              margin: const EdgeInsets.only(right: 10),
                               child: _buildRecentPostCard(post),
                             );
                           },
                         ),
                       ),
-                      const SizedBox(height: 120),
+                      SizedBox(height: 16 + MediaQuery.of(context).padding.bottom + 140),
                     ],
                   ),
           ),
@@ -2255,162 +2262,142 @@ class _MarketScreenState extends State<MarketScreen> {
         );
       },
       child: Container(
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
               // ignore: deprecated_member_use
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Gönderi resmi
-            Expanded(
-              flex: 60,
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                  ),
-                  color: Colors.grey.shade100,
-                ),
-                child: post.images.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(16),
-                          topRight: Radius.circular(16),
-                        ),
-                        child: CachedNetworkImage(
-                          imageUrl: post.images.first,
-                          fit: BoxFit.cover,
-                          errorWidget: (context, url, error) {
-                            return Container(
-                              color: Colors.grey.shade200,
-                              child: const Center(
-                                child: Icon(Icons.image, size: 40, color: Colors.grey),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                    : Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Theme.of(context).colorScheme.primary.withOpacity(0.15),
-                              Theme.of(context).colorScheme.secondary.withOpacity(0.15),
-                            ],
+            AspectRatio(
+              aspectRatio: 1,
+              child: post.images.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: post.images.first,
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) {
+                        return Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(
+                            child: Icon(Icons.image, size: 32, color: Colors.grey),
                           ),
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(16),
-                            topRight: Radius.circular(16),
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: Center(
-                          child: Text(
-                            post.content ?? 'Gönderi',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade800,
-                              height: 1.4,
-                            ),
-                            maxLines: 5,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                            Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+                          ],
                         ),
                       ),
-              ),
+                      padding: const EdgeInsets.all(10),
+                      child: Center(
+                        child: Text(
+                          post.content ?? 'Gönderi',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade800,
+                            height: 1.3,
+                          ),
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
             ),
             // Kullanıcı ve etkileşim bilgileri
-            Expanded(
-              flex: 40,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 10, right: 10, top: 10, bottom: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Kullanıcı info
-                    Row(
-                      children: [
-                        Builder(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Kullanıcı info
+                  Row(
+                    children: [
+                      Builder(
+                        builder: (context) {
+                          final user = _postUsersMap[post.userId];
+                          final avatarUrl = user?['avatar_url'] as String?;
+
+                          return CircleAvatar(
+                            radius: 9,
+                            backgroundColor: Colors.grey.shade300,
+                            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                ? NetworkImage(avatarUrl)
+                                : null,
+                            child: avatarUrl == null || avatarUrl.isEmpty
+                                ? const Icon(Icons.person, size: 11, color: Colors.white)
+                                : null,
+                          );
+                        }
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Builder(
                           builder: (context) {
                             final user = _postUsersMap[post.userId];
-                            final avatarUrl = user?['avatar_url'] as String?;
-                            
-                            return CircleAvatar(
-                              radius: 10,
-                              backgroundColor: Colors.grey.shade300,
-                              backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                                  ? NetworkImage(avatarUrl)
-                                  : null,
-                              child: avatarUrl == null || avatarUrl.isEmpty
-                                  ? const Icon(Icons.person, size: 12, color: Colors.white)
-                                  : null,
+                            final username = user?['username'] as String?;
+                            final fullName = user?['full_name'] as String?;
+                            final displayName = username ?? fullName ?? 'Kullanıcı';
+
+                            return Text(
+                              displayName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             );
                           }
                         ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Builder(
-                            builder: (context) {
-                              final user = _postUsersMap[post.userId];
-                              final username = user?['username'] as String?;
-                              final fullName = user?['full_name'] as String?;
-                              final displayName = username ?? fullName ?? 'Kullanıcı';
-                              
-                              return Text(
-                                displayName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              );
-                            }
-                          ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // Etkileşim bilgileri
+                  Row(
+                    children: [
+                      Icon(Icons.favorite, size: 12, color: Colors.red.shade400),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${post.likesCount}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    // Etkileşim bilgileri
-                    Row(
-                      children: [
-                        Icon(Icons.favorite, size: 12, color: Colors.red.shade400),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${post.likesCount}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
+                      ),
+                      const SizedBox(width: 10),
+                      Icon(Icons.comment, size: 12, color: Colors.grey.shade500),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${post.commentsCount}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
                         ),
-                        const SizedBox(width: 10),
-                        Icon(Icons.comment, size: 12, color: Colors.grey.shade500),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${post.commentsCount}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],

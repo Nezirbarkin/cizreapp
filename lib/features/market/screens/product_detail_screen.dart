@@ -8,6 +8,8 @@ import 'package:intl/intl.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_review_model.dart';
+import '../../../core/models/price_alert_model.dart';
+import '../../../core/models/flash_sale_model.dart';
 import '../../../core/providers/favorites_provider.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/utils/app_error_handler.dart';
@@ -16,9 +18,13 @@ import '../../../core/widgets/skeleton_loader.dart';
 import '../services/product_service.dart';
 import '../services/shop_service.dart';
 import '../services/product_review_service.dart';
+import '../services/price_alert_service.dart';
+import '../services/flash_sale_service.dart';
 import '../providers/cart_provider.dart';
 import '../../seller/services/shop_analytics_service.dart';
 import '../../../core/services/smm_service.dart';
+import '../widgets/price_alert_dialog.dart';
+import 'flash_sales_screen.dart' show FlashSaleMiniBanner;
 import 'cart_screen.dart';
 import 'shop_detail_screen.dart';
 
@@ -37,6 +43,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   final ShopAnalyticsService _analyticsService = ShopAnalyticsService();
   final ProductReviewService _reviewService = ProductReviewService();
   final SmmService _smmService = SmmService();
+  final PriceAlertService _priceAlertService = PriceAlertService();
+  final FlashSaleService _flashSaleService = FlashSaleService();
 
   // Dijital ürün (SMM panel) sipariş formu
   final TextEditingController _digitalTargetUrlController = TextEditingController();
@@ -52,6 +60,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   int _selectedImageIndex = 0;
   int _quantity = 1;
   bool _isFavorite = false;
+
+  // Fiyat alarmı + flash sale durumu
+  PriceAlert? _activePriceAlert;
+  FlashSale? _activeFlashSale;
 
   // Varyant seçimleri
   String? _selectedSize;
@@ -75,6 +87,110 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     _loadProductData();
     _checkFavoriteStatus();
     _loadReviews();
+    _checkPriceAlert();
+    _checkFlashSale();
+  }
+
+  /// Kullanıcının bu ürün için kurduğu aktif fiyat alarmını kontrol et.
+  Future<void> _checkPriceAlert() async {
+    try {
+      final alert = await _priceAlertService.getActiveAlertForProduct(widget.productId);
+      if (mounted) setState(() => _activePriceAlert = alert);
+    } catch (_) {}
+  }
+
+  /// Bu ürün için aktif flash sale var mı (detayda mini banner + fiyat için).
+  Future<void> _checkFlashSale() async {
+    try {
+      final sale = await _flashSaleService.getActiveFlashSaleForProduct(widget.productId);
+      if (mounted) setState(() => _activeFlashSale = sale);
+    } catch (_) {}
+  }
+
+  /// Fiyat alarmı modalını aç. Kaydedilince state'i güncelle.
+  Future<void> _openPriceAlertDialog() async {
+    if (_product == null) return;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => PriceAlertDialog(
+        productId: _product!.id,
+        productName: _product!.name,
+        currentPrice: _product!.effectivePrice,
+      ),
+    );
+    if (result == true) {
+      _checkPriceAlert();
+    }
+  }
+
+  /// Kurulu alarmı kaldır.
+  Future<void> _removePriceAlert() async {
+    if (_activePriceAlert == null) return;
+    try {
+      await _priceAlertService.deactivateAlert(_activePriceAlert!.id);
+      if (mounted) {
+        setState(() => _activePriceAlert = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fiyat alarmı kaldırıldı')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Kaldırılamadı: $e')),
+        );
+      }
+    }
+  }
+
+  /// Fiyat alarmı butonu widget'ı. Aktif alarm varsa "Alarm Kuruldu" + kaldır,
+  /// yoksa "Fiyat Alarmı Kur" gösterir.
+  Widget _buildPriceAlertButton() {
+    if (_activePriceAlert != null) {
+      final target = _activePriceAlert!.targetPrice;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B5E20).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF1B5E20)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_active,
+                color: Color(0xFF1B5E20), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '🔔 Alarm kuruldu: ${target.toStringAsFixed(2)} ₺ altında bildirim alacaksınız',
+                style: const TextStyle(
+                  color: Color(0xFF1B5E20),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              color: const Color(0xFF1B5E20),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: _removePriceAlert,
+            ),
+          ],
+        ),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: _openPriceAlertDialog,
+      icon: const Icon(Icons.notifications_outlined, size: 18),
+      label: const Text('🔔 Fiyat Alarmı Kur'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF1B5E20),
+        side: const BorderSide(color: Color(0xFF1B5E20)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      ),
+    );
   }
 
   @override
@@ -598,6 +714,34 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             fontSize: 28,
                           ),
                         ),
+
+                      const SizedBox(height: 12),
+
+                      // Flash Sale aktifse mini banner
+                      if (_activeFlashSale != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              FlashSaleMiniBanner(sale: _activeFlashSale!),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '⚡ Flash satış devam ediyor! '
+                                  'Kalan stok: ${_activeFlashSale!.remainingStock}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFFE53935),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Fiyat Alarmı butonu
+                      _buildPriceAlertButton(),
 
                       const SizedBox(height: 16),
 

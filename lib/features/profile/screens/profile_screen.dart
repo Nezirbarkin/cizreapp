@@ -529,7 +529,6 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Widget build(BuildContext context) {
     if (_isLoading || _profileData == null) {
       return Scaffold(
-        resizeToAvoidBottomInset: false,
         backgroundColor: Colors.white,
         body: Center(
           child: Column(
@@ -571,7 +570,6 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     final isOwnProfile = targetUserId == currentUserId;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.grey.shade50,
       body: RefreshIndicator(
         onRefresh: _refreshAll,

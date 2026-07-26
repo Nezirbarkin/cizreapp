@@ -1,9 +1,10 @@
-// ignore_for_file: unused_field, use_build_context_synchronously
+// ignore_for_file: unused_field, use_build_context_synchronously, deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/news_model.dart';
 import '../services/news_service.dart';
+import 'news_editor_screen.dart';
 
 /// Haberci Paneli - Sadece "news" rolüne sahip kullanıcılar için
 class NewsPanelScreen extends StatefulWidget {
@@ -17,10 +18,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
   final NewsService _newsService = NewsService();
   
   List<NewsModel> _myNews = [];
-  List<NewsCategoryModel> _categories = [];
-  List<InstitutionModel> _institutions = [];
   bool _isLoading = true;
-  bool _isSaving = false;
 
   @override
   void initState() {
@@ -32,16 +30,9 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final results = await Future.wait([
-        _newsService.getMyNews(),
-        _newsService.getCategories(),
-        _newsService.getInstitutions(),
-      ]);
-      
+      final news = await _newsService.getMyNews();
       setState(() {
-        _myNews = results[0] as List<NewsModel>;
-        _categories = results[1] as List<NewsCategoryModel>;
-        _institutions = results[2] as List<InstitutionModel>;
+        _myNews = news;
         _isLoading = false;
       });
     } catch (e) {
@@ -92,7 +83,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
                           ),
                           const Spacer(),
                           TextButton.icon(
-                            onPressed: () => _showNewsDialog(null),
+                            onPressed: () => _openEditor(null),
                             icon: const Icon(Icons.add),
                             label: const Text('Yeni Haber'),
                           ),
@@ -115,7 +106,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
                             ),
                             const SizedBox(height: 8),
                             ElevatedButton.icon(
-                              onPressed: () => _showNewsDialog(null),
+                              onPressed: () => _openEditor(null),
                               icon: const Icon(Icons.add),
                               label: const Text('İlk Haberi Paylaş'),
                             ),
@@ -134,7 +125,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showNewsDialog(null),
+        onPressed: () => _openEditor(null),
         icon: const Icon(Icons.add),
         label: const Text('Yeni Haber'),
       ),
@@ -225,7 +216,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: InkWell(
-        onTap: () => _showNewsDialog(news),
+        onTap: () => _openEditor(news),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -328,7 +319,7 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
                 onSelected: (value) {
                   switch (value) {
                     case 'edit':
-                      _showNewsDialog(news);
+                      _openEditor(news);
                       break;
                     case 'publish':
                       _togglePublish(news);
@@ -358,13 +349,11 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
     );
   }
 
-  Future<void> _showNewsDialog(NewsModel? news) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => NewsEditDialogForNewsRole(
-        news: news,
-        categories: _categories,
-        institutions: _institutions,
+  Future<void> _openEditor(NewsModel? news) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NewsEditorScreen(news: news),
       ),
     );
     
@@ -421,240 +410,6 @@ class _NewsPanelScreenState extends State<NewsPanelScreen> {
           );
         }
       }
-    }
-  }
-}
-
-/// Haber Düzenleme Dialog (Haberci rolü için)
-class NewsEditDialogForNewsRole extends StatefulWidget {
-  final NewsModel? news;
-  final List<NewsCategoryModel> categories;
-  final List<InstitutionModel> institutions;
-
-  const NewsEditDialogForNewsRole({
-    super.key,
-    this.news,
-    required this.categories,
-    required this.institutions,
-  });
-
-  @override
-  State<NewsEditDialogForNewsRole> createState() => _NewsEditDialogForNewsRoleState();
-}
-
-class _NewsEditDialogForNewsRoleState extends State<NewsEditDialogForNewsRole> {
-  final _formKey = GlobalKey<FormState>();
-  final _newsService = NewsService();
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
-  final _summaryController = TextEditingController();
-  
-  String? _selectedCategory;
-  String? _selectedInstitution;
-  bool _isPublished = false;
-  String? _thumbnailUrl;
-  bool _isSaving = false;
-
-  bool get isEditing => widget.news != null;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.news != null) {
-      _titleController.text = widget.news!.title;
-      _contentController.text = widget.news!.content;
-      _summaryController.text = widget.news!.summary ?? '';
-      _selectedCategory = widget.news!.categoryId;
-      _selectedInstitution = widget.news!.institutionId;
-      _isPublished = widget.news!.isPublished;
-      _thumbnailUrl = widget.news!.thumbnailUrl;
-    }
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    _summaryController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.9,
-        height: MediaQuery.of(context).size.height * 0.85,
-        constraints: const BoxConstraints(maxWidth: 600, maxHeight: 800),
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(isEditing ? 'Haberi Düzenle' : 'Yeni Haber'),
-            actions: [
-              if (_isSaving)
-                const Center(child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                ))
-              else
-                TextButton(
-                  onPressed: _saveNews,
-                  child: const Text('Kaydet'),
-                ),
-            ],
-          ),
-          body: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Başlık
-                  TextFormField(
-                    controller: _titleController,
-                    decoration: const InputDecoration(
-                      labelText: 'Başlık *',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Başlık gerekli';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Özet
-                  TextFormField(
-                    controller: _summaryController,
-                    decoration: const InputDecoration(
-                      labelText: 'Özet',
-                      border: OutlineInputBorder(),
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // İçerik
-                  TextFormField(
-                    controller: _contentController,
-                    decoration: const InputDecoration(
-                      labelText: 'İçerik *',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                    maxLines: 8,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'İçerik gerekli';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Kategori ve Kurum
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String?>(
-                          value: _selectedCategory,
-                          decoration: const InputDecoration(
-                            labelText: 'Kategori',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: [
-                            const DropdownMenuItem(value: null, child: Text('Seçiniz')),
-                            ...widget.categories.map((c) => DropdownMenuItem(
-                              value: c.id,
-                              child: Text(c.name),
-                            )),
-                          ],
-                          onChanged: (value) => setState(() => _selectedCategory = value),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String?>(
-                          value: _selectedInstitution,
-                          decoration: const InputDecoration(
-                            labelText: 'Kurum',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: [
-                            const DropdownMenuItem(value: null, child: Text('Seçiniz')),
-                            ...widget.institutions.map((i) => DropdownMenuItem(
-                              value: i.id,
-                              child: Text(i.name),
-                            )),
-                          ],
-                          onChanged: (value) => setState(() => _selectedInstitution = value),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Yayınla seçeneği
-                  SwitchListTile(
-                    title: const Text('Haberi hemen yayınla'),
-                    value: _isPublished,
-                    onChanged: (v) => setState(() => _isPublished = v),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _saveNews() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isSaving = true);
-
-    try {
-      bool success;
-
-      if (isEditing) {
-        success = await _newsService.updateNews(
-          id: widget.news!.id,
-          title: _titleController.text,
-          content: _contentController.text,
-          summary: _summaryController.text.isEmpty ? null : _summaryController.text,
-          categoryId: _selectedCategory,
-          institutionId: _selectedInstitution,
-          isPublished: _isPublished,
-        );
-      } else {
-        final created = await _newsService.createNews(
-          title: _titleController.text,
-          content: _contentController.text,
-          summary: _summaryController.text.isEmpty ? null : _summaryController.text,
-          categoryId: _selectedCategory,
-          institutionId: _selectedInstitution,
-          isPublished: _isPublished,
-        );
-        success = created != null;
-      }
-
-      if (success && mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isEditing ? 'Haber güncellendi' : 'Haber oluşturuldu')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
-      }
-    } finally {
-      setState(() => _isSaving = false);
     }
   }
 }
