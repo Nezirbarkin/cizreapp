@@ -381,18 +381,22 @@ class _NewsScreenState extends State<NewsScreen> {
 
                     // Tarih ve istatistikler
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          news.publishedFormattedDate.isNotEmpty
-                              ? news.publishedFormattedDate
-                              : news.formattedDate,
-                          style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                        Expanded(
+                          child: Text(
+                            news.publishedFormattedDate.isNotEmpty
+                                ? news.publishedFormattedDate
+                                : news.formattedDate,
+                            style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         Icon(Icons.visibility, size: 12, color: Colors.grey[600]),
                         const SizedBox(width: 2),
                         Text('${news.viewCount}', style: TextStyle(color: Colors.grey[600], fontSize: 11)),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         Icon(Icons.favorite, size: 12, color: Colors.grey[600]),
                         const SizedBox(width: 2),
                         Text('${news.likeCount}', style: TextStyle(color: Colors.grey[600], fontSize: 11)),
