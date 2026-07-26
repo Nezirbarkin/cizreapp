@@ -1,7 +1,8 @@
-Ôªøimport 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/models/news_model.dart';
+import '../../../core/services/storage_service.dart';
 import '../services/news_service.dart';
 
 class NewsEditorScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class NewsEditorScreen extends StatefulWidget {
 
 class _NewsEditorScreenState extends State<NewsEditorScreen> {
   final NewsService _newsService = NewsService();
+  final StorageService _storageService = StorageService();
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _titleController;
@@ -35,7 +37,9 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
   bool _isFeatured = false;
   bool _isBreaking = false;
   bool _isSaving = false;
+  bool _isUploadingImage = false;
   File? _selectedImage;
+  String? _uploadedImageUrl;
 
   @override
   void initState() {
@@ -49,6 +53,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     _isPublished = widget.news?.isPublished ?? false;
     _isFeatured = widget.news?.isFeatured ?? false;
     _isBreaking = widget.news?.isBreaking ?? false;
+    _uploadedImageUrl = widget.news?.thumbnailUrl;
   }
 
   @override
@@ -68,6 +73,42 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     }
   }
 
+  Future<void> _uploadImage() async {
+    if (_selectedImage == null) return;
+
+    setState(() => _isUploadingImage = true);
+
+    try {
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${_selectedImage!.path.split('/').last}';
+      final uploadUrl = await _storageService.uploadFile(
+        bucket: 'news-images',
+        filePath: 'thumbnails/$fileName',
+        file: _selectedImage!,
+      );
+
+      if (uploadUrl != null) {
+        setState(() {
+          _uploadedImageUrl = uploadUrl;
+          _selectedImage = null;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('? Gˆrsel ba˛ar˝yla y¸klendi')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('? Y¸kleme hatas˝: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingImage = false);
+    }
+  }
+
   Future<void> _saveNews() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -75,7 +116,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
 
     try {
       if (widget.news == null) {
-        // Yeni haber olu≈ütur
+        // Yeni haber olu˛tur
         await _newsService.createNews(
           title: _titleController.text,
           content: _contentController.text,
@@ -86,15 +127,16 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isFeatured: _isFeatured,
           isBreaking: _isBreaking,
           locationName: _locationController.text,
+          thumbnailUrl: _uploadedImageUrl,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('‚úÖ Haber ba≈üarƒ±yla olu≈üturuldu')),
+            const SnackBar(content: Text('? Haber ba˛ar˝yla olu˛turuldu')),
           );
           Navigator.pop(context, true);
         }
       } else {
-        // Haberi g√ºncelle
+        // Haberi g¸ncelle
         await _newsService.updateNews(
           id: widget.news!.id,
           title: _titleController.text,
@@ -106,10 +148,11 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isFeatured: _isFeatured,
           isBreaking: _isBreaking,
           locationName: _locationController.text,
+          thumbnailUrl: _uploadedImageUrl,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('‚úÖ Haber ba≈üarƒ±yla g√ºncellendi')),
+            const SnackBar(content: Text('? Haber ba˛ar˝yla g¸ncellendi')),
           );
           Navigator.pop(context, true);
         }
@@ -117,7 +160,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('‚ùå Hata: $e')),
+          SnackBar(content: Text('? Hata: $e')),
         );
       }
     } finally {
@@ -129,7 +172,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.news == null ? 'üìù Yeni Haber' : '‚úèÔ∏è Haberi D√ºzenle'),
+        title: Text(widget.news == null ? '?? Yeni Haber' : '?? Haberi D¸zenle'),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.primary,
@@ -142,25 +185,25 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildSectionTitle('üì∞ Temel Bilgiler'),
+              _buildSectionTitle('?? Temel Bilgiler'),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _titleController,
                 decoration: InputDecoration(
-                  labelText: 'Ba≈ülƒ±k *',
-                  hintText: 'Haber ba≈ülƒ±ƒüƒ±nƒ± girin',
+                  labelText: 'Ba˛l˝k *',
+                  hintText: 'Haber ba˛l˝˝n˝ girin',
                   prefixIcon: const Icon(Icons.title),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                validator: (v) => v?.isEmpty ?? true ? 'Ba≈ülƒ±k gereklidir' : null,
+                validator: (v) => v?.isEmpty ?? true ? 'Ba˛l˝k gereklidir' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _summaryController,
                 maxLines: 2,
                 decoration: InputDecoration(
-                  labelText: '√ñzet',
-                  hintText: 'Kƒ±sa √∂zeti girin',
+                  labelText: '÷zet',
+                  hintText: 'K˝sa ˆzeti girin',
                   prefixIcon: const Icon(Icons.description),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
@@ -170,15 +213,112 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                 controller: _contentController,
                 maxLines: 6,
                 decoration: InputDecoration(
-                  labelText: 'ƒ∞√ßerik *',
-                  hintText: 'Haber i√ßeriƒüini girin',
+                  labelText: '›Áerik *',
+                  hintText: 'Haber iÁeriini girin',
                   prefixIcon: const Icon(Icons.article),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                validator: (v) => v?.isEmpty ?? true ? 'ƒ∞√ßerik gereklidir' : null,
+                validator: (v) => v?.isEmpty ?? true ? '›Áerik gereklidir' : null,
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('üìÇ Kategorilendirme'),
+              _buildSectionTitle('??? Gˆrsel Yˆnetimi'),
+              const SizedBox(height: 12),
+              if (_uploadedImageUrl != null && _selectedImage == null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        image: DecorationImage(
+                          image: NetworkImage(_uploadedImageUrl!),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => setState(() => _uploadedImageUrl = null),
+                        icon: const Icon(Icons.delete),
+                        label: const Text('Gˆrseli Kald˝r'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      ),
+                    ),
+                  ],
+                )
+              else if (_selectedImage != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        image: DecorationImage(
+                          image: FileImage(_selectedImage!),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _isUploadingImage ? null : _uploadImage,
+                            icon: _isUploadingImage
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.cloud_upload),
+                            label: Text(_isUploadingImage ? 'Y¸kleniyor...' : '?? Sunucuya Y¸kle'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => setState(() => _selectedImage = null),
+                          icon: const Icon(Icons.clear),
+                          label: const Text('›ptal'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.image, size: 48, color: Colors.grey[400]),
+                      const SizedBox(height: 12),
+                      Text('Gˆrsel seÁilmedi', style: TextStyle(color: Colors.grey[600])),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
+              if (_selectedImage == null)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _pickImage,
+                    icon: const Icon(Icons.image),
+                    label: const Text('?? Gˆrsel SeÁ'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 24),
+              _buildSectionTitle('?? Kategorilendirme'),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -190,7 +330,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Se√ßiniz')),
+                        const DropdownMenuItem(value: null, child: Text('SeÁiniz')),
                         ...widget.categories.map((c) => DropdownMenuItem(
                           value: c.id,
                           child: Text(c.name),
@@ -208,7 +348,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Se√ßiniz')),
+                        const DropdownMenuItem(value: null, child: Text('SeÁiniz')),
                         ...widget.institutions.map((i) => DropdownMenuItem(
                           value: i.id,
                           child: Text(i.name),
@@ -230,27 +370,27 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('‚öôÔ∏è Se√ßenekler'),
+              _buildSectionTitle('?? SeÁenekler'),
               const SizedBox(height: 12),
               CheckboxListTile(
                 value: _isPublished,
                 onChanged: (v) => setState(() => _isPublished = v ?? false),
-                title: const Text('‚úÖ Yayƒ±nla'),
-                subtitle: const Text('Haberi yayƒ±nla'),
+                title: const Text('? Yay˝nla'),
+                subtitle: const Text('Haberi yay˝nla'),
                 contentPadding: EdgeInsets.zero,
               ),
               CheckboxListTile(
                 value: _isFeatured,
                 onChanged: (v) => setState(() => _isFeatured = v ?? false),
-                title: const Text('‚≠ê √ñne √áƒ±kan'),
-                subtitle: const Text('Ana sayfada √∂ne √ßƒ±kar'),
+                title: const Text('? ÷ne «˝kan'),
+                subtitle: const Text('Ana sayfada ˆne Á˝kar'),
                 contentPadding: EdgeInsets.zero,
               ),
               CheckboxListTile(
                 value: _isBreaking,
                 onChanged: (v) => setState(() => _isBreaking = v ?? false),
-                title: const Text('üö® Son Dakika'),
-                subtitle: const Text('Son dakika haberi olarak i≈üaretle'),
+                title: const Text('?? Son Dakika'),
+                subtitle: const Text('Son dakika haberi olarak i˛aretle'),
                 contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 32),
@@ -266,7 +406,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save),
-                  label: Text(_isSaving ? 'Kaydediliyor...' : 'Kaydet'),
+                  label: Text(_isSaving ? 'Kaydediliyor...' : '?? Kaydet'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
