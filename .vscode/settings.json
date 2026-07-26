@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "C:/Users/lenovo/cizreapp/linux"
+    "cmake.sourceDirectory": "C:/Users/lenovo/cizreapp/linux",
+    "chatgpt.commentCodeLensEnabled": true,
+    "github.copilot.chat.gpt55GetChangedFilesTool.enabled": true,
+    "github.copilot.chat.gpt55ReadFileTool.enabled": true
 }
