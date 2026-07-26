@@ -16,7 +16,7 @@ import '../../features/profile/screens/account_settings_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
-import '../../features/news/screens/news_panel_screen.dart';
+// import '../../features/news/screens/news_panel_screen.dart';
 
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
@@ -193,12 +193,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       title: 'Haberci Paneli',
                       color: Colors.blueGrey,
                       onTap: () {
-                        Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const NewsPanelScreen(),
-                          ),
+                        // Navigator.pop(context);
+                        // Navigator.push(
+                        //   context,
+                        //   MaterialPageRoute(
+                        //     builder: (context) => const NewsPanelScreen(),
+                        //   ),
+                        // );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Haber seçeneği şu an kullanılamıyor')),
                         );
                       },
                     ),
