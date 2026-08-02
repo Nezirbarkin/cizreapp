@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/balance_model.dart';
 import '../../../core/models/balance_transaction_model.dart';
+import '../../../core/models/reward_points_model.dart';
 import '../../../core/services/balance_service.dart';
+import '../../../core/services/reward_points_service.dart';
 import 'topup_screen.dart';
 import '../../../features/wallet/screens/transaction_history_screen.dart';
 import 'tasks_screen.dart';
 import '../widgets/watch_ad_earn_card.dart';
+import 'point_history_screen.dart';
 
 /// Ana Bakiye Ekranı - Modern Tasarım
 class WalletScreen extends StatefulWidget {
@@ -18,8 +21,10 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   final BalanceService _balanceService = BalanceService();
-  
+  final RewardPointsService _pointsService = RewardPointsService();
+
   UserBalance? _balance;
+  UserPointAccount? _pointAccount;
   bool _isLoading = true;
   String? _error;
   List<BalanceTransaction> _recentTransactions = [];
@@ -29,13 +34,26 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     _loadBalance();
+    _loadPoints();
     _loadRecentTransactions();
+  }
+
+  Future<void> _loadPoints() async {
+    try {
+      final account = await _pointsService.getMyAccount();
+      if (mounted) setState(() => _pointAccount = account);
+    } catch (_) {
+      // TL cüzdanının kullanılabilirliğini puan okuma hatası engellemez.
+    }
   }
 
   Future<void> _loadRecentTransactions() async {
     setState(() => _isLoadingTransactions = true);
     try {
-      final result = await _balanceService.getTransactionHistory(page: 1, limit: 5);
+      final result = await _balanceService.getTransactionHistory(
+        page: 1,
+        limit: 5,
+      );
       setState(() {
         _recentTransactions = result.transactions;
         _isLoadingTransactions = false;
@@ -79,6 +97,13 @@ class _WalletScreenState extends State<WalletScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const TransactionHistoryScreen()),
+    );
+  }
+
+  void _navigateToPointHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PointHistoryScreen()),
     );
   }
 
@@ -179,7 +204,13 @@ class _WalletScreenState extends State<WalletScreen> {
     final availableBalance = balance?.availableBalance ?? 0;
 
     return RefreshIndicator(
-      onRefresh: _loadBalance,
+      onRefresh: () async {
+        await Future.wait([
+          _loadBalance(),
+          _loadPoints(),
+          _loadRecentTransactions(),
+        ]);
+      },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
@@ -187,6 +218,7 @@ class _WalletScreenState extends State<WalletScreen> {
           children: [
             // Modern Bakiye Kartı
             _buildBalanceCard(theme, availableBalance),
+            _buildPointCard(theme),
             const SizedBox(height: 20),
 
             // İstatistikler
@@ -206,8 +238,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   _buildTopupButton(theme),
                   WatchAdEarnCard(
                     onRewardEarned: () {
-                      _loadBalance();
-                      _loadRecentTransactions();
+                      _loadPoints();
                     },
                   ),
                   _buildTaskEarnCard(theme),
@@ -222,6 +253,58 @@ class _WalletScreenState extends State<WalletScreen> {
               child: _buildRecentTransactions(theme),
             ),
             const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPointCard(ThemeData theme) {
+    final points = _pointAccount?.balancePoints ?? 0;
+    return Semantics(
+      label: '$points puan. TL bakiyeden ayrıdır.',
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.amber.shade200),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.amber.shade200,
+              child: Icon(Icons.stars_rounded, color: Colors.amber.shade900),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Puan Bakiyesi',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    '$points puan',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Yalnız uygun dijital ürünlerde kullanılır; TL değildir.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: _navigateToPointHistory,
+              tooltip: 'Puan geçmişi',
+              icon: const Icon(Icons.history_rounded),
+            ),
           ],
         ),
       ),
@@ -259,7 +342,10 @@ class _WalletScreenState extends State<WalletScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -458,10 +544,7 @@ class _WalletScreenState extends State<WalletScreen> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary,
-            theme.colorScheme.secondary,
-          ],
+          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
@@ -575,16 +658,27 @@ class _WalletScreenState extends State<WalletScreen> {
                     children: [
                       const Text(
                         'Görev Yaparak Kazan',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       Text(
                         'Görevleri tamamla, bakiye kazan',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_forward_rounded, color: Colors.white70, size: 20),
+                const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: Colors.white70,
+                  size: 20,
+                ),
               ],
             ),
           ),
@@ -669,10 +763,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 const SizedBox(height: 6),
                 Text(
                   'Bakiye yükleyerek başlayın',
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
                 ),
               ],
             ),
@@ -696,7 +787,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 final tx = entry.value;
                 final isPositive = tx.type.isPositive;
                 final isLast = index == _recentTransactions.length - 1;
-                
+
                 return Container(
                   decoration: BoxDecoration(
                     border: !isLast
@@ -709,7 +800,10 @@ class _WalletScreenState extends State<WalletScreen> {
                         : null,
                   ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     leading: Container(
                       width: 48,
                       height: 48,
@@ -726,7 +820,8 @@ class _WalletScreenState extends State<WalletScreen> {
                       ),
                     ),
                     title: Text(
-                      tx.description ?? (isPositive ? 'Bakiye Yükleme' : 'Ödeme'),
+                      tx.description ??
+                          (isPositive ? 'Bakiye Yükleme' : 'Ödeme'),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -742,7 +837,10 @@ class _WalletScreenState extends State<WalletScreen> {
                       ),
                     ),
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: isPositive
                             ? Colors.green.shade50

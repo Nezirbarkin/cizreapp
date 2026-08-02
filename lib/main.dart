@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
@@ -229,7 +229,10 @@ void main() async {
 
         try {
           final permissionService = PermissionService();
-          permissionService.checkAndRequestAllPermissions().then((permissionResults) {
+          // Konum izni başlangıçta istenmez — kullanıcı konum butonuna
+          // bastığında ayrıca talep edilecek (haritaya girilince otomatik
+          // sorulmaz, sadece buton tetikler).
+          permissionService.checkAndRequestAllPermissionsExceptLocation().then((permissionResults) {
             log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
             for (final entry in permissionResults.entries) {
               if (entry.value.isPermanentlyDenied) {
@@ -526,32 +529,37 @@ class _CizreAppState extends State<CizreApp> {
   
   void _checkUrl() {
     if (!mounted) return;
-    
+
     // URL'deki hash fragment'ını kontrol et
     // Supabase şu formatı kullanır: https://site.com#access_token=...&type=recovery
     final Uri uri = Uri.base;
     final fragment = uri.fragment;
-    
-    print('🔗 Web URL kontrolü:');
-    print('   URL: $uri');
-    print('   fragment: $fragment');
-    
+
+    if (kDebugMode) {
+      debugPrint('🔗 Web URL kontrolü (hassas veri gizlendi)');
+    }
+
     if (fragment.isNotEmpty) {
       final params = Uri.splitQueryString(fragment);
       final type = params['type'];
-      final accessToken = params['access_token'];
-      
-      print('   type: $type');
-      print('   hasAccessToken: ${accessToken != null}');
-      
+      final hasAccessToken = params.containsKey('access_token');
+
+      if (kDebugMode) {
+        debugPrint('   type: $type, hasAccessToken: $hasAccessToken');
+      }
+
       // Şifre yenileme linki (type=recovery)
-      if (type == 'recovery' || accessToken != null) {
-        print('🔑 Web şifre yenileme linki algılandı!');
-        
+      if (type == 'recovery' || hasAccessToken) {
+        if (kDebugMode) {
+          debugPrint('🔑 Web şifre yenileme linki algılandı!');
+        }
+
         // Şifre yenileme onay ekranına yönlendir
         final navigatorState = _navigatorKey.currentState;
         if (navigatorState != null && mounted) {
-          print('🔄 /reset-password-confirm ekranına yönlendiriliyor...');
+          if (kDebugMode) {
+            debugPrint('🔄 /reset-password-confirm ekranına yönlendiriliyor...');
+          }
           // Mevcut tüm route'ları temizle ve şifre sıfırlama ekranını aç
           navigatorState.pushNamedAndRemoveUntil(
             '/reset-password-confirm',
@@ -563,17 +571,18 @@ class _CizreAppState extends State<CizreApp> {
   }
 
   void _handleDeepLink(Uri uri) {
-    print('🔗 Deep link işleniyor: $uri');
-    print('   scheme: ${uri.scheme}');
-    print('   host: ${uri.host}');
-    print('   path: ${uri.path}');
-    print('   queryParams: ${uri.queryParameters}');
-    
+    if (kDebugMode) {
+      debugPrint('🔗 Deep link işleniyor (hassas veri gizlendi)');
+      debugPrint('   scheme: ${uri.scheme}, host: ${uri.host}, path: ${uri.path}');
+    }
+
     // Şifre sıfırlama linki - cizreapp://reset-password?token=xxx
     if (uri.scheme == 'cizreapp' && uri.host == 'reset-password') {
       final token = uri.queryParameters['token'];
-      print('🔑 Şifre sıfırlama linki alındı, token: $token');
-      
+      if (kDebugMode) {
+        debugPrint('🔑 Şifre sıfırlama linki alındı, hasToken: ${token != null && token.isNotEmpty}');
+      }
+
       // Şifre sıfırlama ekranına yönlendir
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
@@ -590,33 +599,39 @@ class _CizreAppState extends State<CizreApp> {
       });
       return;
     }
-    
+
     // Email doğrulama linki - cizreapp://verify veya https://www.cizreapp.com/verify
     final isVerifyLink = uri.host == 'verify' ||
                          uri.path.contains('/verify') ||
                          uri.host == 'recovery' ||
                          uri.path.contains('/recovery');
-    
-    print('   isVerifyLink: $isVerifyLink');
-    
+
+    if (kDebugMode) {
+      debugPrint('   isVerifyLink: $isVerifyLink');
+    }
+
     if (!isVerifyLink) {
-      print('   ⚠️ Verify link değil, atlanıyor');
+      if (kDebugMode) {
+        debugPrint('   ⚠️ Verify link değil, atlanıyor');
+      }
       return;
     }
-    
+
     // Token ve type parametrelerini al
-    final token = uri.queryParameters['token'];
     final type = uri.queryParameters['type'];
-    final accessToken = uri.fragment.isNotEmpty ? Uri.splitQueryString(uri.fragment)['access_token'] : null;
-    final refreshToken = uri.fragment.isNotEmpty ? Uri.splitQueryString(uri.fragment)['refresh_token'] : null;
-    final tokenHash = uri.queryParameters['token_hash'];
-    
-    print('   token: $token');
-    print('   type: $type');
-    print('   accessToken: $accessToken');
-    print('   refreshToken: $refreshToken');
-    print('   tokenHash: $tokenHash');
-    
+    final hasAccessToken = uri.fragment.isNotEmpty &&
+        Uri.splitQueryString(uri.fragment).containsKey('access_token');
+    final hasRefreshToken = uri.fragment.isNotEmpty &&
+        Uri.splitQueryString(uri.fragment).containsKey('refresh_token');
+    final hasTokenHash = uri.queryParameters.containsKey('token_hash');
+
+    if (kDebugMode) {
+      debugPrint('   type: $type, '
+          'hasAccessToken: $hasAccessToken, '
+          'hasRefreshToken: $hasRefreshToken, '
+          'hasTokenHash: $hasTokenHash');
+    }
+
     // Supabase Flutter SDK deep link'i otomatik işler
     // Manuel intervention yapma, sadece log bırak
     print('✅ Deep link Supabase SDK tarafından otomatik işlenecek');

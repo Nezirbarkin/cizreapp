@@ -113,21 +113,55 @@ class ProductService {
     }
   }
 
-  // İndirimli ürünleri getir (old_price veya discount_price olan ürünler)
+  // İndirimli ürünleri getir:
+  // - `discount_price` veya `old_price` kolonu set edilmiş klasik indirim
+  // - VEYA aktif (zaman penceresinde + is_active) `flash_sales` kaydı olan ürün
+  // "İndirimdekiler" ekranı her iki türü de göstermeli; flaş sale'de ürünün
+  // `discount_price` kolonu set edilmemiş olabilir, bu yüzden ayrıca flash_sales
+  // tablosuna bakıp bu ürünleri de dahil ediyoruz.
   Future<List<Product>> getDiscountedProducts() async {
     try {
-      final response = await supabase
+      // 1) Klasik indirimli ürünler
+      final discountedResp = await supabase
           .from('products')
           .select()
           .eq('is_available', true)
           .or('old_price.not.is.null,discount_price.not.is.null')
           .order('created_at', ascending: false);
 
-      // Gerçekten indirimli olan ürünleri filtrele
-      return (response as List<dynamic>)
+      final discounted = (discountedResp as List<dynamic>)
           .map((item) => Product.fromJson(item as Map<String, dynamic>))
           .where((product) => product.hasDiscount)
           .toList();
+
+      // 2) Aktif flaş sale'lerdeki ürünler
+      final now = DateTime.now().toUtc().toIso8601String();
+      final flashResp = await supabase
+          .from('flash_sales')
+          .select('product_id, products!inner(*)')
+          .eq('is_active', true)
+          .lte('start_at', now)
+          .gte('end_at', now)
+          .order('end_at', ascending: true);
+
+      final flashProducts = (flashResp as List<dynamic>)
+          .map((item) {
+            final prodJson = item['products'] as Map<String, dynamic>?;
+            if (prodJson == null) return null;
+            // Sadece is_available olanları al
+            if (prodJson['is_available'] == false) return null;
+            return Product.fromJson(prodJson);
+          })
+          .whereType<Product>()
+          .toList();
+
+      // 3) Birleştir ve aynı ürünü tekrarlama
+      final seen = <String>{};
+      final result = <Product>[];
+      for (final p in [...discounted, ...flashProducts]) {
+        if (seen.add(p.id)) result.add(p);
+      }
+      return result;
     } catch (e) {
       throw Exception('İndirimli ürünler yüklenirken hata: $e');
     }
@@ -176,9 +210,10 @@ class ProductService {
   // Stok bilgisini güncelle (admin/seller için)
   Future<void> updateStock(String productId, int quantity) async {
     try {
-      await supabase.from('products').update({
-        'stock_quantity': quantity,
-      }).eq('id', productId);
+      await supabase
+          .from('products')
+          .update({'stock_quantity': quantity})
+          .eq('id', productId);
     } catch (e) {
       throw Exception('Stok güncellenirken hata: $e');
     }
@@ -188,36 +223,42 @@ class ProductService {
   String _generateSlug(String name) {
     // Türkçe karakterleri İngilizce karşılıklarına çevir
     final trMap = {
-      'ç': 'c', 'Ç': 'c',
-      'ğ': 'g', 'Ğ': 'g',
-      'ı': 'i', 'İ': 'i',
-      'ö': 'o', 'Ö': 'o',
-      'ş': 's', 'Ş': 's',
-      'ü': 'u', 'Ü': 'u',
+      'ç': 'c',
+      'Ç': 'c',
+      'ğ': 'g',
+      'Ğ': 'g',
+      'ı': 'i',
+      'İ': 'i',
+      'ö': 'o',
+      'Ö': 'o',
+      'ş': 's',
+      'Ş': 's',
+      'ü': 'u',
+      'Ü': 'u',
     };
-    
+
     String slug = name;
     trMap.forEach((tr, en) {
       slug = slug.replaceAll(tr, en);
     });
-    
+
     // Küçük harfe çevir, boşlukları tire ile değiştir
     slug = slug.toLowerCase().replaceAll(RegExp(r'\s+'), '-');
-    
+
     // Sadece harf, rakam ve tire bırak
     slug = slug.replaceAll(RegExp(r'[^a-z0-9-]'), '');
-    
+
     // Birden fazla tireyi tek tireye çevir
     slug = slug.replaceAll(RegExp(r'-+'), '-');
-    
+
     // Başında ve sonunda tire varsa kaldır
     slug = slug.replaceAll(RegExp(r'^-|-$'), '');
-    
+
     // Boş ise varsayılan slug
     if (slug.isEmpty) {
       slug = 'urun-${DateTime.now().millisecondsSinceEpoch}';
     }
-    
+
     return slug;
   }
 
@@ -228,7 +269,7 @@ class ProductService {
           .from('products')
           .select('id')
           .eq('shop_id', shopId);
-      
+
       return (response as List).length;
     } catch (e) {
       return 0;
@@ -263,30 +304,34 @@ class ProductService {
 
       final slug = _generateSlug(name);
 
-      final response = await supabase.from('products').insert({
-        'shop_id': shopId,
-        'name': name,
-        'slug': slug,
-        'description': description,
-        'price': price,
-        'old_price': oldPrice,
-        'stock_quantity': stockQuantity,
-        'image_url': imageUrl,
-        'additional_images': additionalImages ?? [],
-        'category': category,
-        'is_available': true,
-        'product_type': productType,
-        'sizes': sizes ?? [],
-        'shoe_sizes': shoeSizes ?? [],
-        'colors': colors ?? [],
-        'smm_provider_id': smmProviderId,
-        'smm_service_id': smmServiceId,
-        'price_per_1000': pricePer1000,
-        'min_quantity': minQuantity,
-        'max_quantity': maxQuantity,
-        'max_orders_per_user': maxOrdersPerUser,
-        'campaign_type': campaignType,
-      }).select().single();
+      final response = await supabase
+          .from('products')
+          .insert({
+            'shop_id': shopId,
+            'name': name,
+            'slug': slug,
+            'description': description,
+            'price': price,
+            'old_price': oldPrice,
+            'stock_quantity': stockQuantity,
+            'image_url': imageUrl,
+            'additional_images': additionalImages ?? [],
+            'category': category,
+            'is_available': true,
+            'product_type': productType,
+            'sizes': sizes ?? [],
+            'shoe_sizes': shoeSizes ?? [],
+            'colors': colors ?? [],
+            'smm_provider_id': smmProviderId,
+            'smm_service_id': smmServiceId,
+            'price_per_1000': pricePer1000,
+            'min_quantity': minQuantity,
+            'max_quantity': maxQuantity,
+            'max_orders_per_user': maxOrdersPerUser,
+            'campaign_type': campaignType,
+          })
+          .select()
+          .single();
 
       return Product.fromJson(response);
     } catch (e) {
@@ -377,7 +422,8 @@ class ProductService {
       if (e is PostgrestException && e.code == '23503') {
         await supabase
             .from('products')
-            .update({'is_available': false}).eq('id', productId);
+            .update({'is_available': false})
+            .eq('id', productId);
         return false;
       }
       throw Exception('Ürün silinirken hata: $e');
@@ -390,37 +436,34 @@ class ProductService {
     bool isAvailable,
   ) async {
     try {
-      await supabase.from('products').update({
-        'is_available': isAvailable,
-      }).eq('id', productId);
+      await supabase
+          .from('products')
+          .update({'is_available': isAvailable})
+          .eq('id', productId);
     } catch (e) {
       throw Exception('Ürün durumu güncellenirken hata: $e');
     }
   }
 
   // Ürünü sabitle/sabitlemeyi kaldır (seller için - kendi dükkanında)
-  Future<void> toggleSellerPinned(
-    String productId,
-    bool sellerPinned,
-  ) async {
+  Future<void> toggleSellerPinned(String productId, bool sellerPinned) async {
     try {
-      await supabase.from('products').update({
-        'seller_pinned': sellerPinned,
-      }).eq('id', productId);
+      await supabase
+          .from('products')
+          .update({'seller_pinned': sellerPinned})
+          .eq('id', productId);
     } catch (e) {
       throw Exception('Ürün sabitlenirken hata: $e');
     }
   }
 
   // Ürünü sponsor olarak sabitle/kaldır (admin için)
-  Future<void> toggleProductPinned(
-    String productId,
-    bool isPinned,
-  ) async {
+  Future<void> toggleProductPinned(String productId, bool isPinned) async {
     try {
-      await supabase.from('products').update({
-        'is_pinned': isPinned,
-      }).eq('id', productId);
+      await supabase
+          .from('products')
+          .update({'is_pinned': isPinned})
+          .eq('id', productId);
     } catch (e) {
       throw Exception('Ürün sponsor durumu güncellenirken hata: $e');
     }

@@ -70,30 +70,6 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
                 ? const _DisabledState()
                 : CustomScrollView(
                     slivers: [
-                      // Şehir seçici
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: DropdownButtonFormField<String>(
-                            value: provider.selectedCityId,
-                            decoration: const InputDecoration(
-                              labelText: 'Şehir',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                            ),
-                            items: provider.cities
-                                .map((c) => DropdownMenuItem(
-                                      value: c.id,
-                                      child: Text(c.name),
-                                    ))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) provider.selectCity(v);
-                            },
-                          ),
-                        ),
-                      ),
                       // Harita
                       if (provider.selectedCity != null)
                         SliverToBoxAdapter(

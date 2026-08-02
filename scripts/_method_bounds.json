@@ -1,0 +1,828 @@
+{
+  "_approveCourierPayout": {
+    "bounds": [
+      12213,
+      12389
+    ],
+    "part": "courier"
+  },
+  "_buildAPISettingsContent": {
+    "bounds": [
+      14828,
+      15212
+    ],
+    "part": "api_settings"
+  },
+  "_buildAnalyticsContent": {
+    "bounds": [
+      10558,
+      10668
+    ],
+    "part": "analytics"
+  },
+  "_buildCacheStatisticsCard": {
+    "bounds": [
+      10388,
+      10459
+    ],
+    "part": "dashboard"
+  },
+  "_buildCategoriesContent": {
+    "bounds": [
+      2866,
+      2958
+    ],
+    "part": "categories"
+  },
+  "_buildCategoryCard": {
+    "bounds": [
+      2960,
+      3124
+    ],
+    "part": "categories"
+  },
+  "_buildCategoryDistribution": {
+    "bounds": [
+      14567,
+      14644
+    ],
+    "part": "reports_page"
+  },
+  "_buildCourierCard": {
+    "bounds": [
+      11640,
+      11775
+    ],
+    "part": "courier"
+  },
+  "_buildCourierInfoItem": {
+    "bounds": [
+      11777,
+      11789
+    ],
+    "part": "courier"
+  },
+  "_buildCourierManagementContent": {
+    "bounds": [
+      11310,
+      11608
+    ],
+    "part": "courier"
+  },
+  "_buildCourierStatCard": {
+    "bounds": [
+      11610,
+      11615
+    ],
+    "part": "courier"
+  },
+  "_buildDashboardContent": {
+    "bounds": [
+      10011,
+      10042
+    ],
+    "part": "dashboard"
+  },
+  "_buildDetailRow": {
+    "bounds": [
+      4539,
+      4562
+    ],
+    "part": "orders"
+  },
+  "_buildDrawer": {
+    "bounds": [
+      398,
+      771
+    ],
+    "part": "drawer"
+  },
+  "_buildDrawerItem": {
+    "bounds": [
+      773,
+      779
+    ],
+    "part": "drawer"
+  },
+  "_buildEarningsItem": {
+    "bounds": [
+      3420,
+      3425
+    ],
+    "part": "orders"
+  },
+  "_buildIyzicoPaymentSettingsCard": {
+    "bounds": [
+      15214,
+      15361
+    ],
+    "part": "api_settings"
+  },
+  "_buildLogsContent": {
+    "bounds": [
+      12474,
+      12757
+    ],
+    "part": "logs"
+  },
+  "_buildNetworkStatusCard": {
+    "bounds": [
+      10338,
+      10386
+    ],
+    "part": "dashboard"
+  },
+  "_buildOrderAmountItem": {
+    "bounds": [
+      4008,
+      4013
+    ],
+    "part": "orders"
+  },
+  "_buildOrderCard": {
+    "bounds": [
+      3457,
+      4006
+    ],
+    "part": "orders"
+  },
+  "_buildOrderControlCard": {
+    "bounds": [
+      10795,
+      10993
+    ],
+    "part": "settings"
+  },
+  "_buildOrderStatChip": {
+    "bounds": [
+      3389,
+      3394
+    ],
+    "part": "orders"
+  },
+  "_buildOrdersChart": {
+    "bounds": [
+      14498,
+      14565
+    ],
+    "part": "reports_page"
+  },
+  "_buildOrdersContent": {
+    "bounds": [
+      3126,
+      3387
+    ],
+    "part": "orders"
+  },
+  "_buildPaymentsContent": {
+    "bounds": [
+      13272,
+      13522
+    ],
+    "part": "payments"
+  },
+  "_buildPerformanceCard": {
+    "bounds": [
+      10461,
+      10556
+    ],
+    "part": "dashboard"
+  },
+  "_buildPeriodCard": {
+    "bounds": [
+      14387,
+      14393
+    ],
+    "part": "reports_page"
+  },
+  "_buildPostReportStatCard": {
+    "bounds": [
+      1129,
+      1130
+    ],
+    "part": "post_reports"
+  },
+  "_buildPostReportsContent": {
+    "bounds": [
+      907,
+      1127
+    ],
+    "part": "post_reports"
+  },
+  "_buildPostsContent": {
+    "bounds": [
+      2098,
+      2125
+    ],
+    "part": "posts"
+  },
+  "_buildPostsList": {
+    "bounds": [
+      2127,
+      2331
+    ],
+    "part": "posts"
+  },
+  "_buildProductsContent": {
+    "bounds": [
+      2572,
+      2864
+    ],
+    "part": "products"
+  },
+  "_buildReportDetailRow": {
+    "bounds": [
+      1335,
+      1351
+    ],
+    "part": "post_reports"
+  },
+  "_buildReportStatCard": {
+    "bounds": [
+      5773,
+      5778
+    ],
+    "part": "reports"
+  },
+  "_buildReportStatusOption": {
+    "bounds": [
+      16234,
+      16241
+    ],
+    "part": "reports"
+  },
+  "_buildReportsContent": {
+    "bounds": [
+      5062,
+      5771
+    ],
+    "part": "reports"
+  },
+  "_buildReportsPageContent": {
+    "bounds": [
+      14167,
+      14385
+    ],
+    "part": "reports_page"
+  },
+  "_buildRevenueChart": {
+    "bounds": [
+      14429,
+      14496
+    ],
+    "part": "reports_page"
+  },
+  "_buildRoleBadge": {
+    "bounds": [
+      1747,
+      1802
+    ],
+    "part": "users"
+  },
+  "_buildS3StorageSettingsCard": {
+    "bounds": [
+      16497,
+      16677
+    ],
+    "part": "api_settings"
+  },
+  "_buildSettingsContent": {
+    "bounds": [
+      10670,
+      10758
+    ],
+    "part": "settings"
+  },
+  "_buildShopCard": {
+    "bounds": [
+      6640,
+      7222
+    ],
+    "part": "shops"
+  },
+  "_buildShopStat": {
+    "bounds": [
+      7224,
+      7229
+    ],
+    "part": "shops"
+  },
+  "_buildShopsContent": {
+    "bounds": [
+      6548,
+      6627
+    ],
+    "part": "shops"
+  },
+  "_buildStartupAnnouncementCard": {
+    "bounds": [
+      10995,
+      11167
+    ],
+    "part": "settings"
+  },
+  "_buildStatCard": {
+    "bounds": [
+      10168,
+      10175
+    ],
+    "part": "dashboard"
+  },
+  "_buildStatCardOld": {
+    "bounds": [
+      10257,
+      10263
+    ],
+    "part": "dashboard"
+  },
+  "_buildStatsGrid": {
+    "bounds": [
+      10106,
+      10166
+    ],
+    "part": "dashboard"
+  },
+  "_buildStatusBadge": {
+    "bounds": [
+      4036,
+      4092
+    ],
+    "part": "orders"
+  },
+  "_buildStatusOption": {
+    "bounds": [
+      4859,
+      4866
+    ],
+    "part": "orders"
+  },
+  "_buildStoriesList": {
+    "bounds": [
+      2333,
+      2570
+    ],
+    "part": "posts"
+  },
+  "_buildSupportTicketsContent": {
+    "bounds": [
+      12978,
+      13178
+    ],
+    "part": "support_tickets"
+  },
+  "_buildTypeChip": {
+    "bounds": [
+      11284,
+      11307
+    ],
+    "part": "settings"
+  },
+  "_buildUsersContent": {
+    "bounds": [
+      1386,
+      1745
+    ],
+    "part": "users"
+  },
+  "_buildWebhookItem": {
+    "bounds": [
+      15789,
+      15819
+    ],
+    "part": "api_settings"
+  },
+  "_buildWelcomeBanner": {
+    "bounds": [
+      10044,
+      10104
+    ],
+    "part": "dashboard"
+  },
+  "_callCustomerFromAdmin": {
+    "bounds": [
+      16447,
+      16467
+    ],
+    "part": "reports"
+  },
+  "_confirmAdminCancel": {
+    "bounds": [
+      4704,
+      4857
+    ],
+    "part": "orders"
+  },
+  "_formatDate": {
+    "bounds": [
+      9987,
+      9995
+    ],
+    "part": "helpers"
+  },
+  "_formatDateTime": {
+    "bounds": [
+      12814,
+      12825
+    ],
+    "part": "helpers"
+  },
+  "_getAddressPhoneForAdmin": {
+    "bounds": [
+      16428,
+      16444
+    ],
+    "part": "payments"
+  },
+  "_getCourierFee": {
+    "bounds": [
+      12087,
+      12100
+    ],
+    "part": "courier"
+  },
+  "_getPaymentStatusText": {
+    "bounds": [
+      13697,
+      13710
+    ],
+    "part": "payments"
+  },
+  "_getPostReportStatusText": {
+    "bounds": [
+      1353,
+      1361
+    ],
+    "part": "post_reports"
+  },
+  "_getReportStatusText": {
+    "bounds": [
+      5851,
+      5864
+    ],
+    "part": "reports"
+  },
+  "_getSupportTicketStatusText": {
+    "bounds": [
+      13244,
+      13257
+    ],
+    "part": "support_tickets"
+  },
+  "_isValidImageUrl": {
+    "bounds": [
+      16808,
+      16813
+    ],
+    "part": "helpers"
+  },
+  "_loadAndSetShops": {
+    "bounds": [
+      6629,
+      6638
+    ],
+    "part": "shops"
+  },
+  "_loadPostReports": {
+    "bounds": [
+      1152,
+      1169
+    ],
+    "part": "post_reports"
+  },
+  "_markCourierPaid": {
+    "bounds": [
+      11904,
+      12033
+    ],
+    "part": "courier"
+  },
+  "_markPayoutAsPaid": {
+    "bounds": [
+      13728,
+      13847
+    ],
+    "part": "payments"
+  },
+  "_openAddressInMap": {
+    "bounds": [
+      16470,
+      16494
+    ],
+    "part": "reports"
+  },
+  "_processPayoutRequest": {
+    "bounds": [
+      14020,
+      14091
+    ],
+    "part": "payments"
+  },
+  "_regenerateAPIKey": {
+    "bounds": [
+      15673,
+      15719
+    ],
+    "part": "api_settings"
+  },
+  "_resetCourierBalance": {
+    "bounds": [
+      11792,
+      11901
+    ],
+    "part": "courier"
+  },
+  "_showAddCategoryDialog": {
+    "bounds": [
+      9325,
+      9574
+    ],
+    "part": "categories"
+  },
+  "_showAddPostDialog": {
+    "bounds": [
+      6138,
+      6207
+    ],
+    "part": "posts"
+  },
+  "_showAddProductDialog": {
+    "bounds": [
+      8598,
+      8797
+    ],
+    "part": "products"
+  },
+  "_showAddShopDialog": {
+    "bounds": [
+      7423,
+      7586
+    ],
+    "part": "shops"
+  },
+  "_showAddStoryDialog": {
+    "bounds": [
+      6411,
+      6435
+    ],
+    "part": "posts"
+  },
+  "_showChangeRoleDialog": {
+    "bounds": [
+      1873,
+      2030
+    ],
+    "part": "users"
+  },
+  "_showCourierFeeDialog": {
+    "bounds": [
+      12102,
+      12186
+    ],
+    "part": "courier"
+  },
+  "_showCreateAPIKeyDialog": {
+    "bounds": [
+      15521,
+      15602
+    ],
+    "part": "api_settings"
+  },
+  "_showDeleteAPIKeyDialog": {
+    "bounds": [
+      15604,
+      15649
+    ],
+    "part": "api_settings"
+  },
+  "_showDeleteCategoryDialog": {
+    "bounds": [
+      9841,
+      9950
+    ],
+    "part": "categories"
+  },
+  "_showDeleteOrderDialog": {
+    "bounds": [
+      4903,
+      5059
+    ],
+    "part": "orders"
+  },
+  "_showDeletePostDialog": {
+    "bounds": [
+      6288,
+      6381
+    ],
+    "part": "posts"
+  },
+  "_showDeletePostReportDialog": {
+    "bounds": [
+      1363,
+      1384
+    ],
+    "part": "post_reports"
+  },
+  "_showDeleteProductDialog": {
+    "bounds": [
+      9015,
+      9112
+    ],
+    "part": "products"
+  },
+  "_showDeleteReportDialog": {
+    "bounds": [
+      16278,
+      16425
+    ],
+    "part": "reports"
+  },
+  "_showDeleteShopDialog": {
+    "bounds": [
+      7904,
+      8094
+    ],
+    "part": "shops"
+  },
+  "_showDeleteStoryDialog": {
+    "bounds": [
+      6437,
+      6530
+    ],
+    "part": "posts"
+  },
+  "_showDeleteUserDialog": {
+    "bounds": [
+      2034,
+      2096
+    ],
+    "part": "users"
+  },
+  "_showEditAnnouncementDialog": {
+    "bounds": [
+      11169,
+      11282
+    ],
+    "part": "settings"
+  },
+  "_showEditCategoryDialog": {
+    "bounds": [
+      9576,
+      9839
+    ],
+    "part": "categories"
+  },
+  "_showEditIyzicoDialog": {
+    "bounds": [
+      15363,
+      15430
+    ],
+    "part": "api_settings"
+  },
+  "_showEditOrderDialog": {
+    "bounds": [
+      4564,
+      4700
+    ],
+    "part": "orders"
+  },
+  "_showEditPostDialog": {
+    "bounds": [
+      6209,
+      6286
+    ],
+    "part": "posts"
+  },
+  "_showEditProductDialog": {
+    "bounds": [
+      8799,
+      9013
+    ],
+    "part": "products"
+  },
+  "_showEditShopDialog": {
+    "bounds": [
+      7684,
+      7902
+    ],
+    "part": "shops"
+  },
+  "_showEditUserDialog": {
+    "bounds": [
+      1804,
+      1871
+    ],
+    "part": "users"
+  },
+  "_showOrderDetailDialog": {
+    "bounds": [
+      4094,
+      4537
+    ],
+    "part": "orders"
+  },
+  "_showPaymentDetailDialog": {
+    "bounds": [
+      13849,
+      14018
+    ],
+    "part": "payments"
+  },
+  "_showPostReportDetailDialog": {
+    "bounds": [
+      1171,
+      1333
+    ],
+    "part": "post_reports"
+  },
+  "_showRejectPayoutDialog": {
+    "bounds": [
+      14093,
+      14165
+    ],
+    "part": "payments"
+  },
+  "_showReportDetailDialog": {
+    "bounds": [
+      15822,
+      16232
+    ],
+    "part": "reports"
+  },
+  "_showS3SettingsDialog": {
+    "bounds": [
+      16679,
+      16806
+    ],
+    "part": "api_settings"
+  },
+  "_showSendNotificationDialog": {
+    "bounds": [
+      12864,
+      12976
+    ],
+    "part": "settings"
+  },
+  "_showShopDetailDialog": {
+    "bounds": [
+      8096,
+      8596
+    ],
+    "part": "shops"
+  },
+  "_showSupportTicketDetailDialog": {
+    "bounds": [
+      13259,
+      13270
+    ],
+    "part": "support_tickets"
+  },
+  "_showWebhooksDialog": {
+    "bounds": [
+      15739,
+      15787
+    ],
+    "part": "api_settings"
+  },
+  "_toggleAPIKey": {
+    "bounds": [
+      15651,
+      15671
+    ],
+    "part": "api_settings"
+  },
+  "_togglePin": {
+    "bounds": [
+      5962,
+      6083
+    ],
+    "part": "reports"
+  },
+  "_toggleShopActive": {
+    "bounds": [
+      7652,
+      7682
+    ],
+    "part": "shops"
+  },
+  "_toggleShopApproval": {
+    "bounds": [
+      7620,
+      7650
+    ],
+    "part": "shops"
+  },
+  "_toggleShopVerification": {
+    "bounds": [
+      7588,
+      7618
+    ],
+    "part": "shops"
+  },
+  "_updateAPISetting": {
+    "bounds": [
+      15721,
+      15737
+    ],
+    "part": "api_settings"
+  }
+}

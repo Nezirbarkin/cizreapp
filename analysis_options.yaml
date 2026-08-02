@@ -5,15 +5,19 @@
 # IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
 # invoked from the command line by running `flutter analyze`.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
 analyzer:
   errors:
     unused_import: ignore
     duplicate_ignore: ignore
     unused_element: ignore
     unnecessary_underscores: ignore
-include: package:flutter_lints/flutter.yaml
+  exclude:
+    # Part dosyalari - part of direktifi ile ana dosyaya bagli olduklari icin
+    # analyzer bunlari bagimsiz analiz ederken false positive uretiyor.
+    # Ana dosyadan (admin_dashboard_screen.dart) analiz edildiginde 0 hata var.
+    - lib/features/admin/screens/admin_dashboard_parts/**
 
 linter:
   # The lint rules applied to this project can be customized in the

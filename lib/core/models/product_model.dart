@@ -3,11 +3,7 @@ class ProductColor {
   final String hex;
   final int stock;
 
-  ProductColor({
-    required this.name,
-    required this.hex,
-    required this.stock,
-  });
+  ProductColor({required this.name, required this.hex, required this.stock});
 
   factory ProductColor.fromJson(Map<String, dynamic> json) {
     return ProductColor(
@@ -18,11 +14,7 @@ class ProductColor {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'hex': hex,
-      'stock': stock,
-    };
+    return {'name': name, 'hex': hex, 'stock': stock};
   }
 }
 
@@ -40,10 +32,11 @@ class Product {
   final String? category;
   final bool isAvailable;
   final bool isPinned; // Admin tarafından yapılan global sponsorlama
-  final bool sellerPinned; // Satıcı tarafından kendi dükkanında yapılan sabitleme
+  final bool
+  sellerPinned; // Satıcı tarafından kendi dükkanında yapılan sabitleme
   final DateTime createdAt;
   final DateTime updatedAt;
-  
+
   // Varyant alanları
   final String productType; // 'normal', 'clothing', 'shoes'
   final List<String> sizes; // Beden listesi (S, M, L, XL, etc.)
@@ -56,7 +49,10 @@ class Product {
   final double? pricePer1000;
   final int? minQuantity;
   final int? maxQuantity;
-  final int? maxOrdersPerUser; // Satıcının belirlediği kullanıcı başına sipariş limiti (null = limitsiz)
+  final int?
+  maxOrdersPerUser; // Satıcının belirlediği kullanıcı başına sipariş limiti (null = limitsiz)
+  final bool isPointsEligible;
+  final int maxPointsCoveragePercent;
 
   // Kampanya: şu an sadece 'buy2_get1_balance' ("2 al biri bakiye") destekleniyor
   final String? campaignType;
@@ -92,11 +88,13 @@ class Product {
     this.minQuantity,
     this.maxQuantity,
     this.maxOrdersPerUser,
+    this.isPointsEligible = false,
+    this.maxPointsCoveragePercent = 100,
     this.campaignType,
     double rating = 0.0,
     int totalReviews = 0,
-  })  : _rating = rating,
-        _totalReviews = totalReviews;
+  }) : _rating = rating,
+       _totalReviews = totalReviews;
 
   // İndirim yüzdesi hesapla
   int? get discountPercentage {
@@ -139,7 +137,9 @@ class Product {
     // İndirim varsa eski fiyatı döndür
     if (hasDiscount) {
       // discount_price kullanılmışsa price'ı eski fiyat olarak göster
-      if (discountPrice != null && discountPrice! > 0 && discountPrice! < price) {
+      if (discountPrice != null &&
+          discountPrice! > 0 &&
+          discountPrice! < price) {
         return price;
       }
       // old_price kullanılmışsa onu göster
@@ -163,17 +163,18 @@ class Product {
   int get totalReviews => _totalReviews;
 
   // Yıldızlı puan gösterimi (örn: "4.5 ★")
-  String get ratingDisplay => rating > 0 ? '${rating.toStringAsFixed(1)} ★' : 'Henüz puan yok';
+  String get ratingDisplay =>
+      rating > 0 ? '${rating.toStringAsFixed(1)} ★' : 'Henüz puan yok';
 
   // Yorumlar var mı?
   bool get hasReviews => totalReviews > 0;
 
   // Varyant gerektiriyor mu? (dijital ürünler varyant/stok mantığına girmez)
   bool get hasVariants => productType != 'normal' && productType != 'digital';
-  
+
   // Giyim ürünü mü?
   bool get isClothing => productType == 'clothing';
-  
+
   // Ayakkabı mı?
   bool get isShoes => productType == 'shoes';
 
@@ -196,7 +197,9 @@ class Product {
     List<int> shoeSizesList = [];
     if (json['shoe_sizes'] != null) {
       if (json['shoe_sizes'] is List) {
-        shoeSizesList = (json['shoe_sizes'] as List).map((e) => int.tryParse(e.toString()) ?? 0).toList();
+        shoeSizesList = (json['shoe_sizes'] as List)
+            .map((e) => int.tryParse(e.toString()) ?? 0)
+            .toList();
       }
     }
 
@@ -214,15 +217,17 @@ class Product {
     List<String> additionalImagesList = [];
     if (json['additional_images'] != null) {
       if (json['additional_images'] is List) {
-        additionalImagesList = (json['additional_images'] as List).map((e) => e.toString()).toList();
+        additionalImagesList = (json['additional_images'] as List)
+            .map((e) => e.toString())
+            .toList();
       }
     }
 
     // discount_price'ı da al
     final discountPriceValue = json['discount_price'] != null
         ? (json['discount_price'] is int)
-            ? (json['discount_price'] as int).toDouble()
-            : (json['discount_price'] as num?)?.toDouble()
+              ? (json['discount_price'] as int).toDouble()
+              : (json['discount_price'] as num?)?.toDouble()
         : null;
 
     return Product(
@@ -235,8 +240,8 @@ class Product {
           : (json['price'] as num).toDouble(),
       oldPrice: json['old_price'] != null
           ? (json['old_price'] is int)
-              ? (json['old_price'] as int).toDouble()
-              : (json['old_price'] as num).toDouble()
+                ? (json['old_price'] as int).toDouble()
+                : (json['old_price'] as num).toDouble()
           : null,
       discountPrice: discountPriceValue,
       stockQuantity: json['stock_quantity'] as int? ?? 0,
@@ -258,6 +263,9 @@ class Product {
       minQuantity: json['min_quantity'] as int?,
       maxQuantity: json['max_quantity'] as int?,
       maxOrdersPerUser: json['max_orders_per_user'] as int?,
+      isPointsEligible: json['is_points_eligible'] as bool? ?? false,
+      maxPointsCoveragePercent:
+          (json['max_points_coverage_percent'] as num?)?.toInt() ?? 100,
       campaignType: json['campaign_type'] as String?,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
@@ -292,6 +300,8 @@ class Product {
       'min_quantity': minQuantity,
       'max_quantity': maxQuantity,
       'max_orders_per_user': maxOrdersPerUser,
+      'is_points_eligible': isDigital ? isPointsEligible : false,
+      'max_points_coverage_percent': maxPointsCoveragePercent,
       'campaign_type': campaignType,
       'rating': rating,
       'total_reviews': totalReviews,
@@ -325,6 +335,8 @@ class Product {
     int? minQuantity,
     int? maxQuantity,
     int? maxOrdersPerUser,
+    bool? isPointsEligible,
+    int? maxPointsCoveragePercent,
     String? campaignType,
     double? rating,
     int? totalReviews,
@@ -356,6 +368,11 @@ class Product {
       minQuantity: minQuantity ?? this.minQuantity,
       maxQuantity: maxQuantity ?? this.maxQuantity,
       maxOrdersPerUser: maxOrdersPerUser ?? this.maxOrdersPerUser,
+      isPointsEligible: productType != null && productType != 'digital'
+          ? false
+          : isPointsEligible ?? this.isPointsEligible,
+      maxPointsCoveragePercent:
+          maxPointsCoveragePercent ?? this.maxPointsCoveragePercent,
       campaignType: campaignType ?? this.campaignType,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,

@@ -293,5 +293,83 @@ void main() {
         expect(order.formattedDate, matches(RegExp(r'\d{1,2}\.\d{1,2}\.\d{4} \d{2}:\d{2}')));
       });
     });
+
+    // 2026-07-29 FIX doğrulamaları: order_items.price artık effective (indirimli)
+    // fiyatı içermeli. Eski kodda price = products.price yazılıyordu ve kullanıcı
+    // detayda gördüğü indirimli fiyat DB'ye yansımıyordu.
+    group('OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX)', () {
+      test('OrderItem.price hem "price" hem "product_price" kolonunu destekler', () {
+        // Dart tarafı OrderService.createOrder iki kolonu da yazıyor (geriye
+        // uyumluluk). fromJson önce 'price' sonra 'product_price' okur.
+        final jsonWithPrice = {
+          'id': 'i1',
+          'order_id': 'o1',
+          'product_id': 'p1',
+          'product_name': 'Test',
+          'price': 75.0, // effective (indirimli)
+          'product_price': 100.0, // orijinal (geriye uyumluluk)
+          'quantity': 2,
+          'created_at': '2026-07-29T10:00:00.000Z',
+        };
+        final item = OrderItem.fromJson(jsonWithPrice);
+        expect(item.price, 75.0,
+            reason: '"price" kolonu öncelikli (effective price)');
+      });
+
+      test('Sadece product_price varsa onu kullanır (eski veri uyumu)', () {
+        final json = {
+          'id': 'i2',
+          'order_id': 'o2',
+          'product_id': 'p2',
+          'product_name': 'Test',
+          'product_price': 50.0,
+          'quantity': 1,
+          'created_at': '2026-07-29T10:00:00.000Z',
+        };
+        final item = OrderItem.fromJson(json);
+        expect(item.price, 50.0);
+      });
+
+      test('subtotal = price * quantity (indirimli fiyattan)', () {
+        // 2026-07-29 FIX: price artık effective, dolayısıyla subtotal da
+        // gerçek ödeme tutarını yansıtır.
+        final item = OrderItem.fromJson({
+          'id': 'i3',
+          'order_id': 'o3',
+          'product_id': 'p3',
+          'product_name': 'Test',
+          'price': 75.0, // effective (100.0 - %25 indirim)
+          'quantity': 3,
+          'created_at': '2026-07-29T10:00:00.000Z',
+        });
+        expect(item.subtotal, 225.0); // 75 * 3
+      });
+
+      test('OrderItem.price farklı sayı tiplerini destekler (int ve double)', () {
+        final jsonInt = {
+          'id': 'i4',
+          'order_id': 'o4',
+          'product_id': 'p4',
+          'product_name': 'Test',
+          'price': 100, // int
+          'quantity': 1,
+          'created_at': '2026-07-29T10:00:00.000Z',
+        };
+        final itemInt = OrderItem.fromJson(jsonInt);
+        expect(itemInt.price, 100.0);
+
+        final jsonDouble = {
+          'id': 'i5',
+          'order_id': 'o5',
+          'product_id': 'p5',
+          'product_name': 'Test',
+          'price': 99.99, // double
+          'quantity': 1,
+          'created_at': '2026-07-29T10:00:00.000Z',
+        };
+        final itemDouble = OrderItem.fromJson(jsonDouble);
+        expect(itemDouble.price, 99.99);
+      });
+    });
   });
 }

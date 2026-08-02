@@ -1,0 +1,319 @@
+ M $null
+ M .vscode/settings.json
+ M PROJE_HAVIZA_CHANGELOG.md
+ M PROJE_HAVIZA_FUNCTIONS.md
+ M PROJE_HAVIZA_RLS.md
+ M PROJE_HAVIZA_SCHEMA.md
+ M analysis_options.yaml
+ M android/build/reports/problems/problems-report.html
+ M docs/PRIVACY_POLICY_APPSTORE.html
+ M lib/core/models/ad_settings_model.dart
+ M lib/core/models/app_about_settings.dart
+ M lib/core/models/cart_model.dart
+ M lib/core/models/courier_assignment_model.dart
+ M lib/core/models/digital_order_model.dart
+ M lib/core/models/news_model.dart
+ M lib/core/models/order_model.dart
+ M lib/core/models/product_model.dart
+ M lib/core/services/ad_settings_service.dart
+ M lib/core/services/courier_location_service.dart
+ M lib/core/services/permission_service.dart
+ M lib/core/services/rewarded_ad_service.dart
+ M lib/core/services/smm_service.dart
+ M lib/features/admin/screens/about_settings_screen.dart
+ M lib/features/admin/screens/ad_settings_screen.dart
+ M lib/features/admin/screens/admin_dashboard_screen.dart
+ M lib/features/admin/screens/admin_smm_providers_screen.dart
+ M lib/features/admin/screens/courier_quick_settings_screen.dart
+ M lib/features/auth/screens/register_screen_v2.dart
+ M lib/features/courier/screens/courier_panel_screen.dart
+ M lib/features/favorites/screens/favorites_screen.dart
+ M lib/features/main/screens/main_screen.dart
+ M lib/features/market/providers/cart_provider.dart
+ M lib/features/market/screens/all_discounted_products_screen.dart
+ M lib/features/market/screens/cart_screen.dart
+ M lib/features/market/screens/checkout_screen.dart
+ M lib/features/market/screens/flash_sales_screen.dart
+ M lib/features/market/screens/market_screen.dart
+ M lib/features/market/screens/multi_shop_checkout_screen.dart
+ M lib/features/market/screens/product_detail_screen.dart
+ M lib/features/market/screens/search_screen.dart
+ M lib/features/market/screens/shop_detail_screen.dart
+ M lib/features/market/services/cart_service.dart
+ M lib/features/market/services/product_service.dart
+ M lib/features/news/screens/news_detail_screen.dart
+ M lib/features/news/screens/news_editor_screen.dart
+ M lib/features/news/screens/news_reporter_panel_screen.dart
+ M lib/features/news/screens/news_screen.dart
+ M lib/features/news/services/news_service.dart
+ M lib/features/news/widgets/news_management_content.dart
+ M lib/features/profile/screens/edit_profile_screen.dart
+ M lib/features/profile/screens/profile_screen.dart
+ D lib/features/profile/screens/profile_screen.dart.backup
+ M lib/features/profile/screens/user_profile_screen.dart
+ M lib/features/profile/services/profile_service.dart
+ D lib/features/profile/widgets/common_profile_widgets.dart
+ M lib/features/seller/screens/coupons_screen.dart
+ M lib/features/seller/screens/manage_product_screen.dart
+ M lib/features/seller/screens/products_screen.dart
+ M lib/features/seller/screens/seller_digital_orders_screen.dart
+ M lib/features/shop/screens/cart_screen.dart
+ M lib/features/shop/screens/checkout_screen.dart
+ M lib/features/shop/screens/digital_order_detail_screen.dart
+ M lib/features/shop/screens/digital_orders_screen.dart
+ M lib/features/shop/services/cart_service.dart
+ M lib/features/shop/services/order_service.dart
+ M lib/features/user_courier/screens/package_history_screen.dart
+ M lib/features/user_courier/screens/package_tracking_screen.dart
+ M lib/features/user_courier/screens/send_package_screen.dart
+ M lib/features/user_courier/widgets/couriers_map_card.dart
+ M lib/features/wallet/screens/wallet_screen.dart
+ M lib/features/wallet/screens/withdrawal_request_screen.dart
+ M lib/features/wallet/widgets/watch_ad_earn_card.dart
+ M lib/main.dart
+ M lib/sehirici/screens/sehirici_driver_panel_screen.dart
+ M lib/sehirici/screens/sehirici_lines_screen.dart
+ M lib/sehirici/services/sehirici_line_service.dart
+ M lib/sehirici/services/sehirici_trip_service.dart
+ M lib/sehirici/widgets/sehirici_live_map.dart
+ M lib/sehirici/widgets/sehirici_route_map_widget.dart
+ M supabase/.temp/cli-latest
+R  supabase/COMMISSION_SYSTEM_COMPLETE_FIX.sql -> supabase/archive/2025-q1/COMMISSION_SYSTEM_COMPLETE_FIX.sql
+R  supabase/FINAL_COMMISSION_FIX.sql -> supabase/archive/2025-q1/FINAL_COMMISSION_FIX.sql
+R  supabase/FIX_MISSING_COLUMN.sql -> supabase/archive/2025-q1/FIX_MISSING_COLUMN.sql
+R  supabase/FIX_SHOP_VIEWS_RLS.sql -> supabase/archive/2025-q1/FIX_SHOP_VIEWS_RLS.sql
+A  supabase/archive/2026-q2/FIX_ADMIN_ORDER_DELETE.sql
+A  supabase/archive/2026-q2/add_api_keys_manual.sql
+A  supabase/archive/2026-q2/add_api_keys_to_settings.sql
+A  supabase/archive/2026-q2/check_role_enum.sql
+R  supabase/migrations/check_story_likes_status.sql -> supabase/archive/2026-q2/check_story_likes_status.sql
+A  supabase/archive/2026-q2/insert_ai_settings.sql
+A  supabase/archive/2026-q2/update_gemini.sql
+A  supabase/archive/2026-q2/update_gemini_api_key.sql
+A  supabase/archive/2026-q2/update_groq_api_key.sql
+R  supabase/20260719000099_debug_task_earning.sql -> supabase/archive/debug-queries/20260719000099_debug_task_earning.sql
+R  supabase/CHECK_NOTIFICATION_CONSTRAINTS.sql -> supabase/archive/debug-queries/CHECK_NOTIFICATION_CONSTRAINTS.sql
+R  supabase/query1_orders_columns.sql -> supabase/archive/debug-queries/query1_orders_columns.sql
+R  supabase/query2_products_rls.sql -> supabase/archive/debug-queries/query2_products_rls.sql
+R  supabase/query3_orders_rls.sql -> supabase/archive/debug-queries/query3_orders_rls.sql
+R  supabase/query4_auth_is_admin.sql -> supabase/archive/debug-queries/query4_auth_is_admin.sql
+ M supabase/config.toml
+ M supabase/functions/admin-deduct-balance/index.ts
+ M supabase/functions/confirm-balance-topup/index.ts
+ M supabase/functions/create-balance-topup/index.ts
+ M supabase/functions/deno.json
+ M supabase/functions/grant-ad-reward/index.ts
+ M supabase/functions/iyzico-payment-callback/index.ts
+ M supabase/functions/refund-to-balance/index.ts
+ M supabase/functions/send-email/index.ts
+ M supabase/functions/send-push-notification/index.ts
+ M supabase/functions/smm-order-create/index.ts
+ M supabase/functions/smm-order-manual-status/index.ts
+ M supabase/functions/smm-order-status-check/index.ts
+ D supabase/migrations/09_create_follows_table.sql
+A  supabase/migrations/20240101000009_create_follows_table.sql
+R  supabase/migrations/add_is_pinned_columns.sql -> supabase/migrations/20260411000000_add_is_pinned_columns.sql
+R  supabase/migrations/add_messages_enabled_column.sql -> supabase/migrations/20260411000000_add_messages_enabled_column.sql
+R  supabase/migrations/create_return_requests_table.sql -> supabase/migrations/20260411000000_create_return_requests_table.sql
+RD supabase/COURIER_STATUS_CHANGE.sql -> supabase/migrations/20260411120000_courier_status_change.sql
+RD supabase/GUEST_ACCESS_SUPPORT_ABOUT.sql -> supabase/migrations/20260411120000_guest_access_support_about.sql
+RD supabase/NEW_FEATURES.sql -> supabase/migrations/20260411120000_new_features.sql
+RD supabase/PRODUCT_REVIEWS_CLEAN_INSTALL.sql -> supabase/migrations/20260411120000_product_reviews_clean_install.sql
+RD supabase/PRODUCT_REVIEWS_COMPLETE.sql -> supabase/migrations/20260411120000_product_reviews_complete.sql
+RD supabase/PRODUCT_REVIEWS_MINIMAL.sql -> supabase/migrations/20260411120000_product_reviews_minimal.sql
+RD supabase/PRODUCT_REVIEWS_SETUP.sql -> supabase/migrations/20260411120000_product_reviews_setup.sql
+RD supabase/push_notification_trigger.sql -> supabase/migrations/20260411120000_push_notification_trigger.sql
+RD supabase/STEP1_CREATE_REVIEWS_TABLE.sql -> supabase/migrations/20260411120000_step1_create_reviews_table.sql
+RD supabase/STEP2_CREATE_HELPFUL_TABLE.sql -> supabase/migrations/20260411120000_step2_create_helpful_table.sql
+RD supabase/STEP3_ADD_RATING_COLUMNS.sql -> supabase/migrations/20260411120000_step3_add_rating_columns.sql
+RD supabase/STEP4_TRIGGERS.sql -> supabase/migrations/20260411120000_step4_triggers.sql
+R  supabase/ADD_POST_REPORT_NOTIFICATION_TYPE.sql -> supabase/migrations/20260525120000_add_post_report_notification_type.sql
+R  supabase/migrations/fix_story_likes_count.sql -> supabase/migrations/20260529000000_fix_story_likes_count.sql
+R  supabase/migrations/fix_story_likes_security.sql -> supabase/migrations/20260529000000_fix_story_likes_security.sql
+A  supabase/migrations/20260621000000_add_image_to_ai_quick_prompts.sql
+A  supabase/migrations/20260621000000_ai_chat_fix_permissions.sql
+A  supabase/migrations/20260621000000_create_ai_chat_tables.sql
+A  supabase/migrations/20260621000000_create_ai_prompt_images.sql
+A  supabase/migrations/20260621000000_fix_ai_settings_rls.sql
+A  supabase/migrations/20260621000000_fix_provider_constraint.sql
+RD supabase/ADD_DELIVERED_COURIER_COLUMNS.sql -> supabase/migrations/20260621120000_add_delivered_courier_columns.sql
+RD supabase/ADD_ONLINE_ENABLED_COLUMN.sql -> supabase/migrations/20260621120000_add_online_enabled_column.sql
+RD supabase/FIX_DUPLICATE_ORDER_NOTIFICATIONS_FINAL.sql -> supabase/migrations/20260621120000_fix_duplicate_order_notifications_final.sql
+A  supabase/migrations/20260624000000_fix_admin_order_courier_info.sql
+A  supabase/migrations/20260624000000_fix_all_rls_and_data.sql
+A  supabase/migrations/20260624000000_fix_commission_trigger.sql
+A  supabase/migrations/20260624000000_fix_courier_order_assignment.sql
+RD supabase/FIX_ADMIN_VIEW_SECURITY.sql -> supabase/migrations/20260710120000_fix_admin_view_security.sql
+R  supabase/20260719000001_task_earning_system.sql -> supabase/migrations/20260719000001_task_earning_system.sql
+R  supabase/20260719000002_task_earning_rls_rpc.sql -> supabase/migrations/20260719000002_task_earning_rls_rpc.sql
+R  supabase/20260719000003_fix_get_active_tasks_signature.sql -> supabase/migrations/20260719000003_fix_get_active_tasks_signature.sql
+R  supabase/20260719000004_task_images.sql -> supabase/migrations/20260719000004_task_images.sql
+R  supabase/20260719000005_add_image_url_to_get_active_tasks.sql -> supabase/migrations/20260719000005_add_image_url_to_get_active_tasks.sql
+R  supabase/20260720000001_fix_screenshot_url_nullable.sql -> supabase/migrations/20260720000001_fix_screenshot_url_nullable.sql
+R  supabase/20260720000002_task_multi_images.sql -> supabase/migrations/20260720000002_task_multi_images.sql
+R  supabase/20260720000003_fix_admin_get_task_submissions_ambiguous_id.sql -> supabase/migrations/20260720000003_fix_admin_get_task_submissions_ambiguous_id.sql
+R  supabase/20260720000003_grant_ad_reward_atomic_rpc.sql -> supabase/migrations/20260720000003_grant_ad_reward_atomic_rpc.sql
+R  supabase/20260720000004_add_task_notification_types.sql -> supabase/migrations/20260720000004_add_task_notification_types.sql
+R  supabase/20260720000005_suspicious_users.sql -> supabase/migrations/20260720000005_suspicious_users.sql
+R  supabase/20260724000000_fix_linter_warnings.sql -> supabase/migrations/20260724000000_fix_linter_warnings.sql
+R  supabase/20260724000001_notify_admin_on_task_claim.sql -> supabase/migrations/20260724000001_notify_admin_on_task_claim.sql
+R  supabase/20260724000002_show_paused_completed_tasks.sql -> supabase/migrations/20260724000002_show_paused_completed_tasks.sql
+R  supabase/20260724000003_add_courier_realtime_tracking.sql -> supabase/migrations/20260724000003_add_courier_realtime_tracking.sql
+R  supabase/20260724000004_courier_service_notices.sql -> supabase/migrations/20260724000004_courier_service_notices.sql
+R  supabase/20260725000001_sehirici_services.sql -> supabase/migrations/20260725000001_sehirici_services.sql
+R  supabase/20260725000002_add_driver_role.sql -> supabase/migrations/20260725000002_add_driver_role.sql
+R  supabase/20260725000003_sehirici_admin_crud.sql -> supabase/migrations/20260725000003_sehirici_admin_crud.sql
+R  supabase/20260725000004_sehirici_route_and_settings_fix.sql -> supabase/migrations/20260725000004_sehirici_route_and_settings_fix.sql
+R  supabase/20260725000005_sehirici_road_route_cache.sql -> supabase/migrations/20260725000005_sehirici_road_route_cache.sql
+RD supabase/FLASH_SALE_AND_PRICE_ALERT_SETUP.sql -> supabase/migrations/20260726120000_flash_sale_and_price_alert_setup.sql
+RD supabase/LIVE_SHOPPING_SETUP.sql -> supabase/migrations/20260726120000_live_shopping_setup.sql
+ D supabase/migrations/ADD_IMAGE_TO_AI_QUICK_PROMPTS.sql
+ D supabase/migrations/CREATE_AI_PROMPT_IMAGES.sql
+ D supabase/migrations/FIX_ADMIN_ORDER_COURIER_INFO.sql
+ D supabase/migrations/FIX_ADMIN_ORDER_DELETE.sql
+ D supabase/migrations/FIX_ALL_RLS_AND_DATA.sql
+ D supabase/migrations/FIX_COMMISSION_TRIGGER.sql
+ D supabase/migrations/FIX_COURIER_ORDER_ASSIGNMENT.sql
+ D supabase/migrations/add_api_keys_manual.sql
+ D supabase/migrations/add_api_keys_to_settings.sql
+ D supabase/migrations/ai_chat_fix_permissions.sql
+ D supabase/migrations/check_role_enum.sql
+ D supabase/migrations/create_ai_chat_tables.sql
+ D supabase/migrations/fix_ai_settings_rls.sql
+ D supabase/migrations/fix_provider_constraint.sql
+ D supabase/migrations/insert_ai_settings.sql
+ D supabase/migrations/update_gemini.sql
+ D supabase/migrations/update_gemini_api_key.sql
+ D supabase/migrations/update_groq_api_key.sql
+ M test/models/ad_settings_model_test.dart
+ M test/models/digital_order_model_test.dart
+ M test/models/order_model_test.dart
+ D test/widget_test.dart
+ M web/privacy.html
+?? .github/workflows/security-database.yml
+?? PROJE_HAVIZA_RPCS.md
+?? "Yeni WinRAR ar\305\237ivi.rar"
+?? analyze_audit.txt
+?? build_android_audit.txt
+?? build_web_audit.txt
+?? coverage/
+?? deno.lock
+?? docs/DOLANDIRICILIK_SINYALLERI.md
+?? dump_err.txt
+?? format_audit.txt
+?? git_status_audit.txt
+?? lib/core/models/admin_reward_overview_model.dart
+?? lib/core/models/coupon_model.dart
+?? lib/core/models/reward_points_model.dart
+?? lib/core/models/reward_session_model.dart
+?? lib/core/services/courier_stream_service.dart
+?? lib/core/services/reward_points_service.dart
+?? lib/features/admin/models/
+?? lib/features/admin/screens/admin_dashboard_parts/
+?? lib/features/admin/services/fraud_detection_service.dart
+?? lib/features/admin/widgets/admin_package_requests_tab.dart
+?? lib/features/admin/widgets/balance_load_tab_widget.dart
+?? lib/features/admin/widgets/fraud_signals_content.dart
+?? lib/features/admin/widgets/wallet_management_content.dart
+?? lib/features/admin/widgets/wallet_notification_widgets.dart
+?? lib/features/admin/widgets/wallet_settings_tab_widget.dart
+?? lib/features/market/services/multi_shop_checkout_mapper.dart
+?? lib/features/market/widgets/flash_aware_price_row.dart
+?? lib/features/news/widgets/news_comments_management.dart
+?? lib/features/profile/widgets/profile_shared_widgets.dart
+?? lib/features/wallet/screens/point_history_screen.dart
+?? plans/2026-07-29_admob_odul_puan_sistemi_teknik_plani.md
+?? plans/2026-07-29_test_plani_ve_fix_dogrulama.md
+?? plans/ATA_HATA_ANALIZ_VE_COZUM_PLANI.md
+?? plans/admin_dashboard_bolme_2026_07_27.md
+?? plans/baseline-analyze.txt
+?? plans/baseline-android-debug.txt
+?? plans/baseline-format.txt
+?? plans/baseline-pub-get.txt
+?? plans/baseline-tests.txt
+?? plans/baseline-web-release.txt
+?? plans/flash_sale_fix_2026_07_30.md
+?? plans/post-dedup-coverage.txt
+?? plans/post-dedup-tests.txt
+?? plans/post-fix-analyze.txt
+?? plans/post-fix-coverage.txt
+?? plans/post-fix-tests.txt
+?? plans/scripts/
+?? plans/sql_migrations/
+?? plans/supabase_migration_consolidation_plan.md
+?? plans/target-order-service-tests.txt
+?? scripts/_method_bounds.json
+?? scripts/check_all_parts.py
+?? scripts/clean_main.py
+?? scripts/clean_orphans.py
+?? scripts/final_clean.py
+?? scripts/find_bounds.py
+?? scripts/incremental_clean.py
+?? scripts/keep_only_14.py
+?? scripts/list_remaining.py
+?? scripts/orphan_body_clean.py
+?? scripts/remove_methods.py
+?? scripts/remove_methods_only.py
+?? scripts/repair_admin_dashboard_parts.py
+?? scripts/safe_split.py
+?? scripts/signature_clean.py
+?? scripts/split_admin_dashboard.py
+?? scripts/verifier.py
+?? scripts/verify_orphans.py
+?? supabase/ARCHIVE_INVENTORY.md
+?? supabase/MIGRATION_LOG.md
+?? supabase/README.md
+?? supabase/SCHEMA_INDEX.md
+?? supabase/archive/INVENTORY.md
+?? supabase/functions/README.md
+?? supabase/functions/_shared/
+?? supabase/functions/admob-reward-session/
+?? supabase/functions/admob-ssv-callback/
+?? supabase/functions/deno.lock
+?? supabase/migrations/20260411120001_courier_status_change.sql
+?? supabase/migrations/20260411120002_guest_access_support_about.sql
+?? supabase/migrations/20260411120003_new_features.sql
+?? supabase/migrations/20260411120004_push_notification_trigger.sql
+?? supabase/migrations/20260411120005_product_reviews_clean_install.sql
+?? supabase/migrations/20260411120006_product_reviews_complete.sql
+?? supabase/migrations/20260411120007_product_reviews_minimal.sql
+?? supabase/migrations/20260411120008_product_reviews_setup.sql
+?? supabase/migrations/20260411120009_step1_create_reviews_table.sql
+?? supabase/migrations/20260411120010_step2_create_helpful_table.sql
+?? supabase/migrations/20260411120011_step3_add_rating_columns.sql
+?? supabase/migrations/20260411120012_step4_triggers.sql
+?? supabase/migrations/20260621120001_add_delivered_courier_columns.sql
+?? supabase/migrations/20260621120002_add_online_enabled_column.sql
+?? supabase/migrations/20260621120003_fix_duplicate_order_notifications_final.sql
+?? supabase/migrations/20260710120001_fix_admin_view_security.sql
+?? supabase/migrations/20260726120001_flash_sale_and_price_alert_setup.sql
+?? supabase/migrations/20260726120002_live_shopping_setup.sql
+?? supabase/migrations/20260727000002_fix_advisor_security_performance.sql
+?? supabase/migrations/20260727000003_optimize_rls_auth_initplan.sql
+?? supabase/migrations/20260727000004_fix_plpgsql_lint_errors.sql
+?? supabase/migrations/20260727000005_fix_news_images_storage_rls.sql
+?? supabase/migrations/20260727000006_fix_news_comments_insert_rls.sql
+?? supabase/migrations/20260727000007_add_home_news_limit.sql
+?? supabase/migrations/20260727000008_harden_balance_rpc_permissions.sql
+?? supabase/migrations/20260727000009_secure_iyzico_credentials.sql
+?? supabase/migrations/20260729000001_secure_ai_api_keys.sql
+?? supabase/migrations/20260729000003_get_sehirici_trip_path.sql
+?? supabase/migrations/20260729000004_fraud_detection_system.sql
+?? supabase/migrations/20260729000004_news_engagement_notifications_and_analytics.sql
+?? supabase/migrations/20260730000001_cart_flash_sale_columns.sql
+?? supabase/migrations/20260730000002_admob_reward_points_system.sql
+?? supabase/migrations/20260801000001_admin_reward_points_overview.sql
+?? supabase/migrations/20260801000001_complete_online_payment_coupon_id.sql
+?? supabase/migrations/20260801000002_admin_admob_runtime_settings.sql
+?? supabase/migrations/20260801000003_add_post_share_notification_type.sql
+?? supabase/tests/
+?? test/courier/
+?? test/models/cart_model_test.dart
+?? test/models/digital_order_composition_test.dart
+?? test/models/reward_points_model_test.dart
+?? test/services/ad_settings_service_test.dart
+?? test/services/order_service_smoke_test.dart
+?? test/services/reward_verification_poller_test.dart
+?? test/services/security_smoke_test.dart
+?? test/widgets/
+?? test_audit.txt

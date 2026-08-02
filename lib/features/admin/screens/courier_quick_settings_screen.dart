@@ -43,6 +43,7 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
           .limit(1)
           .maybeSingle();
 
+      if (!mounted) return;
       if (response != null) {
         setState(() {
           _settingsId = response['id'];
@@ -61,12 +62,14 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
       }
     } catch (e) {
       debugPrint('Ayarlar yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _updateSettings({Map<String, dynamic>? extra}) async {
-    if (_settingsId == null) return;
+  /// Ayarları kaydeder. Başarı durumunda true, hata durumunda false döner
+  /// (hata Snackbar'ı burada gösterilir; çağıran taraf false alırsa UI'ı geri alır).
+  Future<bool> _updateSettings({Map<String, dynamic>? extra}) async {
+    if (_settingsId == null) return false;
     try {
       final updated = await Supabase.instance.client
           .from('courier_service_settings')
@@ -90,6 +93,7 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
           ),
         );
       }
+      return true;
     } catch (e) {
       debugPrint('Ayarlar güncellenirken hata: $e');
       if (mounted) {
@@ -97,6 +101,7 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
         );
       }
+      return false;
     }
   }
 
@@ -130,9 +135,12 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
                           title: const Text('Kurye Servisi'),
                           subtitle: const Text('Kullanıcılar paket gönderebilsin'),
                           value: _enabled,
-                          onChanged: (value) {
+                          onChanged: (value) async {
+                            final previous = _enabled;
                             setState(() => _enabled = value);
-                            _updateSettings();
+                            final ok = await _updateSettings();
+                            // DB güncellenemediyse UI'ı eski duruma geri al.
+                            if (!ok && mounted) setState(() => _enabled = previous);
                           },
                           activeThumbColor: primary,
                         ),
@@ -142,9 +150,13 @@ class _CourierQuickSettingsScreenState extends State<CourierQuickSettingsScreen>
                           subtitle: const Text('Herkes paket talebi gönderebilsin'),
                           value: _allowsUserRequests,
                           onChanged: _enabled
-                              ? (value) {
+                              ? (value) async {
+                                  final previous = _allowsUserRequests;
                                   setState(() => _allowsUserRequests = value);
-                                  _updateSettings();
+                                  final ok = await _updateSettings();
+                                  if (!ok && mounted) {
+                                    setState(() => _allowsUserRequests = previous);
+                                  }
                                 }
                               : null,
                           activeThumbColor: primary,

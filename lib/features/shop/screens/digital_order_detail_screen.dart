@@ -32,9 +32,17 @@ class DigitalOrderDetailScreen extends StatelessWidget {
         children: [
           SizedBox(
             width: 130,
-            child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+            child: Text(
+              label,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
           ),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          ),
         ],
       ),
     );
@@ -43,9 +51,7 @@ class DigitalOrderDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(order.status);
-    final isRefundedOrPartial = order.status == DigitalOrderStatus.refunded ||
-        order.status == DigitalOrderStatus.canceled ||
-        order.status == DigitalOrderStatus.partial;
+    final showRefund = order.hasRefund;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Sipariş Detayı')),
@@ -64,11 +70,17 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                       Expanded(
                         child: Text(
                           order.productName ?? 'Dijital Ürün',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           // ignore: deprecated_member_use
                           color: color.withOpacity(0.15),
@@ -76,7 +88,10 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                         ),
                         child: Text(
                           order.status.label,
-                          style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -85,19 +100,57 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                   _row('Link', order.targetUrl),
                   _row('Miktar', order.quantity.toString()),
                   _row('Birim Fiyat', '₺${order.unitPrice.toStringAsFixed(4)}'),
-                  _row('Toplam Tutar', '₺${order.totalPrice.toStringAsFixed(2)}'),
-                  if (order.externalOrderId != null) _row('Sağlayıcı Sipariş No', order.externalOrderId!),
-                  if (order.startCount != null) _row('Başlangıç Sayısı', order.startCount.toString()),
-                  if (order.remains != null) _row('Kalan', order.remains.toString()),
-                  _row('Oluşturulma', DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())),
+                  _row(
+                    'Brüt Tutar',
+                    '${order.grossTotalTry.toStringAsFixed(2)} TL',
+                  ),
+                  _row('Kullanılan Puan', '${order.pointsSpent} puan'),
+                  _row(
+                    'Puan İndirimi',
+                    '${order.pointsDiscountTry.toStringAsFixed(2)} TL',
+                  ),
+                  _row(
+                    'TL Bakiye Ödemesi',
+                    '${order.cashBalancePaidTry.toStringAsFixed(2)} TL',
+                  ),
+                  if (order.externalOrderId != null)
+                    _row('Sağlayıcı Sipariş No', order.externalOrderId!),
+                  if (order.startCount != null)
+                    _row('Başlangıç Sayısı', order.startCount.toString()),
+                  if (order.remains != null)
+                    _row('Kalan', order.remains.toString()),
+                  _row(
+                    'Oluşturulma',
+                    DateFormat(
+                      'dd.MM.yyyy HH:mm',
+                    ).format(order.createdAt.toLocal()),
+                  ),
                   if (order.lastCheckedAt != null)
-                    _row('Son Kontrol', DateFormat('dd.MM.yyyy HH:mm').format(order.lastCheckedAt!.toLocal())),
-                  if (order.errorMessage != null) _row('Hata', order.errorMessage!),
+                    _row(
+                      'Son Kontrol',
+                      DateFormat(
+                        'dd.MM.yyyy HH:mm',
+                      ).format(order.lastCheckedAt!.toLocal()),
+                    ),
+                  if (order.errorMessage != null)
+                    _row('Hata', order.errorMessage!),
                 ],
               ),
             ),
           ),
-          if (isRefundedOrPartial) ...[
+          if (order.reconciliationPending) ...[
+            const SizedBox(height: 12),
+            Card(
+              color: Colors.orange.shade50,
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Sağlayıcı sonucu mutabakat bekliyor. Bu durum iade anlamına gelmez; kesin sonuç alınmadan puan veya TL iadesi varsayılmaz.',
+                ),
+              ),
+            ),
+          ],
+          if (showRefund) ...[
             const SizedBox(height: 12),
             Card(
               color: Colors.blue.shade50,
@@ -109,10 +162,11 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        order.status == DigitalOrderStatus.partial
-                            ? 'Siparişinizin bir kısmı tamamlandı, teslim edilmeyen kısım için bakiyenize iade yapıldı.'
-                            : 'Bu sipariş için ödediğiniz tutar bakiyenize iade edildi.',
-                        style: TextStyle(color: Colors.blue.shade900, fontSize: 13),
+                        '${order.refundCompositionLabel} kendi ödeme kaynağına iade edildi. Puan TL’ye dönüştürülmedi.',
+                        style: TextStyle(
+                          color: Colors.blue.shade900,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],

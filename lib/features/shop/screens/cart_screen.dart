@@ -134,7 +134,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   void _calculateTotals() {
     _subtotal = 0;
     for (var item in _cartItems) {
-      _subtotal += item.product.effectivePrice * item.cartItem.quantity;
+      // Sepete eklendiği andaki snapshot fiyatı tercih et; yoksa
+      // ürünün güncel effectivePrice'ına düş (geriye uyumluluk).
+      final unitPrice = item.cartItem.unitPrice ?? item.product.effectivePrice;
+      _subtotal += unitPrice * item.cartItem.quantity;
     }
     
     // Kupon indirimini hesapla
@@ -602,31 +605,11 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 6),
-                  
-                  // Fiyat
-                  Row(
-                    children: [
-                      if (product.hasDiscount) ...[
-                        Text(
-                          '₺${product.price.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            decoration: TextDecoration.lineThrough,
-                            color: Colors.grey.shade500,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      Text(
-                        '₺${product.effectivePrice.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                  ),
+
+                  // Fiyat: sepete eklendiği andaki snapshot fiyatı
+                  // (CartItem.unitPrice) tercih edilir. Snapshot yoksa
+                  // ürünün güncel effective/price'ına düşülür.
+                  _buildPriceRow(theme, item, product),
                   
                   const SizedBox(height: 12),
                   
@@ -709,6 +692,50 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ],
         ),
       ),
+    );
+  }
+
+  /// Sepet satırında gösterilecek fiyat bloğu.
+  /// - `CartItem.unitPrice` snapshot'ı varsa onu tercih eder (sepete
+  ///   eklenirkenki geçerli fiyat).
+  /// - Snapshot yoksa ürünün güncel `effectivePrice`'ına düşer.
+  /// - Eski fiyat (üstü çizili) yalnızca anlamlıysa gösterilir: ya ürün
+  ///   şu an indirimliyse (`hasDiscount`), ya da snapshot ile güncel
+  ///   fiyat farklıysa.
+  Widget _buildPriceRow(
+    ThemeData theme,
+    CartItemWithProduct item,
+    Product product,
+  ) {
+    final unitPrice = item.cartItem.unitPrice ?? product.effectivePrice;
+    final hasSnapshot = item.cartItem.unitPrice != null;
+    final showOldPrice = hasSnapshot
+        ? (product.price > unitPrice)
+        : product.hasDiscount;
+    final oldPrice = product.price;
+
+    return Row(
+      children: [
+        if (showOldPrice) ...[
+          Text(
+            '₺${oldPrice.toStringAsFixed(2)}',
+            style: TextStyle(
+              decoration: TextDecoration.lineThrough,
+              color: Colors.grey.shade500,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+        Text(
+          '₺${unitPrice.toStringAsFixed(2)}',
+          style: TextStyle(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+      ],
     );
   }
 

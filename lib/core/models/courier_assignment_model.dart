@@ -93,7 +93,11 @@ class CourierAssignment {
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'] as String)
           : DateTime.now(),
-      order: json['orders'] as Map<String, dynamic>?,
+      // 'orders' ilişkisi genelde tek satır döner ama bazı konfigürasyonlarda
+      // liste gelebilir; güvenli cast ile tip hatası önlenir.
+      order: json['orders'] is Map<String, dynamic>
+          ? json['orders'] as Map<String, dynamic>
+          : null,
       courierName: json['courier_name'] as String?,
       courierPhone: json['courier_phone'] as String?,
     );
@@ -152,10 +156,20 @@ class CourierOrder {
         .map((item) => CourierOrderItem.fromJson(item as Map<String, dynamic>))
         .toList();
 
+    // order_number yoksa id'nin ilk 8 karakterini güvenli şekilde kullan.
+    // Eski kod `id?.toString().substring(0, 8)` kullanıyordu; id null değil ama
+    // 8'den kısaysa RangeError fırlatıyordu (örn. id='o').
+    final idStr = json['id']?.toString();
+    final orderNumberFallback = idStr == null || idStr.isEmpty
+        ? '#'
+        : '#${idStr.length > 8 ? idStr.substring(0, 8) : idStr}';
+
     return CourierOrder(
       id: json['id'] as String? ?? '',
-      orderNumber: json['order_number'] as String? ?? '#${json['id']?.toString().substring(0, 8) ?? ''}',
-      totalAmount: (json['total_amount'] as num?)?.toDouble() ?? 0,
+      orderNumber: json['order_number'] as String? ?? orderNumberFallback,
+      totalAmount: (json['total_amount'] as num?)?.toDouble() ??
+          (json['total'] as num?)?.toDouble() ??
+          0,
       status: json['status'] as String? ?? 'pending',
       paymentMethod: json['payment_method'] as String? ?? 'cash',
       customerName: json['customer_name'] as String?,
@@ -163,7 +177,7 @@ class CourierOrder {
       deliveryAddress: json['address_display'] as String? ??
           json['delivery_address_text'] as String?,
       shopName: json['shop_name'] as String? ??
-          (json['shops'] != null ? (json['shops'] as Map)['name'] as String? : null),
+          (json['shops'] is Map ? (json['shops'] as Map)['name'] as String? : null),
       items: items,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)

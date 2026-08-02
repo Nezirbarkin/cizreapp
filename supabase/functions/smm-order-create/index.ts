@@ -1,196 +1,212 @@
-// smm-order-create Edge Function
-// Dijital ürün (SMM panel) siparişi oluşturur: bakiye düşer, sağlayıcı API'sine iletir.
-// Deploy: supabase functions deploy smm-order-create
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import {
+  refundComposition,
+  setReconciliation,
+} from "../_shared/digital_orders.ts";
+import { bearerToken, json, options, requireEnv } from "../_shared/http.ts";
+import { sha256Hex } from "../_shared/crypto.ts";
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-async function smmRequest(apiUrl: string, params: Record<string, string>) {
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(params),
-  });
-  return await res.json();
+interface OrderReservation {
+  digital_order_id: string;
+  provider_id: string;
+  smm_service_id: string;
+  gross_total_try: unknown;
+  points_spent: unknown;
+  points_discount_try: unknown;
+  cash_paid_try: unknown;
+  duplicate?: boolean;
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return options("POST, OPTIONS");
+  if (req.method !== "POST") {
+    return json({ error_code: "METHOD_NOT_ALLOWED" }, 405, {
+      Allow: "POST, OPTIONS",
+    });
   }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
+    const env = requireEnv(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]);
+    const token = bearerToken(req);
+    if (!token) return json({ error_code: "UNAUTHORIZED" }, 401);
+    const supabase = createClient(
+      env.SUPABASE_URL,
+      env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { persistSession: false } },
     );
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Geçersiz oturum" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      token,
+    );
+    if (authError || !user) return json({ error_code: "UNAUTHORIZED" }, 401);
+    const body = await req.json().catch(() => ({}));
+    if (
+      "price" in body || "total_price" in body || "composition" in body ||
+      "user_id" in body
+    ) {
+      return json({ error_code: "FORBIDDEN_CLIENT_FIELD" }, 400);
+    }
+    const idempotency = String(
+      req.headers.get("x-idempotency-key") ?? body.idempotency_key ?? "",
+    ).trim();
+    const quantity = Number(body.quantity);
+    if (
+      !/^[A-Za-z0-9_.:-]{8,160}$/u.test(idempotency) || !body.product_id ||
+      typeof body.target_url !== "string" ||
+      !Number.isInteger(quantity) || quantity <= 0
+    ) return json({ error_code: "INVALID_INPUT" }, 400);
+    // Keep the persisted key fixed-length and opaque. The client key may be up
+    // to 160 chars, while DB/ledger idempotency keys are intentionally capped.
+    const serverKey = `smm-create:${await sha256Hex(`${user.id}:${idempotency}`)}`;
+    const { data, error: rpcError } = await supabase.rpc(
+      "create_digital_order_with_points",
+      {
+        p_user_id: user.id,
+        p_product_id: body.product_id,
+        p_target_url: body.target_url,
+        p_quantity: quantity,
+        p_idempotency_key: serverKey,
+        p_use_points: body.use_points !== false,
+      },
+    );
+    if (rpcError || !isOrderReservation(data)) {
+      return json({ error_code: "ORDER_RESERVATION_FAILED" }, 400);
+    }
+    const orderData = data;
+    if (orderData.duplicate) {
+      // The RPC deliberately returns no provider service/external id on the
+      // duplicate branch. Never repeat an ambiguous non-idempotent provider add.
+      const { data: existing } = await supabase.from("digital_orders")
+        .select("external_order_id,status,reconciliation_status")
+        .eq("id", orderData.digital_order_id).single();
+      if (existing?.external_order_id) {
+        return json({
+          status: "success",
+          digital_order_id: orderData.digital_order_id,
+          external_order_id: existing.external_order_id,
+          ...publicComposition(orderData),
+          duplicate: true,
+        });
+      }
+      await setReconciliation(
+        supabase,
+        orderData.digital_order_id,
+        "reconciliation_pending",
+      );
+      return json({
+        status: "reconciliation_pending",
+        digital_order_id: orderData.digital_order_id,
+        duplicate: true,
+        refunded: false,
+      }, 202);
     }
 
-    const body = await req.json();
-    const { product_id, target_url, quantity } = body;
-
-    if (!product_id || !target_url || !quantity) {
-      return new Response(JSON.stringify({ error: "product_id, target_url ve quantity zorunludur" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Ürün doğrulama + atomik bakiye düşme + digital_orders insert (tek DB transaction).
-    const { data: rows, error: rpcError } = await supabase.rpc("create_digital_order", {
-      p_user_id: user.id,
-      p_product_id: product_id,
-      p_target_url: target_url,
-      p_quantity: parseInt(quantity, 10),
-    });
-
-    if (rpcError) {
-      const msg = rpcError.message || "Sipariş oluşturulamadı";
-      const isInsufficient = /Insufficient balance/i.test(msg);
-      return new Response(JSON.stringify({
-        status: "error",
-        error: isInsufficient ? "Yetersiz bakiye" : msg,
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const row = Array.isArray(rows) ? rows[0] : rows;
-    const digitalOrderId = row?.digital_order_id;
-    const providerId = row?.provider_id;
-    const smmServiceId = row?.smm_service_id;
-    const totalPrice = row?.total_price != null ? parseFloat(row.total_price) : null;
-    const balanceAfter = row?.balance_after != null ? parseFloat(row.balance_after) : null;
-
-    // Sağlayıcının api_url/api_key'ini SADECE service-role client ile oku, client'a asla dönme.
-    const { data: provider, error: providerError } = await supabase
-      .from("smm_providers")
-      .select("api_url, api_key, is_active")
-      .eq("id", providerId)
+    const order = {
+      id: orderData.digital_order_id,
+      gross_total_try: Number(orderData.gross_total_try),
+    };
+    const { data: provider, error: providerError } = await supabase.from(
+      "smm_providers",
+    )
+      .select("api_url, api_key, is_active").eq("id", orderData.provider_id)
       .single();
-
-    if (providerError || !provider || !provider.is_active) {
-      await refundAndFail(supabase, user.id, digitalOrderId, totalPrice!, "Sağlayıcı bulunamadı veya devre dışı");
-      return new Response(JSON.stringify({
-        status: "error",
-        error: "Sağlayıcı şu anda kullanılamıyor, bakiyeniz iade edildi",
-      }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (providerError || !provider?.is_active) {
+      await refundComposition(
+        supabase,
+        order,
+        "failed",
+        order.gross_total_try,
+        "Sağlayıcı yapılandırması kesin olarak kullanılamıyor",
+        true,
+      );
+      await supabase.from("digital_orders").update({
+        status: "failed",
+        error_message: "PROVIDER_UNAVAILABLE",
+      }).eq("id", order.id);
+      return json({ error_code: "PROVIDER_UNAVAILABLE", refunded: true }, 502);
     }
-
-    let smmResult: any;
+    let response: Response;
+    let result: unknown;
     try {
-      smmResult = await smmRequest(provider.api_url, {
-        key: provider.api_key,
-        action: "add",
-        service: smmServiceId,
-        link: target_url,
-        quantity: String(quantity),
+      response = await fetch(provider.api_url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          key: provider.api_key,
+          action: "add",
+          service: String(orderData.smm_service_id),
+          link: body.target_url,
+          quantity: String(quantity),
+        }),
+        signal: AbortSignal.timeout(15_000),
       });
-    } catch (fetchErr) {
-      await refundAndFail(supabase, user.id, digitalOrderId, totalPrice!, "Sağlayıcıya bağlanılamadı");
-      return new Response(JSON.stringify({
-        status: "error",
-        error: "Sağlayıcıya bağlanılamadı, bakiyeniz iade edildi",
-      }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const text = await response.text();
+      result = JSON.parse(text);
+    } catch {
+      await setReconciliation(supabase, order.id, "reconciliation_pending");
+      return json({
+        status: "reconciliation_pending",
+        digital_order_id: order.id,
+        refunded: false,
+      }, 202);
     }
-
-    if (!smmResult || smmResult.error || !smmResult.order) {
-      const providerError = smmResult?.error || "Sağlayıcı siparişi kabul etmedi";
-      await refundAndFail(supabase, user.id, digitalOrderId, totalPrice!, providerError);
-      return new Response(JSON.stringify({
-        status: "error",
-        error: "Sağlayıcı siparişi kabul etmedi, bakiyeniz iade edildi",
-        debug_detail: providerError,
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!response.ok || !isRecord(result)) {
+      await setReconciliation(supabase, order.id, "reconciliation_pending");
+      return json({
+        status: "reconciliation_pending",
+        digital_order_id: order.id,
+        refunded: false,
+      }, 202);
     }
-
-    const { error: updateError } = await supabase
-      .from("digital_orders")
-      .update({
-        external_order_id: String(smmResult.order),
-        status: "in_progress",
-        last_checked_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", digitalOrderId);
-
-    if (updateError) {
-      console.error("❌ digital_orders güncellenemedi (sipariş sağlayıcıya iletildi):", updateError.message);
+    if (result.error || !result.order) {
+      await refundComposition(
+        supabase,
+        order,
+        "failed",
+        order.gross_total_try,
+        "Sağlayıcı siparişi kesin olarak reddetti",
+        true,
+      );
+      await supabase.from("digital_orders").update({
+        status: "failed",
+        error_message: "PROVIDER_REJECTED",
+      }).eq("id", order.id);
+      return json({ error_code: "PROVIDER_REJECTED", refunded: true }, 400);
     }
-
-    return new Response(JSON.stringify({
+    await supabase.from("digital_orders").update({
+      external_order_id: String(result.order),
+      status: "in_progress",
+      last_checked_at: new Date().toISOString(),
+    }).eq("id", order.id);
+    await setReconciliation(supabase, order.id, "pending_provider");
+    return json({
       status: "success",
-      digital_order_id: digitalOrderId,
-      external_order_id: smmResult.order,
-      total_price: totalPrice,
-      new_balance: balanceAfter,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      digital_order_id: order.id,
+      external_order_id: String(result.order),
+      ...publicComposition(orderData),
     });
-  } catch (err: unknown) {
-    const error = err as Error;
-    console.error("❌ smm-order-create error:", error.message);
-    return new Response(JSON.stringify({ status: "error", error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+  } catch (error) {
+    console.error("smm_order_create_failed", {
+      code: error instanceof Error ? error.message : "UNKNOWN",
     });
+    return json({ error_code: "INTERNAL_ERROR" }, 500);
   }
 });
 
-async function refundAndFail(
-  supabase: ReturnType<typeof createClient>,
-  userId: string,
-  digitalOrderId: string,
-  amount: number,
-  reason: string,
-) {
-  try {
-    await supabase.rpc("add_to_balance", {
-      p_user_id: userId,
-      p_amount: amount,
-      p_type: "refund",
-      p_reference_type: "digital_order",
-      p_reference_id: digitalOrderId,
-      p_description: `Dijital sipariş başarısız - otomatik iade: ${reason}`,
-    });
-  } catch (refundErr) {
-    console.error("❌ Otomatik iade başarısız:", (refundErr as Error).message);
-  }
+function publicComposition(data: OrderReservation) {
+  return {
+    gross_total_try: data.gross_total_try,
+    points_spent: data.points_spent,
+    points_discount_try: data.points_discount_try,
+    cash_paid_try: data.cash_paid_try,
+  };
+}
 
-  await supabase
-    .from("digital_orders")
-    .update({ status: "failed", error_message: reason, updated_at: new Date().toISOString() })
-    .eq("id", digitalOrderId);
+function isOrderReservation(value: unknown): value is OrderReservation {
+  return isRecord(value) && typeof value.digital_order_id === "string" &&
+    typeof value.provider_id === "string" &&
+    typeof value.smm_service_id === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }

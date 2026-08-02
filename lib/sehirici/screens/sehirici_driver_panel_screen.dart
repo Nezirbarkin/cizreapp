@@ -79,9 +79,10 @@ class _SehiriciDriverPanelScreenState
     if (_driverProfile == null) return;
     setState(() => _busy = true);
     try {
-      final pos = await SehiriciUserLocation.getCurrent();
+      final result = await SehiriciUserLocation.requestCurrent();
+      final pos = result.position;
       if (pos == null) {
-        _showError('Konum alınamadı. Konum izni verin.');
+        _showError('Konum alınamadı. Konum izni verin ve konum servisini açın.');
         return;
       }
       final tripId = await _tripService.startTrip(
@@ -748,6 +749,9 @@ class _SehiriciDriverPanelScreenState
                       zoomLevel: city.zoomLevel,
                       height: double.infinity,
                       interactive: true,
+                      // Şoför henüz gerçek rota çizmedi; yanıltıcı duraklar
+                      // arası çizgiyi gizle. Durak marker'ları yine görünür.
+                      showRoute: false,
                       onLongPress: (pos) => setState(() => _droppedLocation = pos),
                     ),
                     if (_droppedLocation != null)

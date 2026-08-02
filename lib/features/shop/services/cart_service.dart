@@ -173,6 +173,12 @@ class CartItem {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Ürünün sepete eklendiği andaki geçerli (indirimli) birim fiyatı.
+  /// `getCartItems` join'inden `Product.effectivePrice` üzerinden hesaplanır.
+  /// Sepet ekranı bu snapshot'ı gösterir, böylece ürünün güncel fiyatı
+  /// değişse bile sepetteki fiyat sabit kalır.
+  final double? unitPrice;
+
   CartItem({
     required this.id,
     required this.userId,
@@ -180,9 +186,31 @@ class CartItem {
     required this.quantity,
     required this.createdAt,
     required this.updatedAt,
+    this.unitPrice,
   });
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
+    // Join'den gelen `products` objesinden effective fiyatı çek.
+    // (price, discount_price, old_price) üzerinden Product modelindeki
+    // effectivePrice mantığını birebir uyguluyoruz.
+    double? unitPrice;
+    final product = json['products'];
+    if (product is Map) {
+      final price = (product['price'] as num?)?.toDouble();
+      final discountPrice = (product['discount_price'] as num?)?.toDouble();
+      final oldPrice = (product['old_price'] as num?)?.toDouble();
+      if (price != null) {
+        if (discountPrice != null && discountPrice > 0 && discountPrice < price) {
+          unitPrice = discountPrice;
+        } else if (oldPrice != null && oldPrice > price) {
+          // old_price > price ise price zaten indirimli demektir.
+          unitPrice = price;
+        } else {
+          unitPrice = price;
+        }
+      }
+    }
+
     return CartItem(
       id: json['id'] as String,
       userId: json['user_id'] as String,
@@ -190,6 +218,7 @@ class CartItem {
       quantity: json['quantity'] as int,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
+      unitPrice: unitPrice,
     );
   }
 

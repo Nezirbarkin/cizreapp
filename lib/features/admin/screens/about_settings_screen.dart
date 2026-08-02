@@ -674,6 +674,43 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
                       required: true,
                       minLines: 8,
                     ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.policy_outlined,
+                            color: Colors.orange.shade800,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Operatör notu: Bu iki uygulama içi metin veritabanındaki '
+                              'app_about_settings.terms_of_service ve privacy_policy alanlarından '
+                              'yönetilir; bir uygulama kodu yayını mevcut DB metnini otomatik '
+                              'güncellemez. Yayın öncesinde isteğe bağlı AdMob/SSV veri işleme, '
+                              'puanların nakit olmadığı, yalnız uygun dijital üründe önce puan '
+                              'sonra TL kullanımı, kaynağına iade ve geçmiş TL ödüllerine no-backfill '
+                              'özetini buraya da işleyin. Kanonik bağlantı: '
+                              'https://cizreapp.com/privacy.html',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ]),
 
                   const SizedBox(height: 32),

@@ -1,4 +1,4 @@
-// ignore_for_file: unused_field
+// ignore_for_file: unused_field, curly_braces_in_flow_control_structures
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,10 +17,7 @@ import '../../../core/services/smm_service.dart';
 class ManageProductScreen extends StatefulWidget {
   final Product? product;
 
-  const ManageProductScreen({
-    super.key,
-    this.product,
-  });
+  const ManageProductScreen({super.key, this.product});
 
   @override
   State<ManageProductScreen> createState() => _ManageProductScreenState();
@@ -28,6 +25,7 @@ class ManageProductScreen extends StatefulWidget {
 
 class _ManageProductScreenState extends State<ManageProductScreen> {
   final _formKey = GlobalKey<FormState>();
+
   /// Supabase client'ı güvenli şekilde al (lazy)
   SupabaseClient get _supabase {
     try {
@@ -37,6 +35,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       rethrow;
     }
   }
+
   final _productService = ProductService();
   final _categoryService = CategoryService();
   final _smmService = SmmService();
@@ -59,7 +58,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   List<category_model.Category> _categories = [];
   List<String> _sellerCategories = []; // Satıcının kendi kategorileri
   String? _selectedCategory;
-  
+
   // Çoklu görsel desteği
   List<String> _imageUrls = [];
   List<XFile> _selectedImages = [];
@@ -69,24 +68,46 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
   // Varyant state
   String _productType = 'normal';
-  final List<String> _availableSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+  final List<String> _availableSizes = [
+    'XS',
+    'S',
+    'M',
+    'L',
+    'XL',
+    'XXL',
+    '3XL',
+  ];
   final Set<String> _selectedSizes = {};
-  final List<int> _availableShoeSizes = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  final List<int> _availableShoeSizes = [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+  ];
   final Set<int> _selectedShoeSizes = {};
   final List<ProductColor> _colors = [];
 
   // Dijital ürün (SMM panel) state
-  final TextEditingController _digitalWarningController = TextEditingController();
+  final TextEditingController _digitalWarningController =
+      TextEditingController();
   List<SmmProvider> _smmProviders = [];
   String? _selectedSmmProviderId;
   final TextEditingController _smmServiceIdController = TextEditingController();
   final TextEditingController _pricePer1000Controller = TextEditingController();
   final TextEditingController _minQuantityController = TextEditingController();
   final TextEditingController _maxQuantityController = TextEditingController();
-  final TextEditingController _maxOrdersPerUserController = TextEditingController();
+  final TextEditingController _maxOrdersPerUserController =
+      TextEditingController();
   List<SmmProviderServiceInfo> _smmProviderServices = [];
   String? _selectedSmmServiceKey;
   bool _isLoadingSmmServices = false;
+  bool _isPointsEligible = false;
 
   // Renk picker için global key
   final GlobalKey<_ColorPickerWidgetState> _colorPickerKey = GlobalKey();
@@ -94,9 +115,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     _nameController = TextEditingController(text: widget.product?.name ?? '');
-    _descriptionController = TextEditingController(text: widget.product?.description ?? '');
+    _descriptionController = TextEditingController(
+      text: widget.product?.description ?? '',
+    );
     _priceController = TextEditingController(
       text: widget.product?.price.toString() ?? '',
     );
@@ -108,7 +131,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     );
 
     _selectedCategory = widget.product?.category;
-    
+
     // Mevcut görselleri yükle
     if (widget.product?.imageUrl != null) {
       _imageUrls.add(widget.product!.imageUrl!);
@@ -116,9 +139,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     if (widget.product?.additionalImages != null) {
       _imageUrls.addAll(widget.product!.additionalImages);
     }
-    
+
     _hasDiscount = widget.product?.hasDiscount ?? false;
-    _hasBuy2Get1BalanceCampaign = widget.product?.isBuy2Get1BalanceCampaign ?? false;
+    _hasBuy2Get1BalanceCampaign =
+        widget.product?.isBuy2Get1BalanceCampaign ?? false;
 
     // Varyant verilerini yükle
     if (widget.product != null) {
@@ -128,10 +152,15 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _colors.addAll(widget.product!.colors);
       _selectedSmmProviderId = widget.product!.smmProviderId;
       _smmServiceIdController.text = widget.product!.smmServiceId ?? '';
-      _pricePer1000Controller.text = widget.product!.pricePer1000?.toString() ?? '';
-      _minQuantityController.text = widget.product!.minQuantity?.toString() ?? '';
-      _maxQuantityController.text = widget.product!.maxQuantity?.toString() ?? '';
-      _maxOrdersPerUserController.text = widget.product!.maxOrdersPerUser?.toString() ?? '';
+      _pricePer1000Controller.text =
+          widget.product!.pricePer1000?.toString() ?? '';
+      _minQuantityController.text =
+          widget.product!.minQuantity?.toString() ?? '';
+      _maxQuantityController.text =
+          widget.product!.maxQuantity?.toString() ?? '';
+      _maxOrdersPerUserController.text =
+          widget.product!.maxOrdersPerUser?.toString() ?? '';
+      _isPointsEligible = widget.product!.isPointsEligible;
     }
 
     _loadCategories();
@@ -148,21 +177,27 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
       final shopResponse = await _supabase
           .from('shops')
-          .select('commission_rate, digital_commission_rate, digital_warning_note')
+          .select(
+            'commission_rate, digital_commission_rate, digital_warning_note',
+          )
           .eq('owner_id', userId)
           .maybeSingle();
 
       if (shopResponse != null) {
         if (shopResponse['commission_rate'] != null) {
           setState(() {
-            _commissionRate = (shopResponse['commission_rate'] as num).toDouble();
+            _commissionRate = (shopResponse['commission_rate'] as num)
+                .toDouble();
           });
         }
         setState(() {
-          _digitalCommissionRate = (shopResponse['digital_commission_rate'] as num?)?.toDouble() ?? 10.0;
+          _digitalCommissionRate =
+              (shopResponse['digital_commission_rate'] as num?)?.toDouble() ??
+              10.0;
         });
         if (shopResponse['digital_warning_note'] != null) {
-          _digitalWarningController.text = shopResponse['digital_warning_note'] as String;
+          _digitalWarningController.text =
+              shopResponse['digital_warning_note'] as String;
         }
       }
     } catch (e) {
@@ -178,7 +213,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     if (_selectedSmmProviderId == null) return;
     setState(() => _isLoadingSmmServices = true);
     try {
-      final services = await _smmService.getProviderServices(_selectedSmmProviderId!);
+      final services = await _smmService.getProviderServices(
+        _selectedSmmProviderId!,
+      );
       setState(() {
         _smmProviderServices = services;
         _selectedSmmServiceKey = null;
@@ -190,7 +227,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Servisler alınamadı: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Servisler alınamadı: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoadingSmmServices = false);
@@ -201,9 +240,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     setState(() {
       _selectedSmmServiceKey = service.service;
       _smmServiceIdController.text = service.service;
-      if (service.rate != null) _pricePer1000Controller.text = service.rate.toString();
-      if (service.min != null) _minQuantityController.text = service.min.toString();
-      if (service.max != null) _maxQuantityController.text = service.max.toString();
+      if (service.rate != null)
+        _pricePer1000Controller.text = service.rate.toString();
+      if (service.min != null)
+        _minQuantityController.text = service.min.toString();
+      if (service.max != null)
+        _maxQuantityController.text = service.max.toString();
       if (_descriptionController.text.trim().isEmpty && service.name != null) {
         _descriptionController.text = service.name!;
       }
@@ -214,7 +256,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   Future<void> _loadSmmProviders() async {
     try {
       final providers = await _smmService.getProviders();
-      if (mounted) setState(() => _smmProviders = providers.where((p) => p.isActive).toList());
+      if (mounted)
+        setState(
+          () => _smmProviders = providers.where((p) => p.isActive).toList(),
+        );
     } catch (e) {
       debugPrint('SMM sağlayıcıları yüklenemedi: $e');
     }
@@ -260,19 +305,21 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     try {
       // Admin kategorilerini yükle
       final categories = await _categoryService.getCategories();
-      
+
       // Satıcının kendi kategorilerini yükle
       await _loadSellerCategories();
-      
+
       if (mounted) {
         setState(() {
           _categories = categories;
-          
+
           // Seçili kategori satıcının listesinde var mı kontrol et
           if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
             // Eğer satıcının kategorileri arasında yoksa, null yap (yeni kategori seçilmeli)
             if (!_sellerCategories.contains(_selectedCategory)) {
-              debugPrint('⚠️ Mevcut kategori ($_selectedCategory) satıcının kategorilerinde yok, temizleniyor');
+              debugPrint(
+                '⚠️ Mevcut kategori ($_selectedCategory) satıcının kategorilerinde yok, temizleniyor',
+              );
               _selectedCategory = null;
             }
           }
@@ -298,7 +345,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       if (shopResponse != null && shopResponse['seller_categories'] != null) {
         if (mounted) {
           setState(() {
-            _sellerCategories = List<String>.from(shopResponse['seller_categories'] as List);
+            _sellerCategories = List<String>.from(
+              shopResponse['seller_categories'] as List,
+            );
           });
         }
       }
@@ -317,9 +366,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
     try {
       final picker = ImagePicker();
-      
+
       List<XFile> pickedFiles;
-      
+
       if (kIsWeb) {
         // Web'de pickMultiImage desteklenmiyor, tek tek seç
         final file = await picker.pickImage(
@@ -343,24 +392,29 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
 
       if (pickedFiles.isNotEmpty && mounted) {
-        final remainingSlots = _maxImages - (_selectedImages.length + _imageUrls.length);
+        final remainingSlots =
+            _maxImages - (_selectedImages.length + _imageUrls.length);
         final filesToAdd = pickedFiles.take(remainingSlots).toList();
-        
+
         setState(() {
           _selectedImages.addAll(filesToAdd);
         });
 
         if (pickedFiles.length > remainingSlots) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('En fazla $_maxImages resim ekleyebilirsiniz. ${pickedFiles.length - remainingSlots} resim eklenmedi.')),
+            SnackBar(
+              content: Text(
+                'En fazla $_maxImages resim ekleyebilirsiniz. ${pickedFiles.length - remainingSlots} resim eklenmedi.',
+              ),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resim seçme hatası: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Resim seçme hatası: $e')));
       }
     }
   }
@@ -387,10 +441,13 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         // Web ve mobile için ortak yaklaşım: XFile'dan byte array al
         final imageBytes = await image.readAsBytes();
         final fileExt = image.name.split('.').last.toLowerCase();
-        final fileName = 'product_${DateTime.now().millisecondsSinceEpoch}_${uploadedUrls.length}.$fileExt';
+        final fileName =
+            'product_${DateTime.now().millisecondsSinceEpoch}_${uploadedUrls.length}.$fileExt';
         final filePath = 'shops/$shopId/$fileName';
 
-        await _supabase.storage.from('shop-images').uploadBinary(
+        await _supabase.storage
+            .from('shop-images')
+            .uploadBinary(
               filePath,
               imageBytes,
               fileOptions: const FileOptions(
@@ -399,7 +456,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ),
             );
 
-        final url = _supabase.storage.from('shop-images').getPublicUrl(filePath);
+        final url = _supabase.storage
+            .from('shop-images')
+            .getPublicUrl(filePath);
         uploadedUrls.add(url);
       }
 
@@ -407,9 +466,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     } catch (e) {
       debugPrint('Resim yükleme hatası: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resim yüklenemedi: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Resim yüklenemedi: $e')));
       }
       return uploadedUrls;
     } finally {
@@ -473,26 +532,41 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         return;
       }
       // Türkçe klavyede ondalık ayırıcı virgül olabilir (örn. 12,50); double.tryParse için noktaya çevir.
-      pricePer1000 = double.tryParse(_pricePer1000Controller.text.trim().replaceAll(',', '.'));
+      pricePer1000 = double.tryParse(
+        _pricePer1000Controller.text.trim().replaceAll(',', '.'),
+      );
       minQuantity = int.tryParse(_minQuantityController.text.trim());
       maxQuantity = int.tryParse(_maxQuantityController.text.trim());
       if (pricePer1000 == null || pricePer1000 < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('1000 adet için geçerli bir fiyat girin (0 veya üzeri)')),
+          const SnackBar(
+            content: Text(
+              '1000 adet için geçerli bir fiyat girin (0 veya üzeri)',
+            ),
+          ),
         );
         return;
       }
-      if (minQuantity == null || maxQuantity == null || minQuantity <= 0 || maxQuantity < minQuantity) {
+      if (minQuantity == null ||
+          maxQuantity == null ||
+          minQuantity <= 0 ||
+          maxQuantity < minQuantity) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Geçerli min/max miktar girin')),
         );
         return;
       }
       if (_maxOrdersPerUserController.text.trim().isNotEmpty) {
-        maxOrdersPerUser = int.tryParse(_maxOrdersPerUserController.text.trim());
+        maxOrdersPerUser = int.tryParse(
+          _maxOrdersPerUserController.text.trim(),
+        );
         if (maxOrdersPerUser == null || maxOrdersPerUser <= 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Kullanıcı başına sipariş limiti geçerli bir sayı olmalı')),
+            const SnackBar(
+              content: Text(
+                'Kullanıcı başına sipariş limiti geçerli bir sayı olmalı',
+              ),
+            ),
           );
           return;
         }
@@ -520,23 +594,32 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       if (_productType == 'digital') {
         await _supabase
             .from('shops')
-            .update({'digital_warning_note': _digitalWarningController.text.trim()})
+            .update({
+              'digital_warning_note': _digitalWarningController.text.trim(),
+            })
             .eq('id', shopId);
       }
 
       final imageUrls = await _uploadImages(shopId);
       final primaryImageUrl = imageUrls.isNotEmpty ? imageUrls.first : null;
-      final additionalImageUrls = imageUrls.length > 1 ? imageUrls.sublist(1) : <String>[];
+      final additionalImageUrls = imageUrls.length > 1
+          ? imageUrls.sublist(1)
+          : <String>[];
 
       // Dijital ürünlerde fiyatlandırma/stok bölümü gösterilmez; gerçek fiyat
       // pricePer1000 üzerinden hesaplanır, komisyon mantığı fizikselden ayrıdır.
       final price = _productType == 'digital'
           ? (pricePer1000 ?? 0)
           : double.parse(_priceController.text);
-      final oldPrice = _productType != 'digital' && _hasDiscount && _oldPriceController.text.isNotEmpty
+      final oldPrice =
+          _productType != 'digital' &&
+              _hasDiscount &&
+              _oldPriceController.text.isNotEmpty
           ? double.parse(_oldPriceController.text)
           : null;
-      final stock = _productType == 'digital' ? 0 : int.parse(_stockController.text);
+      final stock = _productType == 'digital'
+          ? 0
+          : int.parse(_stockController.text);
 
       // Renkleri JSON formatına çevir
       final colorsJson = _colors.map((c) => c.toJson()).toList();
@@ -556,18 +639,27 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
-          smmProviderId: _productType == 'digital' ? _selectedSmmProviderId : null,
-          smmServiceId: _productType == 'digital' ? _smmServiceIdController.text.trim() : null,
+          smmProviderId: _productType == 'digital'
+              ? _selectedSmmProviderId
+              : null,
+          smmServiceId: _productType == 'digital'
+              ? _smmServiceIdController.text.trim()
+              : null,
           pricePer1000: _productType == 'digital' ? pricePer1000 : null,
           minQuantity: _productType == 'digital' ? minQuantity : null,
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
-          campaignType: _hasBuy2Get1BalanceCampaign ? 'buy2_get1_balance' : null,
+          campaignType: _hasBuy2Get1BalanceCampaign
+              ? 'buy2_get1_balance'
+              : null,
         );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Ürün başarıyla eklendi'), backgroundColor: Colors.green),
+            const SnackBar(
+              content: Text('Ürün başarıyla eklendi'),
+              backgroundColor: Colors.green,
+            ),
           );
           Navigator.pop(context, true);
         }
@@ -586,20 +678,30 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
-          smmProviderId: _productType == 'digital' ? _selectedSmmProviderId : null,
-          smmServiceId: _productType == 'digital' ? _smmServiceIdController.text.trim() : null,
+          smmProviderId: _productType == 'digital'
+              ? _selectedSmmProviderId
+              : null,
+          smmServiceId: _productType == 'digital'
+              ? _smmServiceIdController.text.trim()
+              : null,
           pricePer1000: _productType == 'digital' ? pricePer1000 : null,
           minQuantity: _productType == 'digital' ? minQuantity : null,
           maxQuantity: _productType == 'digital' ? maxQuantity : null,
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
-          clearMaxOrdersPerUser: _productType == 'digital' && maxOrdersPerUser == null,
-          campaignType: _hasBuy2Get1BalanceCampaign ? 'buy2_get1_balance' : null,
+          clearMaxOrdersPerUser:
+              _productType == 'digital' && maxOrdersPerUser == null,
+          campaignType: _hasBuy2Get1BalanceCampaign
+              ? 'buy2_get1_balance'
+              : null,
           clearCampaignType: !_hasBuy2Get1BalanceCampaign,
         );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Ürün başarıyla güncellendi'), backgroundColor: Colors.green),
+            const SnackBar(
+              content: Text('Ürün başarıyla güncellendi'),
+              backgroundColor: Colors.green,
+            ),
           );
           Navigator.pop(context, true);
         }
@@ -657,7 +759,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
   Widget _buildImagePicker() {
     final totalImages = _imageUrls.length + _selectedImages.length;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -675,7 +777,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        
+
         // Resim grid
         if (totalImages > 0) ...[
           GridView.builder(
@@ -690,7 +792,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             itemCount: totalImages,
             itemBuilder: (context, index) {
               final isUrl = index < _imageUrls.length;
-              
+
               return Stack(
                 children: [
                   ClipRRect(
@@ -704,7 +806,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                             errorWidget: (_, __, ___) => _buildPlaceholder(),
                           )
                         : FutureBuilder<Uint8List>(
-                            future: _selectedImages[index - _imageUrls.length].readAsBytes(),
+                            future: _selectedImages[index - _imageUrls.length]
+                                .readAsBytes(),
                             builder: (context, snapshot) {
                               if (snapshot.hasData) {
                                 return Image.memory(
@@ -733,7 +836,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                           color: Colors.red,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close, color: Colors.white, size: 16),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 16,
+                        ),
                       ),
                     ),
                   ),
@@ -743,14 +850,21 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                       bottom: 4,
                       left: 4,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.orange.shade700,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
                           'Ana',
-                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -760,18 +874,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           ),
           const SizedBox(height: 8),
         ],
-        
+
         // Resim ekle butonu
         if (totalImages < _maxImages)
           OutlinedButton.icon(
             onPressed: _isLoading ? null : _pickImages,
             icon: const Icon(Icons.add_photo_alternate),
-            label: Text(totalImages == 0 ? 'Resim Ekle' : 'Daha Fazla Resim Ekle'),
+            label: Text(
+              totalImages == 0 ? 'Resim Ekle' : 'Daha Fazla Resim Ekle',
+            ),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 48),
             ),
           ),
-        
+
         const SizedBox(height: 4),
         Text(
           'En fazla $_maxImages resim ekleyebilirsiniz. İlk resim ana resim olacaktır.',
@@ -797,7 +913,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Temel Bilgiler', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Temel Bilgiler',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const Divider(height: 24),
             TextFormField(
               controller: _nameController,
@@ -806,7 +925,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.shopping_bag),
               ),
-              validator: (value) => value?.isEmpty ?? true ? 'Ürün adı gerekli' : null,
+              validator: (value) =>
+                  value?.isEmpty ?? true ? 'Ürün adı gerekli' : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -818,12 +938,15 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 alignLabelWithHint: true,
               ),
               maxLines: 4,
-              validator: (value) => value?.isEmpty ?? true ? 'Açıklama gerekli' : null,
+              validator: (value) =>
+                  value?.isEmpty ?? true ? 'Açıklama gerekli' : null,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               // ignore: deprecated_member_use
-              value: _sellerCategories.contains(_selectedCategory) ? _selectedCategory : null,
+              value: _sellerCategories.contains(_selectedCategory)
+                  ? _selectedCategory
+                  : null,
               decoration: const InputDecoration(
                 labelText: 'Kategori',
                 border: OutlineInputBorder(),
@@ -834,17 +957,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                       const DropdownMenuItem<String>(
                         value: null,
                         enabled: false,
-                        child: Text('Henüz kategori eklenmedi', style: TextStyle(color: Colors.grey)),
+                        child: Text(
+                          'Henüz kategori eklenmedi',
+                          style: TextStyle(color: Colors.grey),
+                        ),
                       ),
                     ]
                   : _sellerCategories.map((cat) {
-                      return DropdownMenuItem(
-                        value: cat,
-                        child: Text(cat),
-                      );
+                      return DropdownMenuItem(value: cat, child: Text(cat));
                     }).toList(),
-              onChanged: _sellerCategories.isEmpty ? null : (value) => setState(() => _selectedCategory = value),
-              validator: (value) => value == null || value.isEmpty ? 'Kategori seçin' : null,
+              onChanged: _sellerCategories.isEmpty
+                  ? null
+                  : (value) => setState(() => _selectedCategory = value),
+              validator: (value) =>
+                  value == null || value.isEmpty ? 'Kategori seçin' : null,
             ),
             const SizedBox(height: 8),
             Text(
@@ -864,16 +990,35 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Varyantlar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Varyantlar',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const Divider(height: 24),
-            
+
             // Ürün Tipi Seçimi
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'normal', label: Text('Normal'), icon: Icon(Icons.widgets)),
-                ButtonSegment(value: 'clothing', label: Text('Giyim'), icon: Icon(Icons.checkroom)),
-                ButtonSegment(value: 'shoes', label: Text('Ayakkabı'), icon: Icon(Icons.sports_football)),
-                ButtonSegment(value: 'digital', label: Text('Dijital'), icon: Icon(Icons.smart_toy)),
+                ButtonSegment(
+                  value: 'normal',
+                  label: Text('Normal'),
+                  icon: Icon(Icons.widgets),
+                ),
+                ButtonSegment(
+                  value: 'clothing',
+                  label: Text('Giyim'),
+                  icon: Icon(Icons.checkroom),
+                ),
+                ButtonSegment(
+                  value: 'shoes',
+                  label: Text('Ayakkabı'),
+                  icon: Icon(Icons.sports_football),
+                ),
+                ButtonSegment(
+                  value: 'digital',
+                  label: Text('Dijital'),
+                  icon: Icon(Icons.smart_toy),
+                ),
               ],
               selected: {_productType},
               onSelectionChanged: (Set<String> value) {
@@ -884,7 +1029,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
             // Giyim - Beden Seçimi
             if (_productType == 'clothing') ...[
-              const Text('Bedenler', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Bedenler',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -913,7 +1061,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
             // Ayakkabı - Numara Seçimi
             if (_productType == 'shoes') ...[
-              const Text('Numaralar', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Numaralar',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -944,7 +1095,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             if (_productType == 'digital') ...[
               DropdownButtonFormField<String>(
                 // ignore: deprecated_member_use
-                value: _smmProviders.any((p) => p.id == _selectedSmmProviderId) ? _selectedSmmProviderId : null,
+                value: _smmProviders.any((p) => p.id == _selectedSmmProviderId)
+                    ? _selectedSmmProviderId
+                    : null,
                 decoration: const InputDecoration(
                   labelText: 'SMM Sağlayıcısı *',
                   border: OutlineInputBorder(),
@@ -955,23 +1108,32 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                         const DropdownMenuItem<String>(
                           value: null,
                           enabled: false,
-                          child: Text('Kullanılabilir sağlayıcı yok', style: TextStyle(color: Colors.grey)),
+                          child: Text(
+                            'Kullanılabilir sağlayıcı yok',
+                            style: TextStyle(color: Colors.grey),
+                          ),
                         ),
                       ]
                     : _smmProviders
-                        .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
-                        .toList(),
+                          .map(
+                            (p) => DropdownMenuItem(
+                              value: p.id,
+                              child: Text(p.name),
+                            ),
+                          )
+                          .toList(),
                 onChanged: _smmProviders.isEmpty
                     ? null
                     : (value) => setState(() {
-                          _selectedSmmProviderId = value;
-                          _smmProviderServices = [];
-                          _selectedSmmServiceKey = null;
-                        }),
+                        _selectedSmmProviderId = value;
+                        _smmProviderServices = [];
+                        _selectedSmmServiceKey = null;
+                      }),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: (_selectedSmmProviderId == null || _isLoadingSmmServices)
+                onPressed:
+                    (_selectedSmmProviderId == null || _isLoadingSmmServices)
                     ? null
                     : _fetchSmmServices,
                 icon: _isLoadingSmmServices
@@ -989,21 +1151,26 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   // ignore: deprecated_member_use
                   value: _selectedSmmServiceKey,
                   decoration: const InputDecoration(
-                    labelText: 'Sağlayıcı Hizmeti (seçince alanlar otomatik doldurulur)',
+                    labelText:
+                        'Sağlayıcı Hizmeti (seçince alanlar otomatik doldurulur)',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.list_alt),
                   ),
                   items: _smmProviderServices
-                      .map((s) => DropdownMenuItem(
-                            value: s.service,
-                            child: Text(
-                              '${s.name ?? s.service} (₺${s.rate?.toStringAsFixed(2) ?? '-'} / 1000)',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ))
+                      .map(
+                        (s) => DropdownMenuItem(
+                          value: s.service,
+                          child: Text(
+                            '${s.name ?? s.service} (₺${s.rate?.toStringAsFixed(2) ?? '-'} / 1000)',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
                       .toList(),
                   onChanged: (value) {
-                    final service = _smmProviderServices.firstWhere((s) => s.service == value);
+                    final service = _smmProviderServices.firstWhere(
+                      (s) => s.service == value,
+                    );
                     _applySmmService(service);
                   },
                 ),
@@ -1021,7 +1188,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _pricePer1000Controller,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: '1000 Adet Fiyatı (₺) *',
@@ -1064,10 +1233,21 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   labelText: 'Kullanıcı Başına Sipariş Limiti (opsiyonel)',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.person_outline),
-                  helperText: 'Boş bırakılırsa limitsiz. Özellikle 0 TL ürünlerde kötüye kullanımı önlemek için önerilir.',
+                  helperText:
+                      'Boş bırakılırsa limitsiz. Özellikle 0 TL ürünlerde kötüye kullanımı önlemek için önerilir.',
                 ),
               ),
               const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Puan kullanım uygunluğu'),
+                subtitle: const Text(
+                  'Bu alanı güvenlik ve kampanya politikası gereği yalnız yönetici değiştirebilir.',
+                ),
+                value: _isPointsEligible,
+                onChanged: null,
+              ),
+              const SizedBox(height: 8),
               _buildDigitalCommissionCalculation(),
               const SizedBox(height: 16),
               Container(
@@ -1079,12 +1259,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.purple.shade700, size: 20),
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.purple.shade700,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Dijital ürün fiyatı 1000 adet başına girdiğiniz tutara göre hesaplanır. Fiziksel ürünlerdeki stok, indirim ve komisyon oranı bu ürün tipine uygulanmaz.',
-                        style: TextStyle(color: Colors.purple.shade700, fontWeight: FontWeight.w500, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.purple.shade700,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],
@@ -1095,7 +1283,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                 controller: _digitalWarningController,
                 maxLines: 3,
                 decoration: const InputDecoration(
-                  labelText: 'Uyarı Notu (tüm dijital ürünlerinizde sabit gösterilir)',
+                  labelText:
+                      'Uyarı Notu (tüm dijital ürünlerinizde sabit gösterilir)',
                   hintText: 'Örn: Hesap bilgilerinizi kimseyle paylaşmayın',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.warning_amber_outlined),
@@ -1109,7 +1298,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Renkler', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Renkler',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   TextButton.icon(
                     onPressed: _showAddColorDialog,
                     icon: const Icon(Icons.add),
@@ -1127,7 +1319,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Center(
-                    child: Text('Henüz renk eklenmedi', style: TextStyle(color: Colors.grey)),
+                    child: Text(
+                      'Henüz renk eklenmedi',
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ),
                 )
               else
@@ -1138,7 +1333,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     final color = _colors[index];
                     return Chip(
                       avatar: CircleAvatar(
-                        backgroundColor: Color(int.parse(color.hex.replaceFirst('#', '0xFF'))),
+                        backgroundColor: Color(
+                          int.parse(color.hex.replaceFirst('#', '0xFF')),
+                        ),
                       ),
                       label: Text('${color.name} (Stok: ${color.stock})'),
                       deleteIcon: const Icon(Icons.close, size: 18),
@@ -1211,17 +1408,19 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     );
                     return;
                   }
-                  
+
                   final stock = int.tryParse(stockController.text) ?? 0;
-                  
+
                   setState(() {
-                    _colors.add(ProductColor(
-                      name: selectedColorName!,
-                      hex: selectedColorHex!,
-                      stock: stock,
-                    ));
+                    _colors.add(
+                      ProductColor(
+                        name: selectedColorName!,
+                        hex: selectedColorHex!,
+                        stock: stock,
+                      ),
+                    );
                   });
-                  
+
                   Navigator.pop(context);
                 },
                 style: ElevatedButton.styleFrom(
@@ -1243,9 +1442,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Fiyatlandırma', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Fiyatlandırma',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const Divider(height: 24),
-            
+
             // Komisyon oranı bilgisi
             Container(
               padding: const EdgeInsets.all(12),
@@ -1256,7 +1458,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.blue.shade700,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1271,7 +1477,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            
+
             Row(
               children: [
                 Expanded(
@@ -1284,12 +1490,18 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                       suffixText: '₺',
                     ),
                     keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d+\.?\d{0,2}'),
+                      ),
+                    ],
                     onChanged: (_) => setState(() {}),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Fiyat gerekli';
+                      if (value == null || value.isEmpty)
+                        return 'Fiyat gerekli';
                       final price = double.tryParse(value);
-                      if (price == null || price < 0) return 'Geçerli bir fiyat girin';
+                      if (price == null || price < 0)
+                        return 'Geçerli bir fiyat girin';
                       return null;
                     },
                   ),
@@ -1308,20 +1520,22 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'Stok gerekli';
                       final stock = int.tryParse(value);
-                      if (stock == null || stock < 0) return 'Geçerli bir stok girin';
+                      if (stock == null || stock < 0)
+                        return 'Geçerli bir stok girin';
                       return null;
                     },
                   ),
                 ),
               ],
             ),
-            
+
             // Fiyat girildiğinde canlı hesaplama göster
-            if (_priceController.text.isNotEmpty && double.tryParse(_priceController.text) != null) ...[
+            if (_priceController.text.isNotEmpty &&
+                double.tryParse(_priceController.text) != null) ...[
               const SizedBox(height: 16),
               _buildCommissionCalculation(),
             ],
-            
+
             const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('İndirim Var'),
@@ -1341,7 +1555,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   suffixText: '₺',
                 ),
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
                 validator: (value) {
                   if (_hasDiscount && (value == null || value.isEmpty)) {
                     return 'İndirim öncesi fiyat gerekli';
@@ -1349,7 +1565,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   if (_hasDiscount && value != null && value.isNotEmpty) {
                     final oldPrice = double.tryParse(value);
                     final currentPrice = double.tryParse(_priceController.text);
-                    if (oldPrice != null && currentPrice != null && oldPrice <= currentPrice) {
+                    if (oldPrice != null &&
+                        currentPrice != null &&
+                        oldPrice <= currentPrice) {
                       return 'Eski fiyat şimdiki fiyattan büyük olmalı';
                     }
                   }
@@ -1360,9 +1578,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             const SizedBox(height: 8),
             SwitchListTile(
               title: const Text('"2 Al Biri Bakiye" Kampanyası'),
-              subtitle: const Text('Bu üründen 2 adet alan müşteriye 1 adedin tutarı bakiye olarak iade edilir'),
+              subtitle: const Text(
+                'Bu üründen 2 adet alan müşteriye 1 adedin tutarı bakiye olarak iade edilir',
+              ),
               value: _hasBuy2Get1BalanceCampaign,
-              onChanged: (value) => setState(() => _hasBuy2Get1BalanceCampaign = value),
+              onChanged: (value) =>
+                  setState(() => _hasBuy2Get1BalanceCampaign = value),
               activeTrackColor: Colors.green.shade200,
               activeThumbColor: Colors.green.shade700,
             ),
@@ -1394,7 +1615,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.account_balance_wallet, color: Colors.green.shade700, size: 20),
+              Icon(
+                Icons.account_balance_wallet,
+                color: Colors.green.shade700,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Kazanç Hesaplaması',
@@ -1451,7 +1676,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
   /// Dijital ürün (1000 adet fiyatı) için kazanç hesaplama kartı
   Widget _buildDigitalCommissionCalculation() {
-    final price = double.tryParse(_pricePer1000Controller.text.trim().replaceAll(',', '.')) ?? 0.0;
+    final price =
+        double.tryParse(
+          _pricePer1000Controller.text.trim().replaceAll(',', '.'),
+        ) ??
+        0.0;
     final commission = _calculateDigitalCommission(price);
     final netEarnings = _calculateDigitalNetEarnings(price);
 
@@ -1471,7 +1700,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.account_balance_wallet, color: Colors.green.shade700, size: 20),
+              Icon(
+                Icons.account_balance_wallet,
+                color: Colors.green.shade700,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Kazanç Hesaplaması (1000 Adet)',
@@ -1503,16 +1736,18 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     );
   }
 
-  Widget _buildCalculationRow(String label, double value, Color color, {bool bold = false}) {
+  Widget _buildCalculationRow(
+    String label,
+    double value,
+    Color color, {
+    bool bold = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey.shade700,
-          ),
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
         ),
         Text(
           '${value >= 0 ? '+' : '-'}₺${value.abs().toStringAsFixed(2)}',
@@ -1537,7 +1772,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       ),
       child: _isUploadingImage
           ? const Text('Resimler Yükleniyor...')
-          : Text(widget.product != null ? 'Değişiklikleri Kaydet' : 'Ürünü Ekle'),
+          : Text(
+              widget.product != null ? 'Değişiklikleri Kaydet' : 'Ürünü Ekle',
+            ),
     );
   }
 
@@ -1546,7 +1783,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Ürünü Sil'),
-        content: const Text('Bu ürünü silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.'),
+        content: const Text(
+          'Bu ürünü silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1581,9 +1820,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -1594,11 +1833,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 // Özel Renk Picker Widget (inline)
 class _ColorPickerWidget extends StatefulWidget {
   final Function(String colorName, String hexCode) onColorSelected;
-  
-  const _ColorPickerWidget({
-    super.key,
-    required this.onColorSelected,
-  });
+
+  const _ColorPickerWidget({super.key, required this.onColorSelected});
 
   @override
   State<_ColorPickerWidget> createState() => _ColorPickerWidgetState();
@@ -1657,7 +1893,9 @@ class _ColorPickerWidgetState extends State<_ColorPickerWidget> {
                   color: color['color'],
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300,
+                    color: isSelected
+                        ? Colors.orange.shade700
+                        : Colors.grey.shade300,
                     width: isSelected ? 3 : 1,
                   ),
                 ),
@@ -1697,7 +1935,10 @@ class _ColorPickerWidgetState extends State<_ColorPickerWidget> {
                     ),
                     Text(
                       predefinedColors[_selectedIndex!]['hex'],
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),

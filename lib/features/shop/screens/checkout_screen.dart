@@ -1,7 +1,7 @@
 // ignore_for_file: use_build_context_synchronously, deprecated_member_use
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'cart_screen.dart';
@@ -241,6 +241,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         'total': finalTotal,
         'subtotal': widget.subtotal,
         'delivery_fee': widget.deliveryFee,
+        'coupon_id': widget.appliedCouponId,
         'coupon_discount': widget.discountAmount,
         'note': _notesController.text.isNotEmpty ? _notesController.text : null,
       };
@@ -381,6 +382,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: customerPhone,
         invoiceInfo: _selectedInvoiceInfo,
+        // Kapıda/bakiye yolu: order_service'e coupon bilgisi geçirilmezse
+        // orders.coupon_id NULL kalır (online yol Edge Function'a orderData
+        // ile gidiyordu, o ayrıca düzeltildi).
+        couponId: widget.appliedCouponId,
+        couponDiscount: widget.discountAmount,
       );
 
       // "2 al biri bakiye" kampanyalı ürünler varsa ödülü bakiyeye yansıt
@@ -394,7 +400,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
       }
 
-      // Kupon kullanıldıysa DB'de kullanım kaydını tut (limitleri tekrar kontrol eder)
+      // Kupon kullanıldıysa DB'de kullanım kaydını tut (limitleri tekrar kontrol eder).
+      // Başarısız olursa siparişi iptal et — yoksa DB'de kupon indirimi yansımamış
+      // bir sipariş kalır.
       if (widget.appliedCouponId != null && order != null) {
         try {
           await Supabase.instance.client.rpc('use_coupon', params: {
@@ -403,8 +411,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             'p_user_id': userId,
             'p_discount_amount': widget.discountAmount,
           });
+          debugPrint('✅ use_coupon RPC başarılı: ${widget.appliedCouponId}');
         } catch (couponError) {
-          debugPrint('⚠️ Kupon kullanım kaydı oluşturulamadı: $couponError');
+          debugPrint('❌ use_coupon RPC başarısız: $couponError');
+          // Siparişi iptal et ve hatayı yukarı fırlat ki UI kullanıcıya
+          // bildirebilsin.
+          try {
+            await Supabase.instance.client
+                .from('orders')
+                .update({'status': 'cancelled'})
+                .eq('id', order.id);
+          } catch (cancelError) {
+            debugPrint('❌ Sipariş iptal hatası: $cancelError');
+          }
+          throw Exception(
+              'Kupon kullanımı kaydedilemedi, sipariş iptal edildi.');
         }
       }
 
@@ -700,7 +721,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   style: TextStyle(fontSize: 14),
                 ),
                 // Kod ekranda gösteriliyorsa prominent şekilde göster
-                if (displayedCode != null && displayedCode!.isNotEmpty) ...[
+                // (2026-07-29 FIX) Sadece DEBUG modda — production'da SMS-only
+                // olmalı, ekranda kodun açık görünmesi güvenlik riski yaratır.
+                if (kDebugMode && displayedCode != null && displayedCode!.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   Container(
                     width: double.infinity,

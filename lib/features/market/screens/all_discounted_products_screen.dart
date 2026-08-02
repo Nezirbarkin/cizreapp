@@ -9,6 +9,7 @@ import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
+import '../widgets/flash_aware_price_row.dart';
 import '../services/cart_service.dart';
 import '../services/shop_service.dart';
 import 'product_detail_screen.dart';
@@ -371,13 +372,12 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                             ),
                     ),
                   ),
-                  // İndirim badge - üst sol
-                  if (product.hasDiscount)
-                    Positioned(
-                      top: 4,
-                      left: 4,
-                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
-                    ),
+                  // İndirim badge - üst sol (flaş indirim veya normal indirim)
+                  Positioned(
+                    top: 4,
+                    left: 4,
+                    child: FlashAwareDiscountBadge(product: product),
+                  ),
                   if (product.isBuy2Get1BalanceCampaign)
                     const Positioned(
                       bottom: 4,
@@ -457,37 +457,21 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                   
                   const SizedBox(height: 2),
                   
-                  // Fiyat
+                  // Fiyat (flaş indirim bilinçli)
                   SizedBox(
                     height: 14,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '₺${product.effectivePrice.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                              color: theme.colorScheme.primary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (product.displayOldPrice != null) ...[
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(
-                              '₺${product.displayOldPrice!.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                decoration: TextDecoration.lineThrough,
-                                color: Colors.grey.shade400,
-                                fontSize: 9,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: FlashAwarePriceRow(
+                      product: product,
+                      priceStyle: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        color: theme.colorScheme.primary,
+                      ),
+                      oldPriceStyle: TextStyle(
+                        decoration: TextDecoration.lineThrough,
+                        color: Colors.grey.shade400,
+                        fontSize: 9,
+                      ),
                     ),
                   ),
                   

@@ -15,8 +15,6 @@ class AppAboutSettings {
   
   // Online Ödeme Ayarları
   final bool onlinePaymentEnabled;
-  final String? iyzicoApiKey;
-  final String? iyzicoSecretKey;
   final String? iyzicoApiUrl;
   
   // Bakiye Sistemi
@@ -56,6 +54,10 @@ class AppAboutSettings {
   /// Admin panelinden değiştirilebilir. 1-20 arası, varsayılan 4.
   final int homeCategoryLimit;
 
+  /// Anasayfada gösterilecek maksimum haber kartı sayısı.
+  /// Admin panelinden değiştirilebilir. 1-10 arası, varsayılan 3.
+  final int homeNewsLimit;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -74,8 +76,6 @@ class AppAboutSettings {
     required this.buildNumber,
     this.socialMediaLinks,
     this.onlinePaymentEnabled = true,
-    this.iyzicoApiKey,
-    this.iyzicoSecretKey,
     this.iyzicoApiUrl,
     this.balanceEnabled = true,
     this.cardTopupEnabled = true,
@@ -98,6 +98,7 @@ class AppAboutSettings {
     this.animationSecondaryDurationMs = 3000,
     this.animationTransitionDurationMs = 700,
     this.homeCategoryLimit = 4,
+    this.homeNewsLimit = 3,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -128,8 +129,6 @@ class AppAboutSettings {
       buildNumber: json['build_number'] as String? ?? '1',
       socialMediaLinks: (json['social_media_links'] as Map<String, dynamic>?)?.cast<String, String>(),
       onlinePaymentEnabled: json['online_payment_enabled'] as bool? ?? true,
-      iyzicoApiKey: json['iyzico_api_key'] as String?,
-      iyzicoSecretKey: json['iyzico_secret_key'] as String?,
       iyzicoApiUrl: json['iyzico_api_url'] as String?,
       globalOrdersEnabled: json['global_orders_enabled'] as bool? ?? true,
       balanceEnabled: json['balance_enabled'] as bool? ?? true,
@@ -154,6 +153,7 @@ class AppAboutSettings {
       animationSecondaryDurationMs: json['animation_secondary_duration_ms'] as int? ?? 3000,
       animationTransitionDurationMs: json['animation_transition_duration_ms'] as int? ?? 700,
       homeCategoryLimit: json['home_category_limit'] as int? ?? 4,
+      homeNewsLimit: json['home_news_limit'] as int? ?? 3,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -175,8 +175,6 @@ class AppAboutSettings {
       'build_number': buildNumber,
       'social_media_links': socialMediaLinks,
       'online_payment_enabled': onlinePaymentEnabled,
-      'iyzico_api_key': iyzicoApiKey,
-      'iyzico_secret_key': iyzicoSecretKey,
       'iyzico_api_url': iyzicoApiUrl,
       'global_orders_enabled': globalOrdersEnabled,
       'company_bank_name': companyBankName,
@@ -194,6 +192,7 @@ class AppAboutSettings {
       'animation_secondary_duration_ms': animationSecondaryDurationMs,
       'animation_transition_duration_ms': animationTransitionDurationMs,
       'home_category_limit': homeCategoryLimit,
+      'home_news_limit': homeNewsLimit,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -213,8 +212,6 @@ class AppAboutSettings {
     String? buildNumber,
     Map<String, String>? socialMediaLinks,
     bool? onlinePaymentEnabled,
-    String? iyzicoApiKey,
-    String? iyzicoSecretKey,
     String? iyzicoApiUrl,
     bool? globalOrdersEnabled,
     bool? startupAnnouncementEnabled,
@@ -237,6 +234,7 @@ class AppAboutSettings {
     int? animationSecondaryDurationMs,
     int? animationTransitionDurationMs,
     int? homeCategoryLimit,
+    int? homeNewsLimit,
   }) {
     return AppAboutSettings(
       id: id,
@@ -253,8 +251,6 @@ class AppAboutSettings {
       buildNumber: buildNumber ?? this.buildNumber,
       socialMediaLinks: socialMediaLinks ?? this.socialMediaLinks,
       onlinePaymentEnabled: onlinePaymentEnabled ?? this.onlinePaymentEnabled,
-      iyzicoApiKey: iyzicoApiKey ?? this.iyzicoApiKey,
-      iyzicoSecretKey: iyzicoSecretKey ?? this.iyzicoSecretKey,
       iyzicoApiUrl: iyzicoApiUrl ?? this.iyzicoApiUrl,
       globalOrdersEnabled: globalOrdersEnabled ?? this.globalOrdersEnabled,
       startupAnnouncementEnabled: startupAnnouncementEnabled ?? this.startupAnnouncementEnabled,
@@ -277,6 +273,7 @@ class AppAboutSettings {
       animationSecondaryDurationMs: animationSecondaryDurationMs ?? this.animationSecondaryDurationMs,
       animationTransitionDurationMs: animationTransitionDurationMs ?? this.animationTransitionDurationMs,
       homeCategoryLimit: homeCategoryLimit ?? this.homeCategoryLimit,
+      homeNewsLimit: homeNewsLimit ?? this.homeNewsLimit,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

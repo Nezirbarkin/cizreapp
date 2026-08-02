@@ -1,118 +1,148 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:cizreapp/core/models/ad_settings_model.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('AdSettings.fromJson', () {
-    test('tüm alanları doğru şekilde parse eder', () {
-      final json = {
-        'is_enabled': true,
-        'test_mode': false,
-        'admob_app_id_android': 'ca-app-pub-111~222',
-        'admob_app_id_ios': 'ca-app-pub-111~333',
-        'admob_rewarded_unit_id_android': 'ca-app-pub-111/444',
-        'admob_rewarded_unit_id_ios': 'ca-app-pub-111/555',
-        'reward_min_try': 0.5,
-        'reward_max_try': 10.0,
-        'max_views_per_day': 10,
-        'max_views_per_hour': 3,
-        'min_watch_seconds': 15,
-        'cooldown_seconds': 60,
-        'max_daily_payout_try': 5000.0,
-      };
-
-      final settings = AdSettings.fromJson(json);
-
-      expect(settings.isEnabled, true);
-      expect(settings.testMode, false);
-      expect(settings.admobRewardedUnitIdAndroid, 'ca-app-pub-111/444');
-      expect(settings.rewardMinTry, 0.5);
-      expect(settings.rewardMaxTry, 10.0);
-      expect(settings.maxViewsPerDay, 10);
-      expect(settings.maxViewsPerHour, 3);
-      expect(settings.minWatchSeconds, 15);
-      expect(settings.cooldownSeconds, 60);
-      expect(settings.maxDailyPayoutTry, 5000.0);
-    });
-
-    test('eksik/null alanlar için güvenli varsayılanlar kullanır', () {
-      final settings = AdSettings.fromJson({});
-
-      expect(settings.isEnabled, false);
-      expect(settings.testMode, true);
-      expect(settings.admobAppIdAndroid, isNull);
-      expect(settings.rewardMinTry, 0);
-      expect(settings.rewardMaxTry, 0);
-      expect(settings.maxViewsPerDay, 0);
-    });
-
-    test('int değerleri num olarak gelse de doğru parse edilir', () {
+    test('integer puan ve feature flag sözleşmesini parse eder', () {
       final settings = AdSettings.fromJson({
-        'reward_min_try': 1,
-        'max_views_per_day': 5.0,
+        'reward_min_points': 10,
+        'reward_max_points': 10,
+        'max_daily_reward_points': 50000,
+        'points_per_try': 100,
+        'reward_policy_version': 3,
+        'reward_feature_mode': 'enabled',
+        'reward_points_schema_ready': true,
+        'reward_points_earn_enabled': true,
+        'reward_points_ssv_required': true,
+        'reward_points_ssv_enabled': true,
+        'reward_points_spend_enabled': true,
+        'reward_points_eligible_products_enabled': true,
+        'legacy_ad_tl_grant_disabled': true,
+        'admob_rewarded_unit_id_android':
+            'ca-app-pub-1234567890123456/1234567890',
+        'admob_rewarded_unit_id_ios': 'ca-app-pub-1234567890123456/0987654321',
       });
 
-      expect(settings.rewardMinTry, 1.0);
-      expect(settings.maxViewsPerDay, 5);
-    });
-  });
-
-  group('AdSettings.toJson', () {
-    test('toJson -> fromJson round-trip aynı değerleri korur', () {
-      final original = AdSettings(
-        isEnabled: true,
-        testMode: false,
-        admobAppIdAndroid: 'app-android',
-        admobAppIdIos: 'app-ios',
-        admobRewardedUnitIdAndroid: 'unit-android',
-        admobRewardedUnitIdIos: 'unit-ios',
-        rewardMinTry: 0.5,
-        rewardMaxTry: 1.25,
-        maxViewsPerDay: 8,
-        maxViewsPerHour: 2,
-        minWatchSeconds: 20,
-        cooldownSeconds: 90,
-        maxDailyPayoutTry: 3000,
+      expect(settings.rewardMinPoints, 10);
+      expect(settings.rewardMaxPoints, 10);
+      expect(settings.maxDailyRewardPoints, 50000);
+      expect(settings.pointsPerTry, 100);
+      expect(settings.rewardPolicyVersion, 3);
+      expect(
+        settings.admobRewardedUnitIdAndroid,
+        'ca-app-pub-1234567890123456/1234567890',
       );
+      expect(settings.rewardFeatureMode, RewardFeatureMode.enabled);
+      expect(settings.canRequestRewardSession, true);
+    });
 
-      final restored = AdSettings.fromJson(original.toJson());
+    test('eski TL ödül alanlarını puana kopyalamaz', () {
+      final settings = AdSettings.fromJson({
+        'is_enabled': true,
+        'reward_min_try': 10,
+        'reward_max_try': 99,
+        'max_daily_payout_try': 5000,
+      });
 
-      expect(restored.isEnabled, original.isEnabled);
-      expect(restored.admobRewardedUnitIdAndroid, original.admobRewardedUnitIdAndroid);
-      expect(restored.rewardMinTry, original.rewardMinTry);
-      expect(restored.rewardMaxTry, original.rewardMaxTry);
-      expect(restored.maxViewsPerDay, original.maxViewsPerDay);
+      expect(settings.rewardMinPoints, 0);
+      expect(settings.rewardMaxPoints, 0);
+      expect(settings.maxDailyRewardPoints, isNull);
+      expect(settings.canRequestRewardSession, false);
+    });
+
+    test('num değerlerini integer puan olarak parse eder', () {
+      final settings = AdSettings.fromJson({
+        'reward_min_points': 10.0,
+        'reward_max_points': 50.0,
+        'points_per_try': 100.0,
+      });
+
+      expect(settings.rewardMinPoints, 10);
+      expect(settings.rewardMaxPoints, 50);
+      expect(settings.pointsPerTry, 100);
     });
   });
 
-  group('AdSettings.copyWith', () {
-    test('sadece belirtilen alanları değiştirir', () {
-      final original = AdSettings(
-        isEnabled: false,
-        testMode: true,
-        rewardMinTry: 0.5,
-        rewardMaxTry: 10,
-        maxViewsPerDay: 10,
-        maxViewsPerHour: 3,
-        minWatchSeconds: 15,
-        cooldownSeconds: 60,
-        maxDailyPayoutTry: 5000,
-      );
+  test('toJson deprecated TL reward alanlarını üretmez', () {
+    const settings = AdSettings(
+      rewardMinPoints: 10,
+      rewardMaxPoints: 10,
+      maxDailyRewardPoints: 10000,
+      pointsPerTry: 100,
+      rewardPolicyVersion: 2,
+      rewardFeatureMode: RewardFeatureMode.enabled,
+      rewardPointsSchemaReady: true,
+      rewardPointsEarnEnabled: true,
+      rewardPointsSsvEnabled: true,
+    );
 
-      final updated = original.copyWith(isEnabled: true, rewardMaxTry: 20.0);
-
-      expect(updated.isEnabled, true);
-      expect(updated.rewardMaxTry, 20.0);
-      // Değiştirilmeyen alanlar aynı kalmalı
-      expect(updated.rewardMinTry, original.rewardMinTry);
-      expect(updated.testMode, original.testMode);
-      expect(updated.maxViewsPerDay, original.maxViewsPerDay);
-    });
+    final json = settings.toJson();
+    expect(json['reward_min_points'], 10);
+    expect(json['reward_max_points'], 10);
+    expect(json, isNot(contains('reward_min_try')));
+    expect(json, isNot(contains('reward_max_try')));
+    expect(json, isNot(contains('max_daily_payout_try')));
   });
 
-  group('Test reklam birim ID sabitleri', () {
-    test('Google resmi test ID formatına uygun', () {
-      expect(AdSettings.testRewardedUnitIdAndroid, startsWith('ca-app-pub-3940256099942544/'));
-      expect(AdSettings.testRewardedUnitIdIos, startsWith('ca-app-pub-3940256099942544/'));
-    });
+  test('copyWith puan alanlarını günceller', () {
+    const settings = AdSettings(
+      rewardMinPoints: 10,
+      rewardMaxPoints: 50,
+      pointsPerTry: 100,
+    );
+    final updated = settings.copyWith(
+      rewardMaxPoints: 80,
+      rewardFeatureMode: RewardFeatureMode.cohort,
+    );
+
+    expect(updated.rewardMinPoints, 10);
+    expect(updated.rewardMaxPoints, 80);
+    expect(updated.rewardFeatureMode, RewardFeatureMode.cohort);
+  });
+
+  test('Google resmi rewarded test ID sabitleri geçerlidir', () {
+    expect(
+      AdSettings.testRewardedUnitIdAndroid,
+      startsWith('ca-app-pub-3940256099942544/'),
+    );
+    expect(
+      AdSettings.testRewardedUnitIdIos,
+      startsWith('ca-app-pub-3940256099942544/'),
+    );
+  });
+
+  test('test modu reklam provası açar, cohort ekonomik oturum açmaz', () {
+    const testMode = AdSettings(
+      testMode: true,
+      rewardMinPoints: 10,
+      rewardMaxPoints: 10,
+      pointsPerTry: 100,
+      rewardFeatureMode: RewardFeatureMode.enabled,
+      rewardPointsSchemaReady: true,
+      rewardPointsEarnEnabled: true,
+      rewardPointsSsvRequired: true,
+      rewardPointsSsvEnabled: true,
+      legacyAdTlGrantDisabled: true,
+    );
+    final cohort = testMode.copyWith(
+      testMode: false,
+      rewardFeatureMode: RewardFeatureMode.cohort,
+    );
+
+    expect(testMode.canRequestRewardSession, true);
+    expect(cohort.canRequestRewardSession, false);
+  });
+
+  test('test modu puan kazanımı kapalıyken güvenli reklam provası açar', () {
+    const settings = AdSettings(
+      testMode: true,
+      rewardFeatureMode: RewardFeatureMode.enabled,
+      rewardPointsSchemaReady: true,
+      rewardPointsEarnEnabled: false,
+      rewardPointsSsvEnabled: false,
+      legacyAdTlGrantDisabled: true,
+    );
+
+    expect(settings.canRequestRewardSession, true);
   });
 }

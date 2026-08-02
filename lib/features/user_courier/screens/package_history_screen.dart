@@ -154,7 +154,14 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
 
   String _formatDate(String? dateStr) {
     if (dateStr == null) return '-';
-    final date = DateTime.parse(dateStr);
-    return '${date.day}.${date.month}.${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+    final DateTime date;
+    try {
+      date = DateTime.parse(dateStr);
+    } catch (_) {
+      // Bozuk/null-a-yakın tarih tek satırı değil tüm listeyi çökertmesin.
+      return dateStr;
+    }
+    return '${date.day}.${date.month}.${date.year} '
+        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 }

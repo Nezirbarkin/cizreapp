@@ -1,194 +1,141 @@
-// use-balance-for-order Edge Function
-// Sipariş ödemesinde bakiye kullanır
-// Deploy: supabase functions deploy use-balance-for-order
+// use-balance-for-order Edge Function (SERVER-AUTHORITATIVE)
+// Tarih: 2026-08-02
+//
+// Bu fonksiyon client sadece { checkout_session_id } gonderir. Tum
+// hesaplamalar (subtotal, delivery, coupon, total, bakiye yeterliligi)
+// private.commit_balance_order RPC'si tarafindan YAPILIR.
+//
+// Client asla amount göndermez. Fiyat/ucret yetersizse RPC EXCEPTION firlatir.
 
+// deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
+console.log("use-balance-for-order (server-authoritative) baslatildi");
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({ ok: false, error: "method_not_allowed" }),
+      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 
   try {
-    const authHeader = req.headers.get("authorization");
+    // ═════════════════════════════════════════════════════════════
+    // 0) Auth (user)
+    // ═════════════════════════════════════════════════════════════
+    const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: false, error: "auth_required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const userSupabase = createClient(supabaseUrl, supabaseServiceKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: userError } = await userSupabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "auth_invalid" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // Kullanıcıyı doğrula
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
+    // ═════════════════════════════════════════════════════════════
+    // 1) Body parse
+    // ═════════════════════════════════════════════════════════════
+    const body = await req.json().catch(() => ({}));
+    const { checkout_session_id } = body as { checkout_session_id?: string };
+
+    if (!checkout_session_id) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "session_required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 2) Session sahiplik kontrolu
+    // ═════════════════════════════════════════════════════════════
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { data: session, error: sessionError } = await supabase
+      .from("server_checkout_sessions")
+      .select("id, user_id, status, expires_at, payment_method, server_total")
+      .eq("id", checkout_session_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (sessionError || !session) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "session_not_found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (session.payment_method !== "balance") {
+      return new Response(
+        JSON.stringify({ ok: false, error: "wrong_payment_method" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (session.status === "completed" || session.status === "expired") {
+      return new Response(
+        JSON.stringify({ ok: false, error: `session_${session.status}` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 3) commit_balance_order — server-authoritative atomik
+    // ═════════════════════════════════════════════════════════════
+    const { data: result, error: rpcError } = await supabase.rpc(
+      "private.commit_balance_order",
+      { p_session_id: session.id }
     );
 
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Geçersiz oturum" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (rpcError) {
+      const errorCode = rpcError.code === "P0001" ? "app_error" : "commit_failed";
+      return new Response(
+        JSON.stringify({ ok: false, error: errorCode, message: rpcError.message }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    const body = await req.json();
-    const { order_id, amount, order_total } = body;
-
-    if (!order_id || !amount) {
-      return new Response(JSON.stringify({ error: "order_id ve amount zorunludur" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const amountNum = parseFloat(amount);
-
-    // Siparişi kontrol et
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("id", order_id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (orderError || !order) {
-      return new Response(JSON.stringify({ error: "Sipariş bulunamadı" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Zaten ödenmişse kontrol et.
-    // ÖNEMLİ: orders.payment_status ENUM: ('pending', 'paid', 'refunded').
-    // Artık 'completed' yazmıyoruz; tam ödeme 'paid' ile ifade ediliyor.
-    if (order.payment_status === "paid") {
-      return new Response(JSON.stringify({ error: "Bu sipariş zaten ödenmiş" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Bakiyeyi atomik olarak düş (check-then-act race condition önleme)
-    // Tek sorguda: WHERE balance >= amount kontrolü + UPDATE + RETURNING
-    // Eşzamanlı iki istek aynı snapshot'ı okuyup üzerine yazamaz çünkü UPDATE
-    // PostgreSQL'de satır bazlı lock alır ve koşulu tekrar değerlendirir.
-    const { data: deductedRows, error: deductError } = await supabase
-      .rpc("deduct_from_balance", {
-        p_user_id: user.id,
-        p_amount: amountNum,
-        p_type: "order_payment",
-        p_reference_type: "order",
-        p_reference_id: order_id,
-        p_description: `Sipariş ödemesi - ${order.order_number || order_id.substring(0, 8)}`,
-      });
-
-    if (deductError) {
-      // Yetersiz bakiye veya bakiye kaydı yok RPC içinde raise exception fırlatır
-      const msg = deductError.message || "Bakiye düşülemedi";
-      const isInsufficient = /Insufficient balance/i.test(msg);
-      const isNoRecord = /Balance record not found/i.test(msg);
-      return new Response(JSON.stringify({
-        status: "error",
-        error: isInsufficient ? "Yetersiz bakiye" : isNoRecord ? "Bakiye kaydı bulunamadı" : msg,
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // deduct_from_balance RPC atomik olarak (FOR UPDATE lock ile):
-    //   - bakiye kontrolü yapar (yetersizse exception fırlatır)
-    //   - user_balances.balance düşürür
-    //   - balance_transactions kaydı oluşturur
-    //   - transaction_id, balance_before, balance_after döndürür
-    // Transaction kaydı RPC içinde oluşturulduğu için burada tekrar insert edilmez.
-    // RPC RETURNS TABLE(...) döndürdüğü için Supabase-JS data bir dizi (array) döner.
-    const row = Array.isArray(deductedRows) ? deductedRows[0] : deductedRows;
-    const transactionId = row?.transaction_id ?? null;
-    const balanceAfter = row?.balance_after != null ? parseFloat(row.balance_after) : null;
-
-    // Siparişin payment_method ve payment_status'unu güncelle.
-    // ÖNEMLİ: orders.payment_status bir ENUM'dur ve sadece
-    // ('pending', 'paid', 'refunded') değerlerini kabul eder.
-    // Eski kod 'completed'/'partial' yazıyordu → enum ihlali (22P02)
-    // → sipariş güncellenemiyor → bakiye iade → sipariş iptal ediliyordu.
-    // Tamamen ödendiyse 'paid'; kısmi ödemede sipariş hâlâ açık kaldığı için 'pending'.
-    const remainingAmount = (order_total ?? 0) - amountNum;
-
-    const { error: orderUpdateError } = await supabase
-      .from("orders")
-      .update({
-        payment_method: "balance", // bakiye ile ödeme
-        payment_status: remainingAmount <= 0 ? "paid" : "pending",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order_id);
-
-    if (orderUpdateError) {
-      // Bakiye zaten düşüldü (RPC commit oldu) ama sipariş güncellenemedi.
-      // Bakiyeyi geri iade ederek kullanıcının parasının kalıcı kesilmesini önle.
-      console.error("❌ Sipariş güncelleme hatası, bakiye iade ediliyor:", orderUpdateError.message);
-      try {
-        await supabase.rpc("add_to_balance", {
-          p_user_id: user.id,
-          p_amount: amountNum,
-          p_type: "refund",
-          p_reference_type: "order",
-          p_reference_id: order_id,
-          p_description: `Sipariş güncelleme hatası nedeniyle otomatik iade - ${order.order_number || order_id.substring(0, 8)}`,
-        });
-      } catch (refundErr) {
-        console.error("❌ Otomatik iade de başarısız:", (refundErr as Error).message);
-      }
-
-      return new Response(JSON.stringify({
-        status: "error",
-        error: "Sipariş güncellenemedi, bakiyeniz iade edildi. Lütfen tekrar deneyin.",
-        debug_detail: orderUpdateError.message,
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    console.log("✅ Bakiye ile sipariş ödemesi:", {
-      orderId: order_id,
-      amount: amountNum,
-      remainingAmount,
-      newBalance: balanceAfter,
-      transactionId,
-    });
-
-    return new Response(JSON.stringify({
-      status: "success",
-      transaction_id: transactionId,
-      amount_paid: amountNum,
-      remaining_amount: remainingAmount,
-      new_balance: balanceAfter,
-      is_fully_paid: remainingAmount <= 0,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const row = Array.isArray(result) ? result[0] : result;
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        order_id: row?.order_id,
+        order_number: row?.order_number,
+        amount_paid: row?.amount_paid,
+        remaining_balance: row?.remaining_balance,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (err: unknown) {
     const error = err as Error;
-    console.error("❌ use-balance-for-order error:", error.message);
-
-    return new Response(JSON.stringify({
-      status: "error",
-      error: error.message,
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("use-balance-for-order beklenmeyen hata:", error.message);
+    return new Response(
+      JSON.stringify({ ok: false, error: "internal_error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 });

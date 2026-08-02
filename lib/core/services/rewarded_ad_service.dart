@@ -1,33 +1,219 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+
 import '../models/ad_settings_model.dart';
+import '../models/reward_session_model.dart';
 import 'ad_settings_service.dart';
+import 'reward_points_service.dart';
 
-/// Ödüllü (rewarded) reklam yükleme/gösterme ve ödül talep etme servisi.
-///
-/// Ödül bakiyeye SADECE `grant-ad-reward` Edge Function'ı (service_role)
-/// tarafından yazılır; bu servis client tarafında yalnızca reklamı gösterir
-/// ve kullanıcı ödülü tamamen izlediğinde ödül talebini backend'e iletir.
+abstract interface class RewardedAdHandle {
+  Future<void> setServerSideCustomData(String customData);
+  Future<RewardedAdPresentation> show();
+  void dispose();
+}
+
+class RewardedAdPresentation {
+  final bool sdkRewardCallbackReceived;
+  final String? errorMessage;
+
+  const RewardedAdPresentation({
+    required this.sdkRewardCallbackReceived,
+    this.errorMessage,
+  });
+}
+
+abstract interface class RewardedAdLoader {
+  Future<RewardedAdHandle?> load(String adUnitId);
+}
+
+class GoogleRewardedAdLoader implements RewardedAdLoader {
+  const GoogleRewardedAdLoader();
+
+  @override
+  Future<RewardedAdHandle?> load(String adUnitId) {
+    final completer = Completer<RewardedAdHandle?>();
+    RewardedAd.load(
+      adUnitId: adUnitId,
+      request: const AdRequest(),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (ad) => completer.complete(_GoogleRewardedAdHandle(ad)),
+        onAdFailedToLoad: (error) {
+          debugPrint('Rewarded ad yüklenemedi: $error');
+          completer.complete(null);
+        },
+      ),
+    );
+    return completer.future;
+  }
+}
+
+class _GoogleRewardedAdHandle implements RewardedAdHandle {
+  final RewardedAd _ad;
+
+  _GoogleRewardedAdHandle(this._ad);
+
+  @override
+  Future<void> setServerSideCustomData(String customData) {
+    // google_mobile_ads 5.3.1 API'si: custom data yüklü reklam nesnesine show
+    // çağrısından önce setServerSideOptions ile bağlanır.
+    return _ad.setServerSideOptions(
+      ServerSideVerificationOptions(customData: customData),
+    );
+  }
+
+  @override
+  Future<RewardedAdPresentation> show() async {
+    final dismissed = Completer<RewardedAdPresentation>();
+    var sdkCallbackReceived = false;
+    String? showError;
+
+    _ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        if (!dismissed.isCompleted) {
+          dismissed.complete(
+            RewardedAdPresentation(
+              sdkRewardCallbackReceived: sdkCallbackReceived,
+              errorMessage: showError,
+            ),
+          );
+        }
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        showError = error.message;
+        ad.dispose();
+        if (!dismissed.isCompleted) {
+          dismissed.complete(
+            RewardedAdPresentation(
+              sdkRewardCallbackReceived: false,
+              errorMessage: showError,
+            ),
+          );
+        }
+      },
+    );
+
+    try {
+      await _ad.show(
+        onUserEarnedReward: (_, __) {
+          // Bu callback ekonomik kredi kanıtı değildir; yalnız UI'nın SSV
+          // doğrulaması bekleme aşamasına geçmesine izin verir.
+          sdkCallbackReceived = true;
+        },
+      );
+    } catch (error) {
+      _ad.dispose();
+      return RewardedAdPresentation(
+        sdkRewardCallbackReceived: false,
+        errorMessage: error.toString(),
+      );
+    }
+    return dismissed.future;
+  }
+
+  @override
+  void dispose() => _ad.dispose();
+}
+
+enum AdRewardResultState {
+  credited,
+  testCompleted,
+  duplicate,
+  verificationPending,
+  rejected,
+  failed,
+}
+
+class AdRewardResult {
+  final AdRewardResultState state;
+  final String rewardSessionId;
+  final int? rewardPoints;
+  final String? errorMessage;
+
+  const AdRewardResult._({
+    required this.state,
+    required this.rewardSessionId,
+    this.rewardPoints,
+    this.errorMessage,
+  });
+
+  bool get isSuccess => state == AdRewardResultState.credited;
+  bool get isPending => state == AdRewardResultState.verificationPending;
+
+  factory AdRewardResult.credited({
+    required String sessionId,
+    required int points,
+  }) => AdRewardResult._(
+    state: AdRewardResultState.credited,
+    rewardSessionId: sessionId,
+    rewardPoints: points,
+  );
+
+  factory AdRewardResult.testCompleted({required String sessionId}) =>
+      AdRewardResult._(
+        state: AdRewardResultState.testCompleted,
+        rewardSessionId: sessionId,
+        rewardPoints: 0,
+        errorMessage: 'Test reklamı tamamlandı; gerçek puan eklenmedi.',
+      );
+
+  factory AdRewardResult.duplicate({required String sessionId, int? points}) =>
+      AdRewardResult._(
+        state: AdRewardResultState.duplicate,
+        rewardSessionId: sessionId,
+        rewardPoints: points,
+        errorMessage: 'Bu reklam doğrulaması daha önce işlendi.',
+      );
+
+  factory AdRewardResult.pending(String sessionId) => AdRewardResult._(
+    state: AdRewardResultState.verificationPending,
+    rewardSessionId: sessionId,
+    errorMessage:
+        'Puanın sunucuda doğrulanıyor. Doğrulanmadan bakiyene eklenmez.',
+  );
+
+  factory AdRewardResult.rejected(String sessionId, String message) =>
+      AdRewardResult._(
+        state: AdRewardResultState.rejected,
+        rewardSessionId: sessionId,
+        errorMessage: message,
+      );
+
+  factory AdRewardResult.failed(String message, {String sessionId = ''}) =>
+      AdRewardResult._(
+        state: AdRewardResultState.failed,
+        rewardSessionId: sessionId,
+        errorMessage: message,
+      );
+}
+
+/// İstemci yalnız JWT'li reward session açar, opaque custom data'yı SDK'ya
+/// bağlar ve server-side SSV sonucunu sorgular. Eski `grant-ad-reward` yolu ve
+/// istemci tarafı ekonomik kredi varsayımı bulunmaz.
 class RewardedAdService {
-  static const _deviceIdKey = 'ad_reward_device_id';
+  final AdSettingsService settingsService;
+  final RewardPointsGateway pointsGateway;
+  final RewardedAdLoader adLoader;
+  late final RewardVerificationPoller verificationPoller;
 
-  final AdSettingsService _settingsService = AdSettingsService();
-  RewardedAd? _rewardedAd;
+  RewardedAdHandle? _rewardedAd;
   AdSettings? _settings;
 
-  Future<String> _getOrCreateDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    var id = prefs.getString(_deviceIdKey);
-    if (id == null) {
-      final random = DateTime.now().microsecondsSinceEpoch;
-      id = 'dev-$random-${identityHashCode(prefs)}';
-      await prefs.setString(_deviceIdKey, id);
-    }
-    return id;
+  RewardedAdService({
+    AdSettingsService? settingsService,
+    RewardPointsGateway? pointsGateway,
+    RewardedAdLoader? adLoader,
+    RewardVerificationPoller? verificationPoller,
+  }) : settingsService = settingsService ?? AdSettingsService(),
+       pointsGateway = pointsGateway ?? RewardPointsService(),
+       adLoader = adLoader ?? const GoogleRewardedAdLoader() {
+    this.verificationPoller =
+        verificationPoller ??
+        RewardVerificationPoller(gateway: this.pointsGateway);
   }
 
   String? _unitIdFor(AdSettings settings) {
@@ -36,224 +222,111 @@ class RewardedAdService {
           ? AdSettings.testRewardedUnitIdIos
           : AdSettings.testRewardedUnitIdAndroid;
     }
-    return Platform.isIOS
+    final configured = Platform.isIOS
         ? settings.admobRewardedUnitIdIos
         : settings.admobRewardedUnitIdAndroid;
+    if (configured != null && configured.trim().isNotEmpty) return configured;
+    final buildValue = Platform.isIOS
+        ? AdSettings.productionRewardedUnitIdIos
+        : AdSettings.productionRewardedUnitIdAndroid;
+    return buildValue.isEmpty ? null : buildValue;
   }
 
-  /// Ayarları getirir; reklam kapalıysa veya birim ID tanımsızsa null döner.
   Future<AdSettings?> loadSettings() async {
-    _settings = await _settingsService.getSettings();
-    if (_settings == null || !_settings!.isEnabled) return null;
+    _settings = await settingsService.getSettings();
+    if (_settings?.canRequestRewardSession != true) return null;
     return _settings;
   }
 
-  /// Reklamı önceden yükler (ekran açılırken çağırmak gecikmeyi azaltır).
   Future<bool> preload() async {
     final settings = _settings ?? await loadSettings();
     if (settings == null) return false;
     final unitId = _unitIdFor(settings);
     if (unitId == null || unitId.isEmpty) return false;
-
-    final completer = Completer<bool>();
-    RewardedAd.load(
-      adUnitId: unitId,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) {
-          _rewardedAd = ad;
-          if (!completer.isCompleted) completer.complete(true);
-        },
-        onAdFailedToLoad: (error) {
-          debugPrint('❌ Rewarded ad yüklenemedi: $error');
-          if (!completer.isCompleted) completer.complete(false);
-        },
-      ),
-    );
-    return completer.future;
+    _rewardedAd?.dispose();
+    _rewardedAd = await adLoader.load(unitId);
+    return _rewardedAd != null;
   }
 
   bool get isReady => _rewardedAd != null;
 
-  /// Reklamı gösterir; kullanıcı ödülü tam izlerse backend'e ödül talebini
-  /// gönderir ve sonucu (yeni bakiye) döner.
-  Future<AdRewardResult> showAndClaim() async {
+  Future<AdRewardResult> showAndVerify() async {
     final ad = _rewardedAd;
     if (ad == null) {
-      return AdRewardResult.failure('Reklam hazır değil, lütfen tekrar deneyin');
+      return AdRewardResult.failed(
+        'Reklam hazır değil. Yeni bir reklam yüklenmesini bekleyin.',
+      );
     }
     _rewardedAd = null;
 
-    final dismissedCompleter = Completer<void>();
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        if (!dismissedCompleter.isCompleted) dismissedCompleter.complete();
-      },
-      onAdFailedToShowFullScreenContent: (ad, error) {
-        ad.dispose();
-        if (!dismissedCompleter.isCompleted) dismissedCompleter.complete();
-      },
-    );
-
-    var earned = false;
-    await ad.show(onUserEarnedReward: (adWithoutView, reward) {
-      earned = true;
-    });
-    await dismissedCompleter.future;
-
-    if (!earned) {
-      return AdRewardResult.failure('Reklam sonuna kadar izlenmedi, ödül verilmedi');
+    final settings = _settings;
+    if (settings == null) {
+      ad.dispose();
+      return AdRewardResult.failed('Reklam ayarları yüklenemedi.');
     }
 
-    return _claimReward();
-  }
-
-  Future<AdRewardResult> _claimReward() async {
-    final deviceId = await _getOrCreateDeviceId();
-    final minSeconds = _settings?.minWatchSeconds ?? 0;
-
-    Map<String, dynamic>? body;
-    int? statusCode;
-    Object? caughtError;
-
-    try {
-      final response = await Supabase.instance.client.functions.invoke(
-        'grant-ad-reward',
-        body: {
-          'device_id': deviceId,
-          'watched_seconds': minSeconds,
-        },
-      );
-      statusCode = response.status;
-      final data = response.data;
-      if (data is Map) body = Map<String, dynamic>.from(data);
-    } on FunctionException catch (e) {
-      // Supabase Functions istemcisi 4xx/5xx'te FunctionException atar.
-      // Gövdeyi (limit_type, retry_after_seconds, error) yakalayıp özel
-      // mesaj gösterebilelim.
-      statusCode = e.status;
-      final details = e.details;
-      if (details is Map) {
-        body = Map<String, dynamic>.from(details);
-      } else if (e.toString().contains('{')) {
-        // Güvenlik ağı: bazı sürümlerde details null olabiliyor
-        body = null;
+    if (settings.testMode) {
+      final presentation = await ad.show();
+      if (!presentation.sdkRewardCallbackReceived) {
+        return AdRewardResult.failed(
+          presentation.errorMessage ?? 'Test reklamı tamamlanmadı.',
+        );
       }
-    } catch (e) {
-      caughtError = e;
+      return AdRewardResult.testCompleted(sessionId: 'test');
     }
 
-    // ---- 1) Body'den limit türünü çıkar ----
-    final limitType = body?['limit_type'] as String?;
-    final retryAfter = (body?['retry_after_seconds'] as num?)?.toInt();
-    final rawError = body?['error'] as String?;
-
-    if (limitType == 'cooldown' && retryAfter != null) {
-      return AdRewardResult.cooldown(retryAfter);
-    }
-    if (limitType == 'hourly' && retryAfter != null) {
-      return AdRewardResult.hourly(retryAfter, message: rawError);
-    }
-    if (limitType == 'daily' && retryAfter != null) {
-      return AdRewardResult.daily(retryAfter, message: rawError);
-    }
-
-    // ---- 2) Body'de limit bilgisi yoksa status kodu yorumla ----
-    if (statusCode != null && statusCode != 200) {
-      final msg = (rawError != null && rawError.isNotEmpty)
-          ? rawError
-          : 'Ödül alınamadı (sunucu $statusCode), lütfen tekrar dene';
-      return AdRewardResult.failure(msg);
-    }
-
-    // ---- 3) Network/auth hatası (catch'e düştüyse) ----
-    if (caughtError != null) {
-      debugPrint('❌ Reklam ödülü talep hatası: $caughtError');
-      final msg = caughtError.toString().toLowerCase();
-      final isAuthIssue =
-          msg.contains('jwt') || msg.contains('unauthorized') || msg.contains('401');
-      return AdRewardResult.failure(
-        isAuthIssue
-            ? 'Oturumun dolmuş, lütfen yeniden giriş yap'
-            : 'Bağlantı kurulamadı, internetini kontrol edip tekrar dene',
+    RewardSession session;
+    try {
+      session = await pointsGateway.createRewardSession(
+        idempotencyKey: 'mobile:${const Uuid().v4()}',
+      );
+      await ad.setServerSideCustomData(session.customData!);
+    } catch (error) {
+      ad.dispose();
+      debugPrint('Reward session/SSV options hatası: $error');
+      return AdRewardResult.failed(
+        'Güvenli doğrulama oturumu açılamadı; reklam gösterilmedi.',
       );
     }
 
-    // ---- 4) Beklenen başarı gövdesi ----
-    if (body != null && body['reward_amount'] != null && body['new_balance'] != null) {
-      return AdRewardResult.success(
-        rewardAmount: (body['reward_amount'] as num).toDouble(),
-        newBalance: (body['new_balance'] as num).toDouble(),
+    final presentation = await ad.show();
+    if (!presentation.sdkRewardCallbackReceived) {
+      return AdRewardResult.failed(
+        presentation.errorMessage ?? 'Reklam tamamlanmadı; puan verilmedi.',
+        sessionId: session.id,
       );
     }
 
-    return AdRewardResult.failure('Beklenmeyen yanıt, lütfen tekrar dene');
+    final outcome = await verificationPoller.waitForTerminal(
+      rewardSessionId: session.id,
+    );
+    return switch (outcome.state) {
+      RewardVerificationState.credited when outcome.creditedPoints != null =>
+        AdRewardResult.credited(
+          sessionId: session.id,
+          points: outcome.creditedPoints!,
+        ),
+      RewardVerificationState.duplicate => AdRewardResult.duplicate(
+        sessionId: session.id,
+        points: outcome.creditedPoints,
+      ),
+      RewardVerificationState.rejected => AdRewardResult.rejected(
+        session.id,
+        'Reklam sunucu doğrulamasından geçmedi; puan verilmedi.',
+      ),
+      RewardVerificationState.expired => AdRewardResult.rejected(
+        session.id,
+        'Doğrulama oturumunun süresi doldu; puan verilmedi.',
+      ),
+      _ => AdRewardResult.pending(session.id),
+    };
   }
+
+  /// Geçici uyumluluk adı; davranış artık claim değil SSV doğrulamasıdır.
+  Future<AdRewardResult> showAndClaim() => showAndVerify();
 
   void dispose() {
     _rewardedAd?.dispose();
     _rewardedAd = null;
   }
-}
-
-class AdRewardResult {
-  final bool isSuccess;
-  final String? errorMessage;
-  final double? rewardAmount;
-  final double? newBalance;
-
-  /// 'cooldown' | 'hourly' | 'daily' | null
-  final String? limitType;
-
-  /// Cooldown/limit için kalan saniye (sunucudan geldiyse)
-  final int? retryAfterSeconds;
-
-  const AdRewardResult._(
-    this.isSuccess,
-    this.errorMessage,
-    this.rewardAmount,
-    this.newBalance, {
-    this.limitType,
-    this.retryAfterSeconds,
-  });
-
-  factory AdRewardResult.success({
-    required double rewardAmount,
-    required double newBalance,
-  }) =>
-      AdRewardResult._(true, null, rewardAmount, newBalance);
-
-  factory AdRewardResult.failure(String message) =>
-      AdRewardResult._(false, message, null, null);
-
-  factory AdRewardResult.cooldown(int seconds) =>
-      AdRewardResult._(
-        false,
-        'Reklamlar arası bekleme süresi',
-        null,
-        null,
-        limitType: 'cooldown',
-        retryAfterSeconds: seconds,
-      );
-
-  factory AdRewardResult.hourly(int seconds, {String? message}) =>
-      AdRewardResult._(
-        false,
-        message ?? 'Saatlik reklam izleme limitine ulaştın',
-        null,
-        null,
-        limitType: 'hourly',
-        retryAfterSeconds: seconds,
-      );
-
-  factory AdRewardResult.daily(int seconds, {String? message}) =>
-      AdRewardResult._(
-        false,
-        message ?? 'Bugünkü reklam hakkın bitti',
-        null,
-        null,
-        limitType: 'daily',
-        retryAfterSeconds: seconds,
-      );
 }

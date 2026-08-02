@@ -360,6 +360,44 @@ class NewsCommentModel {
 
     return '${(diff.inDays / 365).floor()} y';
   }
+
+  NewsCommentModel copyWith({
+    String? id,
+    String? newsId,
+    String? parentId,
+    String? userId,
+    String? userName,
+    String? userAvatarUrl,
+    String? content,
+    bool? isEdited,
+    int? likeCount,
+    int? reportCount,
+    bool? isHidden,
+    bool? isPinned,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<NewsCommentModel>? replies,
+    bool? isLikedByUser,
+  }) {
+    return NewsCommentModel(
+      id: id ?? this.id,
+      newsId: newsId ?? this.newsId,
+      parentId: parentId ?? this.parentId,
+      userId: userId ?? this.userId,
+      userName: userName ?? this.userName,
+      userAvatarUrl: userAvatarUrl ?? this.userAvatarUrl,
+      content: content ?? this.content,
+      isEdited: isEdited ?? this.isEdited,
+      likeCount: likeCount ?? this.likeCount,
+      reportCount: reportCount ?? this.reportCount,
+      isHidden: isHidden ?? this.isHidden,
+      isPinned: isPinned ?? this.isPinned,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      replies: replies ?? this.replies,
+      isLikedByUser: isLikedByUser ?? this.isLikedByUser,
+    );
+  }
 }
 
 /// Haber kategorisi modeli

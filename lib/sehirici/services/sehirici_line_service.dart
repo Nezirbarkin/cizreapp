@@ -1,7 +1,4 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/sehirici_models.dart';
@@ -280,85 +277,6 @@ class SehiriciLineService {
     } catch (e) {
       debugPrint('setLineStops hata: $e');
       return false;
-    }
-  }
-
-  // ─────────────────────────────────────────────
-  // Yol-takip eden rota (OSRM) — önbellekli
-  // ─────────────────────────────────────────────
-
-  /// Durak dizilimine göre imza üretir; durak sırası/sayısı değişmediği
-  /// sürece aynı imza çıkar, böylece önbellek geçerliliği DB tarafında
-  /// (cache_sehirici_route_polyline RPC) doğrulanabilir.
-  String _stopsSignature(List<SehiriciLineStop> stops) {
-    final ordered = [...stops]..sort((a, b) => a.stopOrder.compareTo(b.stopOrder));
-    return md5.convert(utf8.encode(ordered.map((s) => s.stopId).join(','))).toString();
-  }
-
-  /// Hattın caddeleri takip eden rota noktalarını getirir.
-  /// Önbellekte varsa (line.roadPolyline) API'ye hiç gitmeden onu döner.
-  /// Yoksa OSRM'den (ücretsiz) hesaplar ve sehirici_lines.route_polyline'a
-  /// kalıcı olarak yazar — sonraki tüm kullanıcılar önbellekten okur,
-  /// API tekrar çağrılmaz.
-  Future<List<List<double>>> getRoadRoute(SehiriciLine line) async {
-    if (line.stops.length < 2) {
-      return line.stops.map((s) => [s.lat, s.lng]).toList();
-    }
-
-    final signature = _stopsSignature(line.stops);
-    if (line.roadPolyline != null && line.roadPolyline!.length >= 2) {
-      return line.roadPolyline!;
-    }
-
-    try {
-      final ordered = [...line.stops]
-        ..sort((a, b) => a.stopOrder.compareTo(b.stopOrder));
-      final coordsParam =
-          ordered.map((s) => '${s.lng},${s.lat}').join(';');
-      final uri = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/$coordsParam'
-        '?overview=full&geometries=geojson',
-      );
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) {
-        throw Exception('OSRM ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final routes = body['routes'] as List?;
-      if (routes == null || routes.isEmpty) {
-        throw Exception('OSRM rota bulunamadı');
-      }
-      final coords =
-          (routes.first['geometry']['coordinates'] as List)
-              .map((c) => [
-                    (c[1] as num).toDouble(), // lat
-                    (c[0] as num).toDouble(), // lng
-                  ])
-              .toList();
-
-      // Önbelleğe kaydet (best-effort; başarısız olsa da harita zaten çizilir)
-      try {
-        await _client.rpc('cache_sehirici_route_polyline', params: {
-          'p_line_id': line.id,
-          'p_stops_signature': signature,
-          'p_polyline': {
-            'points': coords,
-            'stops_signature': signature,
-            'source': 'osrm',
-            'cached_at': DateTime.now().toIso8601String(),
-          },
-        });
-        clearCache();
-      } catch (e) {
-        debugPrint('cache_sehirici_route_polyline hata: $e');
-      }
-
-      return coords;
-    } catch (e) {
-      debugPrint('getRoadRoute hata: $e — düz çizgiye düşülüyor');
-      final fallback = [...line.stops]
-        ..sort((a, b) => a.stopOrder.compareTo(b.stopOrder));
-      return fallback.map((s) => [s.lat, s.lng]).toList();
     }
   }
 }

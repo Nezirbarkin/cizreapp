@@ -171,15 +171,15 @@ serve(async (req: Request) => {
       );
     }
 
-    // iyzico'dan ödeme sonucunu sorgula
-    // Önce app_about_settings'den credentials al
+    // iyzico'dan ödeme sonucunu sorgula. Kimlik bilgileri yalnızca
+    // Edge Function Secrets üzerinden okunur.
     const { data: settings } = await supabase
       .from("app_about_settings")
-      .select("iyzico_api_key, iyzico_secret_key, iyzico_api_url")
+      .select("iyzico_api_url")
       .maybeSingle();
 
-    let iyzicoApiKey = settings?.iyzico_api_key || Deno.env.get("IYZICO_API_KEY") || "";
-    let iyzicoSecretKey = settings?.iyzico_secret_key || Deno.env.get("IYZICO_SECRET_KEY") || "";
+    const iyzicoApiKey = Deno.env.get("IYZICO_API_KEY") || "";
+    const iyzicoSecretKey = Deno.env.get("IYZICO_SECRET_KEY") || "";
 
     if (!iyzicoApiKey || !iyzicoSecretKey) {
       console.error("❌ iyzico credentials bulunamadı");

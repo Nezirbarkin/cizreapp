@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
 import '../../../core/services/verification_service.dart';
 
@@ -17,6 +18,8 @@ class RegisterScreenV2 extends StatefulWidget {
 }
 
 class _RegisterScreenV2State extends State<RegisterScreenV2> {
+  static const _privacyPolicyUrl = 'https://cizreapp.com/privacy.html';
+
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _fullNameController = TextEditingController();
@@ -630,13 +633,26 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
     );
   }
 
+  Future<void> _openPrivacyPolicy() async {
+    final opened = await launchUrl(
+      Uri.parse(_privacyPolicyUrl),
+      mode: kIsWeb
+          ? LaunchMode.platformDefault
+          : LaunchMode.externalApplication,
+    );
+    if (!opened && mounted) {
+      _showError('Gizlilik Politikası açılamadı: $_privacyPolicyUrl');
+    }
+  }
+
   /// Kullanım Koşulları ve Gizlilik Politikası Dialog - Apple Guideline 1.2
   void _showTermsDialog() async {
-    // Settings'den terms ve privacy'yi çek
+    // Kayıt yüzeyi kısa özeti. Uygulama içi tam metin ayrıca
+    // app_about_settings üzerinden admin tarafından yönetilir.
     String termsContent = '''
 CizreApp Kullanım Koşulları
 
-Son Güncelleme: Mart 2026
+Son Güncelleme: 30 Temmuz 2026
 
 1. Kabul
 CizreApp uygulamasını kullanarak bu kullanım koşullarını kabul etmiş sayılırsınız.
@@ -679,19 +695,27 @@ CizreApp, aşağıdaki durumlarda hesabınızı askıya alabilir veya kapatabili
 CizreApp, platform üzerindeki kullanıcı etkileşimlerinden sorumlu değildir. Kullanıcılar arasındaki anlaşmazlıklarda platform arabuluculuk yapabilir.
 
 8. Gizlilik
-Kişisel verilerinizin nasıl toplandığı ve kullanıldığı hakkında detaylı bilgi için Gizlilik Politikamızı inceleyebilirsiniz.
+Kişisel verilerinizin nasıl toplandığı ve kullanıldığı hakkında detaylı bilgi için Gizlilik Politikamızı inceleyebilirsiniz:
+$_privacyPolicyUrl
 
-9. Değişiklikler
+9. İsteğe Bağlı Ödüllü Reklam ve Puan
+- Ödüllü AdMob reklamı izlemek zorunlu değildir; izlememek yalnız puan kazanılmaması sonucunu doğurur.
+- Mobil reklam callback'i tek başına puan vermez; Google SSV sunucu doğrulaması başarısızsa puan oluşturulmaz.
+- Puan nakit veya çekilebilir bakiye değildir; IBAN'a çekilemez, transfer edilemez ve fiziksel ürünlerde kullanılamaz.
+- Yalnız sunucunun uygun gördüğü dijital üründe önce puan, sonra kalan TL bakiyesi kullanılır. İade puanı puana, TL'yi TL bakiyesine döndürür.
+- Geçmişte TL bakiyeye işlenmiş reklam ödülleri puana kopyalanmaz ve yeni puan doğurmaz.
+
+10. Değişiklikler
 Bu kullanım koşulları güncellenebilir. Önemli değişiklikler uygulama üzerinden duyurulacaktır.
 
-10. İletişim
+11. İletişim
 Sorularınız için support@cizreapp.com adresinden bize ulaşabilirsiniz.
 ''';
 
     String privacyContent = '''
 CizreApp Gizlilik Politikası
 
-Son Güncelleme: Mart 2026
+Son Güncelleme: 30 Temmuz 2026
 
 1. Veri Sorumlusu
 CizreApp platformunun işletmecisi veri sorumlusudur.
@@ -703,18 +727,20 @@ CizreApp platformunun işletmecisi veri sorumlusudur.
 - Konum bilgileri (adres, konum)
 - Kullanım verileri (aktiviteler, tercihler)
 - İşlem güvenliği (IP, cihaz bilgileri)
+- İsteğe bağlı AdMob/SSV doğrulama metadata'sı. İşlem ve varsa sağlayıcı kullanıcı kimliği HMAC takma değeridir; custom data ham olarak saklanmaz. Ödül kayıtlarında ham IP/cihaz kimliği kolonu yoktur.
 
 3. Veri Kullanım Amaçları
 - Hizmet sunumu
 - Hesap güvenliği
+- Ödül doğrulama, sahtecilik ve tekrar kredi önleme, limit/bütçe uygulama
 - Yasal yükümlülükler
 - Platform iyileştirmesi
 
 4. Veri Paylaşımı
-Verileriniz üçüncü taraflarla yasal zorunluluklar dışında paylaşılmaz.
+Ödüllü reklamı seçerseniz Google AdMob reklamı sunar ve verileri kendi politikası kapsamında işler. Diğer aktarımlar hizmet sunumu, açık rıza veya yasal gerekliliklerle sınırlıdır.
 
 5. Veri Saklama
-Verileriniz hesabınız aktif olduğu sürece saklanır. Hesap silme talepleriniz 30 gün içinde işlenir.
+Veriler amaç ve uygulanabilir yükümlülükler için gereken süreyle saklanır. Ödül doğrulamasındaki belirli sağlayıcı-kullanıcı/cihaz/ağ takma değerleri için başlangıç teknik saklama ayarı 30 gündür; işlem HMAC'ı ve ledger/audit kayıtları idempotency, güvenlik ve uyuşmazlık amaçlarıyla daha uzun tutulabilir.
 
 6. Haklarınız
 KVKK kapsamında aşağıdaki haklara sahipsiniz:
@@ -725,6 +751,8 @@ KVKK kapsamında aşağıdaki haklara sahipsiniz:
 
 7. İletişim
 Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
+
+Tam ve güncel metin: $_privacyPolicyUrl
 ''';
 
     showDialog(
@@ -817,6 +845,11 @@ Gizlilik ile ilgili sorularınız için: privacy@cizreapp.com
           ),
         ),
         actions: [
+          TextButton.icon(
+            onPressed: _openPrivacyPolicy,
+            icon: const Icon(Icons.open_in_new, size: 18),
+            label: const Text('Güncel Gizlilik Politikası'),
+          ),
           TextButton.icon(
             onPressed: () {
               Navigator.of(ctx).pop();

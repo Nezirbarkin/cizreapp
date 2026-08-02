@@ -26,18 +26,19 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       rethrow;
     }
   }
+
   bool _isLoading = true;
-  
+
   // İstatistikler
   int _totalSent = 0;
   int _totalDelivered = 0;
   int _totalRead = 0;
   int _totalFailed = 0;
   int _totalPending = 0;
-  
+
   // Push bildirimleri listesi
   List<Map<String, dynamic>> _pushNotifications = [];
-  
+
   // Kişiye özel bildirim için değişkenler
   bool isLoadingUsers = false;
   List<Map<String, dynamic>> usersList = [];
@@ -65,11 +66,15 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       try {
         final notificationsResponse = await _client
             .from('notifications')
-            .select('id, user_id, type, title, content, is_read, created_at, entity_id')
+            .select(
+              'id, user_id, type, title, content, is_read, created_at, entity_id',
+            )
             .eq('type', 'admin_notification')
             .order('created_at', ascending: false)
             .limit(1000);
-        allNotifications.addAll(List<Map<String, dynamic>>.from(notificationsResponse));
+        allNotifications.addAll(
+          List<Map<String, dynamic>>.from(notificationsResponse),
+        );
       } catch (e) {
         debugPrint('Kişisel bildirimler yüklenemedi: $e');
       }
@@ -78,7 +83,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       try {
         final broadcastsResponse = await _client
             .from('admin_broadcasts')
-            .select('id, title, content, icon_type, target_audience, created_at')
+            .select(
+              'id, title, content, icon_type, target_audience, created_at',
+            )
             .order('created_at', ascending: false)
             .limit(1000);
         for (final b in List<Map<String, dynamic>>.from(broadcastsResponse)) {
@@ -99,7 +106,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
           });
         }
       } catch (e) {
-        debugPrint('Broadcast bildirimleri yüklenemedi (tablo yok olabilir): $e');
+        debugPrint(
+          'Broadcast bildirimleri yüklenemedi (tablo yok olabilir): $e',
+        );
       }
 
       // Tarihe göre azalan sırada birleştir
@@ -113,14 +122,17 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       final Map<String, Map<String, dynamic>> groupedNotifications = {};
 
       for (var notif in allNotifications) {
-        final key = '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}';
+        final key =
+            '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}';
 
         if (groupedNotifications.containsKey(key)) {
           final isBroadcast = notif['_is_broadcast'] == true;
           if (!isBroadcast && notif['user_id'] != null) {
             groupedNotifications[key]!['recipients'] =
-                (groupedNotifications[key]!['recipients'] as List) + [notif['user_id']];
-            final recipientCount = (groupedNotifications[key]!['recipients'] as List).length;
+                (groupedNotifications[key]!['recipients'] as List) +
+                [notif['user_id']];
+            final recipientCount =
+                (groupedNotifications[key]!['recipients'] as List).length;
             groupedNotifications[key]!['sent_count'] = recipientCount;
             groupedNotifications[key]!['delivered_count'] = recipientCount;
             groupedNotifications[key]!['total_recipients'] = recipientCount;
@@ -145,7 +157,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             'delivered_count': isBroadcast ? 1 : 1,
             'read_count': (!isBroadcast && notif['is_read'] == true) ? 1 : 0,
             'failed_count': 0,
-            'pending_count': (!isBroadcast && notif['is_read'] == false) ? 1 : 0,
+            'pending_count': (!isBroadcast && notif['is_read'] == false)
+                ? 1
+                : 0,
             'total_recipients': isBroadcast ? 1 : 1,
             'status': 'sent',
             'recipients': isBroadcast ? <String>[] : [notif['user_id']],
@@ -191,7 +205,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    
+
     return RefreshIndicator(
       onRefresh: _loadData,
       child: SingleChildScrollView(
@@ -202,15 +216,15 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             // Header
             _buildHeader(),
             const SizedBox(height: 24),
-            
+
             // İstatistik Kartları Grid
             _buildStatsGrid(),
             const SizedBox(height: 24),
-            
+
             // Detaylı İstatistikler Kartı
             _buildDetailedStatsCard(),
             const SizedBox(height: 24),
-            
+
             // Son Gönderilen Bildirimler
             _buildNotificationsList(),
           ],
@@ -229,18 +243,12 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             children: [
               const Text(
                 'Push Bildirimleri',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Kullanıcılara anında bildirim gönderin',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -334,8 +342,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
           value: _pushNotifications.isEmpty
               ? '0'
               : _pushNotifications
-                  .fold<int>(0, (sum, n) => sum + ((n['total_recipients'] as int?) ?? 0))
-                  .toString(),
+                    .fold<int>(
+                      0,
+                      (sum, n) => sum + ((n['total_recipients'] as int?) ?? 0),
+                    )
+                    .toString(),
           color: Colors.teal,
           gradient: LinearGradient(
             colors: [Colors.teal.shade400, Colors.teal.shade600],
@@ -381,11 +392,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    icon,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  child: Icon(icon, color: Colors.white, size: 20),
                 ),
                 Flexible(
                   child: FittedBox(
@@ -426,7 +433,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     final deliveryRate = _totalSent > 0
         ? (_totalDelivered / _totalSent * 100).toStringAsFixed(1)
         : '0.0';
-    
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -446,19 +453,20 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
           children: [
             Row(
               children: [
-                Icon(Icons.analytics_rounded, color: Colors.blue.shade600, size: 24),
+                Icon(
+                  Icons.analytics_rounded,
+                  color: Colors.blue.shade600,
+                  size: 24,
+                ),
                 const SizedBox(width: 12),
                 const Text(
                   'Detaylı İstatistikler',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            
+
             // Progress Bar - Okuma Oranı
             _buildProgressRow(
               label: 'Okuma Oranı',
@@ -467,7 +475,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               color: Colors.purple,
             ),
             const SizedBox(height: 16),
-            
+
             // Progress Bar - Teslimat Oranı
             _buildProgressRow(
               label: 'Teslimat Oranı',
@@ -476,10 +484,10 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               color: Colors.green,
             ),
             const SizedBox(height: 16),
-            
+
             const Divider(),
             const SizedBox(height: 16),
-            
+
             // Info Row - Toplam Bildirim
             _buildInfoRow(
               Icons.notifications_active_rounded,
@@ -488,7 +496,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               Colors.blue,
             ),
             const SizedBox(height: 12),
-            
+
             // Info Row - Son Gönderim
             if (_pushNotifications.isNotEmpty)
               _buildInfoRow(
@@ -547,12 +555,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     );
   }
 
-  Widget _buildInfoRow(
-    IconData icon,
-    String label,
-    String value,
-    Color color,
-  ) {
+  Widget _buildInfoRow(IconData icon, String label, String value, Color color) {
     return Row(
       children: [
         Container(
@@ -561,28 +564,18 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 18,
-          ),
+          child: Icon(icon, color: color, size: 18),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
           ),
         ),
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
         ),
       ],
     );
@@ -606,18 +599,12 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             const SizedBox(height: 16),
             Text(
               'Henüz bildirim gönderilmemiş',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 8),
             Text(
               'Yukarıdaki butondan ilk bildirimi gönder',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade500,
-              ),
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
           ],
         ),
@@ -633,10 +620,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             const SizedBox(width: 8),
             const Text(
               'Son Gönderilen Bildirimler',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -653,13 +637,13 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     final status = notif['status'] as String? ?? 'pending';
     final statusColor = _getStatusColor(status);
     final statusLabel = _getStatusLabel(status);
-    
+
     final sentCount = notif['sent_count'] ?? 0;
     final deliveredCount = notif['delivered_count'] ?? 0;
     final readCount = notif['read_count'] ?? 0;
     final failedCount = notif['failed_count'] ?? 0;
     final totalRecipients = notif['total_recipients'] ?? 0;
-    
+
     // entity_id'den ikon tipini al (format: "admin_icon:discount")
     final entityId = notif['entity_id'] as String? ?? '';
     String? iconType;
@@ -667,9 +651,13 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       iconType = entityId.replaceFirst('admin_icon:', '');
     }
     final hasCustomIcon = iconType != null && iconType.isNotEmpty;
-    final notifIcon = hasCustomIcon ? getAdminNotificationIcon(iconType) : _getStatusIcon(status);
-    final notifIconColor = hasCustomIcon ? getAdminNotificationColor(iconType) : statusColor;
-    
+    final notifIcon = hasCustomIcon
+        ? getAdminNotificationIcon(iconType)
+        : _getStatusIcon(status);
+    final notifIconColor = hasCustomIcon
+        ? getAdminNotificationColor(iconType)
+        : statusColor;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -700,11 +688,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       color: notifIconColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      notifIcon,
-                      color: notifIconColor,
-                      size: 20,
-                    ),
+                    child: Icon(notifIcon, color: notifIconColor, size: 20),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -750,7 +734,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                 ],
               ),
               const SizedBox(height: 12),
-              
+
               // Body - tam metin gösterimi (maxLines sınırı yok)
               Text(
                 notif['body'] ?? '-',
@@ -761,7 +745,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                 ),
               ),
               const SizedBox(height: 12),
-              
+
               // Stats Row
               Wrap(
                 spacing: 16,
@@ -794,7 +778,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     ),
                 ],
               ),
-              
+
               // Progress Bar
               if (totalRecipients > 0) ...[
                 const SizedBox(height: 12),
@@ -810,10 +794,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                 const SizedBox(height: 4),
                 Text(
                   '$sentCount / $totalRecipients kişiye gönderildi',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ],
             ],
@@ -832,11 +813,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 14,
-          color: color,
-        ),
+        Icon(icon, size: 14, color: color),
         const SizedBox(width: 4),
         Text(
           value,
@@ -849,10 +826,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         const SizedBox(width: 2),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
       ],
     );
@@ -866,15 +840,17 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       iconType = entityId.replaceFirst('admin_icon:', '');
     }
     final hasCustomIcon = iconType != null && iconType.isNotEmpty;
-    final notifIcon = hasCustomIcon ? getAdminNotificationIcon(iconType) : Icons.notifications_rounded;
-    final notifIconColor = hasCustomIcon ? getAdminNotificationColor(iconType) : Colors.blue;
+    final notifIcon = hasCustomIcon
+        ? getAdminNotificationIcon(iconType)
+        : Icons.notifications_rounded;
+    final notifIconColor = hasCustomIcon
+        ? getAdminNotificationColor(iconType)
+        : Colors.blue;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
@@ -909,10 +885,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                 ),
                 child: Text(
                   notif['body'] ?? '-',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
+                  style: const TextStyle(fontSize: 14, height: 1.5),
                 ),
               ),
               const SizedBox(height: 20),
@@ -921,9 +894,15 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               _buildDetailRow('Durum', _getStatusLabel(notif['status'])),
               if (hasCustomIcon)
                 _buildDetailRow('İkon', _getIconTypeLabel(iconType)),
-              _buildDetailRow('Toplam Alıcı', '${notif['total_recipients'] ?? 0}'),
+              _buildDetailRow(
+                'Toplam Alıcı',
+                '${notif['total_recipients'] ?? 0}',
+              ),
               _buildDetailRow('Gönderilen', '${notif['sent_count'] ?? 0}'),
-              _buildDetailRow('Teslim Edilen', '${notif['delivered_count'] ?? 0}'),
+              _buildDetailRow(
+                'Teslim Edilen',
+                '${notif['delivered_count'] ?? 0}',
+              ),
               _buildDetailRow('Okunan', '${notif['read_count'] ?? 0}'),
               _buildDetailRow('Başarısız', '${notif['failed_count'] ?? 0}'),
               _buildDetailRow('Bekleyen', '${notif['pending_count'] ?? 0}'),
@@ -982,12 +961,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               fontWeight: FontWeight.w500,
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -1012,7 +986,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
           ),
           title: Row(
             children: [
-              Icon(Icons.notifications_active_rounded, color: Colors.blue.shade600, size: 22),
+              Icon(
+                Icons.notifications_active_rounded,
+                color: Colors.blue.shade600,
+                size: 22,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1046,7 +1024,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Mesaj
                   Container(
                     decoration: BoxDecoration(
@@ -1065,7 +1043,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // 🎯 İkon Seçimi
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -1079,7 +1057,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.emoji_emotions_rounded, color: Colors.purple.shade700, size: 18),
+                            Icon(
+                              Icons.emoji_emotions_rounded,
+                              color: Colors.purple.shade700,
+                              size: 18,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               'Bildirim İkonu',
@@ -1101,63 +1083,81 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                               icon: Icons.campaign_rounded,
                               color: Colors.blue,
                               isSelected: selectedIconType == 'announcement',
-                              onTap: () => setDialogState(() => selectedIconType = 'announcement'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'announcement',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'İndirim',
                               icon: Icons.discount_rounded,
                               color: Colors.red,
                               isSelected: selectedIconType == 'discount',
-                              onTap: () => setDialogState(() => selectedIconType = 'discount'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'discount',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Kampanya',
                               icon: Icons.local_offer_rounded,
                               color: Colors.orange,
                               isSelected: selectedIconType == 'campaign',
-                              onTap: () => setDialogState(() => selectedIconType = 'campaign'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'campaign',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Haber',
                               icon: Icons.newspaper_rounded,
                               color: Colors.teal,
                               isSelected: selectedIconType == 'news',
-                              onTap: () => setDialogState(() => selectedIconType = 'news'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'news',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Etkinlik',
                               icon: Icons.event_rounded,
                               color: Colors.purple,
                               isSelected: selectedIconType == 'event',
-                              onTap: () => setDialogState(() => selectedIconType = 'event'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'event',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Güncelleme',
                               icon: Icons.system_update_rounded,
                               color: Colors.green,
                               isSelected: selectedIconType == 'update',
-                              onTap: () => setDialogState(() => selectedIconType = 'update'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'update',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Uyarı',
                               icon: Icons.warning_amber_rounded,
                               color: Colors.amber,
                               isSelected: selectedIconType == 'warning',
-                              onTap: () => setDialogState(() => selectedIconType = 'warning'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'warning',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Hediye',
                               icon: Icons.card_giftcard_rounded,
                               color: Colors.pink,
                               isSelected: selectedIconType == 'gift',
-                              onTap: () => setDialogState(() => selectedIconType = 'gift'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'gift',
+                              ),
                             ),
                             _buildIconChip(
                               label: 'Bilgi',
                               icon: Icons.info_rounded,
                               color: Colors.indigo,
                               isSelected: selectedIconType == 'info',
-                              onTap: () => setDialogState(() => selectedIconType = 'info'),
+                              onTap: () => setDialogState(
+                                () => selectedIconType = 'info',
+                              ),
                             ),
                           ],
                         ),
@@ -1165,7 +1165,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                   
+
                   // Hedef kitle seçimi
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -1178,7 +1178,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.people_rounded, color: Colors.grey.shade700, size: 18),
+                            Icon(
+                              Icons.people_rounded,
+                              color: Colors.grey.shade700,
+                              size: 18,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               'Hedef Kitle',
@@ -1227,8 +1231,12 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                               icon: Icons.person_pin_rounded,
                               isSelected: targetAudience == 'personal',
                               onTap: () async {
-                                setDialogState(() => targetAudience = 'personal');
-                                await _loadUsersForPersonalNotification(setDialogState);
+                                setDialogState(
+                                  () => targetAudience = 'personal',
+                                );
+                                await _loadUsersForPersonalNotification(
+                                  setDialogState,
+                                );
                               },
                             ),
                           ],
@@ -1236,7 +1244,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       ],
                     ),
                   ),
-                  
+
                   // Kişi seçimi
                   if (targetAudience == 'personal') ...[
                     const SizedBox(height: 10),
@@ -1247,7 +1255,10 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.grey.shade300),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       child: TextField(
                         onChanged: (value) {
                           setDialogState(() => userSearchQuery = value);
@@ -1255,9 +1266,19 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         decoration: InputDecoration(
                           hintText: 'Kullanıcı ara...',
                           border: InputBorder.none,
-                          prefixIcon: Icon(Icons.search, color: Colors.grey.shade600, size: 20),
-                          hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Colors.grey.shade600,
+                            size: 20,
+                          ),
+                          hintStyle: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade500,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 8,
+                          ),
                         ),
                       ),
                     ),
@@ -1274,54 +1295,78 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         child: isLoadingUsers
                             ? const Center(child: CircularProgressIndicator())
                             : ListView.builder(
-                                itemCount: _filterUsers(userSearchQuery).take(20).length,
+                                itemCount: _filterUsers(
+                                  userSearchQuery,
+                                ).take(20).length,
                                 itemBuilder: (context, index) {
-                                  final user = _filterUsers(userSearchQuery)[index];
-                                  final isSelected = selectedUserId == user['id'];
+                                  final user = _filterUsers(
+                                    userSearchQuery,
+                                  )[index];
+                                  final isSelected =
+                                      selectedUserId == user['id'];
                                   return InkWell(
                                     onTap: () {
                                       setDialogState(() {
                                         selectedUserId = user['id'];
-                                        selectedUserName = user['full_name'] ?? user['username'] ?? '';
+                                        selectedUserName =
+                                            user['full_name'] ??
+                                            user['username'] ??
+                                            '';
                                       });
                                     },
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 6),
                                       padding: const EdgeInsets.all(10),
                                       decoration: BoxDecoration(
-                                        color: isSelected ? Colors.blue.shade100 : Colors.white,
+                                        color: isSelected
+                                            ? Colors.blue.shade100
+                                            : Colors.white,
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
-                                          color: isSelected ? Colors.blue.shade300 : Colors.transparent,
+                                          color: isSelected
+                                              ? Colors.blue.shade300
+                                              : Colors.transparent,
                                         ),
                                       ),
                                       child: Row(
                                         children: [
                                           CircleAvatar(
                                             radius: 16,
-                                            backgroundImage: user['avatar_url'] != null
-                                                ? NetworkImage(user['avatar_url'])
+                                            backgroundImage:
+                                                user['avatar_url'] != null
+                                                ? NetworkImage(
+                                                    user['avatar_url'],
+                                                  )
                                                 : null,
                                             child: user['avatar_url'] == null
                                                 ? Text(
-                                                    (user['username'] as String? ?? '?')[0].toUpperCase(),
-                                                    style: const TextStyle(fontSize: 12),
+                                                    (user['username']
+                                                                as String? ??
+                                                            '?')[0]
+                                                        .toUpperCase(),
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                    ),
                                                   )
                                                 : null,
                                           ),
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  user['full_name'] ?? user['username'] ?? '-',
+                                                  user['full_name'] ??
+                                                      user['username'] ??
+                                                      '-',
                                                   style: const TextStyle(
                                                     fontWeight: FontWeight.w600,
                                                     fontSize: 13,
                                                   ),
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                 ),
                                                 Text(
                                                   '@${user['username'] ?? '-'}',
@@ -1330,13 +1375,18 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                                                     color: Colors.grey.shade600,
                                                   ),
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                 ),
                                               ],
                                             ),
                                           ),
                                           if (isSelected)
-                                            const Icon(Icons.check_circle, color: Colors.blue, size: 18),
+                                            const Icon(
+                                              Icons.check_circle,
+                                              color: Colors.blue,
+                                              size: 18,
+                                            ),
                                         ],
                                       ),
                                     ),
@@ -1352,7 +1402,10 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                           userSearchQuery.isNotEmpty
                               ? 'Sonuç bulunamadı'
                               : 'Kullanıcı yükleniyor...',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     if (selectedUserId != null)
@@ -1365,7 +1418,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle, color: Colors.blue, size: 18),
+                            const Icon(
+                              Icons.check_circle,
+                              color: Colors.blue,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Text(
                               'Seçili: $selectedUserName',
@@ -1378,9 +1435,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                         ),
                       ),
                   ],
-                  
+
                   const SizedBox(height: 10),
-                   
+
                   // Uyarı mesajı
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -1391,12 +1448,19 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.orange.shade700, size: 18),
+                        Icon(
+                          Icons.info_outline,
+                          color: Colors.orange.shade700,
+                          size: 18,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Push bildirimleri Firebase FCM üzerinden gönderilir',
-                            style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange.shade900,
+                            ),
                           ),
                         ),
                       ],
@@ -1415,17 +1479,21 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               onPressed: isSending
                   ? null
                   : () async {
-                      if (titleController.text.isEmpty || bodyController.text.isEmpty) {
+                      if (titleController.text.isEmpty ||
+                          bodyController.text.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Başlık ve mesaj alanlarını doldurun'),
+                            content: Text(
+                              'Başlık ve mesaj alanlarını doldurun',
+                            ),
                             backgroundColor: Colors.red,
                           ),
                         );
                         return;
                       }
 
-                      if (targetAudience == 'personal' && selectedUserId == null) {
+                      if (targetAudience == 'personal' &&
+                          selectedUserId == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Lütfen bir kullanıcı seçin'),
@@ -1440,128 +1508,104 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                       try {
                         final title = titleController.text.trim();
                         final body = bodyController.text.trim();
-                        final now = DateTime.now().toIso8601String();
-                        // entity_id formatı admin_icon:<iconType> olmalı ki uygulama bildirimler
-                        // ekranında ikon/renk seçebilsin (notifications_screen.dart bu formata bakıyor).
-                        final entityId = 'admin_icon:$selectedIconType';
+                        // 2026-08-02 push pipeline refaktörü:
+                        // - İstemci FCM token SELECT etmez, functions.invoke
+                        //   ile push göndermez.
+                        // - Kişisel bildirim: public.admin_send_personal_notification
+                        //   RPC'si çağrılır (admin rolü server-side doğrulanır,
+                        //   audit kaydı oluşur, notifications INSERT yapılır,
+                        //   outbox trigger'ı push'u güvenli şekilde planlar).
+                        // - Toplu bildirim: public.admin_broadcast_notification
+                        //   RPC'si çağrılır (audit + admin_broadcasts INSERT;
+                        //   topic push gönderilmez).
 
                         int sentCount = 0;
 
                         if (targetAudience == 'personal') {
-                          // Kişiye özel: FCM push + notifications tablosuna kayıt.
-                          // Push cihaza gider; kayıt sayesinde bildirimler ekranında da görünür.
-                          // Toplu bildirimlerin aksine kişisel bildirimler sadece burada
-                          // notifications tablosuna yazılır (admin_broadcasts'a yazılmaz).
+                          // Kişiye özel bildirim: dar kapsamlı admin RPC.
+                          // Sunucu tarafında: admin kontrolü, başlık/içerik
+                          // uzunluk sınırı, audit, notifications INSERT.
+                          // Push: outbox trigger + worker.
                           try {
-                            await _client.functions.invoke(
-                              'send-push',
-                              body: {
-                                'user_id': selectedUserId,
-                                'title': title,
-                                'body': body,
-                                'data': {'type': 'admin_notification', 'icon_type': selectedIconType},
+                            await _client.rpc(
+                              'admin_send_personal_notification',
+                              params: {
+                                'p_user_id': selectedUserId,
+                                'p_title': title,
+                                'p_content': body,
+                                'p_icon_type': selectedIconType,
                               },
                             );
-                          } catch (e) {
-                            debugPrint('Push gönderim hatası: $e');
+                            debugPrint(
+                              '✅ Kişisel admin bildirimi RPC üzerinden gönderildi',
+                            );
+                            sentCount = 1;
+                          } on PostgrestException catch (e) {
+                            debugPrint(
+                              '⚠️ Kişisel admin bildirimi başarısız: ${e.code} ${e.message}',
+                            );
+                            rethrow;
                           }
-
-                          try {
-                            await _client.from('notifications').insert({
-                              'user_id': selectedUserId,
-                              'type': 'admin_notification',
-                              'title': title,
-                              'content': body,
-                              // ÖNEMLI (2026-07-03 fix): kolon adı 'metadata' (JSONB).
-                              // Eskiden 'data' yazılıyordu — böyle bir kolon YOK →
-                              // PGRST204 hatası → INSERT sessizce başarısız → bildirim
-                              // uygulama içi listede görünmüyordu. Sadece push gidiyordu.
-                              'metadata': {
-                                'icon_type': selectedIconType,
-                                'target': 'personal',
-                              },
-                              'entity_id': entityId,
-                              'is_read': false,
-                              'created_at': now,
-                            });
-                            debugPrint('✅ Kişisel bildirim notifications tablosuna eklendi');
-                          } catch (e) {
-                            debugPrint('⚠️ Kişisel bildirim kaydedilemedi: $e');
-                          }
-                          sentCount = 1;
                         } else {
-                          // Toplu bildirim: Firebase topic push + admin_broadcasts tablosuna
-                          // tek bir kayıt. notifications tablosuna artık toplu kayıt
-                          // eklenmiyor; kullanıcı bildirimler ekranı admin_broadcasts
-                          // tablosundan besleniyor (Duyurular bölümü). Bu sayede çift
-                          // bildirim sorunu engellenmiş oluyor.
-
-                          String topicName;
+                          // Toplu bildirim: dar kapsamlı admin RPC.
+                          // Topic push gönderilmez; sadece admin_broadcasts
+                          // tablosuna yazılır. Kullanıcılar mevcut realtime
+                          // kanalı veya liste yenileme ile görür.
+                          String targetAudienceKey;
                           switch (targetAudience) {
                             case 'customers':
-                              topicName = 'customers';
+                              targetAudienceKey = 'customers';
                               break;
                             case 'sellers':
-                              topicName = 'sellers';
+                              targetAudienceKey = 'sellers';
                               break;
                             case 'all':
                             default:
-                              topicName = 'all_users';
+                              targetAudienceKey = 'all_users';
                           }
 
-                          // Topic bazlı push gönder (Firebase üzerinden)
                           try {
-                            await _client.functions.invoke(
-                              'send-push-notification',
-                              body: {
-                                'title': title,
-                                'body': body,
-                                'data': {'type': 'admin_notification', 'icon_type': selectedIconType, 'target': targetAudience},
-                                'topic': topicName,
+                            await _client.rpc(
+                              'admin_broadcast_notification',
+                              params: {
+                                'p_title': title,
+                                'p_content': body,
+                                'p_icon_type': selectedIconType,
+                                'p_target_audience': targetAudienceKey,
                               },
                             );
-                            debugPrint('✅ Topic "$topicName" üzerinden push gönderildi');
-                          } catch (e) {
-                            debugPrint('⚠️ Topic push gönderilemedi: $e');
+                            debugPrint('✅ Broadcast RPC üzerinden gönderildi');
+                          } on PostgrestException catch (e) {
+                            debugPrint(
+                              '⚠️ Broadcast RPC başarısız: ${e.code} ${e.message}',
+                            );
+                            rethrow;
                           }
 
-                          // Hedef kitleye göre "gönderilen kişi sayısı"nı hesapla
-                          // (sadece sayaç için, tek satırlık broadcast kaydı yeterli).
+                          // Hedef kitle büyüklüğünü kullanıcıya raporlamak için
                           int audienceSize = 0;
                           try {
                             List<dynamic> response;
                             if (targetAudience == 'customers') {
-                              response = await _client.from('profiles').select('id').eq('role', 'customer');
+                              response = await _client
+                                  .from('profiles')
+                                  .select('id')
+                                  .eq('role', 'customer');
                             } else if (targetAudience == 'sellers') {
-                              response = await _client.from('profiles').select('id').eq('role', 'seller');
+                              response = await _client
+                                  .from('profiles')
+                                  .select('id')
+                                  .eq('role', 'seller');
                             } else {
-                              response = await _client.from('profiles').select('id');
+                              response = await _client
+                                  .from('profiles')
+                                  .select('id');
                             }
                             audienceSize = response.length;
                           } catch (e) {
                             debugPrint('Kullanıcı listesi alınamadı: $e');
                           }
-
-                          // Not: notifications tablosuna artık toplu insert yapılmıyor.
-                          // Çift bildirim engellendi; kullanıcı ekranı admin_broadcasts
-                          // tablosundaki tek kaydı "Duyurular" bölümünde gösteriyor.
                           sentCount = audienceSize;
-                        }
-
-                        // Herkese açık broadcasts tablosuna da ekle (üye olmayanlar da görsün)
-                        if (targetAudience != 'personal') {
-                          try {
-                            await _client.from('admin_broadcasts').insert({
-                              'title': title,
-                              'content': body,
-                              'icon_type': selectedIconType,
-                              'target_audience': targetAudience,
-                              'is_active': true,
-                            });
-                            debugPrint('✅ Broadcasts tablosuna eklendi');
-                          } catch (e) {
-                            debugPrint('⚠️ Broadcasts tablosuna eklenemedi (tablo yok olabilir): $e');
-                          }
                         }
 
                         Navigator.pop(context);
@@ -1588,7 +1632,10 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade600,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -1612,16 +1659,18 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
   }
 
   /// Kişiye özel bildirim için kullanıcıları yükle
-  Future<void> _loadUsersForPersonalNotification(StateSetter setDialogState) async {
+  Future<void> _loadUsersForPersonalNotification(
+    StateSetter setDialogState,
+  ) async {
     setDialogState(() => isLoadingUsers = true);
-    
+
     try {
       final response = await _client
           .from('profiles')
           .select('id, username, full_name, avatar_url')
           .order('created_at', ascending: false)
           .limit(100);
-      
+
       setDialogState(() {
         usersList = List<Map<String, dynamic>>.from(response);
         isLoadingUsers = false;
@@ -1636,7 +1685,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
   /// Kullanıcı arama filtresi
   List<Map<String, dynamic>> _filterUsers(String query) {
     if (query.isEmpty) return usersList;
-    
+
     final lowerQuery = query.toLowerCase();
     return usersList.where((user) {
       final username = (user['username'] as String? ?? '').toLowerCase();
@@ -1721,11 +1770,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 22,
-              color: isSelected ? Colors.white : color,
-            ),
+            Icon(icon, size: 22, color: isSelected ? Colors.white : color),
             const SizedBox(height: 4),
             Text(
               label,
@@ -1837,7 +1882,7 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
 
   String _formatDate(dynamic date) {
     if (date == null) return '-';
-    
+
     DateTime dateTime;
     if (date is String) {
       dateTime = DateTime.parse(date);

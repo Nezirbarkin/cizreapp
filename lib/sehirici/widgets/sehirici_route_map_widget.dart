@@ -4,9 +4,13 @@ import 'package:provider/provider.dart';
 import '../models/sehirici_models.dart';
 import '../models/sehirici_route_model.dart';
 import '../providers/sehirici_location_provider.dart';
-import '../services/sehirici_line_service.dart';
+import '../services/sehirici_trip_service.dart';
 
-/// Hat rotasını harita üzerinde gösteren widget
+/// Hat rotasını harita üzerinde gösteren widget.
+///
+/// OSRM/önbellek yaklaşımı kaldırıldı: hat görseli artık sadece durakları
+/// düz çizgiyle bağlar. Şoför sefere başladığında geçtiği gerçek yol
+/// (sehirici_trip_locations'tan) realtime polyline olarak çizilir.
 class SehiriciRouteMapWidget extends StatefulWidget {
   final SehiriciLine line;
   final SehiriciRoute? route;
@@ -25,54 +29,91 @@ class SehiriciRouteMapWidget extends StatefulWidget {
 }
 
 class _SehiriciRouteMapWidgetState extends State<SehiriciRouteMapWidget> {
-  final SehiriciLineService _lineService = SehiriciLineService();
+  final SehiriciTripService _tripService = SehiriciTripService();
   late GoogleMapController _mapController;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
+  // Aktif seferler için geçilen yol noktaları
+  final Map<String, List<LatLng>> _tripPaths = {};
+  final Set<String> _tripPathsLoading = {};
 
   @override
   void initState() {
     super.initState();
     _initializeMap();
-    _loadRoadRoute();
+    _loadInitialTripPaths();
+    _tripService.watchTripPaths(onPoint: _onTripPathPoint);
+  }
+
+  @override
+  void didUpdateWidget(covariant SehiriciRouteMapWidget old) {
+    super.didUpdateWidget(old);
+    if (old.line.id != widget.line.id) {
+      _tripPaths.clear();
+      _initializeMap();
+      _loadInitialTripPaths();
+    }
   }
 
   void _initializeMap() {
     if (widget.line.stops.isEmpty) return;
 
-    // Anında görünüm için durakları düz çizgiyle birleştir; yol takip eden
-    // gerçek rota geldiğinde (_loadRoadRoute) bu çizgi onunla değiştirilir.
-    final polylinePoints = widget.line.stops
-        .map((stop) => LatLng(stop.lat, stop.lng))
-        .toList();
-
+    // Durakları kuş uçuşu bağlayan polyline artık çizilmiyor — sadece
+    // şoförün geçtiği gerçek yol (realtime) gösterilir.
     setState(() {
-      _polylines = {
-        Polyline(
-          polylineId: PolylineId('route_${widget.line.id}'),
-          points: polylinePoints,
-          color: widget.line.color,
-          width: 4,
-          geodesic: true,
-        ),
-      };
-
+      _polylines = {};
       _updateMarkers();
     });
   }
 
-  Future<void> _loadRoadRoute() async {
-    if (widget.line.stops.length < 2) return;
-    final points = await _lineService.getRoadRoute(widget.line);
-    if (!mounted || points.length < 2) return;
+  /// Bu hat için aktif sefer varsa geçtiği yolu yükle.
+  Future<void> _loadInitialTripPaths() async {
+    // route varsa ve aktifse, onun trip_id'sini kullan
+    if (widget.route != null && widget.route!.tripId != null) {
+      final tripId = widget.route!.tripId!;
+      if (_tripPathsLoading.contains(tripId)) return;
+      _tripPathsLoading.add(tripId);
+      try {
+        final path = await _tripService.getTripPath(tripId);
+        if (!mounted) return;
+        _tripPaths[tripId] = path.map((p) => LatLng(p.lat, p.lng)).toList();
+        _redrawTripPath(tripId);
+      } finally {
+        _tripPathsLoading.remove(tripId);
+      }
+    }
+  }
+
+  void _onTripPathPoint(String tripId, double lat, double lng) {
+    // Sadece bu hattın aktif seferine ait noktaları işle
+    if (widget.route?.tripId != null && widget.route!.tripId != tripId) {
+      return;
+    }
+    final newPoint = LatLng(lat, lng);
+    final list = _tripPaths.putIfAbsent(tripId, () => <LatLng>[]);
+    if (list.isNotEmpty) {
+      final last = list.last;
+      if ((last.latitude - lat).abs() < 0.00001 &&
+          (last.longitude - lng).abs() < 0.00001) {
+        return;
+      }
+    }
+    list.add(newPoint);
+    _redrawTripPath(tripId);
+  }
+
+  void _redrawTripPath(String tripId) {
+    final points = _tripPaths[tripId] ?? const <LatLng>[];
+    if (points.length < 2) return;
     setState(() {
       _polylines = {
+        ..._polylines
+            .where((p) => p.polylineId.value != 'trip_path_$tripId'),
         Polyline(
-          polylineId: PolylineId('route_${widget.line.id}'),
-          points: points.map((p) => LatLng(p[0], p[1])).toList(),
+          polylineId: PolylineId('trip_path_$tripId'),
+          points: points,
           color: widget.line.color,
           width: 4,
-          geodesic: false,
         ),
       };
     });
@@ -127,6 +168,7 @@ class _SehiriciRouteMapWidgetState extends State<SehiriciRouteMapWidget> {
 
   @override
   void dispose() {
+    _tripService.stopWatching();
     _mapController.dispose();
     super.dispose();
   }
@@ -145,7 +187,8 @@ class _SehiriciRouteMapWidgetState extends State<SehiriciRouteMapWidget> {
     return GoogleMap(
       onMapCreated: (controller) {
         _mapController = controller;
-        _mapController.animateCamera(
+        // Animasyonsuz anında sığdır (açılışı hızlandırır).
+        _mapController.moveCamera(
           CameraUpdate.newLatLngBounds(bounds, 100),
         );
       },

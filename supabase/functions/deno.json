@@ -1,13 +1,19 @@
 {
   "tasks": {
-    "dev": "deno run --allow-env --allow-net --allow-read supabase/functions/send-push-notification/index.ts"
+    "dev": "deno run --allow-env --allow-net --allow-read supabase/functions/send-push-notification/index.ts",
+    "test:reward": "deno test _shared/*_test.ts"
   },
   "imports": {
     "std/": "https://deno.land/std@0.168.0/",
     "http/": "https://deno.land/std@0.168.0/http/"
   },
   "compilerOptions": {
-    "lib": ["deno.window"],
+    "lib": ["deno.window", "deno.ns"],
     "strict": true
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-import-prefix"]
+    }
   }
 }

@@ -128,6 +128,11 @@ class OrderItem {
   final String? shopName;
   final DateTime createdAt;
 
+  /// Flaş satıştan geldiyse ilgili kayıtların referansları.
+  /// null = ürün flaş satışta değildi.
+  final String? flashSaleId;
+  final double? flashPrice;
+
   OrderItem({
     required this.id,
     required this.orderId,
@@ -139,6 +144,8 @@ class OrderItem {
     this.shopId,
     this.shopName,
     required this.createdAt,
+    this.flashSaleId,
+    this.flashPrice,
   });
 
   factory OrderItem.fromJson(Map<String, dynamic> json) {
@@ -156,9 +163,16 @@ class OrderItem {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : DateTime.now(),
+      flashSaleId: json['flash_sale_id'] as String?,
+      flashPrice: (json['flash_price'] as num?)?.toDouble(),
     );
   }
 
+  /// Flaş satıştan geldi mi?
+  bool get isFlashSaleItem => flashSaleId != null;
+
+  /// Toplam tutar: price her zaman sepete eklenirken sabitlenen (flaş
+  /// ise flaş, değilse indirimli/normal) fiyattır; quantity ile çarpılır.
   double get subtotal => price * quantity;
 }
 

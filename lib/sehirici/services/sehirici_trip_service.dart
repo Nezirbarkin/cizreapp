@@ -171,4 +171,64 @@ class SehiriciTripService {
     _channel?.unsubscribe();
     _channel = null;
   }
+
+  // ─────────────────────────────────────────────
+  // Seferin geçtiği yol (konum geçmişi)
+  // ─────────────────────────────────────────────
+
+  /// Belirli bir aktif seferin şoförünün geçtiği tüm konum noktalarını
+  /// zaman sırasına göre döner. Polyline çizmek için kullanılır.
+  Future<List<({double lat, double lng, DateTime recordedAt})>>
+      getTripPath(String tripId) async {
+    try {
+      final response = await _client.rpc('get_sehirici_trip_path',
+          params: {'p_trip_id': tripId});
+      if (response is! List) return const [];
+      return response
+          .cast<Map<String, dynamic>>()
+          .map((r) => (
+                lat: (r['lat'] as num).toDouble(),
+                lng: (r['lng'] as num).toDouble(),
+                recordedAt: DateTime.parse(r['recorded_at'] as String),
+              ))
+          .toList();
+    } catch (e) {
+      debugPrint('getTripPath hata: $e');
+      return const [];
+    }
+  }
+
+  /// Birden fazla aktif seferin konum geçmişini realtime dinler.
+  /// Yeni nokta geldiğinde `onPoint(tripId, lat, lng)` çağrılır.
+  /// Eski channel varsa kapatır.
+  RealtimeChannel watchTripPaths({
+    required void Function(String tripId, double lat, double lng) onPoint,
+  }) {
+    _channel?.unsubscribe();
+
+    final ch = _client.channel('sehirici_trip_paths');
+
+    ch.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'sehirici_trip_locations',
+      callback: (payload) {
+        try {
+          final newRow = payload.newRecord;
+          final tripId = newRow['trip_id'] as String?;
+          final lat = (newRow['lat'] as num?)?.toDouble();
+          final lng = (newRow['lng'] as num?)?.toDouble();
+          if (tripId != null && lat != null && lng != null) {
+            onPoint(tripId, lat, lng);
+          }
+        } catch (e) {
+          debugPrint('Realtime trip path callback hata: $e');
+        }
+      },
+    );
+
+    ch.subscribe();
+    _channel = ch;
+    return ch;
+  }
 }

@@ -1,11 +1,12 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/models/cart_model.dart';
+import '../../../core/models/coupon_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/app_about_service.dart';
@@ -26,11 +27,17 @@ import 'address_management_screen.dart';
 class CheckoutScreen extends StatefulWidget {
   final String shopId;
   final String shopName;
+  /// Sepet ekranındaki CartProvider'ın in-memory kupon durumu. Eski sürümde
+  /// CheckoutScreen taze bir CartProvider yaratıyordu, bu nedenle
+  /// `_couponsByShop` boş başlıyor ve uygulanan kupon tek-dükkan checkout'ta
+  /// sessizce kayboluyordu. Bu harita sepette uygulanan kuponları taşır.
+  final Map<String, AppliedCoupon> couponsByShop;
 
   const CheckoutScreen({
     super.key,
     required this.shopId,
     required this.shopName,
+    this.couponsByShop = const {},
   });
 
   @override
@@ -57,16 +64,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Admin panelden kontrol edilen sipariş ödeme yöntemi toggle'ları.
   /// load() başarısız olursa allEnabled() fallback döner (mevcut davranış korunur).
   PaymentMethodSettings _paymentSettings = const PaymentMethodSettings.allEnabled();
-  Future<CartSummary>? _cartSummaryFuture;
+
+  /// Bu dükkan için uygulanan kupon (sepet ekranından taşınır).
+  /// Eskiden taze CartProvider yüzünden hep null geliyordu.
+  AppliedCoupon? get _appliedCoupon => widget.couponsByShop[widget.shopId];
+
+  /// Verilen ara toplam için bu dükkanın kupon indirmini döndürür.
+  /// subtotal ile sınırlı, 0'a clamp'li. Kupon yoksa 0.
+  double _couponDiscountFor(double subtotal) {
+    final c = _appliedCoupon;
+    if (c == null) return 0.0;
+    final d = c.discountFor(subtotal);
+    if (d < 0) return 0.0;
+    if (d > subtotal) return subtotal;
+    return d;
+  }
 
   @override
   void initState() {
     super.initState();
     _loadPaymentSettings();
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId != null) {
-      _cartSummaryFuture = _cartService.getCartSummary(userId);
-    }
   }
 
   Future<void> _loadPaymentSettings() async {
@@ -210,7 +227,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     style: TextStyle(fontSize: 14),
                   ),
                 // Kod ekranda gösteriliyorsa prominent şekilde göster
-                if (displayedCode != null && displayedCode!.isNotEmpty) ...[
+                // (2026-07-29 FIX) Sadece DEBUG modda — production'da SMS-only
+                // olmalı, ekranda kodun açık görünmesi güvenlik riski yaratır.
+                if (kDebugMode && displayedCode != null && displayedCode!.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   Container(
                     width: double.infinity,
@@ -422,7 +441,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     // Onay kodu gerekmedi veya doğrulandı, devam et
-    final summary = await _cartService.getCartSummary(Supabase.instance.client.auth.currentUser!.id);
+    // ESKİ: `_cartService.getCartSummary` kupon indirimini bilmiyor (servis
+    // DB'den okur, kupon state CartProvider'da) — dialog kuponsuz fiyat
+    // gösteriyordu ama INSERT'e indirimli tutar gidiyordu (kullanıcı
+    // "fiyat değişti" diye şaşırıyordu). CartProvider.summary kuponu
+    // _couponsByShop'tan toplar; dialogda onu kullan.
+    final summary = cartProvider.summary;
     
     showDialog(
       // ignore: use_build_context_synchronously
@@ -463,7 +487,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    Text('₺${((item.productPrice ?? 0) * item.quantity).toStringAsFixed(2)}'),
+                    Text('₺${(item.effectivePrice * item.quantity).toStringAsFixed(2)}'),
                   ],
                 ),
               )),
@@ -605,18 +629,40 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         throw Exception('Sepetiniz boş');
       }
 
-      final total = cartSummary.total;
-       
+      // Kupon: eskiden bakiye ödemesinde kupon tamamen atlanıyordu
+      // (discount: cartSummary.discount = ürün tasarrufu, kupon yok).
+      // Şimdi gerçek kupon indirimi uygulanır ve total ona göre düşülür.
+      final appliedCoupon = _appliedCoupon;
+      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
+      final realTotal =
+          cartSummary.subtotal - couponDiscount + cartSummary.deliveryFee;
+
       // Bakiyeyi kontrol et
       final balanceInfo = await _loadBalanceInfo();
       final availableBalance = (balanceInfo?['balance'] as double?) ?? 0;
-       
-      if (availableBalance < total) {
+      // Bakiye SİSTEMİ master anahtarı (balance_enabled) ayrıdır; radyo
+      // yalnızca order_balance_enabled ile görünür ama sistem kapalıysa
+      // ödeme yapılmalı. Eskiden bu kontrol atlanıyordu.
+      final balanceSystemEnabled = (balanceInfo?['enabled'] as bool?) ?? false;
+      if (!balanceSystemEnabled) {
+        setState(() => _isPlacingOrder = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bakiye ile ödeme şu an kullanılamıyor.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (availableBalance < realTotal) {
         setState(() => _isPlacingOrder = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Yetersiz bakiye! Mevcut: ₺${availableBalance.toStringAsFixed(2)}, Gerekli: ₺${total.toStringAsFixed(2)}'),
+              content: Text('Yetersiz bakiye! Mevcut: ₺${availableBalance.toStringAsFixed(2)}, Gerekli: ₺${realTotal.toStringAsFixed(2)}'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -633,51 +679,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           orderId: '',
           productId: item.productId,
           productName: item.productName ?? 'Ürün',
-          price: item.productPrice ?? 0,
+          price: item.effectivePrice, // flaş sale ise flaş, yoksa indirimli (discount_price), yoksa normal fiyat
           quantity: item.quantity,
           productImageUrl: item.productImageUrl,
           shopId: item.shopId,
           shopName: item.shopName,
           createdAt: DateTime.now(),
+          flashSaleId: item.flashSaleId,
+          flashPrice: item.flashPrice,
         )).toList(),
         deliveryAddressText: selectedAddress.fullAddress,
         addressId: selectedAddress.id,
         subtotal: cartSummary.subtotal,
         deliveryFee: cartSummary.deliveryFee,
-        discount: cartSummary.discount,
-        total: cartSummary.total,
+        discount: couponDiscount,
+        total: realTotal,
         commissionAmount: cartSummary.subtotal * 0.10,
         paymentMethod: PaymentMethod.balance,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: selectedAddress.phone,
         invoiceInfo: _selectedInvoiceInfo,
+        couponId: appliedCoupon?.id,
+        couponDiscount: couponDiscount,
       );
-      
+
       if (order != null) {
         // Bakiyeden düş - BAŞARISIZSA siparişi iptal et
         bool balanceDeducted = false;
         try {
           await _balanceService.useBalanceForOrder(
             orderId: order.id,
-            amount: total,
-            orderTotal: total,
+            amount: realTotal,
+            orderTotal: realTotal,
           );
           balanceDeducted = true;
-          debugPrint('✅ Bakiye ile ödeme tamamlandı, bakiyeden ₺${total.toStringAsFixed(2)} düşüldü');
+          debugPrint('✅ Bakiye ile ödeme tamamlandı, bakiyeden ₺${realTotal.toStringAsFixed(2)} düşüldü');
         } catch (balanceError) {
           debugPrint('❌ Bakiye düşme hatası (sipariş iptal ediliyor): $balanceError');
-          // Atomik olmayan ödeme: siparişi iptal et
-          // NOT: audit_log tablosu varsa oraya da yazılabilir
+          // Atomik olmayan ödeme: siparişi iptal et, nedeniyle birlikte.
           try {
-            await _orderService.cancelOrder(order.id);
-            // HATA-3: audit trail - iptal nedenini orders.notes'a ekle
-            // (orders tablosunda notes alanı text, admin panelde görünür)
-            // İlk olarak: orders.update({notes: cancellationReason}) yapılabilir
-            // ancak OrderService.cancelOrder tek başına çağrıldığı için
-            // şimdilik sadece debugPrint ile log bırakıyoruz.
-            debugPrint(
-              '⚠️ Sipariş iptal nedeni (audit): '
-              'bakiye yetersiz veya ödeme başarısız: $balanceError',
+            await _orderService.cancelOrder(
+              order.id,
+              reason: 'Bakiye düşme başarısız: $balanceError',
             );
             debugPrint('✅ Sipariş bakiye hatası nedeniyle iptal edildi: ${order.id}');
           } catch (cancelError) {
@@ -695,6 +738,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
         // Sepeti temizle SADECE ödeme başarılıysa (HATA-3: hata yakalama eklendi)
         if (balanceDeducted) {
+          // Kuponu "kullanıldı" olarak işaretle (bakiye yolu eskiden atlıyordu).
+          if (appliedCoupon != null && couponDiscount > 0) {
+            try {
+              await Supabase.instance.client.rpc('use_coupon', params: {
+                'p_coupon_id': appliedCoupon.id,
+                'p_order_id': order.id,
+                'p_user_id': user.id,
+                'p_discount_amount': couponDiscount,
+              });
+            } catch (e) {
+              debugPrint('❌ use_coupon RPC başarısız (bakiye): $e');
+            }
+          }
           try {
             await _cartService.clearCart(user.id);
             await cartProvider.clearCart();
@@ -718,7 +774,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${total.toStringAsFixed(2)})'),
+                content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${realTotal.toStringAsFixed(2)})'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -765,6 +821,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final email = (profileResponse['email'] as String?) ?? user.email ?? 'musteri@cizreapp.com';
       final phone = (profileResponse['phone'] as String?) ?? selectedAddress.phone;
 
+      // Kupon: eskiden coupon_discount alanına ürün tasarrufu
+      // (cartSummary.discount) yazılıyordu — yanlış. Gerçek kupon indirimi
+      // hesaplanıp total ona göre düşülür ve coupon_id gönderilir.
+      final appliedCoupon = _appliedCoupon;
+      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
+      final realTotal =
+          cartSummary.subtotal - couponDiscount + cartSummary.deliveryFee;
+
       // Sipariş verilerini hazırla
       final orderData = {
         'shop_id': widget.shopId,
@@ -772,14 +836,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           'product_id': item.productId,
           'product_name': item.productName ?? 'Ürün',
           'quantity': item.quantity,
-          'price': item.productPrice ?? 0,
+          'price': item.effectivePrice, // indirimli (discount_price) varsa onu kullan
+          'flash_sale_id': item.flashSaleId,
+          'flash_price': item.flashPrice,
         }).toList(),
         'delivery_address_text': selectedAddress.fullAddress,
         'delivery_address_id': selectedAddress.id,
-        'total': cartSummary.total,
+        'total': realTotal,
         'subtotal': cartSummary.subtotal,
         'delivery_fee': cartSummary.deliveryFee,
-        'coupon_discount': cartSummary.discount,
+        'coupon_id': appliedCoupon?.id,
+        'coupon_discount': couponDiscount,
         'note': _notesController.text.isNotEmpty ? _notesController.text : null,
       };
 
@@ -910,14 +977,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           orderId: '',
           productId: item.productId,
           productName: item.productName ?? 'Ürün',
-          price: item.productPrice ?? 0,
+          price: item.effectivePrice, // indirimli (discount_price) varsa onu kullan
           quantity: item.quantity,
           productImageUrl: item.productImageUrl,
           shopId: item.shopId,
           shopName: item.shopName,
           createdAt: DateTime.now(),
+          flashSaleId: item.flashSaleId,
+          flashPrice: item.flashPrice,
         );
       }).toList();
+
+      // Kupon (varsa): widget.couponsByShop'tan shop-scoped uygulanmış
+      // kuponu al. Eskiden taze CartProvider'dan okunup hep null geliyordu
+      // ve kupon sessizce kayboluyordu.
+      //
+      // DİKKAT: orders.discount alanına yalnızca GERÇEK kupon indirimi
+      // yazılır. cartSummary.discount ürün gösterim tasarrufudur
+      // (oldPrice-effectivePrice) ve zaten subtotal'a yansımıştır; onu
+      // tekrar discount'a yazmak "subtotal - discount + delivery = total"
+      // denklemini bozuyordu.
+      final appliedCoupon = _appliedCoupon;
+      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
+      final realDiscount = couponDiscount; // kupon indirimi
+      final realTotal =
+          cartSummary.subtotal - realDiscount + cartSummary.deliveryFee;
 
       // Siparişi oluştur
       final order = await _orderService.createOrder(
@@ -928,14 +1012,43 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         addressId: selectedAddress.id,
         subtotal: cartSummary.subtotal,
         deliveryFee: cartSummary.deliveryFee,
-        discount: cartSummary.discount,
-        total: cartSummary.total,
+        discount: realDiscount,
+        total: realTotal,
         commissionAmount: cartSummary.subtotal * 0.10, // %10 komisyon
         paymentMethod: _selectedPaymentMethod,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
         customerPhone: customerPhone,
         invoiceInfo: _selectedInvoiceInfo,
+        couponId: appliedCoupon?.id,
+        couponDiscount: couponDiscount,
       );
+
+      // use_coupon RPC çağrısı — kuponu "kullanıldı" olarak işaretle.
+      // Eskiden appliedCoupon hep null olduğundan bu çağrı ölü koddu.
+      if (order != null && appliedCoupon != null && couponDiscount > 0) {
+        try {
+          await Supabase.instance.client.rpc('use_coupon', params: {
+            'p_coupon_id': appliedCoupon.id,
+            'p_order_id': order.id,
+            'p_user_id': userId,
+            'p_discount_amount': couponDiscount,
+          });
+          debugPrint('✅ use_coupon RPC başarılı: ${appliedCoupon.code}');
+        } catch (e) {
+          debugPrint('❌ use_coupon RPC başarısız: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Kupon kullanımı kaydedilemedi, lütfen destek ile iletişime geçin.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          rethrow;
+        }
+      }
 
       if (order != null) {
         // Sepeti temizle (hem database hem UI state)
@@ -1000,18 +1113,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             elevation: 0,
           ),
           body: SafeArea(
-            child: FutureBuilder<CartSummary>(
-              future: _cartSummaryFuture ??= _cartService.getCartSummary(userId),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            // ESKİ: `FutureBuilder` + `_cartService.getCartSummary` kupon
+            // indirimini BİLMİYORDU (servis DB'den okur, kupon state
+            // CartProvider'da). "Sipariş Özeti" kuponsuz fiyat gösteriyordu
+            // (UI ile INSERT tutarsız). Şimdi `cartProvider.summary`
+            // kullanılıyor — kupon _couponsByShop'tan toplanır.
+            child: Builder(
+              builder: (context) {
+                final summary = cartProvider.summary;
+                if (summary.isEmpty) {
                   return const Center(child: Text('Sepetiniz boş'));
                 }
-
-                final summary = snapshot.data!;
 
                 return SingleChildScrollView(
                   padding: const EdgeInsets.only(

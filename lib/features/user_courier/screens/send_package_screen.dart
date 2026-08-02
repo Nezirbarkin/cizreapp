@@ -32,6 +32,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
 
   List<Map<String, dynamic>> _serviceNotices = [];
 
+  // build() içinde her seferinde yeni Future yaratmak yerine tek sefer cache'le.
+  Future<List<Map<String, dynamic>>>? _nearbyCouriersFuture;
+
   double? get _distanceKm {
     if (_pickupAddress?.latitude == null ||
         _pickupAddress?.longitude == null ||
@@ -59,6 +62,12 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
     super.initState();
     _loadPricing();
     _loadServiceNotices();
+    _refreshNearbyCouriers();
+  }
+
+  /// Yakın kuryeler future'unu yeniden oluşturur (pull-to-refresh vb. için).
+  void _refreshNearbyCouriers() {
+    _nearbyCouriersFuture = _fetchNearbyCoriers();
   }
 
   Future<void> _loadPricing() async {
@@ -140,10 +149,11 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   }
 
   Future<void> _submitRequest() async {
-    if (_senderNameController.text.isEmpty ||
-        _senderPhoneController.text.isEmpty ||
-        _recipientController.text.isEmpty ||
-        _recipientPhoneController.text.isEmpty ||
+    // Boş/yalnızca-boşluk girişleri engelle.
+    if (_senderNameController.text.trim().isEmpty ||
+        _senderPhoneController.text.trim().isEmpty ||
+        _recipientController.text.trim().isEmpty ||
+        _recipientPhoneController.text.trim().isEmpty ||
         _pickupAddress == null ||
         _deliveryAddress == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -152,26 +162,51 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
       return;
     }
 
+    // Adreslerin koordinatı yoksa ücret hesaplanamaz; bakiye düşülmeden
+    // ücretsiz paket oluşturulmasını önle.
+    if (_pickupAddress?.latitude == null ||
+        _pickupAddress?.longitude == null ||
+        _deliveryAddress?.latitude == null ||
+        _deliveryAddress?.longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Alım ve teslim noktaları için haritadan konum seçiniz'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     Map<String, dynamic>? insertedRequest;
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Oturumunuz sona erdi. Lütfen tekrar giriş yapınız.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
 
       insertedRequest = await Supabase.instance.client.from('courier_requests').insert({
         'sender_id': userId,
-        'sender_name': _senderNameController.text,
-        'sender_phone': _senderPhoneController.text,
-        'recipient_name': _recipientController.text,
-        'recipient_phone': _recipientPhoneController.text,
+        'sender_name': _senderNameController.text.trim(),
+        'sender_phone': _senderPhoneController.text.trim(),
+        'recipient_name': _recipientController.text.trim(),
+        'recipient_phone': _recipientPhoneController.text.trim(),
         'pickup_address': _pickupAddress!.addressLine1,
         'pickup_lat': _pickupAddress!.latitude,
         'pickup_lng': _pickupAddress!.longitude,
         'delivery_address': _deliveryAddress!.addressLine1,
-        'delivery_address_detail': _recipientAddressDetailController.text,
+        'delivery_address_detail': _recipientAddressDetailController.text.trim(),
         'delivery_lat': _deliveryAddress!.latitude,
         'delivery_lng': _deliveryAddress!.longitude,
-        'description': _descriptionController.text,
+        'description': _descriptionController.text.trim(),
         'distance_km': _distanceKm,
         'total_fee': _totalFee,
         'status': 'pending',
@@ -209,7 +244,20 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
               .from('courier_requests')
               .delete()
               .eq('id', insertedRequest['id']);
-        } catch (_) {}
+        } catch (rollbackErr) {
+          // Geri alma da başarısız olursa (RLS/ağ): ücreti düşülmemiş talebin
+          // kuryelere görünmesi riskini bildir.
+          debugPrint('❌ Talep geri alınamadı: $rollbackErr');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('İşlem başarısız oldu ancak talep silinemedi. Lütfen destekle iletişime geçin.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 6),
+              ),
+            );
+          }
+        }
       }
       if (mounted) {
         // Yetersiz bakiye hatası kontrolü
@@ -465,7 +513,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
 
   Widget _buildNearbyCourriersList() {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _fetchNearbyCoriers(),
+      future: _nearbyCouriersFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Container(

@@ -8,10 +8,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// listeler, `approveConfirmation`/`rejectConfirmation` ile karara bağlar.
 ///
 /// Onaylandığında DB tarafında `approve_transfer_confirmation` RPC'si
-/// OTOMATİK olarak bakiye ekler (add_to_balance) + kullanıcıya notifications
-/// kaydı insert eder (trigger). `approveConfirmation`/`rejectConfirmation`
-/// RPC başarılı döndükten sonra kullanıcının `fcm_token`'ı varsa
-/// `send-push-notification` Edge Function'ı da otomatik çağırır.
+/// OTOMATİK olarak bakiye ekler (add_to_balance) + kullanıcıya
+/// notifications kaydı insert eder. Bu notification kaydı
+/// `notifications_outbox_trigger` ile outbox'a yazılır ve
+/// `process-notification-outbox` worker'ı FCM push'u gönderir.
+///
+/// Flutter istemcisi push göndermek için herhangi bir Edge Function
+/// çağırmaz; `fcm_token` SELECT etmez. Push tamamen outbox üzerinden akar.
 ///
 /// Tüm DB işlemleri RLS tarafından korunur:
 /// - Kullanıcı yalnızca kendi kayıtlarını görür, sadece pending INSERT eder.
@@ -104,6 +107,7 @@ class TransferService {
 
   /// (Admin) Onayla → RPC bakiyeyi OTOMATİK ekler + kullanıcıya notification
   /// insert eder (trigger). Bu çağrı başarılıysa bakiye kesin eklenmiştir.
+  /// Push, outbox trigger'ı + worker tarafından güvenli biçimde gönderilir.
   ///
   /// Idempotent: aynı id ikinci kez onaylanırsa RPC hata fırlatır
   /// ("Bu kayıt zaten approved olarak işlenmiş") → UI bunu yakalar.
@@ -119,20 +123,11 @@ class TransferService {
           'p_admin_note': adminNote,
         },
       );
-      // RPC RETURNS JSON → Map döner
-      final confirmation = Map<String, dynamic>.from(result as Map);
-      await _sendResolutionPush(
-        userId: confirmation['user_id'] as String,
-        title: 'Havale Onaylandı ✅',
-        body:
-            '₺${(confirmation['amount'] as num).toStringAsFixed(2)} bakiyenize yansıtıldı.',
-        data: {
-          'type': 'transfer_confirmation_approved',
-          'confirmation_id': confirmationId,
-          'amount': confirmation['amount'].toString(),
-        },
-      );
-      return confirmation;
+      // RPC RETURNS JSON → Map döner.
+      // Notification kaydı RPC içinde INSERT edilir; outbox trigger'ı
+      // otomatik olarak push'u planlar. İstemci tarafında ek bir
+      // push çağrısı YAPILMAZ.
+      return Map<String, dynamic>.from(result as Map);
     } on PostgrestException catch (e) {
       debugPrint('❌ approve_confirmation RPC hatası: ${e.code} ${e.message}');
       throw Exception(_friendlyRpcError(e));
@@ -153,52 +148,13 @@ class TransferService {
           'p_admin_note': adminNote,
         },
       );
-      final confirmation = Map<String, dynamic>.from(result as Map);
-      await _sendResolutionPush(
-        userId: confirmation['user_id'] as String,
-        title: 'Havale Reddedildi',
-        body: adminNote != null && adminNote.isNotEmpty
-            ? 'Sebep: $adminNote'
-            : 'Havale bildiriminiz reddedildi.',
-        data: {
-          'type': 'transfer_confirmation_rejected',
-          'confirmation_id': confirmationId,
-          'amount': confirmation['amount'].toString(),
-        },
-      );
-      return confirmation;
+      // Notification kaydı RPC içinde INSERT edilir; outbox trigger'ı
+      // otomatik olarak push'u planlar. İstemci tarafında ek bir
+      // push çağrısı YAPILMAZ.
+      return Map<String, dynamic>.from(result as Map);
     } on PostgrestException catch (e) {
       debugPrint('❌ reject_confirmation RPC hatası: ${e.code} ${e.message}');
       throw Exception(_friendlyRpcError(e));
-    }
-  }
-
-  /// Onay/red sonrası kullanıcıya FCM push gönderir (varsa token).
-  /// Hata olsa da ana işlemi (onay/red zaten DB'de tamamlandı) düşürmez.
-  Future<void> _sendResolutionPush({
-    required String userId,
-    required String title,
-    required String body,
-    required Map<String, String> data,
-  }) async {
-    try {
-      final profile = await _supabase
-          .from('profiles')
-          .select('fcm_token')
-          .eq('id', userId)
-          .maybeSingle();
-
-      final fcmToken = profile?['fcm_token'] as String?;
-      if (fcmToken == null || fcmToken.isEmpty) return;
-
-      await _supabase.functions.invoke('send-push-notification', body: {
-        'fcm_token': fcmToken,
-        'title': title,
-        'body': body,
-        'data': data,
-      });
-    } catch (e) {
-      debugPrint('❌ Havale push bildirimi hatası: $e');
     }
   }
 
@@ -210,7 +166,9 @@ class TransferService {
     try {
       final response = await _supabase
           .from('transfer_confirmations')
-          .select('id, amount, note, status, admin_note, created_at, resolved_at')
+          .select(
+            'id, amount, note, status, admin_note, created_at, resolved_at',
+          )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
           .limit(50);

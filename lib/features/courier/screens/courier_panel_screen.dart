@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/courier_assignment_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/courier_notification_service.dart';
+import '../../../core/services/courier_location_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/privacy_service.dart';
 import '../../../core/services/email_service.dart';
@@ -17,6 +18,31 @@ import '../../profile/screens/profile_screen.dart';
 import '../../market/providers/cart_provider.dart';
 import '../../main/screens/main_screen.dart';
 import '../../seller/screens/seller_dashboard_screen.dart';
+
+/// Bir id'yi güvenli şekilde kısa gösterime dönüştürür. id null/boş/kısa ise
+/// RangeError fırlatmaz; "null"/"?" yerine güvenli bir değer döner.
+String _shortId(dynamic id) {
+  final s = id?.toString();
+  if (s == null || s.isEmpty) return '?';
+  return s.length > 8 ? s.substring(0, 8) : s;
+}
+
+/// Bir metnin ilk harfini güvenli şekilde alır (boş/kullanıcı adı yoksa 'K').
+String _initialOf(String? text) {
+  final t = (text ?? '').trim();
+  return t.isNotEmpty ? t[0].toUpperCase() : 'K';
+}
+
+/// Bir sipariş/harita satırından dükkan adını güvenli şekilde alır. 'shops'
+/// ilişkisi tek Map dönerse adını, List/null/başka tip gelirse 'Dükkan' döner.
+String _shopNameOf(Map<String, dynamic> order) {
+  final shops = order['shops'];
+  if (shops is Map) {
+    final name = shops['name'];
+    if (name is String && name.isNotEmpty) return name;
+  }
+  return 'Dükkan';
+}
 
 class CourierPanelScreen extends StatefulWidget {
   const CourierPanelScreen({super.key});
@@ -268,6 +294,11 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
   // false ise kurye manuel çevrimdışı: app ön plana gelse bile otomatik online yapılmaz.
   bool _isOnlineEnabled = true;
 
+  // Kurye konum paylaşımı (CourierLocationService). Açıkken kuryenin
+  // last_known_lat/lng'si periyodik olarak yazılır ve kullanıcıların
+  // "Yakın Kuryeler" haritasında moto ikonuyla görünür.
+  bool _isLocationSharing = false;
+
   List<Map<String, dynamic>> _serviceNotices = [];
 
   @override
@@ -280,7 +311,11 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        // Oturum yoksa spinner sonsuza kadar dönmesin.
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       // Profil bilgilerini al
       final profileData = await Supabase.instance.client
@@ -294,6 +329,10 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       // gösteriliyordu, bu yüzden gerçek durumu yansıtmıyordu).
       // is_online_enabled sütunu yoksa true kabul edilir (eski davranış).
       _isOnlineEnabled = _profile?['is_online_enabled'] as bool? ?? true;
+
+      // Konum paylaşım servisi singleton olduğu için app oturumundaki gerçek
+      // durumu (çalışıyor/çalışmıyor) yansıtır. Açılışta buton buna göre görünür.
+      _isLocationSharing = CourierLocationService().isTracking;
 
       // Kurye ucretini al (en guncel kaydi al)
       try {
@@ -443,6 +482,47 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       if (mounted) {
         setState(() => _isOnlineEnabled = !_isOnlineEnabled);
       }
+    }
+  }
+
+  /// Kurye konum paylaşımını açar/kapatır. Açıkken CourierLocationService
+  /// kuryenin konumunu (last_known_lat/lng) periyodik olarak veritabanına
+  /// yazar; böylece kullanıcıların "Yakın Kuryeler" haritasında moto ikonuyla
+  /// görünür. Konum izni servisin içinde istenir; izin yoksa başlatma sessizce
+  /// başarısız olur ve durum butona yansır.
+  Future<void> _toggleLocationSharing() async {
+    final service = CourierLocationService();
+    if (service.isTracking) {
+      await service.stopTracking();
+      if (mounted) {
+        setState(() => _isLocationSharing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Konum paylaşımı durduruldu'),
+            backgroundColor: Colors.grey,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Paylaşımı başlat (konum izni servisin içinde istenir/ kontrol edilir).
+    // startTracking yalnızca ilk konum veritabanına yazılırsa true döner;
+    // aksi halde (izin yok, eksik sütun, RLS, ağ hatası) false döner ve
+    // buton "paylaşılıyor" diye yanıltıcı görünmez.
+    final started = await service.startTracking();
+    if (mounted) {
+      setState(() => _isLocationSharing = started);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(started
+              ? 'Konumunuz paylaşılıyor — kullanıcılar sizi haritada görebilir'
+              : 'Konum paylaşımı başlatılamadı (konum izni veya veritabanı hatası)'),
+          backgroundColor: started ? Colors.green : Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -751,7 +831,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                                           : null,
                                       child: _profile?['avatar_url'] == null
                                           ? Text(
-                                              (_profile?['username'] ?? 'K')[0].toUpperCase(),
+                                              _initialOf(_profile?['username'] as String?),
                                               style: TextStyle(
                                                 fontSize: 24,
                                                 fontWeight: FontWeight.bold,
@@ -850,6 +930,16 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                         const Text(
                           'Hızlı İşlemler',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildQuickActionCard(
+                          icon: _isLocationSharing ? Icons.location_on : Icons.location_off,
+                          title: _isLocationSharing ? 'Konum Paylaşılıyor' : 'Konumum Paylaş',
+                          subtitle: _isLocationSharing
+                              ? 'Kullanıcıların haritasında görünürsünüz'
+                              : 'Konumunuzu paylaşarak görünür olun',
+                          color: _isLocationSharing ? Colors.green : Colors.indigo,
+                          onTap: _toggleLocationSharing,
                         ),
                         const SizedBox(height: 12),
                         _buildQuickActionCard(
@@ -1360,7 +1450,8 @@ class CourierOrdersTab extends StatefulWidget {
   State<CourierOrdersTab> createState() => _CourierOrdersTabState();
 }
 
-class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerProviderStateMixin {
+class _CourierOrdersTabState extends State<CourierOrdersTab>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   List<Map<String, dynamic>> _availableOrders = [];
   List<Map<String, dynamic>> _myOrders = [];
@@ -1386,20 +1477,35 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    // Uygulama ön plana geri döndüğünde (resume) sipariş listesini yenile.
+    // Eskiden didChangeAppLifecycleState yalnızca parent'ta setState ederdi
+    // ve kurye yeni atamaları görmezdi; pull-to-refresh gerekirdi.
+    WidgetsBinding.instance.addObserver(this);
     _loadOrders();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _loadOrders();
+    }
   }
 
   Future<void> _loadOrders() async {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       try {
         final settings = await Supabase.instance.client
@@ -1440,21 +1546,28 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
             .from('shops')
             .select('id')
             .or('has_own_courier.is.null,has_own_courier.eq.false');
-        final shopIds = (shopsData as List).map((s) => s['id'] as String).toSet();
-        
+        final shopIds = (shopsData as List)
+            .map((s) => s['id'] as String?)
+            .whereType<String>()
+            .toSet();
+
         // Atanmış siparişleri bul
         final assignedData = await serviceClient
             .from('courier_assignments')
             .select('order_id')
             .inFilter('status', ['assigned', 'picked_up', 'on_the_way', 'delivered']);
-        final assignedIds = (assignedData as List).map((a) => a['order_id'] as String).toSet();
-        
+        final assignedIds = (assignedData as List)
+            .map((a) => a['order_id'] as String?)
+            .whereType<String>()
+            .toSet();
+
         debugPrint('Kuryesi olmayan dükkan sayısı: ${shopIds.length}');
         debugPrint('Atanmış sipariş sayısı: ${assignedIds.length}');
-        
+
         for (final order in (ordersData as List)) {
-          final shopId = order['shop_id'] as String;
-          final orderId = order['id'] as String;
+          final shopId = order['shop_id'] as String?;
+          final orderId = order['id'] as String?;
+          if (shopId == null || orderId == null) continue;
           
           // Kuryesi olmayan dükkan ve atanmamış sipariş
           if (shopIds.contains(shopId) && !assignedIds.contains(orderId)) {
@@ -1613,7 +1726,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
 
   Widget _buildAvailableOrderCard(Map<String, dynamic> order) {
     final items = order['order_items'] as List? ?? [];
-    final shopName = order['shops'] != null ? order['shops']['name'] : 'Dükkan';
+    final shopName = _shopNameOf(order);
     final orderStatus = order['status'] as String? ?? 'ready';
 
     // Duruma göre renk ve etiket belirle
@@ -1642,7 +1755,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text(
-                          '#${order['id'].toString().substring(0, 8)}',
+                          '#${_shortId(order['id'])}',
                           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                         ),
                       ],
@@ -1804,7 +1917,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
   /// Sipariş detaylarını göster
   void _showOrderDetails(Map<String, dynamic> order) {
     final items = order['order_items'] as List? ?? [];
-    final shopName = order['shops'] != null ? order['shops']['name'] : 'Dükkan';
+    final shopName = _shopNameOf(order);
     final orderStatus = order['status'] as String? ?? 'ready';
     final statusInfo = _getStatusInfo(orderStatus);
     
@@ -1875,7 +1988,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                '#${order['id'].toString().substring(0, 8)}',
+                                '#${_shortId(order['id'])}',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey.shade600,
@@ -2091,7 +2204,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
 
   Widget _buildMyOrderCard(Map<String, dynamic> order) {
     final items = order['order_items'] as List? ?? [];
-    final shopName = order['shops'] != null ? order['shops']['name'] : 'Dükkan';
+    final shopName = _shopNameOf(order);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2113,7 +2226,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text(
-                          '#${order['id'].toString().substring(0, 8)}',
+                          '#${_shortId(order['id'])}',
                           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                         ),
                       ],
@@ -2260,7 +2373,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       // Önce bu siparişin zaten atanmış olup olmadığını kontrol et
       final existingAssignment = await Supabase.instance.client
           .from('courier_assignments')
-          .select('id, status')
+          .select('id, status, courier_id')
           .eq('order_id', order['id'])
           .maybeSingle();
 
@@ -2365,8 +2478,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      final orderId = order['id'] as String;
+      final orderId = order['id'] as String?;
       final assignmentId = order['assignment_id'] as String?;
+      if (orderId == null) return;
 
       // Assignment durumunu picked_up yap
       if (assignmentId != null) {
@@ -2399,11 +2513,27 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       // Müşteriye "yolda" bildirimi gönder (TEK KAYNAK)
       try {
         final courierNotificationService = CourierNotificationService();
+        // Gerçek kurye adını profilden çek. Eskiden hardcoded 'Kurye'
+        // geçiriliyordu; müşteri kimin teslim ettiğini göremiyordu.
+        String courierName = 'Kurye';
+        try {
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select('full_name, username')
+              .eq('id', userId)
+              .maybeSingle();
+          courierName =
+              (profile?['full_name'] as String?)?.isNotEmpty == true
+                  ? profile!['full_name'] as String
+                  : (profile?['username'] as String?) ?? 'Kurye';
+        } catch (_) {
+          // profil alınamazsa 'Kurye' fallback
+        }
         // notifyCustomerOrderAssigned zaten "Yolda" mesajı veriyor
         await courierNotificationService.notifyCustomerOrderAssigned(
           customerId: order['user_id'] ?? '',
           orderId: orderId,
-          courierName: 'Kurye',
+          courierName: courierName,
         );
       } catch (e) {
         debugPrint('⚠️ Yolda bildirimi hatası: $e');
@@ -2437,8 +2567,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      final orderId = order['id'] as String;
+      final orderId = order['id'] as String?;
       final assignmentId = order['assignment_id'] as String?;
+      if (orderId == null) return;
 
       // Assignment durumunu on_the_way yap
       if (assignmentId != null) {
@@ -2531,6 +2662,20 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
 
   /// Teslimatı tamamla (yardımcı metod)
   Future<void> _completeDelivery(String assignmentId, String orderId, String userId) async {
+    // Atamanın saklı fee_amount'ını al; kazanç kaydını güncel fee_per_delivery
+    // yerine bu sabit değerle yaz (admin ücreti sonradan değişse bile tutararlı kalır).
+    double assignmentFee = 0;
+    try {
+      final assignmentRow = await Supabase.instance.client
+          .from('courier_assignments')
+          .select('fee_amount')
+          .eq('id', assignmentId)
+          .maybeSingle();
+      assignmentFee = (assignmentRow?['fee_amount'] as num?)?.toDouble() ?? 0;
+    } catch (e) {
+      debugPrint('⚠️ Atama fee_amount alınamadı: $e');
+    }
+
     // Atamayı delivered olarak güncelle
     await Supabase.instance.client.from('courier_assignments').update({
       'status': 'delivered',
@@ -2555,10 +2700,15 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
     // Sipariş durumunu güncelle ve teslim eden kurye bilgisini de orders'a yaz.
     // Bu sayede satıcı/admin panelleri courier_assignments join'ine bağımlı
     // kalmadan orders kaydından kurye bilgisini gösterebilir.
+    // ÖNEMLİ: payment_status='paid' de burada yazılır. Eskiden kurye
+    // _completeDelivery orders'ı doğrudan güncelleyip OrderService'i
+    // atladığı için payment_status hep 'pending' kalıyordu; sadece kendi
+    // kuryesi olan dükkanlar paid yapıyordu. Teslim = ödenmiş (tüm yöntemler).
     final now = DateTime.now().toIso8601String();
     try {
       await Supabase.instance.client.from('orders').update({
         'status': 'delivered',
+        'payment_status': 'paid',
         'delivered_at': now,
         'delivered_courier_id': userId,
         'delivered_courier_name': courierName,
@@ -2571,6 +2721,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
       try {
         await Supabase.instance.client.from('orders').update({
           'status': 'delivered',
+          'payment_status': 'paid',
           'delivered_at': now,
         }).eq('id', orderId);
       } catch (e2) {
@@ -2635,19 +2786,32 @@ class _CourierOrdersTabState extends State<CourierOrdersTab> with SingleTickerPr
           .update({'delivered_count': currentCount + 1})
           .eq('id', userId);
       
-      // Kazanç tablosuna kayıt ekle
+      // Kazanç tablosuna kayıt ekle — atamanın saklı fee_amount'ını kullan
+      // (yeniden sorgulanan güncel fee_per_delivery değil, böylece admin
+      // teslimat sonrası ücreti değiştirse bile kazanç kaydı tutarlı kalır).
       await Supabase.instance.client.from('courier_earnings').insert({
         'courier_id': userId,
         'assignment_id': assignmentId,
         'order_id': orderId,
-        'amount': await _getCourierFee(),
+        'amount': assignmentFee,
         'status': 'pending',
         'created_at': DateTime.now().toIso8601String(),
       });
       
       debugPrint('✅ Teslimat kaydedildi: count=${currentCount + 1}');
     } catch (e) {
-      debugPrint('⚠️ Teslimat sayısı güncellenemedi: $e');
+      debugPrint('⚠️ Teslimat sayısı/kazanç kaydı güncellenemedi: $e');
+      // Teslimat durumu 'delivered' olarak işaretlendi ama kazanç satırı
+      // oluşamadı (ağ/RLS). Kuryenin ödemesini kaçırmaması için bilgilendir.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Teslimat kaydedildi ancak kazanç kaydı oluşturulamadı. Lütfen yöneticiye bildirin.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 6),
+          ),
+        );
+      }
     }
   }
 
@@ -3015,7 +3179,10 @@ class _CourierDeliveryHistoryScreenState extends State<CourierDeliveryHistoryScr
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       final response = await Supabase.instance.client
           .from('courier_assignments')
@@ -3172,7 +3339,10 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       // Gerçek teslimatlar: sipariş atamaları (sabit ücret) + paket talepleri (komisyonlu)
       List<Map<String, dynamic>> assignmentDeliveries = [];

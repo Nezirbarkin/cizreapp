@@ -8,8 +8,10 @@ import 'package:flutter/gestures.dart' show EagerGestureRecognizer, OneSequenceG
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/sehirici_models.dart';
-import '../services/sehirici_line_service.dart';
+import '../services/sehirici_trip_service.dart';
+import '../../core/services/courier_stream_service.dart';
 
 /// Şehir içi servis canlı harita widget'ı.
 /// Aktif seferleri ve durakları harita üzerinde gösterir.
@@ -46,6 +48,16 @@ class SehiriciLiveMap extends StatefulWidget {
   /// Long press callback (konum düşürme)
   final ValueChanged<LatLng>? onLongPress;
 
+  /// Hat yol rotasını (duraklar arası çizgi / yol takip) göster/gizle.
+  /// Şoför paneli, şoför henüz gerçek rota çizmediği sürece false verir;
+  /// durak marker'ları yine görünür.
+  final bool showRoute;
+
+  /// Aktif kuryeleri (role='courier', konum paylaşan) haritada motor ikonuyla
+  /// göster. Kuryeler sefer/hattından bağımsız, `profiles` tablosundan canlı
+  /// okunur. Şoförün kendi panelinde kapatılabilir.
+  final bool showCouriers;
+
   const SehiriciLiveMap({
     super.key,
     required this.lines,
@@ -56,10 +68,12 @@ class SehiriciLiveMap extends StatefulWidget {
     this.interactive = true,
     this.height = 220,
     this.tiltAngle = 45.0,
-    this.showTraffic = true,
+    this.showTraffic = false,
     this.enableLiveUpdates = true,
     this.updateIntervalSeconds = 30,
     this.onLongPress,
+    this.showRoute = true,
+    this.showCouriers = true,
   });
 
   @override
@@ -68,8 +82,6 @@ class SehiriciLiveMap extends StatefulWidget {
 
 class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderStateMixin {
   static final Map<String, BitmapDescriptor> _iconCache = {};
-  static final Map<String, List<List<double>>> _roadRouteCache = {};
-  static final Set<String> _roadRoutesFetching = {};
 
   // Animasyon durumları
   final Map<String, LatLng> _previousPositions = {};
@@ -77,9 +89,19 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   final Map<String, AnimationController> _positionAnimControllers = {};
   final Map<String, Animation<LatLng>> _positionAnimations = {};
 
-  // Pulse animasyon durumları
-  final Map<String, AnimationController> _pulseControllers = {};
-  final Map<String, Animation<double>> _pulseAnimations = {};
+  // Pulse animasyonu: TÜM canlı araçlar için TEK shared controller.
+  // Önceden her araç ayrı bir controller + kendi setState'ini çağırıyordu
+  // (N araçta saniyede ~60×N full harita rebuild'i). Artık frame başına
+  // tek setState ve tek _circles yeniden kurulumu var; araç yoksa animasyon
+  // durur (sıfır ek yük).
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+  final Map<String, Color> _pulseColors = {}; // tripId -> pulse rengi
+
+  // Pulse setState'ini ~20fps'de tutmak için frame sayacı. Aksi halde her
+  // frame'de setState → tüm GoogleMap widget'ı yeniden çiziliyor; bu hem
+  // açılışta hem etkileşimde ciddi jank üretiyordu.
+  int _pulseFrame = 0;
 
   // Timer durumları
   Timer? _liveUpdateTimer;
@@ -88,14 +110,18 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   // Mevcut trip verileri (ETA hesaplaması için)
   final Map<String, SehiriciActiveTrip> _currentTripData = {};
 
-  final SehiriciLineService _lineService = SehiriciLineService();
+  // Her aktif sefer için şoförün geçtiği gerçek yol (polyline).
+  // Realtime ile yeni noktalar eklenir, haritada arkasında çizilir.
+  final Map<String, List<LatLng>> _tripPaths = {};
+  final Set<String> _tripPathsLoading = {};
+
+  final SehiriciTripService _tripService = SehiriciTripService();
   GoogleMapController? _mapController;
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
   Set<Circle> _circles = {}; // Pulse efektleri için
   bool _initialFit = true;
   bool _isMapReady = false;
-  bool _roadRoutesLoaded = false;
 
   // Kullanıcının kendi konumu ve seçili hat için canlı takip
   Position? _userPosition;
@@ -106,27 +132,177 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   String? _selectedTripId;
   BitmapDescriptor? _userLocationIcon;
 
+  // Cihazın konum servisi (GPS) kapalı mı? Harita açıldığında
+  // kontrol edilir, banner göstermek için kullanılır.
+  bool _locationServiceOff = false;
+
+  // Kuryeler: role='courier' + konum paylaşan kullanıcılar. Sefer/hattan
+  // bağımsız, CourierStreamService üzerinden canlı dinlenir. Haritada
+  // motor ikonu olarak gösterilir.
+  Map<String, CourierInfo> _couriers = const {};
+  void Function(Map<String, CourierInfo>)? _courierListener;
+  BitmapDescriptor? _courierIcon;
+
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 2.5).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeOut),
+    );
+    _pulseController.addListener(_onPulseTick);
+
     _initializeTripData();
     _rebuild();
     _initUserLocationOnEntry();
+
+    // Şoför konum güncellemelerini realtime dinle; yeni nokta geldiğinde
+    // o seferin polyline'ına ekle (şoförün arkasında çizilen gerçek yol).
+    _tripService.watchTripPaths(
+      onPoint: _onTripPathPoint,
+    );
 
     // Live update timer başlat
     if (widget.enableLiveUpdates) {
       _startLiveUpdates();
     }
+
+    // Kuryeleri (role='courier') canlı izle ve haritada göster.
+    if (widget.showCouriers) {
+      _startCourierTracking();
+    }
   }
 
-  /// Harita açılır açılmaz konum iznini ister ve kullanıcının konumunu
-  /// haritada gösterip canlı takibe başlar.
+  /// Realtime: bir sefere yeni konum noktası eklendi.
+  void _onTripPathPoint(String tripId, double lat, double lng) {
+    final newPoint = LatLng(lat, lng);
+    final list = _tripPaths.putIfAbsent(tripId, () => <LatLng>[]);
+    // Aynı noktayı tekrar ekleme (GPS aynı noktayı iki kez gönderebilir)
+    if (list.isNotEmpty) {
+      final last = list.last;
+      if ((last.latitude - lat).abs() < 0.00001 &&
+          (last.longitude - lng).abs() < 0.00001) {
+        return;
+      }
+    }
+    list.add(newPoint);
+    // İlgili trip için polyline'ı yeniden çiz
+    final trip = widget.activeTrips.firstWhere(
+      (t) => t.tripId == tripId,
+      orElse: () => SehiriciActiveTrip(
+        tripId: tripId,
+        lineId: '',
+        lineCode: '',
+        lineName: '',
+        lineColor: '#1976D2',
+      ),
+    );
+    _rebuildTripPathPolyline(trip);
+  }
+
+  /// Harita açılışında konum otomatik istenmez. Banner da otomatik
+  /// gösterilmez — kullanıcı "Konumuma git" butonuna, haritanın boş
+  /// bir noktasına tıkladığında veya bir hatta/araca dokunduğunda
+  /// [_ensureUserLocation] üzerinden konum istenir; bu sırada servis
+  /// kapalıysa banner [_onMapTapped] tarafından gösterilir.
   Future<void> _initUserLocationOnEntry() async {
-    final pos = await SehiriciUserLocation.getCurrent();
-    if (pos == null || !mounted) return;
-    setState(() => _userPosition = pos);
-    _startUserLocationStream();
-    _rebuildUserOverlay();
+    // Bilinçli olarak boş: hiçbir otomatik konum/servis kontrolü yok.
+  }
+
+  /// Kullanıcı haritanın boş bir noktasına dokunduğunda çağrılır.
+  /// Konum servisi kapalıysa [_locationServiceOff] banner'ı gösterir —
+  /// otomatik değil, sadece kullanıcı etkileşiminden sonra.
+  void _onMapTapped(LatLng _) {
+    _checkLocationServiceAndShowBanner();
+  }
+
+  /// Konum servisinin açık olup olmadığını kontrol eder; kapalıysa
+  /// banner gösterir. Butona basılınca veya haritaya tıklanınca tetiklenir.
+  Future<void> _checkLocationServiceAndShowBanner() async {
+    try {
+      final serviceOn = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!serviceOn && !_locationServiceOff) {
+        setState(() => _locationServiceOff = true);
+      }
+    } catch (_) {
+      // kontrol edilemedi — sessizce geç
+    }
+  }
+
+  /// Kullanıcı bir aksiyonu (buton, hat/araç tıklaması) sonucu konum
+  /// istediğinde çağrılır. İzin verilmişse sessizce konum alır; verilmemişse
+  /// sistem diyaloğunu açar. Sonuca göre uygun SnackBar/eylem gösterir.
+  /// [source] SnackBar mesajlarında aksiyonun ne olduğunu belirtir
+  /// (örn. "Konumuma git", "Hattı seç").
+  Future<bool> _ensureUserLocation({String source = 'konum'}) async {
+    final result = await SehiriciUserLocation.requestCurrent();
+    if (!mounted) return false;
+    final newPos = result.position;
+
+    switch (result.outcome) {
+      case _LocationOutcome.granted:
+        if (newPos != null) {
+          setState(() => _userPosition = newPos);
+        }
+        // Konum alındıysa "konum kapalı" banner'ı kapat.
+        if (_locationServiceOff) {
+          setState(() => _locationServiceOff = false);
+        }
+        return newPos != null;
+      case _LocationOutcome.denied:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Konum izni reddedildi. $source için konum gerekli.',
+            ),
+          ),
+        );
+        return false;
+      case _LocationOutcome.permanentlyDenied:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Konum izni kalıcı olarak reddedildi. Ayarlardan açabilirsiniz.',
+            ),
+            action: SnackBarAction(
+              label: 'Ayarlar',
+              onPressed: () => Geolocator.openAppSettings(),
+            ),
+          ),
+        );
+        return false;
+      case _LocationOutcome.serviceOff:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Cihazınızın konum servisi kapalı. Açmak ister misiniz?',
+            ),
+            action: SnackBarAction(
+              label: 'Aç',
+              onPressed: () async {
+                try {
+                  await Geolocator.openLocationSettings();
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Konum ayarları açılamadı: $e')),
+                  );
+                }
+              },
+            ),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        // Banner da göster (zaten açıksa dokunma)
+        if (!_locationServiceOff) {
+          setState(() => _locationServiceOff = true);
+        }
+        return false;
+    }
   }
 
   void _initializeTripData() {
@@ -251,65 +427,57 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     }).toSet();
   }
 
-  /// Pulse animasyonunu başlat
+  /// Bir aracı pulse kümesine ekler. Shared controller zaten çalışmıyorsa
+  /// başlatır. İdempotent'tir — tekrar tekrar çağrılsa controller'ı
+  /// sıfırlamaz (eski sürüm dispose edip yeniden başlatıyordu).
   void _startPulseAnimation(String tripId, Color pulseColor) {
-    // Mevcut pulse controller'ı temizle
-    _pulseControllers[tripId]?.dispose();
-    
-    final controller = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    
-    final animation = Tween<double>(begin: 1.0, end: 2.5).animate(
-      CurvedAnimation(parent: controller, curve: Curves.easeOut),
-    );
-    
-    controller.addListener(() {
-      if (mounted && _isMapReady) {
-        setState(() {
-          _updatePulseCircle(tripId, animation.value, pulseColor);
-        });
-      }
-    });
-    
-    controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        controller.repeat();
-      }
-    });
-    
-    controller.repeat();
-    _pulseControllers[tripId] = controller;
-    _pulseAnimations[tripId] = animation;
+    _pulseColors[tripId] = pulseColor;
+    if (!_pulseController.isAnimating) {
+      _pulseController.repeat();
+    }
   }
 
-  void _updatePulseCircle(String tripId, double scale, Color color) {
-    final targetPos = _targetPositions[tripId];
-    if (targetPos == null) return;
-    
-    _circles = _circles.where((c) => c.circleId.value != 'pulse_$tripId').toSet();
-    
-    final circle = Circle(
-      circleId: CircleId('pulse_$tripId'),
-      center: targetPos,
-      radius: 25 * scale,
-      fillColor: color.withOpacity(0.3 * (1 - (scale - 1) / 1.5)),
-      strokeColor: color.withOpacity(0.6 * (1 - (scale - 1) / 1.5)),
-      strokeWidth: 2,
-      consumeTapEvents: false,
-    );
-    
-    _circles = {..._circles, circle};
+  /// Shared pulse controller'ın her frame'inde bir kez çağrılır. Tüm
+  /// pulse circle'larını tek bir setState ile yeniden kurar. Tam 60fps
+  /// yerine ~20fps (3 frame'de bir) günceller — nabız efektini korurken
+  /// GoogleMap rebuild yükünü ~3 kat düşürür.
+  void _onPulseTick() {
+    if (!mounted || !_isMapReady || _pulseColors.isEmpty) return;
+    if (++_pulseFrame % 3 != 0) return;
+    setState(_rebuildPulseCircles);
   }
 
-  /// Pulse animasyonunu durdur
+  void _rebuildPulseCircles() {
+    // Pulse olmayan circle'ları koru, pulse_* olanları yeniden kur.
+    final others =
+        _circles.where((c) => !c.circleId.value.startsWith('pulse_')).toSet();
+    final scale = _pulseAnimation.value;
+    final fade = (1 - (scale - 1) / 1.5).clamp(0.0, 1.0);
+    for (final entry in _pulseColors.entries) {
+      final pos = _targetPositions[entry.key];
+      if (pos == null) continue;
+      others.add(Circle(
+        circleId: CircleId('pulse_${entry.key}'),
+        center: pos,
+        radius: 25 * scale,
+        fillColor: entry.value.withOpacity(0.3 * fade),
+        strokeColor: entry.value.withOpacity(0.6 * fade),
+        strokeWidth: 2,
+        consumeTapEvents: false,
+      ));
+    }
+    _circles = others;
+  }
+
+  /// Bir aracı pulse kümesinden çıkarır. Küme boşalırsa controller'ı durdurur
+  /// (idle → ek yük yok).
   void _stopPulseAnimation(String tripId) {
-    _pulseControllers[tripId]?.dispose();
-    _pulseControllers.remove(tripId);
-    _pulseAnimations.remove(tripId);
-    
+    _pulseColors.remove(tripId);
     _circles = _circles.where((c) => c.circleId.value != 'pulse_$tripId').toSet();
+    if (_pulseColors.isEmpty && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.reset();
+    }
   }
 
   @override
@@ -335,9 +503,26 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       }
     }
 
+    // Kurye gösterimi değişikliği: açılışta kapalıysa abonelik başlamamıştır;
+    // runtime'da açılırsa başlat, kapanırsa aboneliği durdur ve marker'ları kaldır.
+    if (old.showCouriers != widget.showCouriers) {
+      if (widget.showCouriers && _courierListener == null) {
+        _startCourierTracking();
+      } else if (!widget.showCouriers && _courierListener != null) {
+        final l = _courierListener!;
+        CourierStreamService().unsubscribe(l);
+        _courierListener = null;
+        _couriers = const {};
+        setState(() {
+          _markers = _markers
+              .where((m) => !m.markerId.value.startsWith('courier_'))
+              .toSet();
+        });
+      }
+    }
+
     // Sadece hat değiştiğinde _rebuild çağır (trip değişiklikleri _handleTripChanges tarafından işlenecek)
     if (old.lines != widget.lines) {
-      _roadRoutesLoaded = false;
       _rebuild();
     }
   }
@@ -373,6 +558,11 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       _previousPositions.remove(tripId);
       _targetPositions.remove(tripId);
       _currentTripData.remove(tripId);
+      // Şoförün geçtiği yol polyline'ını da temizle
+      _tripPaths.remove(tripId);
+      _polylines = _polylines
+          .where((p) => p.polylineId.value != 'trip_path_$tripId')
+          .toSet();
     }
   }
 
@@ -401,25 +591,9 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     final markers = <Marker>{};
     final polylines = <Polyline>{};
 
-    // 1) Hat polylines (düz çizgi — hızlı ilk çizim) + durak marker'ları
+    // 1) Durak marker'ları. Hat polylines'ı (kuş uçuşu düz çizgi) artık
+    // çizilmiyor — sadece şoförün geçtiği gerçek yol polyline'ı görünür.
     for (final line in widget.lines) {
-      if (line.stops.length >= 2) {
-        // Önce cache'de kontrol et, yoksa düz çizgi kullan
-        final cachedRoute = _roadRouteCache[line.id];
-        final points = (cachedRoute != null && cachedRoute.length >= 2)
-            ? cachedRoute.map((p) => LatLng(p[0], p[1])).toList()
-            : line.stops.map((s) => LatLng(s.lat, s.lng)).toList();
-
-        polylines.add(Polyline(
-          polylineId: PolylineId('line_${line.id}'),
-          points: points,
-          color: line.color.withOpacity(0.7),
-          width: 5,
-          consumeTapEvents: true,
-          onTap: () => _onLineTapped(line),
-        ));
-      }
-
       // Durak marker'ları — tek duraklı hatlarda da gösterilmeli.
       for (final stop in line.stops) {
         final isSelected = widget.selectedStopId == stop.stopId;
@@ -476,6 +650,10 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       _startPulseAnimation(trip.tripId, line.color);
     }
 
+    // 3) Kurye marker'ları (role='courier', konum paylaşan). Seferden bağımsız
+    // realtime akışla güncellenir; _rebuild çağrılsa da cache'ten tekrar çizilir.
+    markers.addAll(_courierMarkers());
+
     _markers = markers;
     _polylines = polylines;
 
@@ -483,26 +661,76 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       _fitBounds();
     }
 
-    _loadVehicleIcons();
-    _loadStopIcons();
+    // Ağır async işleri (özel ikon üretimi + sefer yolu yükleme) ilk frame'i
+    // bloklamadan, ilk çizim sonrasına bırakıyoruz. Böylece harita açılışta
+    // anında varsayılan renk marker'larıyla çizilir; özel ikonlar ve yol
+    // polyline'ları arka planda gelir. Çoklu aktif seferde her biri için
+    // ayrı atılan getTripPath RPC'leri de açılışla yarışmaz.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadVehicleIcons();
+      _loadStopIcons();
+      _loadInitialTripPaths();
+    });
+  }
 
-    // Rota yüklemesini sadece bir kez yap
-    if (!_roadRoutesLoaded) {
-      _loadRoadRoutes();
-      _roadRoutesLoaded = true;
+  /// Aktif seferlerin şoförünün geçtiği yol noktalarını (konum geçmişi)
+  /// sunucudan yükler. Realtime zaten initState'te başlatıldı, bu sadece
+  /// ilk açılışta / sayfa yenilemede eksik noktaları çeker.
+  Future<void> _loadInitialTripPaths() async {
+    for (final trip in widget.activeTrips) {
+      if (_tripPaths.containsKey(trip.tripId)) continue;
+      if (_tripPathsLoading.contains(trip.tripId)) continue;
+      _tripPathsLoading.add(trip.tripId);
+      try {
+        final path = await _tripService.getTripPath(trip.tripId);
+        if (!mounted) return;
+        _tripPaths[trip.tripId] =
+            path.map((p) => LatLng(p.lat, p.lng)).toList();
+        _rebuildTripPathPolyline(trip);
+      } catch (e) {
+        debugPrint('_loadInitialTripPaths hata: $e');
+      } finally {
+        _tripPathsLoading.remove(trip.tripId);
+      }
     }
+  }
+
+  /// Belirli bir seferin polyline'ını haritaya ekler (güncel nokta listesiyle).
+  void _rebuildTripPathPolyline(SehiriciActiveTrip trip) {
+    final line = widget.lines.firstWhere(
+      (l) => l.id == trip.lineId,
+      orElse: () => SehiriciLine(
+        id: trip.lineId,
+        code: trip.lineCode,
+        name: trip.lineName,
+        colorHex: trip.lineColor,
+      ),
+    );
+    final points = _tripPaths[trip.tripId] ?? const <LatLng>[];
+    if (points.length < 2) return;
+    setState(() {
+      _polylines = {
+        ..._polylines
+            .where((p) => p.polylineId.value != 'trip_path_${trip.tripId}'),
+        Polyline(
+          polylineId: PolylineId('trip_path_${trip.tripId}'),
+          points: points,
+          color: line.color,
+          width: 4,
+          consumeTapEvents: false,
+        ),
+      };
+    });
   }
 
   /// Durak marker'ları için küçük, tıklanabilir bir durak ikonu üretir
   Future<void> _loadStopIcons() async {
     final needed = <String>{'stop_default', 'stop_sel'};
     needed.removeWhere(_iconCache.containsKey);
-    if (needed.isEmpty) {
-      if (_markers.any((m) => m.markerId.value.startsWith('stop_'))) {
-        _rebuildStopMarkersOnly();
-      }
-      return;
-    }
+    // Cache sıcakken _rebuild() zaten durak marker'larını cached ikonla kurdu;
+    // burada tekrar setState etmek (özellikle initState sırasında) gereksiz.
+    if (needed.isEmpty) return;
     if (needed.contains('stop_default')) {
       _iconCache['stop_default'] =
           await _createStopBitmap(Colors.red);
@@ -540,29 +768,32 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     setState(() => _markers = markers);
   }
 
-  /// Küçük, yuvarlak bir "durak" ikonu (otobüs durağı işareti) çizer.
+  /// Modern "durak" ikonu: yumuşak gölgeli, kalın beyaz halkalı renkli nokta.
   Future<BitmapDescriptor> _createStopBitmap(Color color) async {
-    const double size = 48;
+    const double size = 56;
+    const center = Offset(size / 2, size / 2);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
 
+    // Yumuşak gölge
     canvas.drawCircle(
-        const Offset(size / 2, size / 2), size / 2 - 2, Paint()..color = color);
-    canvas.drawCircle(
-      const Offset(size / 2, size / 2),
-      size / 2 - 2,
+      center + const Offset(0, 3),
+      size / 2 - 6,
       Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
+        ..color = Colors.black.withOpacity(0.22)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
+    // Beyaz dış halka (kart zemin)
+    canvas.drawCircle(center, size / 2 - 4, Paint()..color = Colors.white);
+    // Renkli iç dolgu
+    canvas.drawCircle(center, size / 2 - 8, Paint()..color = color);
 
     const icon = Icons.location_on;
     final textPainter = TextPainter(textDirection: TextDirection.ltr)
       ..text = TextSpan(
         text: String.fromCharCode(icon.codePoint),
         style: TextStyle(
-          fontSize: size * 0.5,
+          fontSize: size * 0.34,
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
           color: Colors.white,
@@ -571,7 +802,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       ..layout();
     textPainter.paint(
       canvas,
-      Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
+      center - Offset(textPainter.width / 2, textPainter.height / 2),
     );
 
     final picture = recorder.endRecording();
@@ -634,10 +865,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
         needed[key] = (icon: line.vehicleType.icon, color: line.color);
       }
     }
-    if (needed.isEmpty) {
-      if (widget.activeTrips.isNotEmpty && mounted) _rebuildTripMarkersOnly();
-      return;
-    }
+    if (needed.isEmpty) return;
     for (final entry in needed.entries) {
       _iconCache[entry.key] =
           await _createVehicleBitmap(entry.value.icon, entry.value.color);
@@ -682,28 +910,94 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     setState(() => _markers = markers);
   }
 
-  /// Daire içinde araç ikonu çizip bir marker bitmap'i üretir.
-  Future<BitmapDescriptor> _createVehicleBitmap(IconData icon, Color color) async {
-    const double size = 64;
+  // ─────────────────────────────────────────────
+  // Kuryeler (role='courier') — seferden bağımsız canlı konum
+  // ─────────────────────────────────────────────
+
+  /// Kuryeleri CourierStreamService üzerinden dinler. İlk abone geldiğinde
+  /// servis `profiles` tablosunu realtime dinlemeye başlar; biz sadece
+  /// snapshot'a subscribe oluruz. Kurye geldiğinde harita onu da kapsayacak
+  /// şekilde bounds fit yaparız (ilk harita açılışında kurye henüz yoksa
+  /// fit bounds sadece durakları kapsar; sonradan kurye gelince haritayı
+  /// kaydırmak rahatsız edici olurdu — bu yüzden fit sadece harita ilk
+  /// hazır olduğunda tetiklenir, sonradan gelen kuryeler marker olarak
+  /// eklenir ama kamera kaydırılmaz).
+  Future<void> _startCourierTracking() async {
+    _ensureCourierIcon();
+    void onChange(Map<String, CourierInfo> snap) {
+      if (!mounted) return;
+      _couriers = snap;
+      _rebuildCourierMarkersOnly();
+    }
+    _courierListener = onChange;
+    CourierStreamService().subscribe(onChange);
+  }
+
+  /// Kurye marker'larını cache'lenen `_couriers`'den üretir.
+  Set<Marker> _courierMarkers() {
+    if (!widget.showCouriers || _couriers.isEmpty) return const {};
+    final out = <Marker>{};
+    for (final c in _couriers.values) {
+      out.add(Marker(
+        markerId: MarkerId('courier_${c.id}'),
+        position: LatLng(c.lat, c.lng),
+        icon: _courierIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 1.5,
+        consumeTapEvents: true,
+        onTap: () => _showCourierSheet(c),
+        infoWindow: InfoWindow(
+          title: c.name,
+          snippet: '🏍️ Kurye',
+        ),
+      ));
+    }
+    return out;
+  }
+
+  /// Sadece kurye marker'larını yeniden kurar; durak/araç/kullanıcı
+  /// marker'larını korur. Realtime güncelleme ve ikon yüklenmesi bittiğinde
+  /// çağrılır.
+  void _rebuildCourierMarkersOnly() {
+    final markers = {
+      ..._markers.where((m) => !m.markerId.value.startsWith('courier_')),
+    };
+    markers.addAll(_courierMarkers());
+    setState(() => _markers = markers);
+  }
+
+  Future<void> _ensureCourierIcon() async {
+    if (_courierIcon != null) return;
+    _courierIcon = await _createCourierBitmap();
+    if (mounted && _couriers.isNotEmpty) _rebuildCourierMarkersOnly();
+  }
+
+  /// Kurye marker ikonu: araç diskleriyle uyumlu, turuncu zeminli disk +
+  /// ortada motor simgesi. Araç marker'larından rengiyle ayrışır.
+  Future<BitmapDescriptor> _createCourierBitmap() async {
+    const double size = 72;
+    const center = Offset(size / 2, size / 2);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
 
-    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 4,
-        Paint()..color = color);
     canvas.drawCircle(
-      const Offset(size / 2, size / 2),
-      size / 2 - 4,
+      center + const Offset(0, 4),
+      size / 2 - 6,
       Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5,
+        ..color = Colors.black.withOpacity(0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
     );
+    canvas.drawCircle(center, size / 2 - 4, Paint()..color = Colors.white);
+    // Kurye rengi: turuncu — araçlardan (hat rengi) ayrışır.
+    canvas.drawCircle(center, size / 2 - 9, Paint()..color = const Color(0xFFFB8C00));
 
+    const icon = Icons.two_wheeler;
     final textPainter = TextPainter(textDirection: TextDirection.ltr)
       ..text = TextSpan(
         text: String.fromCharCode(icon.codePoint),
         style: TextStyle(
-          fontSize: size * 0.55,
+          fontSize: size * 0.42,
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
           color: Colors.white,
@@ -712,7 +1006,144 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       ..layout();
     textPainter.paint(
       canvas,
-      Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
+      center - Offset(textPainter.width / 2, textPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    }
+    return BitmapDescriptor.bytes(bytes.buffer.asUint8List());
+  }
+
+  /// Kurye marker'ına dokunulduğunda bilgi kartı gösterir. Kullanıcı konumu
+  /// biliniyorsa kuryeye olan mesafe ve tahmini varış da hesaplanır.
+  void _showCourierSheet(CourierInfo courier) {
+    final hasUserPos = _userPosition != null;
+    int? distMeters;
+    int? etaMinutes;
+    if (hasUserPos) {
+      final userLatLng =
+          _draggedPosition ?? LatLng(_userPosition!.latitude, _userPosition!.longitude);
+      distMeters = calculateDistance(
+        userLatLng,
+        LatLng(courier.lat, courier.lng),
+      ).round();
+      // Kurye ortalaması kentsel motor: ~25 km/sa.
+      etaMinutes = calculateETA(distMeters, speedKmh: 25.0);
+    }
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: const Color(0xFFFB8C00),
+                  child: const Icon(Icons.two_wheeler, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(courier.name,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const Text('Kurye · Konum paylaşılıyor'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (courier.updatedAt != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Son güncelleme: ${_formatTimeAgo(courier.updatedAt!)}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
+            if (distMeters != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.place, size: 18, color: Colors.grey.shade600),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${(distMeters / 1000).toStringAsFixed(distMeters < 1000 ? 2 : 1)} km uzakta'
+                      '${etaMinutes! > 0 ? ' · ~$etaMinutes dk' : ''}',
+                      style: TextStyle(color: Colors.green.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (!hasUserPos) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Mesafe için konumunuz gerekli. "Konumuma git" butonunu kullanın.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Verilen zamanı "x dk önce / x sa önce" biçiminde döndürür.
+  String _formatTimeAgo(DateTime time) {
+    // Realtime'den gelen damga genelde UTC'dir; yerel saate çevir.
+    final dt = time.toLocal();
+    // Date.now()/DateTime.now() yasak değil — bu normal uygulama akışı,
+    // workflow ortamı değil. Güvenli kullanım.
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'az önce';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
+    if (diff.inHours < 24) return '${diff.inHours} sa önce';
+    return '${diff.inDays} gün önce';
+  }
+  /// ortada araç simgesi. Çevresindeki pulse halkasıyla canlı görünür.
+  Future<BitmapDescriptor> _createVehicleBitmap(IconData icon, Color color) async {
+    const double size = 72;
+    const center = Offset(size / 2, size / 2);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
+
+    // Yumuşak gölge
+    canvas.drawCircle(
+      center + const Offset(0, 4),
+      size / 2 - 6,
+      Paint()
+        ..color = Colors.black.withOpacity(0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    // Beyaz kart zemin
+    canvas.drawCircle(center, size / 2 - 4, Paint()..color = Colors.white);
+    // Renkli disk
+    canvas.drawCircle(center, size / 2 - 9, Paint()..color = color);
+
+    final textPainter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: size * 0.42,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: Colors.white,
+        ),
+      )
+      ..layout();
+    textPainter.paint(
+      canvas,
+      center - Offset(textPainter.width / 2, textPainter.height / 2),
     );
 
     final picture = recorder.endRecording();
@@ -721,56 +1152,12 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
   }
 
-  /// Hat başına yol-takip eden (cadde bazlı) rotayı yükler (sadece bir kez)
+  /// Eski: Hat başına yol-takip eden (cadde bazlı) rotayı OSRM'den yükler.
+  /// OSRM önbelleği kaldırıldığı için artık çağrılmıyor; hat polylines'ı
+  /// _rebuild içinde sadece durakları düz çizgiyle bağlar. Şoförün geçtiği
+  /// asıl yol ayrıca _rebuildTripPathPolyline ile realtime çizilir.
   Future<void> _loadRoadRoutes() async {
-    final linesToFetch = <SehiriciLine>[];
-
-    // Henüz cache'de olmayan hatları bul
-    for (final line in widget.lines) {
-      if (line.stops.length < 2) continue;
-      if (!_roadRouteCache.containsKey(line.id) && !_roadRoutesFetching.contains(line.id)) {
-        linesToFetch.add(line);
-        _roadRoutesFetching.add(line.id);
-      }
-    }
-
-    if (linesToFetch.isEmpty) return;
-
-    // Rotalara paralel erişim (max 3 eşzamanlı)
-    for (var i = 0; i < linesToFetch.length; i += 3) {
-      final batch = linesToFetch.sublist(i, math.min(i + 3, linesToFetch.length));
-      final results = await Future.wait(
-        batch.map((line) => _lineService.getRoadRoute(line)),
-        eagerError: false,
-      );
-
-      if (!mounted) return;
-
-      for (var j = 0; j < batch.length; j++) {
-        final line = batch[j];
-        final points = results[j];
-
-        if (points.length < 2) continue;
-
-        _roadRouteCache[line.id] = points;
-
-        setState(() {
-          _polylines = {
-            ..._polylines.where((p) => p.polylineId.value != 'line_${line.id}'),
-            Polyline(
-              polylineId: PolylineId('line_${line.id}'),
-              points: points.map((p) => LatLng(p[0], p[1])).toList(),
-              color: line.color.withOpacity(0.7),
-              width: 5,
-              consumeTapEvents: true,
-              onTap: () => _onLineTapped(line),
-            ),
-          };
-        });
-      }
-    }
-
-    _roadRoutesFetching.clear();
+    // no-op
   }
 
   /// Kullanıcı bir hatta tıkladığında: konumunu paylaşır, canlı takibe başlar
@@ -782,19 +1169,8 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     });
 
     if (_userPosition == null) {
-      final pos = await SehiriciUserLocation.getCurrent();
-      if (pos == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Konumunuz alınamadı. Lütfen konum izni verin.'),
-            ),
-          );
-        }
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _userPosition = pos);
+      final ok = await _ensureUserLocation(source: 'Hattı seçmek');
+      if (!ok) return;
     }
 
     _startUserLocationStream();
@@ -937,19 +1313,8 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     });
 
     if (_userPosition == null) {
-      final pos = await SehiriciUserLocation.getCurrent();
-      if (pos == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Konumunuz alınamadı. Lütfen konum izni verin.'),
-            ),
-          );
-        }
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _userPosition = pos);
+      final ok = await _ensureUserLocation(source: 'Aracı takip etmek');
+      if (!ok) return;
     }
 
     _startUserLocationStream();
@@ -1138,36 +1503,28 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
 
   Future<void> _fitBounds() async {
     if (_mapController == null) return;
-    if (_markers.isEmpty) {
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(widget.center.centerLat, widget.center.centerLng),
-            zoom: widget.zoomLevel.toDouble(),
-            tilt: widget.tiltAngle,
-          ),
-        ),
-      );
-      return;
-    }
     try {
-      final bounds = _computeBounds();
-      await _mapController!.animateCamera(
+      final bounds = _markers.isEmpty ? null : _computeBounds();
+      final target = bounds == null
+          ? LatLng(widget.center.centerLat, widget.center.centerLng)
+          : LatLng(
+              (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
+              (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
+            );
+      // Açılışta kamera animasyonsuz anında o konuma otursun (ağır açılışı
+      // engeller). Sonraki odaklamalar (_recenterToUser vb.) animateCamera
+      // kullanmaya devam eder.
+      await _mapController!.moveCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
-            target: bounds == null 
-                ? LatLng(widget.center.centerLat, widget.center.centerLng) 
-                : LatLng(
-                    (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
-                    (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
-                  ),
+            target: target,
             zoom: widget.zoomLevel.toDouble(),
             tilt: widget.tiltAngle,
           ),
         ),
       );
-      _initialFit = false;
     } catch (_) {}
+    _initialFit = false;
   }
 
   LatLngBounds? _computeBounds() {
@@ -1193,7 +1550,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return SizedBox(
       height: widget.height,
       child: ClipRRect(
@@ -1210,13 +1567,13 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
                 _mapController = c;
                 _isMapReady = true;
 
-                // Dark mode stil uygula
-                if (isDark) {
-                  c.setMapStyle(_darkMapStyle);
-                }
+                // Modern sade harita stili ( açık/koyu tema farkı )
+                c.setMapStyle(isDark ? _darkMapStyle : _lightMapStyle);
 
-                if (_markers.isNotEmpty) {
-                  Future.delayed(const Duration(milliseconds: 300), _fitBounds);
+                // İlk odaklamayı anında, animasyonsuz yap (açılışı hızlandırır;
+                // _fitBounds moveCamera kullanır). 300ms gecikme kaldırıldı.
+                if (_markers.isNotEmpty && _initialFit) {
+                  _fitBounds();
                 }
               },
               markers: _markers,
@@ -1241,13 +1598,30 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
                 setState(() => _draggedPosition = pos);
                 widget.onLongPress?.call(pos);
               },
+              // Boş haritaya tıklanınca: konum servisi kapalıysa banner göster.
+              onTap: _onMapTapped,
             ),
+            // Konum servisi kapalı uyarı banner'ı (harita üstünde, tıklanabilir)
+            if (_locationServiceOff)
+              Positioned(
+                top: 10,
+                left: 10,
+                right: 10,
+                child: _buildLocationServiceOffBanner(isDark),
+              ),
+            // Yüzen modern kontroller (sadece etkileşimli görünümlerde)
+            if (widget.interactive)
+              Positioned(
+                right: 10,
+                bottom: _selectedLine != null ? 76 : 12,
+                child: _buildMapControls(isDark),
+              ),
             if (_selectedLine != null)
               Positioned(
                 left: 10,
                 right: 10,
                 bottom: 10,
-                child: _buildLineEtaCard(),
+                child: _buildLineEtaCard(isDark),
               ),
           ],
         ),
@@ -1255,57 +1629,317 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     );
   }
 
-  /// Seçili hat için canlı ETA/mesafe bilgisini gösteren kart.
-  Widget _buildLineEtaCard() {
-    final line = _selectedLine!;
-    final eta = _selectedLineEta();
+  /// Yüzen cam-tarzı harita kontrolleri: konumuma git + zoom +/-.
+  Widget _buildMapControls(bool isDark) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _mapControlButton(
+          isDark: isDark,
+          icon: Icons.my_location,
+          onTap: _recenterToUser,
+        ),
+        const SizedBox(height: 8),
+        _mapControlButton(
+          isDark: isDark,
+          icon: Icons.add,
+          onTap: () => _mapController?.animateCamera(CameraUpdate.zoomIn()),
+        ),
+        const SizedBox(height: 8),
+        _mapControlButton(
+          isDark: isDark,
+          icon: Icons.remove,
+          onTap: () => _mapController?.animateCamera(CameraUpdate.zoomOut()),
+        ),
+      ],
+    );
+  }
+
+  /// Cihazın konum servisi kapalıyken harita üstünde gösterilen uyarı
+  /// banner'ı. "Aç" butonuyla kullanıcıyı doğrudan cihazın konum
+  /// ayarlarına gönderebilir; kapat (×) butonu sadece banner'ı gizler
+  /// (servis durumu değişmediği için butona tekrar basınca geri gelir).
+  Widget _buildLocationServiceOffBanner(bool isDark) {
     return Material(
-      elevation: 6,
-      borderRadius: BorderRadius.circular(14),
-      color: Theme.of(context).cardColor,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: line.color,
-              child: Icon(line.vehicleType.icon, color: Colors.white, size: 16),
+      color: Colors.transparent,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(isDark ? 0.85 : 0.92),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.18),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${line.code} — ${line.name}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    eta == null
-                        ? (_userPosition == null
-                            ? 'Konum alınıyor...'
-                            : 'Şu an yaklaşan araç bulunamadı')
-                        : '${(eta.distanceMeters / 1000).toStringAsFixed(1)} km uzakta • '
-                            '${eta.speedKmh != null && eta.speedKmh! > 1 ? '${eta.speedKmh!.toStringAsFixed(0)} km/sa ile' : 'tahminen'} '
-                            '~${eta.etaMinutes} dk sonra'
-                            '${_draggedPosition != null ? ' (sürüklü konum)' : ''}',
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.location_off,
+                  color: Colors.white,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Konum servisi kapalı',
                     style: TextStyle(
-                      color: eta == null ? Colors.grey : Colors.green.shade700,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
                     ),
                   ),
-                ],
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white.withOpacity(0.22),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () async {
+                    try {
+                      await Geolocator.openLocationSettings();
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Konum ayarları açılamadı: $e')),
+                      );
+                    }
+                  },
+                  child: const Text(
+                    'Aç',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                  onPressed: () =>
+                      setState(() => _locationServiceOff = false),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: 'Bildirimi kapat',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mapControlButton({
+    required bool isDark,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 20,
+                color: isDark ? Colors.white : Colors.black87,
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 20),
-              onPressed: _clearSelectedLine,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _recenterToUser() async {
+    if (_mapController == null) return;
+
+    // Kullanıcı konum butonuna BASMIŞ olabilir — daha önce konum
+    // alınmadıysa (örn. harita ilk kez açıldığında) burada izin istenir.
+    // Bu noktada sistem diyaloğu açılır.
+    if (_userPosition == null) {
+      final ok = await _ensureUserLocation(source: 'Konumuma git');
+      if (!ok) return;
+      if (_userPosition == null) return;
+    }
+
+    final pos = _userPosition!;
+    await _mapController!.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
+    );
+  }
+
+  /// Seçili hat için canlı ETA/mesafe bilgisini gösteren, cam efektli
+  /// modern kart. "CANLI" rozetiyle canlı takip vurgulanır.
+  Widget _buildLineEtaCard(bool isDark) {
+    final line = _selectedLine!;
+    final eta = _selectedLineEta();
+    final hasEta = eta != null;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: (isDark ? Colors.black : Colors.white).withOpacity(0.7),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.18),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                // Canlı rozet: araç ikonu + nabız halkası
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: line.color.withOpacity(0.18),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: line.color,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(line.vehicleType.icon,
+                            color: Colors.white, size: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          // CANLI pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: hasEta
+                                  ? Colors.green.withOpacity(0.16)
+                                  : Colors.grey.withOpacity(0.16),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: hasEta ? Colors.green : Colors.grey,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  hasEta ? 'CANLI' : 'BEKLENİYOR',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.5,
+                                    color: hasEta
+                                        ? Colors.green.shade700
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${line.code} — ${line.name}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        eta == null
+                            ? (_userPosition == null
+                                ? 'Konum alınıyor...'
+                                : 'Şu an yaklaşan araç bulunamadı')
+                            : '${(eta.distanceMeters / 1000).toStringAsFixed(1)} km uzakta • '
+                                '${eta.speedKmh != null && eta.speedKmh! > 1 ? '${eta.speedKmh!.toStringAsFixed(0)} km/sa' : 'tahminen'} • '
+                                '~${eta.etaMinutes} dk'
+                                '${_draggedPosition != null ? ' · sürüklü' : ''}',
+                        style: TextStyle(
+                          color: hasEta ? Colors.green.shade700 : Colors.grey,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: _clearSelectedLine,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1314,7 +1948,15 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   @override
   void dispose() {
     _isMapReady = false;
-    
+
+    // Realtime kanallarını kapat
+    _tripService.stopWatching();
+    final l = _courierListener;
+    if (l != null) {
+      CourierStreamService().unsubscribe(l);
+      _courierListener = null;
+    }
+
     // Timers'ı temizle
     _stopLiveUpdates();
     _stopUserLocationStream();
@@ -1325,37 +1967,74 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     }
     _positionAnimControllers.clear();
     _positionAnimations.clear();
-    
-    for (final controller in _pulseControllers.values) {
-      controller.dispose();
-    }
-    _pulseControllers.clear();
-    _pulseAnimations.clear();
-    
+
+    _pulseController.dispose();
+
     _mapController?.dispose();
     super.dispose();
   }
 }
 
 /// Kullanıcının mevcut konumunu hızlıca alıp merkez olarak kullanmak için.
+/// Konum izni AKSİYONLA (örn. "Konumuma git" butonu) tetiklenir;
+/// harita açılır açılmaz otomatik sorulmaz.
 class SehiriciUserLocation {
-  static Future<Position?> getCurrent() async {
+  /// Konum isteği sonucu.
+  /// - [granted] + [position]: izin verildi, konum alındı.
+  /// - [granted] + [position]=null: izin verildi ama konum alınamadı.
+  /// - [denied]: kullanıcı bu seferlik reddetti (tekrar sorulabilir).
+  /// - [permanentlyDenied]: kalıcı red — ayarlardan açılmalı.
+  /// - [serviceOff]: cihazın konum servisi kapalı.
+  static Future<({Position? position, _LocationOutcome outcome})> requestCurrent() async {
     try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final r = await Geolocator.requestPermission();
-        if (r == LocationPermission.denied) return null;
+      // 1) Konum servisi açık mı?
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return (position: null, outcome: _LocationOutcome.serviceOff);
       }
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 6),
-        ),
-      );
+
+      // 2) Mevcut izin durumunu kontrol et
+      var permission = await Geolocator.checkPermission();
+
+      // 3) Hiç sorulmamışsa veya reddedilmişse ŞİMDİ sor.
+      //    Bu metot sadece kullanıcının butona basmasıyla tetiklenir;
+      //    harita açılışında çağrılmaz.
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.unableToDetermine) {
+        return (position: null, outcome: _LocationOutcome.permanentlyDenied);
+      }
+      if (permission == LocationPermission.denied) {
+        return (position: null, outcome: _LocationOutcome.denied);
+      }
+
+      // 4) İzin verildi — konumu al
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 6),
+          ),
+        );
+        return (position: pos, outcome: _LocationOutcome.granted);
+      } catch (_) {
+        return (position: null, outcome: _LocationOutcome.granted);
+      }
     } catch (_) {
-      return null;
+      return (position: null, outcome: _LocationOutcome.denied);
     }
   }
+}
+
+/// `SehiriciUserLocation.requestCurrent()` sonucu.
+enum _LocationOutcome {
+  granted,
+  denied,
+  permanentlyDenied,
+  serviceOff,
 }
 
 /// İki LatLng arasında interpolasyon yapar (Linear Interpolation)
@@ -1501,6 +2180,99 @@ const String _darkMapStyle = '''
     "featureType": "water",
     "elementType": "labels.text.fill",
     "stylers": [{"color": "#3d3d3d"}]
+  }
+]
+''';
+
+/// Modern sade açık harita stili — düşük doygunluklu, okunabilirlik ön planda.
+/// Yoğun Google varsayılanını bastırır; polyline/marker renkleri öne çıkar.
+const String _lightMapStyle = '''
+[
+  {
+    "elementType": "geometry",
+    "stylers": [{"color": "#f5f5f5"}]
+  },
+  {
+    "elementType": "labels.icon",
+    "stylers": [{"visibility": "off"}]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#8a8a8a"}]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [{"color": "#f5f5f5"}]
+  },
+  {
+    "featureType": "administrative",
+    "elementType": "geometry",
+    "stylers": [{"color": "#e6e6e6"}]
+  },
+  {
+    "featureType": "administrative.locality",
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#7a7a7a"}]
+  },
+  {
+    "featureType": "poi",
+    "elementType": "labels",
+    "stylers": [{"visibility": "simplified"}]
+  },
+  {
+    "featureType": "poi",
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#9e9e9e"}]
+  },
+  {
+    "featureType": "poi.park",
+    "elementType": "geometry",
+    "stylers": [{"color": "#e8f0e4"}]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [{"color": "#ffffff"}]
+  },
+  {
+    "featureType": "road.arterial",
+    "elementType": "geometry",
+    "stylers": [{"color": "#ededed"}]
+  },
+  {
+    "featureType": "road.highway",
+    "elementType": "geometry",
+    "stylers": [{"color": "#dadada"}]
+  },
+  {
+    "featureType": "road.highway.controlled_access",
+    "elementType": "geometry",
+    "stylers": [{"color": "#cfcfcf"}]
+  },
+  {
+    "featureType": "road",
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#8a8a8a"}]
+  },
+  {
+    "featureType": "transit",
+    "elementType": "labels.icon",
+    "stylers": [{"visibility": "off"}]
+  },
+  {
+    "featureType": "transit",
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#9e9e9e"}]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{"color": "#cfe3f0"}]
+  },
+  {
+    "featureType": "water",
+    "elementType": "labels.text.fill",
+    "stylers": [{"color": "#7fa6c0"}]
   }
 ]
 ''';

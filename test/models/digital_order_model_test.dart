@@ -27,23 +27,53 @@ void main() {
       });
 
       test('should parse fromDbValue correctly', () {
-        expect(DigitalOrderStatus.fromDbValue('pending'), equals(DigitalOrderStatus.pending));
-        expect(DigitalOrderStatus.fromDbValue('in_progress'), equals(DigitalOrderStatus.inProgress));
-        expect(DigitalOrderStatus.fromDbValue('completed'), equals(DigitalOrderStatus.completed));
-        expect(DigitalOrderStatus.fromDbValue('partial'), equals(DigitalOrderStatus.partial));
-        expect(DigitalOrderStatus.fromDbValue('canceled'), equals(DigitalOrderStatus.canceled));
-        expect(DigitalOrderStatus.fromDbValue('refunded'), equals(DigitalOrderStatus.refunded));
-        expect(DigitalOrderStatus.fromDbValue('failed'), equals(DigitalOrderStatus.failed));
+        expect(
+          DigitalOrderStatus.fromDbValue('pending'),
+          equals(DigitalOrderStatus.pending),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('in_progress'),
+          equals(DigitalOrderStatus.inProgress),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('completed'),
+          equals(DigitalOrderStatus.completed),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('partial'),
+          equals(DigitalOrderStatus.partial),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('canceled'),
+          equals(DigitalOrderStatus.canceled),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('refunded'),
+          equals(DigitalOrderStatus.refunded),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue('failed'),
+          equals(DigitalOrderStatus.failed),
+        );
       });
 
       test('should default to pending for invalid status', () {
-        expect(DigitalOrderStatus.fromDbValue('invalid'), equals(DigitalOrderStatus.pending));
-        expect(DigitalOrderStatus.fromDbValue(''), equals(DigitalOrderStatus.pending));
+        expect(
+          DigitalOrderStatus.fromDbValue('invalid'),
+          equals(DigitalOrderStatus.pending),
+        );
+        expect(
+          DigitalOrderStatus.fromDbValue(''),
+          equals(DigitalOrderStatus.pending),
+        );
       });
 
       test('dbValue and fromDbValue should round-trip for every status', () {
         for (final status in DigitalOrderStatus.values) {
-          expect(DigitalOrderStatus.fromDbValue(status.dbValue), equals(status));
+          expect(
+            DigitalOrderStatus.fromDbValue(status.dbValue),
+            equals(status),
+          );
         }
       });
     });
@@ -94,7 +124,10 @@ void main() {
         expect(order.externalOrderId, equals('ext-123'));
         expect(order.startCount, equals(100));
         expect(order.remains, equals(50));
-        expect(order.lastCheckedAt, equals(DateTime.parse('2026-07-10T12:05:00.000Z')));
+        expect(
+          order.lastCheckedAt,
+          equals(DateTime.parse('2026-07-10T12:05:00.000Z')),
+        );
         expect(order.errorMessage, equals('bir hata'));
         expect(order.productName, equals('Instagram Takipçi'));
       });

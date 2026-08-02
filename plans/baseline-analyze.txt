@@ -1,0 +1,3 @@
+Analyzing cizreapp...                                           
+No issues found! (ran in 239.4s)
+EXIT_CODE=0 

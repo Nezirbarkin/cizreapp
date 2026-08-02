@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_RLS
 
-Son güncelleme: 2026-07-15
+Son güncelleme: 2026-07-30
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 ## 1) Genel RLS Durumu
@@ -16,6 +16,7 @@ Projede RLS yoğun kullanılıyor.
 - `notifications`
 - `ai_*`
 - `storage.objects`
+- [`user_point_accounts`](supabase/migrations/20260730000002_admob_reward_points_system.sql:916), [`point_ledger_entries`](supabase/migrations/20260730000002_admob_reward_points_system.sql:917), [`ad_reward_sessions`](supabase/migrations/20260730000002_admob_reward_points_system.sql:918) ve ödül/iade audit tabloları
 
 ## 2) Sık Kullanılan Yetki Pattern'leri
 
@@ -96,7 +97,7 @@ Ayrıca RLS/trigger içi yardımcı fonksiyonlar (`is_group_admin`, `is_group_me
 #### 4.1.6 SMM (`smm_providers` / `digital_orders`) — 2026-07-10/13
 - `smm_providers`: RLS açık; `REVOKE ALL FROM authenticated, anon` sonra kolon bazlı `GRANT` — SELECT sadece gizli olmayan kolonlarda (`api_key` HARİÇ, hiçbir policy/grant client'a bu kolonu açmaz, sadece Edge Function service-role okur). `smm_providers_select`: admin hepsini görür; satıcı sadece `owner_type='seller'` ve `owner_id` kendi shop'u olan satırları görür. `smm_providers_insert`/`update`: admin her zaman; satıcı sadece kendi shop'una sahipse VE `shops.can_use_own_smm_api=true` ise. `smm_providers_delete`: sadece admin.
 - Kendi kendine yetki yükseltme koruması (group_members §4.1.5 ile AYNI DESEN): `shops.can_use_own_smm_api` kolonunu satıcı kendi UPDATE'iyle açamaz — `prevent_seller_self_grant_smm()` BEFORE UPDATE trigger'ı (SECURITY DEFINER) değişikliği admin değilse geri alır.
-- `digital_orders`: RLS açık, sadece SELECT policy'si var (`digital_orders_select` — kullanıcı kendi siparişini, admin hepsini, satıcı kendi provider'ına ait siparişleri görür). INSERT/UPDATE client policy'si YOK — tüm yazma service-role ile Edge Function üzerinden yapılır (`create_digital_order` RPC + smm-order-* fonksiyonları).
+- `digital_orders`: RLS açık, sadece SELECT policy'si var (`digital_orders_select` — kullanıcı kendi siparişini, admin hepsini, satıcı kendi provider'ına ait siparişleri görür). INSERT/UPDATE client policy'si YOK — yeni sipariş rezervasyonu [`create_digital_order_with_points(uuid,uuid,text,integer,text,boolean)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:576) ile service-role Edge Function üzerinden yapılır. Eski [`create_digital_order(uuid,uuid,text,integer)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:973) imzası cutover'da tüm rollerden kapatılmıştır.
 - BUG (20260710000004 ile düzeltildi): `digital_orders`'ta RLS SELECT policy'si vardı ama `authenticated` rolüne tablo-seviyesi `GRANT SELECT` YOKTU — policy eşleşse de PostgREST erişimi reddediyordu, müşteriler kendi siparişlerini göremiyordu. `GRANT SELECT ON digital_orders TO authenticated;` + `GRANT ALL ... TO service_role` ile giderildi.
 
 #### 4.1.7 Bakiye tabloları (`user_balances` / `balance_transactions`) — 2026-07-15 (GÜVENLİK DÜZELTMESİ)
@@ -104,10 +105,28 @@ Ayrıca RLS/trigger içi yardımcı fonksiyonlar (`is_group_admin`, `is_group_me
 - DÜZELTME: her iki policy `TO service_role` ile sınırlandı. Migration: `20260715000001_restrict_balance_rls_to_service_role.sql`. Uygulandı ve doğrulandı (`pg_policies.roles = {service_role}`).
 - Genel mimari zaten sağlamdı ve değişmedi: tüm bakiye mutasyonları Edge Functions (`get-balance`, `create-balance-topup`, `use-balance-for-order`, `refund-to-balance`, `admin-add-balance`, `admin-deduct-balance`) + `deduct_from_balance`/`atomic_add_balance_topup_secure` RPC'leri (FOR UPDATE lock, replay/rate-limit koruması) üzerinden yürütülüyor.
 
-#### 4.1.8 Reklam Ödül Sistemi (`ad_settings` / `ad_reward_views`) — 2026-07-15
-- `ad_settings`: tekil (id=1) satır, `authenticated` rolü SELECT edebilir (reklam birim ID'lerini/limitleri client'ın okuyup reklamı yüklemesi gerekir), UPDATE/INSERT/DELETE sadece `profiles.role='admin'` doğrulaması ile (`ad_settings_admin_all`).
-- `ad_reward_views`: kullanıcı SADECE kendi kayıtlarını (`auth.uid() = user_id`) SELECT edebilir, admin hepsini görebilir. Client tarafından hiçbir INSERT/UPDATE policy'si tanımlı DEĞİL — tüm yazma `TO service_role` policy'si üzerinden `grant-ad-reward` Edge Function'ı ile yapılır. Bu, bakiye tablolarındaki §4.1.7 deseniyle aynı prensip: ödül mutasyonu istemciden asla doğrudan yapılamaz.
-- `grant-ad-reward` fonksiyonu kendi içinde günlük/saatlik/cooldown/cihaz-bazlı/platform-bütçe limitlerini uygular (bkz. PROJE_HAVIZA_CHANGELOG.md 2026-07-15 04:00 UTC kaydı).
+#### 4.1.8 AdMob SSV / Puan Sistemi — 2026-07-30 güncel sözleşme
+
+Eski 2026-07-15 erişim açıklaması artık geçerli değildir. Additive migration doğrudan [`ad_settings`](supabase/migrations/20260730000002_admob_reward_points_system.sql:943) ve [`ad_reward_views`](supabase/migrations/20260730000002_admob_reward_points_system.sql:943) erişimini `anon`/`authenticated` rollerinden kaldırır; eski admin/user policy'lerini de drop eder. İstemci yalnız daraltılmış [`reward_points_public_config`](supabase/migrations/20260730000002_admob_reward_points_system.sql:904) ve [`my_ad_reward_sessions`](supabase/migrations/20260730000002_admob_reward_points_system.sql:911) view'larını kullanır.
+
+| Nesne | RLS / policy | Tablo ACL | Gerçek istemci yüzeyi |
+|---|---|---|---|
+| [`user_point_accounts`](supabase/migrations/20260730000002_admob_reward_points_system.sql:73) | [`user_point_accounts_select_own`](supabase/migrations/20260730000002_admob_reward_points_system.sql:925): yalnız `auth.uid() = user_id` SELECT | `authenticated`: SELECT; anon ve doğrudan service-role mutation yok | Kullanıcı kendi puan projection'ını okur |
+| [`point_ledger_entries`](supabase/migrations/20260730000002_admob_reward_points_system.sql:84) | [`point_ledger_entries_select_own`](supabase/migrations/20260730000002_admob_reward_points_system.sql:927): yalnız kendi satırı SELECT | `authenticated`: SELECT; INSERT/UPDATE/DELETE yok | Kullanıcı kendi puan geçmişini okur; trigger UPDATE/DELETE/TRUNCATE'i ayrıca reddeder |
+| [`ad_reward_sessions`](supabase/migrations/20260730000002_admob_reward_points_system.sql:148) | [`ad_reward_sessions_select_own`](supabase/migrations/20260730000002_admob_reward_points_system.sql:929): yalnız kendi satırı SELECT | `authenticated`: SELECT; yazma yok | Kullanıcı safe view üzerinden SSV sonucunu poll eder |
+| [`digital_order_refunds`](supabase/migrations/20260730000002_admob_reward_points_system.sql:306) | [`digital_order_refunds_select_own`](supabase/migrations/20260730000002_admob_reward_points_system.sql:931): bağlı sipariş `auth.uid()` kullanıcısına aitse SELECT | `authenticated`: SELECT; yazma yok | Kullanıcı kendi kaynak-koruyan iadesini okur |
+| [`ad_reward_ssv_events`](supabase/migrations/20260730000002_admob_reward_points_system.sql:173), [`ad_reward_daily_budgets`](supabase/migrations/20260730000002_admob_reward_points_system.sql:195), [`reward_points_config_audit`](supabase/migrations/20260730000002_admob_reward_points_system.sql:61), [`reward_points_migration_audits`](supabase/migrations/20260730000002_admob_reward_points_system.sql:202) | RLS açık, kullanıcı/admin SELECT policy'si yok | PUBLIC/anon/authenticated/service_role doğrudan tablo yetkileri REVOKE | Yalnız owner SECURITY DEFINER fonksiyonları |
+
+Tüm sekiz yeni tabloda önce [`REVOKE ALL`](supabase/migrations/20260730000002_admob_reward_points_system.sql:937) uygulanır; `service_role` bile doğrudan ledger/tablo mutation yetkisi almaz. Dar RPC'ler `reward_points_owner` adlı `NOLOGIN NOINHERIT` owner ile çalışır:
+
+- [`create_ad_reward_session(uuid,text,text,text,text)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:408), [`grant_verified_ad_points(uuid,text,text,text,text,timestamptz,text,text)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:446), [`create_digital_order_with_points(uuid,uuid,text,integer,text,boolean)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:599), [`refund_digital_order_payment(uuid,numeric,text,text,boolean)`](supabase/migrations/20260730000002_admob_reward_points_system.sql), [`set_digital_order_reconciliation(uuid,text)`](supabase/migrations/20260730000002_admob_reward_points_system.sql) ve [`purge_expired_reward_fraud_hashes(integer)`](supabase/migrations/20260730000002_admob_reward_points_system.sql): PUBLIC/anon/authenticated REVOKE, yalnız `service_role` EXECUTE.
+- [`admin_update_reward_points_config(integer,integer,bigint,integer,text,boolean,boolean,boolean,boolean,text)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:961): PUBLIC/anon/service_role REVOKE, `authenticated` EXECUTE; fonksiyon içinde `profiles.role='admin'` doğrulaması ve gerekçeli audit zorunludur.
+- İç [`reward_points_apply_entry(uuid,text,text,bigint,text,uuid,text,jsonb)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:947) tüm dış rollere, `service_role` dahil kapalıdır.
+- Legacy [`grant_ad_reward(uuid,text,text,integer)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:964) kredi vermeyen gövdeye dönüştürülmüş ve PUBLIC/anon/authenticated/service_role'dan REVOKE edilmiştir.
+
+**Fail-closed değişmezi:** Edge Function Google imzasını doğrulamadan kredi RPC'sini çağırmaz. SQL katmanı da `service_role` claim'i, callback zaman penceresi, izinli ad-unit ve aynı anda `reward_points_earn_enabled=true`, `reward_points_ssv_required=true`, `reward_points_ssv_enabled=true`, `legacy_ad_tl_grant_disabled=true`, mode=`cohort|enabled` koşulları sağlanmadan puan yazmaz. İstemci SDK callback'i hiçbir RPC yetkisi sağlamaz.
+
+**Puan → nakit değişmezi:** Çekirdek point account/ledger tablolarından TL bakiye/işlem tablolarına FK yoktur ve puan RPC'lerinin çekim/IBAN/transfer/fiziksel sipariş yetkisi veya yolu bulunmaz. [`digital_order_refunds`](supabase/migrations/20260730000002_admob_reward_points_system.sql:306) yalnız kaynak-koruyan iade audit'i için puan ledger ile TL balance-transaction bağlantılarını ayrı FK kolonlarında taşır; bir kaynağı diğerine dönüştürmez. Çekirdek point-storage→cash-storage FK yokluğu, rol sınırları, legacy kapatma ve no-backfill dahil seçili katalog değişmezleri [`002_reward_points_security_invariants.test.sql`](supabase/tests/database/002_reward_points_security_invariants.test.sql:1) içindeki 26 pgTAP assertion'ı ile denetlenir; composition audit FK'lerinin kesin tanımı migration kaynağıdır.
 
 #### 4.1.9 Görev Yaparak Kazan Sistemi (`task_categories` / `tasks` / `task_submissions`) — 2026-07-19
 - `task_categories`: SELECT public (anon+authenticated dahil), INSERT/UPDATE/DELETE yalnızca `EXISTS(SELECT 1 FROM profiles WHERE id=auth.uid() AND role='admin')`. Doğrudan subquery kullanıldı (helper fonksiyon zinciri recursion/permission riskini önler, §4.1.3 öğrenimi).

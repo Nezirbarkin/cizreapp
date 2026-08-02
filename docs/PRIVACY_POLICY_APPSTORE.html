@@ -27,7 +27,7 @@
 <body>
     <div class="container">
         <h1>CizreApp Gizlilik Politikası</h1>
-        <p class="date">Son güncelleme: 20 Nisan 2026</p>
+        <p class="date">Son güncelleme: 30 Temmuz 2026</p>
         
         <h2>1. Giriş</h2>
         <p>CizreApp olarak gizliliğinize saygı duyuyoruz. Bu Gizlilik Politikası, kişisel verilerinizi nasıl topladığımızı, kullandığımızı ve koruduğumuzu açıklamaktadır.</p>
@@ -47,7 +47,17 @@
             <li>Cihaz bilgileri</li>
             <li>Uygulama kullanım verileri</li>
             <li>Çökme raporları</li>
+            <li>İsteğe bağlı ödüllü reklam kullanıldığında AdMob/SSV doğrulama metadata'sı</li>
         </ul>
+
+        <p><strong>2.3 Ödüllü Reklam Doğrulama Verileri:</strong></p>
+        <ul>
+            <li>Sağlayıcı işlem kimliği ve varsa sağlayıcı kullanıcı kimliği ham olarak değil, sunucu sırrıyla üretilen HMAC takma değerleriyle saklanır.</li>
+            <li>Custom data'nın ham değeri yerine ödül oturumu ve HMAC/özetlenmiş nonce bağı tutulur; ham callback sorgusu ve imza kalıcı kayda veya uygulama loguna yazılmaz.</li>
+            <li>Reklam birimi kimliği, callback zamanı ve imza anahtar kimliği doğrulama metadata'sı olarak kaydedilir.</li>
+            <li>Ödül kayıtlarında ham IP/cihaz kimliği kolonu yoktur. Ağ/IP ve cihaz sinyali kullanılacaksa yalnız HMAC takma değer alanları kabul edilir; mevcut istemci akışı bu alanları doldurmaz.</li>
+        </ul>
+        <p>Takma adlandırılmış veriler, ilişkilendirilebildikleri ölçüde kişisel veri sayılabilir.</p>
 
         <h2>3. Bilgilerin Kullanımı</h2>
         <p>Topladığımız bilgileri şu amaçlarla kullanıyoruz:</p>
@@ -56,6 +66,7 @@
             <li>Kullanıcı hesapları oluşturmak</li>
             <li>Bildirimler göndermek</li>
             <li>Güvenliği sağlamak</li>
+            <li>Ödülü SSV ile doğrulamak, sahteciliği ve tekrar krediyi önlemek, kullanıcı/platform limitleri ile günlük puan bütçesini uygulamak</li>
             <li>Yasal yükümlülükleri yerine getirmek</li>
         </ul>
 
@@ -64,14 +75,15 @@
         <ul>
             <li>Açık rızanız olduğunda</li>
             <li>Yasal zorunluluk durumunda</li>
-            <li>Hizmet sağlayıcılarımızla (hosting, analitik)</li>
+            <li>Hizmet sağlayıcılarımızla (hosting, analitik ve ödüllü reklamı seçmeniz halinde Google AdMob)</li>
         </ul>
 
         <h2>5. Veri Güvenliği</h2>
         <p>Verilerinizi korumak için endüstri standardı güvenlik önlemleri kullanıyoruz. Supabase platformu üzerinde barındırılan veriler SSL şifreleme ile korunmaktadır.</p>
 
         <h2>6. Veri Saklama</h2>
-        <p>Kişisel verilerinizi hesabınız aktif olduğu sürece saklıyoruz. Hesabınızı sildiğinizde, verilerinizi makul bir süre içinde kaldırıyoruz.</p>
+        <p>Kişisel verileri toplama amaçları ve uygulanabilir yükümlülükler için gerekli süreyle saklarız. Hesap silme talebinden sonra silme, anonimleştirme veya erişimi kısıtlama işlemleri; teknik gereklilikler, uyuşmazlıklar ve uygulanabilir saklama yükümlülükleri dikkate alınarak yürütülür.</p>
+        <p>Ödül doğrulamasındaki sağlayıcı-kullanıcı, cihaz ve ağ takma değerleri için teknik saklama ayarının başlangıç değeri 30 gündür; süresi dolan ilgili alanlar temizlik sürecinde boşaltılır. İşlem HMAC'ı, reklam birimi/callback zamanı ve puan defteri kayıtları tekrar krediyi önleme, güvenlik/audit, uyuşmazlık ve uygulanabilir saklama yükümlülükleri için gerekli olduğu ölçüde daha uzun tutulabilir.</p>
 
         <h2>7. Haklarınız</h2>
         <p>Aşağıdaki haklara sahipsiniz:</p>
@@ -86,7 +98,19 @@
         <h2>8. Çocukların Gizliliği</h2>
         <p>Uygulamamız 18 yaşın altındaki bireylere yönelik değildir.</p>
 
-        <h2>9. İletişim</h2>
+        <h2>9. Google AdMob, Rıza ve Ödül Puanları</h2>
+        <p>Ödüllü reklam izlemek isteğe bağlıdır. Reklam izlememek, puan kazanılmaması dışında hesabın temel kullanımına engel olmaz. Reklamlar Google AdMob tarafından sunulur ve Google ilgili verileri kendi şartları ile gizlilik politikası kapsamında işleyebilir.</p>
+        <p>Kişiselleştirilmiş reklamlar yalnız uygulanabilir yaş, rıza ve uygunluk koşulları sağlandığında kullanılmalıdır. Rıza veya kişiselleştirme tercihi verilmemesi ya da geri alınması, kişiselleştirilmemiş/sınırlı reklam gösterimine veya reklamın kullanılamamasına yol açabilir. Çocuklara yönelik ya da yaş/rıza koşullarının sağlanmadığı bağlamda ödüllü reklam etkinleştirilmemelidir.</p>
+        <p>Mobil SDK bildirimi tek başına puan vermez. Google SSV callback'i; imza, anahtar, zaman, reklam birimi, custom data ve tekil işlem kontrollerinden geçmezse sistem kapalı davranır ve puan oluşturmaz.</p>
+        <ul>
+            <li>Puan para, çekilebilir bakiye veya ödeme vaadi değildir; IBAN'a çekilemez, transfer edilemez, satılamaz ve fiziksel ürün/kurye ödemesinde kullanılamaz.</li>
+            <li>Puan yalnız sunucunun uygun gördüğü uygulama içi dijital üründe kullanılır. Hesaplama sunucuda önce puan, sonra varsa kalan TL bakiyesi sırasıyla yapılır.</li>
+            <li>Başlangıç varsayılanı olan 100 puan = 1 TL dijital indirim oranı nakit kur veya geri alım hakkı değildir.</li>
+            <li>İadede puan puana, TL bakiyesi TL bakiyesine döner; puan TL'ye çevrilmez.</li>
+            <li>Geçmişte TL bakiyeye işlenmiş reklam ödülleri tarihsel olarak korunur, puana kopyalanmaz ve yeni puan yaratmaz.</li>
+        </ul>
+
+        <h2>10. İletişim</h2>
         <div class="contact">
             <p><strong>E-posta:</strong> gizlilik@cizreapp.com</p>
             <p><strong>Web:</strong> https://www.cizreapp.com</p>

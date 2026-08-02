@@ -19,10 +19,11 @@ class PackageTrackingScreen extends StatefulWidget {
 }
 
 class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
-  late GoogleMapController _mapController;
+  GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
   bool _isLoading = true;
+  bool _loadFailed = false;
 
   Position? _userLocation;
   Map<String, dynamic>? _courierLocation;
@@ -48,6 +49,8 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     ]);
     if (mounted) {
       setState(() => _isLoading = false);
+      // Veriler yüklendiğinde marker'ları hemen çiz ki harita açılışta boş kalmasın.
+      _updateMarkers();
       _startLocationTracking();
     }
   }
@@ -57,7 +60,12 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         final result = await Geolocator.requestPermission();
-        if (result == LocationPermission.denied) return;
+        if (result == LocationPermission.denied ||
+            result == LocationPermission.deniedForever) {
+          // İzin yoksa da harita boş kalmasın: Cizre merkezini kullan.
+          _applyFallbackLocation();
+          return;
+        }
       }
 
       if (!mounted) return;
@@ -72,23 +80,26 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
       if (mounted) setState(() => _userLocation = position);
     } catch (e) {
       debugPrint('Konum alma hatası: $e');
-      if (mounted) {
-        setState(() {
-          _userLocation = Position(
-            latitude: _cizreLatitude,
-            longitude: _cizveLongitude,
-            timestamp: DateTime.now(),
-            accuracy: 0,
-            altitude: 0,
-            altitudeAccuracy: 0,
-            heading: 0,
-            headingAccuracy: 0,
-            speed: 0,
-            speedAccuracy: 0,
-          );
-        });
-      }
+      _applyFallbackLocation();
     }
+  }
+
+  void _applyFallbackLocation() {
+    if (!mounted) return;
+    setState(() {
+      _userLocation = Position(
+        latitude: _cizreLatitude,
+        longitude: _cizveLongitude,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+    });
   }
 
   Future<void> _loadPackageData() async {
@@ -100,7 +111,10 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           .single();
 
       if (!mounted) return;
-      setState(() => _packageData = data);
+      setState(() {
+        _packageData = data;
+        _loadFailed = false;
+      });
 
       // Kurye atamasını yükle
       final courierId = data['courier_id'] as String?;
@@ -112,12 +126,18 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     } catch (e) {
       debugPrint('❌ Paket verisi yükleme hatası: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _loadFailed = true;
+          _isLoading = false;
+        });
       }
     }
   }
 
   void _listenToCourierLocation(String courierId) {
+    // Önceki aboneliği iptal etmeden üzerine yazmak eski kuryenin konumunu
+    // göstermeye devam ettirir (kurye değişince eski stream hâlâ setState eder).
+    _courierLocationStream?.cancel();
     _courierLocationStream = Supabase.instance.client
         .from('profiles')
         .stream(primaryKey: ['id'])
@@ -162,16 +182,10 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
       if (mounted) {
         setState(() => _userLocation = position);
         _updateMarkers();
-
-        // Kullanıcının konumunu veritabanına kaydet
-        await Supabase.instance.client
-            .from('profiles')
-            .update({
-              'last_known_lat': position.latitude,
-              'last_known_lng': position.longitude,
-            })
-            .eq('id', Supabase.instance.client.auth.currentUser?.id ?? '')
-            .then((_) => debugPrint('Kullanıcı konumu güncellendi'));
+        // Not: Gönderen (müşteri) konumunu profiles'a yazmıyoruz — bu ekran
+        // kuryenin konumunu takip eder; müşterinin last_known_lat/lng'sini
+        // 10 sn'de bir üzerine yazmak kurye takip pinini bozabilir ve anlamsız
+        // DB trafiği yaratır. Kullanıcı konumu yalnızca yerel marker içindir.
       }
     } catch (e) {
       debugPrint('Konum güncelleme hatası: $e');
@@ -310,11 +324,11 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   }
 
   void _fitBounds() {
-    if (_markers.isNotEmpty) {
-      _mapController.animateCamera(
-        CameraUpdate.newLatLngBounds(_getBounds(), 100),
-      );
-    }
+    final controller = _mapController;
+    if (controller == null || _markers.isEmpty) return;
+    controller.animateCamera(
+      CameraUpdate.newLatLngBounds(_getBounds(), 100),
+    );
   }
 
   String? _getDistance() {
@@ -341,10 +355,32 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     return '${(distance / 1000).toStringAsFixed(1)} km';
   }
 
+  /// Kuryenin kullanıcıya tahmini varış dakikası. Kuş uçuşu mesafeyi
+  /// kentsel motor ortalaması (~25 km/h) ve yol faktörü (1.3) ile tahmin eder.
+  int? _getEtaMinutes() {
+    if (_userLocation == null || _courierLocation == null) return null;
+
+    final courierLat = _courierLocation!['lat'] as double?;
+    final courierLng = _courierLocation!['lng'] as double?;
+    if (courierLat == null || courierLng == null) return null;
+
+    final distance = Geolocator.distanceBetween(
+      _userLocation!.latitude,
+      _userLocation!.longitude,
+      courierLat,
+      courierLng,
+    );
+    if (distance <= 0) return 0;
+    const double avgSpeedMPerMin = (25 * 1000) / 60;
+    final minutes = (distance * 1.3) / avgSpeedMPerMin;
+    return minutes < 1 ? 1 : minutes.ceil();
+  }
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final distance = _getDistance();
+    final eta = _getEtaMinutes();
 
     return Scaffold(
       appBar: AppBar(
@@ -363,7 +399,31 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           ? Center(
               child: CircularProgressIndicator(color: primary),
             )
-          : Stack(
+          : _loadFailed
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Paket bilgileri yüklenemedi.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 15),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Paket bulunamadı veya yetki sorunu olabilir.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Stack(
               children: [
                 GoogleMap(
                   initialCameraPosition: const CameraPosition(
@@ -375,8 +435,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                     if (_markers.isNotEmpty) {
                       Future.delayed(const Duration(milliseconds: 500), _fitBounds);
                     }
-                  },
-                  markers: _markers,
+                  },markers: _markers,
                   polylines: _polylines,
                   zoomControlsEnabled: false,
                   myLocationButtonEnabled: false,
@@ -433,10 +492,36 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                             color: Colors.grey,
                                           ),
                                         ),
+                                      if (eta != null)
+                                        Text(
+                                          'Tahmini varış: ~$eta dk',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.green.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
                               ],
+                            ),
+                          ] else if (_packageData?['status'] == 'accepted') ...[
+                            Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.two_wheeler, color: Colors.blue.shade700, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Kurye yola çıktı, konum bekleniyor...',
+                                    style: TextStyle(
+                                      color: Colors.blue.shade700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ] else if (_packageData?['status'] == 'pending') ...[
                             Center(
@@ -464,11 +549,11 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     _courierLocationStream?.cancel();
     _userLocationStream?.cancel();
     _locationUpdateTimer?.cancel();
-    if (mounted) {
-      try {
-        _mapController.dispose();
-      } catch (_) {}
-    }
+    // mounted, dispose sırasında her zaman false olurdu; bu yüzden eski kod
+    // map controller'ı hiç dispose etmiyordu. nullable + try/catch ile güvenli dispose.
+    try {
+      _mapController?.dispose();
+    } catch (_) {}
     super.dispose();
   }
 }

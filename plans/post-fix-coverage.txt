@@ -1,0 +1,6 @@
+﻿Flutter coverage baseline
+Lines found: 833
+Lines hit: 501
+Line coverage: 60.14%
+Required overall line coverage: 80%
+Gate: FAIL

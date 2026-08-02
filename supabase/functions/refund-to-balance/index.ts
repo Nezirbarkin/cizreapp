@@ -70,8 +70,14 @@ serve(async (req: Request) => {
       });
     }
 
-    // Admin zorunluysa kontrol et
-    if (is_admin_refund && !isAdmin) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK: Bu fonksiyon yalnızca admin manuel iade içindir (@deprecated
+    // notuna göre). Non-admin yol kapatıldı — eski sürümde is_admin_refund
+    // false iken herhangi bir authenticated kullanıcı kendi siparişi için
+    // KULLANICI KONTROLLÜ herhangi bir tutarı iade alıp bakiyesini
+    // şişirebiliyordu. Artık admin zorunlu + tutar sipariş totaliyle sınırlı.
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!isAdmin) {
       return new Response(JSON.stringify({ error: "Bu işlem için admin yetkisi gerekli" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -79,11 +85,17 @@ serve(async (req: Request) => {
     }
 
     const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || !isFinite(amountNum) || amountNum <= 0) {
+      return new Response(JSON.stringify({ error: "Geçersiz iade tutarı (pozitif sayı olmalı)" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // Siparişi bul
+    // Siparişi bul (total + durum iade doğrulaması için gerekli)
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("*, user_id")
+      .select("*, user_id, total, status, payment_status")
       .eq("id", order_id)
       .single();
 
@@ -94,16 +106,33 @@ serve(async (req: Request) => {
       });
     }
 
-    // Kullanıcı ID'yi belirle
-    const targetUserId = is_admin_refund ? order.user_id : user.id;
-
-    // Kullanıcı siparişin sahibi mi kontrol et (admin değilse)
-    if (!isAdmin && order.user_id !== user.id) {
-      return new Response(JSON.stringify({ error: "Bu siparişe iade yapma yetkiniz yok" }), {
-        status: 403,
+    // İade tutarı sipariş totalini aşamaz (arbitrary balance inflation önle)
+    const orderTotal = Number(order.total ?? 0);
+    if (amountNum > orderTotal) {
+      return new Response(JSON.stringify({
+        error: `İade tutarı sipariş tutarını aşamaz (sipariş: ₺${orderTotal.toFixed(2)})`,
+      }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // İade edilebilir durum kontrolü: iptal edilmiş veya ödenmiş siparişler.
+    // Devam eden (pending/confirmed/preparing/on_the_way) siparişlere manuel
+    // iade yapılmamalı — iptal akışı approve_cancellation_request RPC'sini
+    // kullanmalı.
+    const refundableStatus = ["cancelled", "delivered"];
+    if (!refundableStatus.includes(order.status)) {
+      return new Response(JSON.stringify({
+        error: `Bu sipariş durumunda iade yapılamaz (mevcut: ${order.status}). İptal için onay akışını kullanın.`,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Admin-only olduğu için hedef kullanıcı her zaman sipariş sahibi.
+    const targetUserId = order.user_id;
 
     // Daha önce iade yapılmış mı kontrol et
     const { data: existingRefund } = await supabase
@@ -176,7 +205,7 @@ serve(async (req: Request) => {
         payment_method: "balance",
         metadata: {
           refund_reason: reason,
-          refunded_by: is_admin_refund ? user.id : "customer",
+          refunded_by: user.id,
           refunded_at: new Date().toISOString(),
         },
       })

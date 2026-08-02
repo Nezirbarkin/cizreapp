@@ -19,6 +19,7 @@ import '../../../core/widgets/floating_message_button.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
+import '../widgets/flash_aware_price_row.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/services/balance_service.dart';
 import '../../wallet/screens/wallet_screen.dart';
@@ -40,6 +41,7 @@ import '../../chat/services/chat_service.dart';
 import '../../chat/services/group_chat_service.dart';
 import '../../news/services/news_service.dart';
 import '../../news/screens/news_detail_screen.dart';
+import '../../news/screens/news_screen.dart';
 import 'shop_detail_screen.dart';
 import 'category_shops_screen.dart';
 import 'all_categories_screen.dart';
@@ -96,6 +98,10 @@ class _MarketScreenState extends State<MarketScreen> {
   // Anasayfa kategori kartlarında gösterilecek maksimum kategori sayısı.
   // Admin panelinden değiştirilebilir (app_about_settings.home_category_limit).
   int _homeCategoryLimit = 4;
+
+  // Anasayfada gösterilecek maksimum haber kartı sayısı.
+  // Admin panelinden değiştirilebilir (app_about_settings.home_news_limit).
+  int _homeNewsLimit = 3;
 
   // Animasyon ayarları
   String _appSlogan = 'Her an her kapıda!';
@@ -361,6 +367,8 @@ class _MarketScreenState extends State<MarketScreen> {
             _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
             // Anasayfa kategori kartı sayısı limiti (admin panelinden ayarlanabilir)
             _homeCategoryLimit = appAbout.homeCategoryLimit;
+            // Anasayfa haber kartı sayısı limiti (admin panelinden ayarlanabilir)
+            _homeNewsLimit = appAbout.homeNewsLimit;
           });
         }
       } catch (e) {
@@ -1155,10 +1163,10 @@ class _MarketScreenState extends State<MarketScreen> {
             ),
           ),
 
-          // Bölgeden Haberler
-          // const SliverToBoxAdapter(
-          //   child: NewsSectionWidget(maxItems: 5, showViewAll: true),
-          // ),
+          // Cizreden Haberler
+          SliverToBoxAdapter(
+            child: _buildNewsSection(),
+          ),
 
           // En Son Gönderiler
           SliverToBoxAdapter(
@@ -1205,13 +1213,9 @@ class _MarketScreenState extends State<MarketScreen> {
                           },
                         ),
                       ),
-                      SizedBox(height: 16 + MediaQuery.of(context).padding.bottom + 140),
+                      SizedBox(height: 16 + MediaQuery.of(context).padding.bottom),
                     ],
                   ),
-          ),
-          // Cizreden Haberler
-          SliverToBoxAdapter(
-            child: _buildNewsSection(),
           ),
         ],
       ),
@@ -1789,13 +1793,12 @@ class _MarketScreenState extends State<MarketScreen> {
                             ),
                     ),
                   ),
-                  // İndirim badge - üst sol
-                  if (product.hasDiscount)
-                    Positioned(
-                      top: 4,
-                      left: 4,
-                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0, compact: true),
-                    ),
+                  // İndirim badge - üst sol (flaş indirim veya normal indirim)
+                  Positioned(
+                    top: 4,
+                    left: 4,
+                    child: FlashAwareDiscountBadge(product: product),
+                  ),
                   if (product.isBuy2Get1BalanceCampaign)
                     const Positioned(
                       bottom: 4,
@@ -1854,37 +1857,21 @@ class _MarketScreenState extends State<MarketScreen> {
                   
                   const SizedBox(height: 2),
                   
-                  // Fiyat
+                  // Fiyat (flaş indirim bilinçli)
                   SizedBox(
                     height: 14,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '₺${product.effectivePrice.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                              color: theme.colorScheme.primary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (product.displayOldPrice != null) ...[
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(
-                              '₺${product.displayOldPrice!.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                decoration: TextDecoration.lineThrough,
-                                color: Colors.grey.shade400,
-                                fontSize: 9,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: FlashAwarePriceRow(
+                      product: product,
+                      priceStyle: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        color: theme.colorScheme.primary,
+                      ),
+                      oldPriceStyle: TextStyle(
+                        decoration: TextDecoration.lineThrough,
+                        color: Colors.grey.shade400,
+                        fontSize: 9,
+                      ),
                     ),
                   ),
                   
@@ -2415,7 +2402,7 @@ class _MarketScreenState extends State<MarketScreen> {
   Widget _buildNewsSection() {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
-        NewsService().getLatestNews(limit: 3),
+        NewsService().getLatestNews(limit: _homeNewsLimit),
       ]).then((results) => results.first),
       builder: (context, snapshot) {
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -2424,7 +2411,7 @@ class _MarketScreenState extends State<MarketScreen> {
 
         final news = snapshot.data!;
         return Container(
-          margin: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
             borderRadius: BorderRadius.circular(12),
@@ -2445,7 +2432,14 @@ class _MarketScreenState extends State<MarketScreen> {
                       ),
                     ),
                     GestureDetector(
-                      onTap: () => Navigator.pushNamed(context, '/news'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NewsScreen(),
+                          ),
+                        );
+                      },
                       child: Text(
                         'Tümünü Gör',
                         style: TextStyle(

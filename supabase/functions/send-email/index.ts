@@ -2,6 +2,7 @@
 // Bu dosyayı Supabase Dashboard -> Edge Functions'da deploy edin
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Resend } from "npm:resend@2.0.0";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
@@ -31,6 +32,49 @@ serve(async (req) => {
   }
 
   try {
+    // ═══════════════════════════════════════════════════════════════════════
+    // GÜVENLİK: E-posta gönderimi privileged — yalnızca admin.
+    // Bu fonksiyon hiçbir client/edge function tarafından çağrılmıyor;
+    // doğrudan HTTP çağrıya açık standalone fonksiyon olduğu için her
+    // authenticated kullanıcı arbitrary alıcıya sipariş e-postası
+    // gönderebiliyordu. Artık admin JWT zorunlu.
+    // ═══════════════════════════════════════════════════════════════════════
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Yetkilendirme header gerekli" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Geçersiz oturum" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Bu işlem için admin yetkisi gerekli" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body: EmailRequest = await req.json();
     const { type, to, data } = body;
 

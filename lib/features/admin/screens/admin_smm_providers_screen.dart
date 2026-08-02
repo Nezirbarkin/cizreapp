@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -10,7 +10,8 @@ class AdminSmmProvidersScreen extends StatefulWidget {
   const AdminSmmProvidersScreen({super.key});
 
   @override
-  State<AdminSmmProvidersScreen> createState() => _AdminSmmProvidersScreenState();
+  State<AdminSmmProvidersScreen> createState() =>
+      _AdminSmmProvidersScreenState();
 }
 
 class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
@@ -56,9 +57,9 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
       final _ = userId;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Yüklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Yüklenirken hata: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -78,14 +79,21 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
             labelText: 'Komisyon Oranı (%)',
-            helperText: 'Boş bırakılırsa varsayılan %10 uygulanır. Fiziksel sipariş komisyonundan bağımsızdır.',
+            helperText:
+                'Boş bırakılırsa varsayılan %10 uygulanır. Fiziksel sipariş komisyonundan bağımsızdır.',
             border: OutlineInputBorder(),
             suffixText: '%',
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kaydet')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kaydet'),
+          ),
         ],
       ),
     );
@@ -99,7 +107,9 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
       if (rate == null || rate < 0 || rate > 100) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('0-100 arasında geçerli bir oran girin')),
+            const SnackBar(
+              content: Text('0-100 arasında geçerli bir oran girin'),
+            ),
           );
         }
         return;
@@ -107,31 +117,41 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
     }
 
     try {
-      await _supabase.from('shops').update({'digital_commission_rate': rate}).eq('id', shop['id']);
+      await _supabase
+          .from('shops')
+          .update({'digital_commission_rate': rate})
+          .eq('id', shop['id']);
       await _loadData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
       }
     }
   }
 
   Future<void> _toggleShopPermission(String shopId, bool value) async {
     try {
-      await _supabase.from('shops').update({'can_use_own_smm_api': value}).eq('id', shopId);
+      await _supabase
+          .from('shops')
+          .update({'can_use_own_smm_api': value})
+          .eq('id', shopId);
       await _loadData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Güncellenemedi: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
       }
     }
   }
 
   Future<void> _showAddProviderDialog() async {
     final nameController = TextEditingController();
-    final apiUrlController = TextEditingController(text: 'https://smmget.com/api/v2');
+    final apiUrlController = TextEditingController(
+      text: 'https://smmget.com/api/v2',
+    );
     final apiKeyController = TextEditingController();
     final userId = _supabase.auth.currentUser?.id;
 
@@ -158,14 +178,22 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('İptal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ekle')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Ekle'),
+          ),
         ],
       ),
     );
 
     if (result == true && userId != null) {
-      if (nameController.text.trim().isEmpty || apiKeyController.text.trim().isEmpty) return;
+      if (nameController.text.trim().isEmpty ||
+          apiKeyController.text.trim().isEmpty)
+        return;
       try {
         await _smmService.createProvider(
           name: nameController.text.trim(),
@@ -177,7 +205,9 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
         await _loadData();
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Eklenemedi: $e')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Eklenemedi: $e')));
         }
       }
     }
@@ -243,8 +273,14 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kaydet')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kaydet'),
+          ),
         ],
       ),
     );
@@ -256,12 +292,16 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
         id: provider.id,
         name: nameController.text.trim(),
         apiUrl: apiUrlController.text.trim(),
-        apiKey: apiKeyController.text.trim().isEmpty ? null : apiKeyController.text.trim(),
+        apiKey: apiKeyController.text.trim().isEmpty
+            ? null
+            : apiKeyController.text.trim(),
       );
       await _loadData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
       }
     }
   }
@@ -283,33 +323,37 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
               padding: EdgeInsets.all(24),
               child: Text('Henüz sağlayıcı eklenmemiş.'),
             ),
-          ..._providers.map((p) => Card(
-                child: ListTile(
-                  leading: Icon(
-                    p.isActive ? Icons.check_circle : Icons.cancel,
-                    color: p.isActive ? Colors.green : Colors.red,
-                  ),
-                  title: Text(p.name),
-                  subtitle: Text('${p.ownerType == 'admin' ? 'Admin' : 'Satıcı'} • ${p.apiUrl}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        tooltip: 'Düzenle',
-                        onPressed: () => _showEditProviderDialog(p),
-                      ),
-                      Switch(
-                        value: p.isActive,
-                        onChanged: (v) async {
-                          await _smmService.updateProvider(id: p.id, isActive: v);
-                          await _loadData();
-                        },
-                      ),
-                    ],
-                  ),
+          ..._providers.map(
+            (p) => Card(
+              child: ListTile(
+                leading: Icon(
+                  p.isActive ? Icons.check_circle : Icons.cancel,
+                  color: p.isActive ? Colors.green : Colors.red,
                 ),
-              )),
+                title: Text(p.name),
+                subtitle: Text(
+                  '${p.ownerType == 'admin' ? 'Admin' : 'Satıcı'} • ${p.apiUrl}',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: 'Düzenle',
+                      onPressed: () => _showEditProviderDialog(p),
+                    ),
+                    Switch(
+                      value: p.isActive,
+                      onChanged: (v) async {
+                        await _smmService.updateProvider(id: p.id, isActive: v);
+                        await _loadData();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -324,7 +368,8 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
         itemBuilder: (context, index) {
           final shop = _shops[index];
           final canUse = shop['can_use_own_smm_api'] as bool? ?? false;
-          final digitalRate = (shop['digital_commission_rate'] as num?)?.toDouble();
+          final digitalRate = (shop['digital_commission_rate'] as num?)
+              ?.toDouble();
           return Card(
             child: Column(
               children: [
@@ -332,11 +377,14 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                   title: Text(shop['name'] as String? ?? 'Mağaza'),
                   subtitle: const Text('Kendi SMM API panelini ekleme yetkisi'),
                   value: canUse,
-                  onChanged: (v) => _toggleShopPermission(shop['id'] as String, v),
+                  onChanged: (v) =>
+                      _toggleShopPermission(shop['id'] as String, v),
                 ),
                 ListTile(
                   leading: const Icon(Icons.percent),
-                  title: Text('Dijital Komisyon Oranı: ${digitalRate != null ? '%${digitalRate.toStringAsFixed(1)}' : 'Varsayılan (%10)'}'),
+                  title: Text(
+                    'Dijital Komisyon Oranı: ${digitalRate != null ? '%${digitalRate.toStringAsFixed(1)}' : 'Varsayılan (%10)'}',
+                  ),
                   trailing: TextButton(
                     onPressed: () => _showDigitalCommissionDialog(shop),
                     child: const Text('Düzenle'),
@@ -355,7 +403,9 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
         order.status == DigitalOrderStatus.refunded ||
         order.status == DigitalOrderStatus.failed) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bu sipariş zaten kapanmış, durumu değiştirilemez')),
+        const SnackBar(
+          content: Text('Bu sipariş zaten kapanmış, durumu değiştirilemez'),
+        ),
       );
       return;
     }
@@ -385,7 +435,7 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                 onChanged: (v) => setDialogState(() => selected = v!),
               ),
               RadioListTile<String>(
-                title: const Text('İptal Et (bakiye iade edilir)'),
+                title: const Text('İptal Et (puan/TL kaynağına iade edilir)'),
                 value: 'canceled',
                 groupValue: selected,
                 onChanged: (v) => setDialogState(() => selected = v!),
@@ -406,8 +456,14 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kaydet')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Kaydet'),
+            ),
           ],
         ),
       ),
@@ -429,20 +485,28 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
     }
 
     try {
-      await _smmService.manualUpdateDigitalOrderStatus(
+      final result = await _smmService.manualUpdateDigitalOrderStatus(
         digitalOrderId: order.id,
         newStatus: selected,
         remains: remains,
+        idempotencyKey: 'admin-${order.id}-$selected-${remains ?? 'all'}',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Durum güncellendi'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(
+              'Durum güncellendi. İade: ${result.pointsRefunded} puan + ${result.cashRefundedTry.toStringAsFixed(2)} TL',
+            ),
+            backgroundColor: Colors.green,
+          ),
         );
       }
       await _loadData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
       }
     }
   }
@@ -477,11 +541,18 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                             Expanded(
                               child: Text(
                                 order.productName ?? 'Dijital Ürün',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            Text(order.status.label, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(
+                              order.status.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined, size: 20),
                               tooltip: 'Durumu Manuel Değiştir',
@@ -490,27 +561,63 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text(order.targetUrl, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                         Text(
-                          'Sipariş ID: ${order.externalOrderId ?? '-'} • Miktar: ${order.quantity} • Tutar: ₺${order.totalPrice.toStringAsFixed(2)}',
+                          order.targetUrl,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          'Sipariş ID: ${order.externalOrderId ?? '-'} • Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
                           style: const TextStyle(fontSize: 12),
                         ),
+                        if (order.hasRefund)
+                          Text(
+                            'İade: ${order.refundCompositionLabel}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade700,
+                            ),
+                          ),
+                        if (order.reconciliationPending)
+                          const Text(
+                            'Mutabakat bekliyor — iade edilmiş sayılmaz',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange,
+                            ),
+                          ),
                         if (order.startCount != null || order.remains != null)
                           Text(
                             [
-                              if (order.startCount != null) 'Başlangıç: ${order.startCount}',
-                              if (order.remains != null) 'Kalan: ${order.remains}',
+                              if (order.startCount != null)
+                                'Başlangıç: ${order.startCount}',
+                              if (order.remains != null)
+                                'Kalan: ${order.remains}',
                             ].join(' • '),
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                        if (order.sellerCredited && order.netSellerAmount != null)
+                        if (order.sellerCredited &&
+                            order.netSellerAmount != null)
                           Text(
                             'Satıcıya ödenen: ₺${order.netSellerAmount!.toStringAsFixed(2)}',
-                            style: TextStyle(fontSize: 12, color: Colors.green.shade700),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green.shade700,
+                            ),
                           ),
                         Text(
-                          DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal()),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                          DateFormat(
+                            'dd.MM.yyyy HH:mm',
+                          ).format(order.createdAt.toLocal()),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
                         ),
                       ],
                     ),

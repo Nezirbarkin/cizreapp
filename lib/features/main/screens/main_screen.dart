@@ -33,6 +33,8 @@ import '../../../core/services/app_about_service.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../../news/services/news_service.dart';
 import '../../news/screens/news_detail_screen.dart';
+import '../../market/services/flash_sale_service.dart';
+import '../../market/widgets/flash_aware_price_row.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -464,6 +466,7 @@ class ProductsScreen extends StatefulWidget {
 class _ProductsScreenState extends State<ProductsScreen> {
   final ProductService _productService = ProductService();
   final _aboutService = AppAboutService();
+  final FlashSaleService _flashSaleService = FlashSaleService();
 
   // Animasyon ayarları
   String _appSlogan = 'Her an her kapıda!';
@@ -638,8 +641,46 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
     try {
       final cartProvider = context.read<CartProvider>();
-      await cartProvider.addToCart(product.id, quantity: 1);
-      
+      // Aktif flaş sale var mı? Varsa claim edip flash fiyatıyla ekle
+      final flashSale =
+          await _flashSaleService.getActiveFlashSaleForProduct(product.id);
+      if (flashSale != null) {
+        final claim = await _flashSaleService.claimFlashSale(
+          saleId: flashSale.id,
+          quantity: 1,
+        );
+        if (claim['success'] != true) {
+          if (mounted) {
+            setState(() => _addingToCart.remove(product.id));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  claim['error']?.toString() ?? 'Flaş indirim stok tükendi',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+        try {
+          await cartProvider.addToCart(
+            product.id,
+            quantity: 1,
+            flashSaleId: flashSale.id,
+            flashPrice: flashSale.flashPrice,
+          );
+        } catch (e) {
+          // Sepete eklenemezse claim'i geri bırak
+          await _flashSaleService.releaseFlashSale(
+            saleId: flashSale.id,
+            quantity: 1,
+          );
+          rethrow;
+        }
+      } else {
+        await cartProvider.addToCart(product.id, quantity: 1);
+      }
+
       if (mounted) {
         setState(() => _addingToCart.remove(product.id));
       }
@@ -1042,27 +1083,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             ),
                     ),
                   ),
-                  // İndirim badge - üst sol
-                  if (product.hasDiscount)
-                    Positioned(
-                      top: 4,
-                      left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '%${product.discountPercentage}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                  // İndirim badge - üst sol (flaş indirim öncelikli)
+                  Positioned(
+                    top: 4,
+                    left: 4,
+                    child: FlashAwareDiscountBadge(
+                      product: product,
                     ),
+                  ),
                   // Sponsor badge
                   if (product.isPinned)
                     Positioned(
@@ -1137,37 +1165,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   
                   const SizedBox(height: 2),
                   
-                  // Fiyat
+                  // Fiyat (flaş indirim öncelikli)
                   SizedBox(
                     height: 14,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '₺${product.effectivePrice.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                              color: theme.colorScheme.primary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (product.displayOldPrice != null) ...[
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(
-                              '₺${product.displayOldPrice!.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                decoration: TextDecoration.lineThrough,
-                                color: Colors.grey.shade400,
-                                fontSize: 9,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: FlashAwarePriceRow(
+                      product: product,
+                      priceStyle: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        color: theme.colorScheme.primary,
+                      ),
+                      oldPriceColor: Colors.grey.shade400,
                     ),
                   ),
                   

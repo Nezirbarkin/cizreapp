@@ -9,24 +9,24 @@ class WithdrawalRequestScreen extends StatefulWidget {
   const WithdrawalRequestScreen({super.key});
 
   @override
-  State<WithdrawalRequestScreen> createState() => _WithdrawalRequestScreenState();
+  State<WithdrawalRequestScreen> createState() =>
+      _WithdrawalRequestScreenState();
 }
 
 class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
   final BalanceService _balanceService = BalanceService();
   final WithdrawalService _withdrawalService = WithdrawalService();
-  
+
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _ibanController = TextEditingController();
   final TextEditingController _accountNameController = TextEditingController();
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   SellerEarningsSummary? _earningsSummary;
   bool _isLoading = true;
   bool _isSubmitting = false;
-
 
   @override
   void initState() {
@@ -45,7 +45,7 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
 
   Future<void> _loadEarnings() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final summary = await _balanceService.getSellerEarnings();
       setState(() {
@@ -61,10 +61,10 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
 
   Future<void> _submitWithdrawal() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     final amount = double.tryParse(_amountController.text) ?? 0;
     final minWithdrawal = _earningsSummary?.minWithdrawal ?? 50;
-    
+
     if (amount < minWithdrawal) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Minimum çekim tutarı $minWithdrawal TL\'dir')),
@@ -75,7 +75,11 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
     final availableAmount = _earningsSummary?.availableAmount ?? 0;
     if (amount > availableAmount) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Çekilebilir tutar $availableAmount TL\'den fazla olamaz')),
+        SnackBar(
+          content: Text(
+            'Çekilebilir tutar $availableAmount TL\'den fazla olamaz',
+          ),
+        ),
       );
       return;
     }
@@ -105,18 +109,16 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.userMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.userMessage)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kazanç Çekme'),
-      ),
+      appBar: AppBar(title: const Text('Kazanç Çekme')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(),
@@ -141,10 +143,7 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Colors.green.shade600,
-                    Colors.green.shade400,
-                  ],
+                  colors: [Colors.green.shade600, Colors.green.shade400],
                 ),
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -167,11 +166,30 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildSummaryItem('Bekleyen', summary?.pendingAmount ?? 0),
-                      _buildSummaryItem('Çekilen', summary?.withdrawnAmount ?? 0),
+                      _buildSummaryItem(
+                        'Bekleyen',
+                        summary?.pendingAmount ?? 0,
+                      ),
+                      _buildSummaryItem(
+                        'Çekilen',
+                        summary?.withdrawnAmount ?? 0,
+                      ),
                     ],
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade200),
+              ),
+              child: const Text(
+                'Puanlar çekilebilir TL tutarına dahil değildir; IBAN’a çekilemez veya transfer edilemez.',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
               ),
             ),
             const SizedBox(height: 24),
@@ -186,12 +204,19 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.blue.shade700,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Minimum çekim: ₺$minWithdrawal | Komisyon: %$feePercent',
-                      style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
+                      style: TextStyle(
+                        color: Colors.blue.shade700,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -202,11 +227,15 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
             // Tutar
             TextFormField(
               controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: InputDecoration(
                 labelText: 'Çekilecek Tutar',
                 prefixText: '₺ ',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
@@ -227,12 +256,26 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
             // Banka Adı
             Autocomplete<String>(
               optionsBuilder: (textEditingValue) {
-                final banks = ['Ziraat Bankası', 'Garanti BBVA', 'Akbank', 'İş Bankası', 'Halkbank', 'QNB Finansbank', 'Yapı Kredi', 'TEB', 'ING Bank', 'Kuveyt Türk'];
+                final banks = [
+                  'Ziraat Bankası',
+                  'Garanti BBVA',
+                  'Akbank',
+                  'İş Bankası',
+                  'Halkbank',
+                  'QNB Finansbank',
+                  'Yapı Kredi',
+                  'TEB',
+                  'ING Bank',
+                  'Kuveyt Türk',
+                ];
                 if (textEditingValue.text.isEmpty) {
                   return banks;
                 }
-                return banks.where((bank) =>
-                    bank.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                return banks.where(
+                  (bank) => bank.toLowerCase().contains(
+                    textEditingValue.text.toLowerCase(),
+                  ),
+                );
               },
               onSelected: (selection) {
                 _bankNameController.text = selection;
@@ -249,7 +292,9 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                   focusNode: focusNode,
                   decoration: InputDecoration(
                     labelText: 'Banka Adı',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -269,7 +314,9 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
               decoration: InputDecoration(
                 labelText: 'IBAN',
                 hintText: 'TR00 0000 0000 0000 0000 0000 00',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
@@ -289,7 +336,9 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
               controller: _accountNameController,
               decoration: InputDecoration(
                 labelText: 'Hesap Sahibi (Opsiyonel)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -320,16 +369,31 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Komisyon ($feePercent%):', style: TextStyle(color: Colors.grey.shade600)),
-                          Text('-₺${fee.toStringAsFixed(2)}', style: const TextStyle(color: Colors.red)),
+                          Text(
+                            'Komisyon ($feePercent%):',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                          Text(
+                            '-₺${fee.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Colors.red),
+                          ),
                         ],
                       ),
                       const Divider(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Net Tutar:', style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text('₺${net.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                          const Text(
+                            'Net Tutar:',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '₺${net.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -351,7 +415,10 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                   ? const SizedBox(
                       height: 20,
                       width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Text('Çekim Talebi Oluştur'),
             ),
@@ -375,10 +442,7 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 12,
-          ),
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
         ),
       ],
     );

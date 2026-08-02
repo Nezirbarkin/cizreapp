@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/cart_model.dart';
+import '../../../core/models/coupon_model.dart';
 
 class CartService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -26,10 +27,13 @@ class CartService {
             created_at,
             updated_at,
             variant_data,
+            flash_sale_id,
+            flash_price,
             products (
               name,
               price,
               old_price,
+              discount_price,
               image_url,
               shop_id,
               is_available,
@@ -43,34 +47,7 @@ class CartService {
           .order('created_at', ascending: false);
 
       return (response as List).map((item) {
-        final product = item['products'] as Map<String, dynamic>?;
-        final shop = product?['shops'] as Map<String, dynamic>?;
-
-        return CartItem(
-            id: item['id']?.toString() ?? '',
-            userId: item['user_id']?.toString() ?? '',
-            productId: item['product_id']?.toString() ?? '',
-            quantity: (item['quantity'] as num?)?.toInt() ?? 1,
-            createdAt: item['created_at'] != null
-                ? DateTime.parse(item['created_at'].toString())
-                : DateTime.now(),
-            updatedAt: item['updated_at'] != null
-                ? DateTime.parse(item['updated_at'].toString())
-                : DateTime.now(),
-          productName: product?['name']?.toString(),
-          productPrice: product?['price'] != null
-              ? (product!['price'] as num?)?.toDouble()
-              : null,
-          productOldPrice: product?['old_price'] != null
-              ? (product!['old_price'] as num?)?.toDouble()
-              : null,
-          productImageUrl: product?['image_url']?.toString(),
-          shopId: product?['shop_id']?.toString(),
-          shopName: shop?['name']?.toString(),
-          isAvailable: product?['is_available'] as bool?,
-          stockQuantity: (product?['stock_quantity'] as num?)?.toInt(),
-          variantData: item['variant_data'] as Map<String, dynamic>?,
-        );
+        return _mapToCartItem(item as Map<String, dynamic>);
       }).toList();
     } catch (e) {
       throw Exception('Sepet yüklenirken hata: $e');
@@ -83,6 +60,8 @@ class CartService {
     required String productId,
     int quantity = 1,
     Map<String, dynamic>? variantData,
+    String? flashSaleId,
+    double? flashPrice,
   }) async {
     // Validasyon - userId ve productId null/boş olmamalı
     if (userId.isEmpty) {
@@ -91,7 +70,7 @@ class CartService {
     if (productId.isEmpty) {
       throw Exception('Ürün ID boş olamaz');
     }
-    
+
     try {
       // Stok kontrolü - üründeki mevcut stok miktarını al
       final productResponse = await _supabase
@@ -108,26 +87,36 @@ class CartService {
       }
 
       // Varyantlı ürünler için varyant bazlı kontrol yap
+      // Aynı zamanda flash_sale_id'yi de seç ki mevcut satırın flaş olup
+      // olmadığını bilelim (yeni ekleme flaş ise ve mevcut satır flaş
+      // değilse, ayrı bir cart satırı olarak eklenmeli).
       final response = await _supabase
           .from('cart')
-          .select('id, quantity, variant_data')
+          .select('id, quantity, variant_data, flash_sale_id, flash_price')
           .eq('user_id', userId)
           .eq('product_id', productId);
 
       CartItem? existingItem;
       if (variantData != null && variantData.isNotEmpty) {
-        // Aynı varyant kombinasyonunu ara
+        // Aynı varyant kombinasyonunu ve aynı flash_sale_id'yi ara
         for (final item in (response as List)) {
           final itemVariant = item['variant_data'] as Map<String, dynamic>?;
-          if (itemVariant != null && _variantDataEquals(itemVariant, variantData)) {
-            existingItem = _mapToCartItem(item);
+          final itemFlashId = item['flash_sale_id'] as String?;
+          if (itemVariant != null &&
+              _variantDataEquals(itemVariant, variantData) &&
+              itemFlashId == flashSaleId) {
+            existingItem = _mapToCartItem(item as Map<String, dynamic>);
             break;
           }
         }
       } else {
-        // Varyantsız ürün için ilk eşleşen öğeyi al
-        if (response.isNotEmpty) {
-          existingItem = _mapToCartItem(response.first);
+        // Varyantsız ürün için ilk eşleşen öğeyi al (aynı flash_sale_id)
+        for (final item in (response as List)) {
+          final itemFlashId = item['flash_sale_id'] as String?;
+          if (itemFlashId == flashSaleId) {
+            existingItem = _mapToCartItem(item as Map<String, dynamic>);
+            break;
+          }
         }
       }
 
@@ -143,31 +132,8 @@ class CartService {
             .eq('id', existingItem.id);
 
         // Güncellenmiş sepet öğesini getir
-        final updated = await _supabase
-            .from('cart')
-            .select('''
-              id,
-              user_id,
-              product_id,
-              quantity,
-              created_at,
-              updated_at,
-              variant_data,
-              products (
-                name,
-                price,
-                old_price,
-                image_url,
-                shop_id,
-                is_available,
-                stock_quantity,
-                shops (name)
-              )
-            ''')
-            .eq('id', existingItem.id)
-            .single();
-
-        return _mapToCartItem(updated);
+        final updated = await _getCartItemById(existingItem.id);
+        return updated;
       }
 
       if (stockQuantity != null && quantity > stockQuantity) {
@@ -175,7 +141,7 @@ class CartService {
       }
 
       // Yeni ekle
-      final insertData = {
+      final insertData = <String, dynamic>{
         'user_id': userId,
         'product_id': productId,
         'quantity': quantity,
@@ -183,29 +149,17 @@ class CartService {
       if (variantData != null && variantData.isNotEmpty) {
         insertData['variant_data'] = variantData;
       }
+      if (flashSaleId != null) {
+        insertData['flash_sale_id'] = flashSaleId;
+      }
+      if (flashPrice != null) {
+        insertData['flash_price'] = flashPrice;
+      }
 
       final insertResponse = await _supabase
           .from('cart')
           .insert(insertData)
-          .select('''
-            id,
-            user_id,
-            product_id,
-            quantity,
-            created_at,
-            updated_at,
-            variant_data,
-            products (
-              name,
-              price,
-              old_price,
-              image_url,
-              shop_id,
-              is_available,
-              stock_quantity,
-              shops (name)
-            )
-          ''')
+          .select(_cartSelectColumns)
           .single();
 
       return _mapToCartItem(insertResponse);
@@ -213,6 +167,40 @@ class CartService {
       throw Exception('Sepete eklenirken hata: $e');
     }
   }
+
+  /// Tek bir cart satırını join ile birlikte getir.
+  Future<CartItem> _getCartItemById(String cartItemId) async {
+    final response = await _supabase
+        .from('cart')
+        .select(_cartSelectColumns)
+        .eq('id', cartItemId)
+        .single();
+    return _mapToCartItem(response);
+  }
+
+  /// `cart` tablosu için ortak SELECT ifadesi.
+  String get _cartSelectColumns => '''
+    id,
+    user_id,
+    product_id,
+    quantity,
+    created_at,
+    updated_at,
+    variant_data,
+    flash_sale_id,
+    flash_price,
+    products (
+      name,
+      price,
+      old_price,
+      discount_price,
+      image_url,
+      shop_id,
+      is_available,
+      stock_quantity,
+      shops (name)
+    )
+  ''';
 
   // Sepet öğesi miktarını güncelle
   Future<void> updateQuantity({
@@ -413,33 +401,45 @@ class CartService {
       productOldPrice: product?['old_price'] != null
           ? (product!['old_price'] as num?)?.toDouble()
           : null,
+      productDiscountPrice: product?['discount_price'] != null
+          ? (product!['discount_price'] as num?)?.toDouble()
+          : null,
       productImageUrl: product?['image_url']?.toString(),
       shopId: product?['shop_id']?.toString(),
       shopName: shop?['name']?.toString(),
       isAvailable: product?['is_available'] as bool?,
       stockQuantity: (product?['stock_quantity'] as num?)?.toInt(),
       variantData: item['variant_data'] as Map<String, dynamic>?,
+      flashSaleId: item['flash_sale_id'] as String?,
+      flashPrice: (item['flash_price'] as num?)?.toDouble(),
     );
   }
 
   /// Sepeti dükkanlara göre grupla (çok dükkanlı sipariş için)
   /// Her dükkan için ayrı CartSummary döndürür
-  Future<Map<String, ShopCartSummary>> groupCartByShop(String userId) async {
+  ///
+  /// [couponsByShop] opsiyonel olarak dükkan başına uygulanan kuponları
+  /// içerir. Geçilirse `ShopCartSummary.discount` ve `total` buna göre
+  /// hesaplanır; geçilmezse 0 indirim uygulanır (geriye uyumluluk).
+  Future<Map<String, ShopCartSummary>> groupCartByShop(
+    String userId, {
+    Map<String, AppliedCoupon>? couponsByShop,
+  }) async {
     try {
       final items = await getCart(userId);
-      
+
       // Dükkanlara göre grupla
       final Map<String, List<CartItem>> groupedItems = {};
       for (final item in items) {
         final shopId = item.shopId;
         if (shopId == null) continue;
-        
+
         if (!groupedItems.containsKey(shopId)) {
           groupedItems[shopId] = [];
         }
         groupedItems[shopId]!.add(item);
       }
-      
+
       // Her dükkan için özet oluştur
       final Map<String, ShopCartSummary> summaries = {};
       for (final entry in groupedItems.entries) {
@@ -452,24 +452,32 @@ class CartService {
         final freeDeliveryMinAmount = deliveryInfo['free_delivery_min_amount'] ?? 0.0;
         final shopName = shopItems.first.shopName ?? 'Dükkan';
         
-        // Ara toplam hesapla
+        // Ara toplam hesapla — `effectivePrice` kullan (discount_price varsa onu)
         double subtotal = 0;
         for (final item in shopItems) {
-          subtotal += (item.productPrice ?? 0) * item.quantity;
+          subtotal += item.effectivePrice * item.quantity;
         }
         
         // Ücretsiz teslimat kontrolü
         final deliveryFee = calculateDeliveryFee(subtotal, baseDeliveryFee, freeDeliveryMinAmount);
-        
+
+        // Dükkan kuponu varsa indirimi hesapla
+        final coupon = couponsByShop?[shopId];
+        final couponDiscount = coupon?.discountFor(subtotal) ?? 0;
+        final clampedDiscount = couponDiscount.clamp(0.0, subtotal).toDouble();
+        final shopTotal = subtotal - clampedDiscount + deliveryFee;
+
         summaries[shopId] = ShopCartSummary(
           shopId: shopId,
           shopName: shopName,
           items: shopItems,
           subtotal: subtotal,
           deliveryFee: deliveryFee,
-          total: subtotal + deliveryFee,
+          total: shopTotal,
           freeDeliveryMinAmount: freeDeliveryMinAmount,
           isFreeDelivery: deliveryFee == 0 && freeDeliveryMinAmount > 0,
+          discount: clampedDiscount,
+          couponCode: coupon?.code,
         );
       }
       
@@ -490,6 +498,11 @@ class ShopCartSummary {
   final double total;
   final double freeDeliveryMinAmount;
   final bool isFreeDelivery;
+  /// Dükkan bazında uygulanan kupon/indirim tutarı. 0 = indirim yok.
+  /// `validate_coupon` RPC ile doğrulanmış, `discountFor` ile hesaplanmış
+  /// tutar `groupCartByShop` sırasında buraya yazılır.
+  final double discount;
+  final String? couponCode;
 
   ShopCartSummary({
     required this.shopId,
@@ -500,6 +513,8 @@ class ShopCartSummary {
     required this.total,
     this.freeDeliveryMinAmount = 0,
     this.isFreeDelivery = false,
+    this.discount = 0,
+    this.couponCode,
   });
 
   int get itemCount => items.fold<int>(0, (sum, item) => sum + item.quantity);

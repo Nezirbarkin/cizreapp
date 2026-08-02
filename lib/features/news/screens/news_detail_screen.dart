@@ -1,4 +1,4 @@
-﻿// ignore_for_file: unused_field, use_build_context_synchronously, deprecated_member_use
+﻿// ignore_for_file: unused_field, use_build_context_synchronously
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +27,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
   bool _isLiked = false;
   int _likeCount = 0;
   int _viewCount = 0;
+  int _commentCount = 0;
   NewsModel? _updatedNews;
 
   @override
@@ -34,6 +35,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
     super.initState();
     _likeCount = widget.news.likeCount;
     _viewCount = widget.news.viewCount;
+    _commentCount = widget.news.commentCount;
     _isLiked = widget.news.isLikedByUser ?? false;
     _loadComments();
     _recordView();
@@ -57,6 +59,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
     if (mounted) {
       setState(() {
         _comments = comments;
+        _commentCount = comments.length;
         _isLoadingComments = false;
       });
     }
@@ -71,18 +74,47 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
       return;
     }
 
-    final isNowLiked = await _newsService.toggleLike(widget.news.id);
-    if (mounted) {
-      setState(() {
-        _isLiked = isNowLiked;
-        _likeCount += isNowLiked ? 1 : -1;
-      });
+    // Optimistik UI güncellemesi - hemen UI'ı güncelle
+    final wasPreviouslyLiked = _isLiked;
+    setState(() {
+      _isLiked = !_isLiked;
+      _likeCount += _isLiked ? 1 : -1;
+    });
+
+    try {
+      // Database'e gönder
+      final isNowLiked = await _newsService.toggleLike(widget.news.id);
+
+      if (mounted) {
+        // Database cevabına göre state'i doğru yap
+        if (isNowLiked != _isLiked) {
+          setState(() {
+            _isLiked = isNowLiked;
+            _likeCount += isNowLiked ? 1 : -1;
+          });
+        }
+      }
+    } catch (e) {
+      // Hata durumunda geri al
+      if (mounted) {
+        setState(() {
+          _isLiked = wasPreviouslyLiked;
+          _likeCount += wasPreviouslyLiked ? 1 : -1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Hata: $e')),
+        );
+      }
     }
   }
 
   Future<void> _shareNews() async {
     final text = '${widget.news.title}\n\n${widget.news.summary ?? widget.news.content.substring(0, widget.news.content.length > 100 ? 100 : widget.news.content.length)}...';
-    await Share.share(text);
+    await SharePlus.instance.share(
+      ShareParams(
+        text: text,
+      ),
+    );
   }
 
   Future<void> _copyLink() async {
@@ -111,9 +143,11 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
       content: _commentController.text.trim(),
     );
 
-    if (comment != null) {
+    if (comment != null && mounted) {
       _commentController.clear();
-      _loadComments();
+      setState(() {
+        _comments.insert(0, comment);
+      });
     }
   }
 
@@ -182,9 +216,9 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
+                            color: Colors.blue.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                            border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
                           ),
                           child: Text(
                             news.categoryName!,
@@ -281,7 +315,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.05),
+                        color: Colors.blue.withValues(alpha: 0.05),
                         border: const Border(
                           left: BorderSide(color: Colors.blue, width: 3),
                         ),
@@ -323,7 +357,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                       ),
                       _buildInteractionButton(
                         icon: Icons.comment,
-                        label: '${news.commentCount} Yorum',
+                        label: '$_commentCount Yorum',
                         color: Colors.grey,
                         onTap: () {
                           // Yorumlara scroll
@@ -549,8 +583,23 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                     size: 18,
                   ),
                   onPressed: () async {
+                    // Optimistik UI güncellemesi
+                    final wasLiked = comment.isLikedByUser ?? false;
+                    final commentIndex = _comments.indexOf(comment);
+
+                    if (commentIndex != -1) {
+                      setState(() {
+                        _comments[commentIndex] = _comments[commentIndex].copyWith(
+                          isLikedByUser: !wasLiked,
+                          likeCount: wasLiked
+                            ? _comments[commentIndex].likeCount - 1
+                            : _comments[commentIndex].likeCount + 1,
+                        );
+                      });
+                    }
+
+                    // Database'e gönder
                     await _newsService.toggleCommentLike(comment.id);
-                    _loadComments();
                   },
                   color: comment.isLikedByUser == true ? Colors.red : Colors.grey,
                 ),

@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/cart_model.dart';
+import '../../../core/models/coupon_model.dart';
 import '../../../core/models/shop_model.dart';
 import '../services/cart_service.dart';
+import '../services/flash_sale_service.dart';
 import '../services/shop_service.dart';
 
 class CartProvider with ChangeNotifier {
   final CartService _cartService = CartService();
+  final FlashSaleService _flashSaleService = FlashSaleService();
   final ShopService _shopService = ShopService();
 
   // Dinamik olarak mevcut kullanıcı ID'sini Supabase'den al
@@ -16,9 +19,18 @@ class CartProvider with ChangeNotifier {
   List<CartItem> _items = [];
   bool _isLoading = false;
   String? _error;
-  
+
   // Dükkan bilgileri cache
   final Map<String, Shop> _shops = {};
+
+  // Uygulanan kuponlar: shopId -> AppliedCoupon
+  // Çok dükkanlı sepette her dükkana ayrı kupon girilebilmesi için key
+  // shopId. RPC `validate_coupon` zaten shop-scoped; bu yüzden state de
+  // shop-scoped tutuluyor.
+  final Map<String, AppliedCoupon> _couponsByShop = {};
+  // Son revalidation'da kaldırılan kupon (UI snackbar için).
+  // CartScreen CartProvider'ı dinlediği için tüketip temizler.
+  AppliedCoupon? _lastRemovedCoupon;
 
   // Geriye uyumluluk için parametre kabul eder ama kullanmaz
   // userId artık dinamik olarak Supabase auth state'inden alınıyor
@@ -32,12 +44,23 @@ class CartProvider with ChangeNotifier {
   bool get isEmpty => _items.isEmpty;
   bool get isNotEmpty => _items.isNotEmpty;
 
+  // Kupon state getter'ları.
+  Map<String, AppliedCoupon> get couponsByShop =>
+      Map.unmodifiable(_couponsByShop);
+  AppliedCoupon? couponForShop(String shopId) => _couponsByShop[shopId];
+  AppliedCoupon? consumeLastRemovedCoupon() {
+    final c = _lastRemovedCoupon;
+    // UI'ya yalnızca coupon dönüyoruz; debug/log için satır 53 yorumu yeterli.
+    _lastRemovedCoupon = null;
+    return c;
+  }
+
   // Sepet özeti (teslimat ücreti dahil)
   CartSummary get summary {
     // Direkt olarak items'dan groupedByShop hesapla, summary'ye bağımlı değil
     double totalDeliveryFee = 0;
     final grouped = <String, List<CartItem>>{};
-    
+
     for (var item in _items) {
       final shopId = item.shopId ?? 'unknown';
       if (!grouped.containsKey(shopId)) {
@@ -45,13 +68,29 @@ class CartProvider with ChangeNotifier {
       }
       grouped[shopId]!.add(item);
     }
-    
+
     // Her dükkan için teslimat ücretini topla
     for (final shopId in grouped.keys) {
       totalDeliveryFee += getDeliveryFee(shopId);
     }
-    
-    return CartSummary.fromItems(_items, deliveryFee: totalDeliveryFee);
+
+    // Kupon indirimlerini dükkanlara dağıtıp topla.
+    double totalCoupon = 0;
+    for (final entry in _couponsByShop.entries) {
+      final shopId = entry.key;
+      final coupon = entry.value;
+      // Dükkanın o an sepette hala ürünü var mı kontrol et (boş dükkanı
+      // _revalidateCoupons zaten temizlemiş olmalı, yine de defensif).
+      if (grouped.containsKey(shopId)) {
+        totalCoupon += coupon.discountFor(_shopSubtotal(shopId));
+      }
+    }
+
+    return CartSummary.fromItems(
+      _items,
+      deliveryFee: totalDeliveryFee,
+      couponDiscount: totalCoupon,
+    );
   }
 
   // Toplam öğe sayısı
@@ -93,24 +132,149 @@ class CartProvider with ChangeNotifier {
     }
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // KUPON YÖNETİMİ (shop-scoped)
+  // ──────────────────────────────────────────────────────────────────────
+
+  /// Dükkanın mevcut sepet ara-toplamını hesapla (kupon indirimi hariç).
+  /// RPC `validate_coupon(p_subtotal)` buradan beslenir.
+  double _shopSubtotal(String shopId) {
+    double subtotal = 0;
+    for (final item in _items) {
+      if (item.shopId == shopId) {
+        subtotal += item.effectivePrice * item.quantity;
+      }
+    }
+    return subtotal;
+  }
+
+  /// `validate_coupon` RPC'sini çağırıp sonucu cache'le.
+  /// Hata durumunda exception fırlatır (UI yakalar ve kullanıcıya gösterir).
+  Future<AppliedCoupon> applyCoupon({
+    required String shopId,
+    required String code,
+  }) async {
+    if (userId.isEmpty) {
+      throw Exception('Lütfen önce giriş yapın');
+    }
+    if (code.trim().isEmpty) {
+      throw Exception('Kupon kodu boş olamaz');
+    }
+
+    final subtotal = _shopSubtotal(shopId);
+    debugPrint('🎟️ CartProvider.applyCoupon() shop=$shopId code=$code subtotal=$subtotal');
+
+    try {
+      final response = await Supabase.instance.client.rpc(
+        'validate_coupon',
+        params: {
+          'p_shop_id': shopId,
+          'p_code': code.trim().toUpperCase(),
+          'p_subtotal': subtotal,
+          'p_user_id': userId,
+        },
+      );
+
+      if (response == null) {
+        throw Exception('Kupon doğrulanamadı');
+      }
+
+      // RPC tek satır döner. Liste geldiyse ilkini al, Map geldiyse direkt.
+      Map<String, dynamic>? row;
+      if (response is List) {
+        if (response.isEmpty) {
+          throw Exception('Kupon doğrulanamadı');
+        }
+        row = Map<String, dynamic>.from(response.first as Map);
+      } else if (response is Map) {
+        row = Map<String, dynamic>.from(response);
+      } else {
+        throw Exception('Beklenmeyen RPC yanıtı');
+      }
+
+      final coupon = AppliedCoupon.fromRpcRow(
+        row,
+        shopId: shopId,
+        code: code.trim().toUpperCase(),
+      );
+      _couponsByShop[shopId] = coupon;
+      notifyListeners();
+      debugPrint('✅ Kupon uygulandı: ${coupon.label} shop=$shopId');
+      return coupon;
+    } catch (e) {
+      debugPrint('❌ CartProvider.applyCoupon() HATA: $e');
+      rethrow;
+    }
+  }
+
+  /// Dükkanın kuponunu state'ten kaldır.
+  void removeCoupon(String shopId) {
+    if (_couponsByShop.remove(shopId) != null) {
+      notifyListeners();
+    }
+  }
+
+  /// Tüm kuponları temizle (sepet temizlendiğinde çağrılır).
+  void clearCoupons() {
+    if (_couponsByShop.isNotEmpty) {
+      _couponsByShop.clear();
+      notifyListeners();
+    }
+  }
+
+  /// Sepet değiştikten sonra (add/update/remove/clear) her kuponu
+  /// yeniden doğrula. `minimum_order_amount` altına düşen kuponları
+  /// sessizce kaldır ve UI'ya `_lastRemovedCoupon` üzerinden bildir.
+  void _revalidateCoupons() {
+    if (_couponsByShop.isEmpty) return;
+
+    final removed = <AppliedCoupon>[];
+    final shopIds = _couponsByShop.keys.toList();
+    for (final shopId in shopIds) {
+      final coupon = _couponsByShop[shopId]!;
+      final subtotal = _shopSubtotal(shopId);
+      // Kupon artık geçerli değilse (min. sepet tutarı altına düştüyse) kaldır.
+      if (subtotal < coupon.minimumOrderAmount) {
+        _couponsByShop.remove(shopId);
+        removed.add(coupon);
+      }
+    }
+
+    if (removed.isNotEmpty) {
+      // UI snackbar'ı için yalnız son kaldırılanı sakla.
+      _lastRemovedCoupon = removed.last;
+      debugPrint('⚠️ ${removed.length} kupon revalidate sonrası kaldırıldı');
+      notifyListeners();
+    }
+  }
+
   // Sepete ürün ekle
-  Future<void> addToCart(String productId, {int quantity = 1, Map<String, dynamic>? variantData}) async {
-    debugPrint('➕ CartProvider.addToCart() - productId: $productId, quantity: $quantity, variantData: $variantData');
-    
+  Future<void> addToCart(
+    String productId, {
+    int quantity = 1,
+    Map<String, dynamic>? variantData,
+    String? flashSaleId,
+    double? flashPrice,
+  }) async {
+    debugPrint('➕ CartProvider.addToCart() - productId: $productId, quantity: $quantity, variantData: $variantData, flashSaleId: $flashSaleId, flashPrice: $flashPrice');
+
     // Kullanıcı giriş yapmamışsa hata fırlat
     if (userId.isEmpty) {
       throw Exception('Lütfen önce giriş yapın');
     }
-    
+
     try {
       await _cartService.addToCart(
         userId: userId,
         productId: productId,
         quantity: quantity,
         variantData: variantData,
+        flashSaleId: flashSaleId,
+        flashPrice: flashPrice,
       );
       debugPrint('✅ CartProvider.addToCart() BAŞARILI, sepet yeniden yükleniyor...');
       await loadCart(); // Sepeti yeniden yükle
+      _revalidateCoupons();
     } catch (e) {
       _error = e.toString();
       debugPrint('❌ CartProvider.addToCart() HATA: $e');
@@ -122,11 +286,28 @@ class CartProvider with ChangeNotifier {
   // Miktar güncelle
   Future<void> updateQuantity(String cartItemId, int quantity) async {
     try {
+      // Eğer azaltma yapılıyorsa ve bu satır flaş satıştan geldiyse, fark
+      // kadar stoğu geri ver (release_flash_sale).
+      if (quantity > 0) {
+        final existing = _items.firstWhere(
+          (it) => it.id == cartItemId,
+          orElse: () => _emptyCartItem(cartItemId),
+        );
+        if (existing.flashSaleId != null && existing.quantity > quantity) {
+          final releaseQty = existing.quantity - quantity;
+          await _flashSaleService.releaseFlashSale(
+            saleId: existing.flashSaleId!,
+            quantity: releaseQty,
+          );
+        }
+      }
+
       await _cartService.updateQuantity(
         cartItemId: cartItemId,
         quantity: quantity,
       );
       await loadCart();
+      _revalidateCoupons();
     } catch (e) {
       _error = e.toString();
       notifyListeners();
@@ -137,8 +318,21 @@ class CartProvider with ChangeNotifier {
   // Sepetten sil
   Future<void> removeFromCart(String cartItemId) async {
     try {
+      // Flaş satıştan gelen bir satırsa stoğu geri ver.
+      final existing = _items.firstWhere(
+        (it) => it.id == cartItemId,
+        orElse: () => _emptyCartItem(cartItemId),
+      );
+      if (existing.flashSaleId != null && existing.quantity > 0) {
+        await _flashSaleService.releaseFlashSale(
+          saleId: existing.flashSaleId!,
+          quantity: existing.quantity,
+        );
+      }
+
       await _cartService.removeFromCart(cartItemId);
       await loadCart();
+      _revalidateCoupons();
     } catch (e) {
       _error = e.toString();
       notifyListeners();
@@ -149,14 +343,43 @@ class CartProvider with ChangeNotifier {
   // Sepeti temizle
   Future<void> clearCart() async {
     try {
+      // Tüm flaş satışlı satırlar için stoğu geri ver.
+      for (final item in _items) {
+        if (item.flashSaleId != null && item.quantity > 0) {
+          try {
+            await _flashSaleService.releaseFlashSale(
+              saleId: item.flashSaleId!,
+              quantity: item.quantity,
+            );
+          } catch (e) {
+            debugPrint('⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e');
+            // Tek bir başarısızlık tüm sepet temizlemeyi engellemesin.
+          }
+        }
+      }
+
       await _cartService.clearCart(userId);
       _items = [];
+      clearCoupons();
       notifyListeners();
     } catch (e) {
       _error = e.toString();
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Yardımcı: belirli bir cartItemId için boş bir CartItem döndürür
+  /// (firstWhere orElse için).
+  CartItem _emptyCartItem(String cartItemId) {
+    return CartItem(
+      id: cartItemId,
+      userId: userId,
+      productId: '',
+      quantity: 0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
   }
 
   // Ürünün sepette olup olmadığını kontrol et

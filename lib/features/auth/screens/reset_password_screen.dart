@@ -6,9 +6,22 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/widgets/responsive_wrapper.dart';
-import '../../../core/services/verification_service.dart';
 import '../services/auth_service.dart';
 
+/// Şifre sıfırlama ekranı.
+///
+/// Supabase Auth'un yerleşik recovery OTP sistemini kullanır. Özel
+/// password_reset_otps tablosu, verify_password_reset_otp RPC'si ve
+/// service-role kullanan reset-password-with-otp Edge Function'ı
+/// kullanımdan kaldırılmıştır. Akış:
+///   1) E-posta gönderildiğinde Supabase Auth 6 haneli recovery OTP
+///      üretip e-postayla gönderir.
+///   2) Kullanıcı OTP'yi girer; verifyOTP(OtpType.recovery) çağrısı
+///      sunucu tarafında doğrulanmış bir recovery session oluşturur.
+///   3) Yeni şifre yalnız bu session geçerliyken auth.updateUser
+///      üzerinden güncellenir.
+///   4) Şifre güncellendikten sonra recovery session sonlandırılır ve
+///      kullanıcı login ekranına yönlendirilir.
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
 
@@ -26,10 +39,10 @@ enum _ResetStep {
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _passwordFormKey = GlobalKey<FormState>();
-  final _identifierController = TextEditingController();
+  final _emailController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   // OTP controllers - 6 haneli kod için
   final List<TextEditingController> _otpControllers = List.generate(
     6,
@@ -39,25 +52,22 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     6,
     (_) => FocusNode(),
   );
-  
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  
+
   // OTP state
   _ResetStep _currentStep = _ResetStep.emailInput;
-  int _remainingSeconds = 0;
   int _resendCooldown = 0;
-  Timer? _timer;
   Timer? _resendTimer;
   String? _verifiedEmail;
-  
-  final _verificationService = VerificationService();
+
   final _authService = AuthService();
 
   @override
   void dispose() {
-    _identifierController.dispose();
+    _emailController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     for (var controller in _otpControllers) {
@@ -66,7 +76,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     for (var node in _otpFocusNodes) {
       node.dispose();
     }
-    _timer?.cancel();
     _resendTimer?.cancel();
     super.dispose();
   }
@@ -74,61 +83,55 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   /// OTP kodunu al
   String get _otpCode => _otpControllers.map((c) => c.text).join();
 
-  /// OTP gönder
+  /// Supabase'in built-in recovery OTP sistemi ile kod gönder.
+  /// Kullanıcı var/yok bilgisi sızdırılmaz: her iki durumda da aynı
+  /// genel mesaj gösterilir.
   Future<void> _sendOtp() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final rawEmail = _emailController.text.trim().toLowerCase();
 
     setState(() => _isLoading = true);
 
     try {
-      String email = _identifierController.text.trim();
-      
-      // Eğer kullanıcı adı girdiyse email'i bul
-      if (!email.contains('@')) {
-        final profileService = await Supabase.instance.client
-            .from('profiles')
-            .select('email:id')
-            .eq('username', email.toLowerCase())
-            .maybeSingle();
-        
-        if (profileService == null) {
-          throw Exception('Kullanıcı bulunamadı');
-        }
-        
-        // Auth tablosundan email al
-        // Bu işlem edge function üzerinden yapılır
-      }
-      
-      final result = await _verificationService.sendPasswordResetOtp(
-        email: email,
-      );
+      await Supabase.instance.client.auth
+          .resetPasswordForEmail(rawEmail);
 
       if (mounted) {
         setState(() {
           _currentStep = _ResetStep.otpInput;
-          _remainingSeconds = result['expires_in_seconds'] ?? 300;
           _resendCooldown = 60;
-          _verifiedEmail = email;
+          _verifiedEmail = rawEmail;
         });
-        
-        _startTimer();
+
         _startResendTimer();
-        
-        _showSuccess(result['message'] ?? 'Doğrulama kodu e-posta adresinize gönderildi');
-        
-        // İlk OTP kutusuna odaklan
+
+        _showSuccess(
+          'Bu adres kayıtlıysa doğrulama kodu gönderildi. '
+          'Lütfen e-postanızı kontrol edin.',
+        );
+
         _otpFocusNodes[0].requestFocus();
+      }
+    } on AuthException catch (e) {
+      // Rate limit / over_email_send_rate_limit: otomatik retry yok
+      if (mounted) {
+        _showError(_authService.translateAuthError(e.message));
       }
     } catch (e) {
       if (mounted) {
-        _showError(_authService.translateAuthError(e.toString()));
+        // Kullanıcı var/yok bilgisi sızdırmamak için genel mesaj
+        _showError(
+          'İstek işlenemedi. Lütfen bir süre sonra tekrar deneyin.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// OTP doğrula
+  /// OTP doğrula → sunucu tarafı recovery session oluştur.
+  /// Session null ise doğrulama başarısız sayılır.
   Future<void> _verifyOtp() async {
     final code = _otpCode;
     if (code.length != 6) {
@@ -136,17 +139,25 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       return;
     }
 
+    final email = _verifiedEmail;
+    if (email == null) {
+      _showError('E-posta adresi bulunamadı, lütfen baştan başlayın');
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final verifyResult = await _verificationService.verifyPasswordResetOtp(
-        email: _verifiedEmail!,
-        code: code,
+      final response = await Supabase.instance.client.auth.verifyOTP(
+        email: email,
+        token: code,
+        type: OtpType.recovery,
       );
 
-      if (!verifyResult['success']) {
+      // Session oluşmadan yeni şifre ekranına geçme
+      if (response.session == null) {
         if (mounted) {
-          _showError(verifyResult['message'] ?? 'Geçersiz doğrulama kodu');
+          _showError('Doğrulama başarısız. Lütfen kodu kontrol edin.');
         }
         return;
       }
@@ -154,22 +165,26 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       if (mounted) {
         setState(() {
           _currentStep = _ResetStep.newPassword;
-          _timer?.cancel();
           _resendTimer?.cancel();
         });
-        
+
         _showSuccess('Kod doğrulandı! Yeni şifrenizi belirleyin.');
+      }
+    } on AuthException catch (e) {
+      if (mounted) {
+        _showError(_authService.translateAuthError(e.message));
       }
     } catch (e) {
       if (mounted) {
-        _showError(_authService.translateAuthError(e.toString()));
+        _showError('Doğrulama başarısız. Lütfen kodu kontrol edin.');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// Şifreyi güncelle
+  /// Şifreyi güncelle. Yalnız geçerli recovery session varsa çalışır.
+  /// updateUser başarılı olduktan sonra recovery session sonlandırılır.
   Future<void> _updatePassword() async {
     if (!_passwordFormKey.currentState!.validate()) return;
 
@@ -181,36 +196,31 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Supabase admin API ile şifre güncelle (edge function üzerinden)
-      final response = await Supabase.instance.client.functions.invoke(
-        'reset-password-with-otp',
-        body: {
-          'email': _verifiedEmail!,
-          'new_password': _newPasswordController.text,
-        },
+      // Oturumun hâlâ geçerli bir recovery session olduğunu doğrula.
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) {
+        throw Exception(
+          'Oturum süresi dolmuş. Lütfen kodu yeniden doğrulayın.',
+        );
+      }
+
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(password: _newPasswordController.text),
       );
 
-      if (response.status != 200) {
-        final errorData = response.data;
-        throw Exception(errorData['error'] ?? 'Şifre güncellenemedi');
-      }
+      // Recovery session'ı sonlandır; kullanıcıyı login ekranına gönder
+      await Supabase.instance.client.auth.signOut();
 
       if (mounted) {
         setState(() => _currentStep = _ResetStep.success);
       }
+    } on AuthException catch (e) {
+      if (mounted) {
+        _showError(_authService.translateAuthError(e.message));
+      }
     } catch (e) {
-      // Fallback: Supabase auth ile direkt güncelle (kullanıcı oturum açıksa)
-      try {
-        await Supabase.instance.client.auth.updateUser(
-          UserAttributes(password: _newPasswordController.text),
-        );
-        if (mounted) {
-          setState(() => _currentStep = _ResetStep.success);
-        }
-      } catch (e2) {
-        if (mounted) {
-          _showError(_authService.translateAuthError(e.toString()));
-        }
+      if (mounted) {
+        _showError('Şifre güncellenemedi. Lütfen tekrar deneyin.');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -220,52 +230,39 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   /// OTP yeniden gönder
   Future<void> _resendOtp() async {
     if (_resendCooldown > 0) return;
+    final email = _verifiedEmail;
+    if (email == null) return;
 
     setState(() => _isLoading = true);
 
     try {
-      _timer?.cancel();
       _resendTimer?.cancel();
 
-      final result = await _verificationService.sendPasswordResetOtp(
-        email: _verifiedEmail!,
-      );
+      await Supabase.instance.client.auth
+          .resetPasswordForEmail(email);
 
       if (mounted) {
-        setState(() {
-          _remainingSeconds = result['expires_in_seconds'] ?? 300;
-          _resendCooldown = 60;
-        });
-        
-        _startTimer();
+        setState(() => _resendCooldown = 60);
         _startResendTimer();
-        
+
         for (var controller in _otpControllers) {
           controller.clear();
         }
         _otpFocusNodes[0].requestFocus();
-        
+
         _showSuccess('Yeni doğrulama kodu gönderildi');
+      }
+    } on AuthException catch (e) {
+      if (mounted) {
+        _showError(_authService.translateAuthError(e.message));
       }
     } catch (e) {
       if (mounted) {
-        _showError(_authService.translateAuthError(e.toString()));
+        _showError('Kod gönderilemedi. Lütfen bir süre sonra tekrar deneyin.');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  /// Süre sayacını başlat
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingSeconds > 0) {
-        setState(() => _remainingSeconds--);
-      } else {
-        timer.cancel();
-      }
-    });
   }
 
   /// Yeniden gönderme cooldown sayacını başlat
@@ -285,7 +282,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     if (value.isNotEmpty && index < 5) {
       _otpFocusNodes[index + 1].requestFocus();
     }
-    
+
     if (_otpCode.length == 6) {
       FocusScope.of(context).unfocus();
     }
@@ -293,19 +290,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   /// OTP geri silme
   void _onOtpKeyPressed(int index, RawKeyEvent event) {
-    if (event is RawKeyDownEvent && 
+    if (event is RawKeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
         _otpControllers[index].text.isEmpty &&
         index > 0) {
       _otpFocusNodes[index - 1].requestFocus();
     }
-  }
-
-  /// Süreyi formatla (MM:SS)
-  String _formatTime(int seconds) {
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    return '${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
   void _showSuccess(String message) {
@@ -343,7 +333,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             if (_currentStep == _ResetStep.otpInput) {
               setState(() {
                 _currentStep = _ResetStep.emailInput;
-                _timer?.cancel();
                 _resendTimer?.cancel();
                 for (var c in _otpControllers) {
                   c.clear();
@@ -366,7 +355,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const SizedBox(height: 20),
-                  
+
                   Text(
                     _getTitle(),
                     style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
@@ -450,7 +439,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       child: Column(
         children: [
           TextFormField(
-            controller: _identifierController,
+            controller: _emailController,
             keyboardType: TextInputType.emailAddress,
             style: const TextStyle(fontSize: 15, color: Color(0xFF2C3E50)),
             decoration: InputDecoration(
@@ -470,7 +459,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               if (value == null || value.isEmpty) {
                 return 'E-posta adresi gerekli';
               }
-              if (!value.contains('@')) {
+              if (!value.contains('@') || !value.contains('.')) {
                 return 'Geçerli bir e-posta adresi girin';
               }
               return null;
@@ -524,7 +513,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 onPressed: () {
                   setState(() {
                     _currentStep = _ResetStep.emailInput;
-                    _timer?.cancel();
                     _resendTimer?.cancel();
                     for (var c in _otpControllers) {
                       c.clear();
@@ -555,19 +543,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: List.generate(6, (index) => _buildOtpBox(index)),
         ),
-        const SizedBox(height: 16),
-
-        // Timer
-        if (_remainingSeconds > 0)
-          Text(
-            'Kod ${_formatTime(_remainingSeconds)} içinde sona erecek',
-            style: const TextStyle(fontSize: 13, color: Color(0xFF95A5A6)),
-          )
-        else
-          const Text(
-            'Kodun süresi doldu',
-            style: TextStyle(fontSize: 13, color: Color(0xFFE74C3C)),
-          ),
         const SizedBox(height: 24),
 
         // Doğrula butonu
@@ -575,7 +550,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           width: double.infinity,
           height: 54,
           child: ElevatedButton(
-            onPressed: (_isLoading || _otpCode.length != 6 || _remainingSeconds <= 0) ? null : _verifyOtp,
+            onPressed: (_isLoading || _otpCode.length != 6) ? null : _verifyOtp,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2C3E50),
               foregroundColor: Colors.white,
@@ -593,8 +568,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         TextButton(
           onPressed: (_resendCooldown > 0 || _isLoading) ? null : _resendOtp,
           child: Text(
-            _resendCooldown > 0 
-                ? 'Yeniden gönder (${_resendCooldown}s)' 
+            _resendCooldown > 0
+                ? 'Yeniden gönder (${_resendCooldown}s)'
                 : 'Kodu Yeniden Gönder',
             style: TextStyle(
               color: _resendCooldown > 0 ? const Color(0xFFBDC3C7) : const Color(0xFF3498DB),
@@ -606,26 +581,33 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  /// Yeni şifre formu
+  /// Yeni şifre formu.
+  /// Flutter tarafı minimum kontrol: 8 karakter + büyük/küçük harf + rakam.
+  /// Asıl güvenlik Supabase Auth sunucu ayarındadır.
   Widget _buildNewPasswordForm() {
     return Form(
       key: _passwordFormKey,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Başarı ikonu
-          Container(
-            width: 56,
-            height: 56,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE8F8F5),
-              shape: BoxShape.circle,
+          Center(
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F8F5),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.verified_user_rounded, size: 28, color: Color(0xFF27AE60)),
             ),
-            child: const Icon(Icons.verified_user_rounded, size: 28, color: Color(0xFF27AE60)),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'E-posta doğrulandı',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF27AE60)),
+          const Center(
+            child: Text(
+              'E-posta doğrulandı',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF27AE60)),
+            ),
           ),
           const SizedBox(height: 24),
 
@@ -655,11 +637,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2C3E50), width: 1.5)),
               errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
             ),
-            validator: (value) {
-              if (value == null || value.isEmpty) return 'Şifre gerekli';
-              if (value.length < 6) return 'Şifre en az 6 karakter olmalı';
-              return null;
-            },
+            validator: _validatePassword,
+          ),
+          const SizedBox(height: 8),
+          // Şifre politikası ipucu
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF7F8C8D)),
+            ),
           ),
           const SizedBox(height: 14),
 
@@ -715,6 +702,24 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         ],
       ),
     );
+  }
+
+  /// Şifre politikası: minimum 8 karakter + büyük harf + küçük harf + rakam.
+  /// Sembol zorunluluğu sunucu ayarıyla tutarlı olmalı; burada sadece UI
+  /// geri bildirimi sağlanır. Asıl doğrulama Supabase Auth sunucusunda yapılır.
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) return 'Şifre gerekli';
+    if (value.length < 8) return 'Şifre en az 8 karakter olmalı';
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
+      return 'En az bir büyük harf içermeli';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
+      return 'En az bir küçük harf içermeli';
+    }
+    if (!RegExp(r'\d').hasMatch(value)) {
+      return 'En az bir rakam içermeli';
+    }
+    return null;
   }
 
   /// Başarı kartı
@@ -775,8 +780,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         color: const Color(0xFFF8F9FA),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _otpFocusNodes[index].hasFocus 
-              ? const Color(0xFF2C3E50) 
+          color: _otpFocusNodes[index].hasFocus
+              ? const Color(0xFF2C3E50)
               : Colors.transparent,
           width: 2,
         ),

@@ -10,7 +10,8 @@ class SellerDigitalOrdersScreen extends StatefulWidget {
   const SellerDigitalOrdersScreen({super.key});
 
   @override
-  State<SellerDigitalOrdersScreen> createState() => _SellerDigitalOrdersScreenState();
+  State<SellerDigitalOrdersScreen> createState() =>
+      _SellerDigitalOrdersScreenState();
 }
 
 class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
@@ -38,11 +39,15 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
           .maybeSingle();
       if (shop == null) throw Exception('Mağaza bulunamadı');
 
-      final orders = await _smmService.getShopDigitalOrders(shop['id'] as String);
+      final orders = await _smmService.getShopDigitalOrders(
+        shop['id'] as String,
+      );
       if (mounted) setState(() => _orders = orders);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Siparişler yüklenemedi: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Siparişler yüklenemedi: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -52,7 +57,9 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
   Future<void> _copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kopyalandı')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Kopyalandı')));
     }
   }
 
@@ -61,7 +68,9 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
         order.status == DigitalOrderStatus.refunded ||
         order.status == DigitalOrderStatus.failed) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bu sipariş zaten kapanmış, durumu değiştirilemez')),
+        const SnackBar(
+          content: Text('Bu sipariş zaten kapanmış, durumu değiştirilemez'),
+        ),
       );
       return;
     }
@@ -91,7 +100,7 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                 onChanged: (v) => setDialogState(() => selected = v!),
               ),
               RadioListTile<String>(
-                title: const Text('İptal Et (bakiye iade edilir)'),
+                title: const Text('İptal Et (puan/TL kaynağına iade edilir)'),
                 value: 'canceled',
                 groupValue: selected,
                 onChanged: (v) => setDialogState(() => selected = v!),
@@ -112,8 +121,14 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kaydet')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Kaydet'),
+            ),
           ],
         ),
       ),
@@ -139,16 +154,22 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
         digitalOrderId: order.id,
         newStatus: selected,
         remains: remains,
+        idempotencyKey: 'seller-${order.id}-$selected-${remains ?? 'all'}',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Durum güncellendi'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Durum güncellendi'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
       await _loadOrders();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Güncellenemedi: $e')));
       }
     }
   }
@@ -175,9 +196,18 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                           const Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Dijital Ürün Kazancım', style: TextStyle(fontWeight: FontWeight.bold)),
+                              Text(
+                                'Dijital Ürün Kazancım',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                               SizedBox(height: 4),
-                              Text('Bakiyenize eklenen net kazanç', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              Text(
+                                'Bakiyenize eklenen net kazanç',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
                             ],
                           ),
                           Text(
@@ -199,80 +229,125 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                       child: Center(child: Text('Henüz dijital sipariş yok')),
                     )
                   else
-                    ..._orders.map((order) => Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        order.productName ?? 'Dijital Ürün',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                        overflow: TextOverflow.ellipsis,
+                    ..._orders.map(
+                      (order) => Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      order.productName ?? 'Dijital Ürün',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    order.status.label,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      size: 20,
+                                    ),
+                                    tooltip: 'Durumu Manuel Değiştir',
+                                    onPressed: () =>
+                                        _showManualStatusDialog(order),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                order.targetUrl,
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.tag,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    Text(order.status.label, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  ),
+                                  if (order.externalOrderId != null)
                                     IconButton(
-                                      icon: const Icon(Icons.edit_outlined, size: 20),
-                                      tooltip: 'Durumu Manuel Değiştir',
-                                      onPressed: () => _showManualStatusDialog(order),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(order.targetUrl, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.tag, size: 16, color: Colors.grey),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      onPressed: () => _copyToClipboard(
+                                        order.externalOrderId!,
                                       ),
+                                      tooltip: 'Kopyala',
                                     ),
-                                    if (order.externalOrderId != null)
-                                      IconButton(
-                                        icon: const Icon(Icons.copy, size: 18),
-                                        onPressed: () => _copyToClipboard(order.externalOrderId!),
-                                        tooltip: 'Kopyala',
-                                      ),
-                                  ],
-                                ),
-                                Text('Miktar: ${order.quantity} • Tutar: ₺${order.totalPrice.toStringAsFixed(2)}',
-                                    style: const TextStyle(fontSize: 13)),
-                                if (order.startCount != null || order.remains != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    [
-                                      if (order.startCount != null) 'Başlangıç: ${order.startCount}',
-                                      if (order.remains != null) 'Kalan: ${order.remains}',
-                                    ].join(' • '),
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                  ),
                                 ],
-                                if (order.sellerCredited && order.netSellerAmount != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Net kazanç: ₺${order.netSellerAmount!.toStringAsFixed(2)} (komisyon: ₺${order.commissionAmount?.toStringAsFixed(2) ?? '-'})',
-                                    style: TextStyle(fontSize: 12, color: Colors.green.shade700, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
+                              ),
+                              Text(
+                                'Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              if (order.startCount != null ||
+                                  order.remains != null) ...[
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())}',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                  [
+                                    if (order.startCount != null)
+                                      'Başlangıç: ${order.startCount}',
+                                    if (order.remains != null)
+                                      'Kalan: ${order.remains}',
+                                  ].join(' • '),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
                               ],
-                            ),
+                              if (order.sellerCredited &&
+                                  order.netSellerAmount != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Net kazanç: ₺${order.netSellerAmount!.toStringAsFixed(2)} (komisyon: ₺${order.commissionAmount?.toStringAsFixed(2) ?? '-'})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green.shade700,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 4),
+                              Text(
+                                'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
                           ),
-                        )),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

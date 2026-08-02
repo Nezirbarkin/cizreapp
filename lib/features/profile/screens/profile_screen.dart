@@ -24,24 +24,27 @@ import 'my_reports_screen.dart';
 import '../../chat/services/chat_service.dart';
 import '../../chat/screens/chat_detail_screen.dart';
 import 'followers_screen.dart';
+import '../widgets/profile_shared_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String? userId;
-  
+
   const ProfileScreen({super.key, this.userId});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen>
+    with TickerProviderStateMixin {
   final _profileService = ProfileService();
   final _postService = PostService();
   final _storyService = StoryService();
   final _profileViewService = ProfileViewService();
   final _postViewService = PostViewService();
   final _chatService = ChatService();
-  
+  final _followRequestService = FollowRequestService();
+
   Map<String, dynamic>? _profileData;
   List<Post> _userPosts = [];
   List<Story> _userStories = [];
@@ -49,6 +52,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   bool _isLoadingPosts = true;
   bool _isFollowing = false;
   bool _isOwnProfile = false;
+  bool _isProfilePrivate =
+      false; // Hedef profil gizli mi (profile_is_public == false)
+  String _followRequestStatus = 'none'; // none, pending, accepted, rejected
   int _followersCount = 0;
   int _followingCount = 0;
   int _friendsCount = 0;
@@ -75,12 +81,12 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       parent: _statsAnimationController,
       curve: Curves.easeInOut,
     );
-    
+
     // Kendi profilimi mi yoksa başkasınınkini mi görüntülediğimi kontrol et
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
     _isOwnProfile = targetUserId == currentUserId;
-    
+
     _loadProfile();
     _loadUserPosts();
     _loadUserStories();
@@ -99,7 +105,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _loadAnalytics() async {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
-    
+
     if (targetUserId == null || currentUserId == null) {
       setState(() => _isLoadingAnalytics = false);
       return;
@@ -114,10 +120,14 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
     try {
       setState(() => _isLoadingAnalytics = true);
-      
-      final profileStats = await _profileViewService.getCurrentMonthStats(targetUserId);
-      final postStats = await _postViewService.getCurrentMonthStats(targetUserId);
-      
+
+      final profileStats = await _profileViewService.getCurrentMonthStats(
+        targetUserId,
+      );
+      final postStats = await _postViewService.getCurrentMonthStats(
+        targetUserId,
+      );
+
       setState(() {
         _profileViewStats = profileStats;
         _postViewStats = postStats;
@@ -132,7 +142,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
     if (targetUserId == null) return;
-    
+
     try {
       final followersResponse = await Supabase.instance.client
           .from('follows')
@@ -145,9 +155,14 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           .eq('follower_id', targetUserId);
 
       // Karşılıklı takip edenler = Arkadaşlar
-      final followers = (followersResponse as List).map((e) => e['follower_id'] as String).toSet();
-      final following = (followingResponse as List).map((e) => e['following_id'] as String).toSet();
+      final followers = (followersResponse as List)
+          .map((e) => e['follower_id'] as String)
+          .toSet();
+      final following = (followingResponse as List)
+          .map((e) => e['following_id'] as String)
+          .toSet();
       final friends = followers.intersection(following);
+      if (!mounted) return;
 
       setState(() {
         _followersCount = followers.length;
@@ -163,9 +178,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
     if (targetUserId == null) return;
-    
+
     try {
       final stories = await _storyService.getUserStories(targetUserId);
+      if (!mounted) return;
       setState(() {
         _userStories = stories;
       });
@@ -176,63 +192,77 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   Future<void> _loadProfile() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
       final targetUserId = widget.userId ?? currentUserId;
-      
+
       if (targetUserId == null) {
         setState(() => _isLoading = false);
         return;
       }
-      
+
       _isOwnProfile = targetUserId == currentUserId;
-      
+
       final profile = await _profileService.getUserProfile(targetUserId);
+      if (!mounted) return;
       setState(() {
         _profileData = profile;
+        // Gizlilik: profile_is_public == false ise gizli. (Eski kod olmayan
+        // is_private sütununu kontrol ediyordu → her zaman null → gizli
+        // hesaplar asla gizli sanılmıyordu.)
+        _isProfilePrivate = profile['profile_is_public'] == false;
         _isLoading = false;
       });
+
+      // Başka kullanıcının gizli profili ise takip isteği durumunu kontrol et
+      if (!_isOwnProfile && _isProfilePrivate) {
+        _checkFollowRequestStatus();
+      }
     } catch (e) {
       debugPrint('Profil yüklenirken hata: $e');
-      
+
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
       final targetUserId = widget.userId ?? currentUserId;
-      
-      if (_isOwnProfile && targetUserId == currentUserId && currentUserId != null) {
+
+      if (_isOwnProfile &&
+          targetUserId == currentUserId &&
+          currentUserId != null) {
         await _createDefaultProfile(currentUserId);
       } else {
         setState(() => _isLoading = false);
       }
     }
   }
-  
+
   Future<void> _createDefaultProfile(String userId) async {
     try {
       debugPrint('🔧 Profil kontrol ediliyor: $userId');
-      
+
       // Profil SQL trigger tarafından otomatik oluşturulmalı
       // Burada sadece kontrol ediyoruz, trigger henüz çalışmadıysa bekliyoruz
-      
+
       // 1.5 saniye bekle ve tekrar dene (trigger'ın çalışması için zaman tanı)
       await Future.delayed(const Duration(milliseconds: 1500));
-      
+
       final existingProfile = await Supabase.instance.client
           .from('profiles')
           .select()
           .eq('id', userId)
           .maybeSingle();
-          
+
       if (existingProfile != null) {
         debugPrint('✅ Profil bulundu, yükleniyor...');
         await _loadProfile();
       } else {
-        debugPrint('⚠️ Profil trigger ile oluşturulamadı, manuel oluşturuluyor...');
-        
+        debugPrint(
+          '⚠️ Profil trigger ile oluşturulamadı, manuel oluşturuluyor...',
+        );
+
         // Fallback: Profil'i manuel oluştur
         final user = Supabase.instance.client.auth.currentUser;
         final meta = user?.userMetadata ?? {};
-        
+
         await Supabase.instance.client.from('profiles').upsert({
           'id': userId,
           'email': user?.email ?? '',
@@ -242,14 +272,14 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           'created_at': DateTime.now().toUtc().toIso8601String(),
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         }, onConflict: 'id');
-        
+
         debugPrint('✅ Profil manuel olarak oluşturuldu');
         await _loadProfile();
       }
     } catch (e) {
       debugPrint('❌ Profil kontrol/oluşturma hatası: $e');
-      setState(() => _isLoading = false);
-      
+      if (mounted) setState(() => _isLoading = false);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -265,28 +295,32 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
     if (targetUserId == null) return;
-    
+
     try {
       setState(() => _isLoadingPosts = true);
       final posts = await _postService.getUserPosts(targetUserId);
-      
+
       if (currentUserId != null && posts.isNotEmpty) {
         final postIds = posts.map((p) => p.id).toList();
-        _likedPostIds = await _postService.getLikedPostIds(currentUserId, postIds);
+        _likedPostIds = await _postService.getLikedPostIds(
+          currentUserId,
+          postIds,
+        );
       }
-      
+
       // Kaydedilen gönderileri yükle
       if (currentUserId != null) {
         await _loadSavedPosts();
       }
-      
+      if (!mounted) return;
+
       setState(() {
         _userPosts = posts;
         _isLoadingPosts = false;
       });
     } catch (e) {
       debugPrint('Kullanıcı gönderileri yüklenirken hata: $e');
-      setState(() => _isLoadingPosts = false);
+      if (mounted) setState(() => _isLoadingPosts = false);
     }
   }
 
@@ -307,7 +341,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _checkIfFollowing() async {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
-    if (currentUserId == null || targetUserId == null || currentUserId == targetUserId) return;
+    if (currentUserId == null ||
+        targetUserId == null ||
+        currentUserId == targetUserId)
+      return;
 
     try {
       final response = await Supabase.instance.client
@@ -316,10 +353,42 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           .eq('follower_id', currentUserId)
           .eq('following_id', targetUserId)
           .maybeSingle();
+      if (!mounted) return;
 
       setState(() => _isFollowing = response != null);
     } catch (e) {
       debugPrint('Takip durumu kontrol edilirken hata: $e');
+    }
+  }
+
+  /// Gizli profil için mevcut takip isteği durumunu kontrol et.
+  /// İstek kabul edildiyse follows tablosuna SQL trigger tarafından eklenmiş
+  /// demektir; bu yüzden _isFollowing'i de true yapar.
+  Future<void> _checkFollowRequestStatus() async {
+    try {
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (currentUserId == null) return;
+      final targetUserId = widget.userId ?? currentUserId;
+      if (currentUserId == targetUserId) return;
+
+      if (!_isProfilePrivate) {
+        if (mounted) setState(() => _followRequestStatus = 'none');
+        return;
+      }
+
+      final status = await _followRequestService.getFollowRequestStatus(
+        targetUserId,
+      );
+      if (!mounted) return;
+
+      setState(() {
+        _followRequestStatus = status;
+        if (status == 'accepted') {
+          _isFollowing = true;
+        }
+      });
+    } catch (e) {
+      debugPrint('Takip isteği durumu kontrol edilirken hata: $e');
     }
   }
 
@@ -329,17 +398,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     if (currentUserId == null || targetUserId == null) return;
 
     try {
-      // Gizli profil kontrolü - hedef kullanıcının profil bilgisini al
-      final targetProfile = await Supabase.instance.client
-          .from('profiles')
-          .select('is_private')
-          .eq('id', targetUserId)
-          .maybeSingle();
-
-      final isTargetPrivate = targetProfile?['is_private'] == true;
-
-      // Gizli profil ve takip etmiyorsa, takip isteği kontrolü
-      if (isTargetPrivate && !_isFollowing) {
+      // Gizli profil ve takip etmiyorsa, takip isteği akışı.
+      // _isProfilePrivate, _loadProfile sırasında profile_is_public'den
+      // türetildi. Eski kod olmayan is_private sütununu sorguluyordu →
+      // her zaman null → gizli hesaplara doğrudan follows insert ediliyordu.
+      if (_isProfilePrivate && !_isFollowing) {
         // Bekleyen takip isteği var mı kontrol et
         final existingRequest = await Supabase.instance.client
             .from('follow_requests')
@@ -349,16 +412,22 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             .maybeSingle();
 
         // İstek kabul edildiyse, artık takip ediliyordur (SQL trigger follows'a eklemiştir)
-        if (existingRequest != null && existingRequest['status'] == 'accepted') {
+        if (existingRequest != null &&
+            existingRequest['status'] == 'accepted') {
           // _isFollowing'i güncelle ve takipçi sayılarını yeniden yükle
+          if (!mounted) return;
           setState(() => _isFollowing = true);
           await _loadFollowCounts();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text('Takip isteğiniz kabul edildi, artık bu kullanıcıyı takip ediyorsunuz'),
+                content: const Text(
+                  'Takip isteğiniz kabul edildi, artık bu kullanıcıyı takip ediyorsunuz',
+                ),
                 behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             );
           }
@@ -378,23 +447,30 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
               SnackBar(
                 content: const Text('Takip isteği iptal edildi'),
                 behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             );
           }
         } else {
           // Yeni takip isteği gönder (duplicate'i önler)
-          await Supabase.instance.client.rpc('upsert_follow_request', params: {
-            'p_follower_id': currentUserId,
-            'p_following_id': targetUserId,
-          });
+          await Supabase.instance.client.rpc(
+            'upsert_follow_request',
+            params: {
+              'p_follower_id': currentUserId,
+              'p_following_id': targetUserId,
+            },
+          );
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: const Text('Takip isteği gönderildi'),
                 behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             );
           }
@@ -409,20 +485,24 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             .delete()
             .eq('follower_id', currentUserId)
             .eq('following_id', targetUserId);
+        if (!mounted) return;
 
         // Gizli profillerde follow_requests kaydını da sil (tekrar istek atılabilsin)
-        if (isTargetPrivate) {
+        if (_isProfilePrivate) {
           await Supabase.instance.client
               .from('follow_requests')
               .delete()
               .eq('follower_id', currentUserId)
               .eq('following_id', targetUserId);
+          if (!mounted) return;
+          _followRequestStatus = 'none';
         }
       } else {
         await Supabase.instance.client.from('follows').insert({
           'follower_id': currentUserId,
           'following_id': targetUserId,
         });
+        if (!mounted) return;
       }
 
       setState(() => _isFollowing = !_isFollowing);
@@ -435,15 +515,17 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
               _isFollowing ? 'Takip edilmeye başlandı' : 'Takip bırakıldı',
             ),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
       }
     }
   }
@@ -455,12 +537,18 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red.shade400, size: 28),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.red.shade400,
+              size: 28,
+            ),
             const SizedBox(width: 10),
             const Text('Gönderiyi Sil'),
           ],
         ),
-        content: const Text('Bu gönderiyi silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.'),
+        content: const Text(
+          'Bu gönderiyi silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -471,7 +559,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
             child: const Text('Sil'),
           ),
@@ -483,7 +573,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
     try {
       await _postService.deletePost(postId);
-      
+
       setState(() {
         _userPosts.removeWhere((post) => post.id == postId);
       });
@@ -493,15 +583,17 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           SnackBar(
             content: const Text('Gönderi silindi'),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Silme başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Silme başarısız: $e')));
       }
     }
   }
@@ -509,9 +601,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   void _showLikes(String postId) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => PostLikesScreen(postId: postId),
-      ),
+      MaterialPageRoute(builder: (context) => PostLikesScreen(postId: postId)),
     );
   }
 
@@ -591,10 +681,16 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              leading: !isOwnProfile ? IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black, size: 20),
-                onPressed: () => Navigator.pop(context),
-              ) : null,
+              leading: !isOwnProfile
+                  ? IconButton(
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        color: Colors.black,
+                        size: 20,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                    )
+                  : null,
               actions: [
                 if (isOwnProfile)
                   IconButton(
@@ -604,7 +700,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                         color: Colors.black.withOpacity(0.4),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.add_box_outlined, color: Colors.white, size: 20),
+                      child: const Icon(
+                        Icons.add_box_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                     onPressed: _createPost,
                     tooltip: 'Gönderi Oluştur',
@@ -617,7 +717,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                       color: Colors.black.withOpacity(0.4),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.share_outlined, color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.share_outlined,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                   onPressed: () {
                     final username = _profileData?['username'] ?? '';
@@ -642,7 +746,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                       color: Colors.black.withOpacity(0.4),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.more_vert,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                   onPressed: isOwnProfile ? _showSettingsMenu : null,
                 ),
@@ -654,7 +762,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                     // Kapak fotoğrafı
                     if (coverUrl != null && coverUrl.isNotEmpty)
                       GestureDetector(
-                        onTap: () => _showFullScreenImage(coverUrl),
+                        onTap: () => showFullScreenImage(context, coverUrl),
                         child: CachedNetworkImage(
                           imageUrl: coverUrl,
                           fit: BoxFit.cover,
@@ -696,10 +804,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.5,
                           shadows: [
-                            Shadow(
-                              color: Colors.black54,
-                              blurRadius: 8,
-                            ),
+                            Shadow(color: Colors.black54, blurRadius: 8),
                           ],
                         ),
                       ),
@@ -708,7 +813,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                 ),
               ),
             ),
-            
+
             // ===== PROFİL BİLGİLERİ =====
             SliverToBoxAdapter(
               child: Container(
@@ -723,9 +828,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                         children: [
                           // Profil Resmi - Story çemberi ile
                           GestureDetector(
-                            onTap: _userStories.isNotEmpty 
-                              ? () => _openStories() 
-                              : () => _showFullScreenImage(avatarUrl),
+                            onTap: _userStories.isNotEmpty
+                                ? () => _openStories()
+                                : () => showFullScreenImage(context, avatarUrl),
                             child: Container(
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
@@ -740,20 +845,24 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                                         end: Alignment.bottomRight,
                                       )
                                     : null,
-                                color: _userStories.isEmpty ? Colors.grey.shade200 : null,
-                                boxShadow: _userStories.isNotEmpty ? [
-                                  BoxShadow(
-                                    color: Colors.pink.withOpacity(0.3),
-                                    blurRadius: 12,
-                                    spreadRadius: 2,
-                                  ),
-                                ] : [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 8,
-                                    spreadRadius: 1,
-                                  ),
-                                ],
+                                color: _userStories.isEmpty
+                                    ? Colors.grey.shade200
+                                    : null,
+                                boxShadow: _userStories.isNotEmpty
+                                    ? [
+                                        BoxShadow(
+                                          color: Colors.pink.withOpacity(0.3),
+                                          blurRadius: 12,
+                                          spreadRadius: 2,
+                                        ),
+                                      ]
+                                    : [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.1),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
                               ),
                               padding: const EdgeInsets.all(3),
                               child: CircleAvatar(
@@ -761,12 +870,16 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                                 backgroundColor: Colors.white,
                                 child: CircleAvatar(
                                   radius: 42,
-                                  backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                                  backgroundImage: avatarUrl != null
+                                      ? NetworkImage(avatarUrl)
+                                      : null,
                                   backgroundColor: Colors.grey.shade100,
                                   child: avatarUrl == null
                                       ? Text(
                                           username.isNotEmpty
-                                              ? username.substring(0, 1).toUpperCase()
+                                              ? username
+                                                    .substring(0, 1)
+                                                    .toUpperCase()
                                               : '?',
                                           style: TextStyle(
                                             fontSize: 36,
@@ -785,10 +898,32 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                _buildStatItem('${_userPosts.length}', 'Gönderi', null),
-                                _buildStatItem('$_followersCount', 'Takipçi', () => _navigateToFollowList(FollowListType.followers)),
-                                _buildStatItem('$_followingCount', 'Takip', () => _navigateToFollowList(FollowListType.following)),
-                                _buildStatItem('$_friendsCount', 'Arkadaş', () => _navigateToFollowList(FollowListType.friends)),
+                                buildStatItem(
+                                  '${_userPosts.length}',
+                                  'Gönderi',
+                                  null,
+                                ),
+                                buildStatItem(
+                                  '$_followersCount',
+                                  'Takipçi',
+                                  () => _navigateToFollowList(
+                                    FollowListType.followers,
+                                  ),
+                                ),
+                                buildStatItem(
+                                  '$_followingCount',
+                                  'Takip',
+                                  () => _navigateToFollowList(
+                                    FollowListType.following,
+                                  ),
+                                ),
+                                buildStatItem(
+                                  '$_friendsCount',
+                                  'Arkadaş',
+                                  () => _navigateToFollowList(
+                                    FollowListType.friends,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -821,13 +956,21 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                               ),
                             ),
                           ],
-                          if (_profileData!['website'] != null && _profileData!['website'].toString().isNotEmpty) ...[
+                          if (_profileData!['website'] != null &&
+                              _profileData!['website']
+                                  .toString()
+                                  .isNotEmpty) ...[
                             const SizedBox(height: 8),
                             InkWell(
-                              onTap: () => _launchUrl(_profileData!['website'].toString()),
+                              onTap: () => _launchUrl(
+                                _profileData!['website'].toString(),
+                              ),
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFE3F2FD),
                                   borderRadius: BorderRadius.circular(8),
@@ -835,7 +978,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.link_rounded, size: 16, color: Colors.blue.shade700),
+                                    Icon(
+                                      Icons.link_rounded,
+                                      size: 16,
+                                      color: Colors.blue.shade700,
+                                    ),
                                     const SizedBox(width: 6),
                                     Flexible(
                                       child: Text(
@@ -869,8 +1016,24 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                     const SizedBox(height: 16),
 
                     // ===== ANALİTİK BÖLÜMÜ =====
-                    if (isOwnProfile && !_isLoadingAnalytics && (_profileViewStats != null || _postViewStats != null))
-                      _buildStatsSection(),
+                    if (isOwnProfile &&
+                        !_isLoadingAnalytics &&
+                        (_profileViewStats != null || _postViewStats != null))
+                      ProfileStatsSection(
+                        animation: _statsAnimation,
+                        profileStats: _profileViewStats,
+                        postStats: _postViewStats,
+                        onToggle: () {
+                          setState(() {
+                            _statsExpanded = !_statsExpanded;
+                            if (_statsExpanded) {
+                              _statsAnimationController.forward();
+                            } else {
+                              _statsAnimationController.reverse();
+                            }
+                          });
+                        },
+                      ),
 
                     // ===== TAB BAR =====
                     Container(
@@ -885,18 +1048,24 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                             child: GestureDetector(
                               onTap: () => setState(() => _showGrid = true),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 decoration: BoxDecoration(
                                   border: Border(
                                     bottom: BorderSide(
-                                      color: _showGrid ? Colors.black : Colors.transparent,
+                                      color: _showGrid
+                                          ? Colors.black
+                                          : Colors.transparent,
                                       width: 2,
                                     ),
                                   ),
                                 ),
                                 child: Icon(
                                   Icons.grid_on_rounded,
-                                  color: _showGrid ? Colors.black : Colors.grey.shade400,
+                                  color: _showGrid
+                                      ? Colors.black
+                                      : Colors.grey.shade400,
                                   size: 24,
                                 ),
                               ),
@@ -906,18 +1075,24 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                             child: GestureDetector(
                               onTap: () => setState(() => _showGrid = false),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 decoration: BoxDecoration(
                                   border: Border(
                                     bottom: BorderSide(
-                                      color: !_showGrid ? Colors.black : Colors.transparent,
+                                      color: !_showGrid
+                                          ? Colors.black
+                                          : Colors.transparent,
                                       width: 2,
                                     ),
                                   ),
                                 ),
                                 child: Icon(
                                   Icons.view_agenda_outlined,
-                                  color: !_showGrid ? Colors.black : Colors.grey.shade400,
+                                  color: !_showGrid
+                                      ? Colors.black
+                                      : Colors.grey.shade400,
                                   size: 24,
                                 ),
                               ),
@@ -932,7 +1107,15 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             ),
 
             // ===== GÖNDERİLER =====
-            if (_isLoadingPosts)
+            // Gizli profil ve takip edilmiyorsa gizli profil mesajı göster
+            if (!isOwnProfile && _isProfilePrivate && !_isFollowing)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: _buildPrivateProfileMessage(),
+                ),
+              )
+            else if (_isLoadingPosts)
               const SliverToBoxAdapter(
                 child: SizedBox(
                   height: 200,
@@ -952,9 +1135,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
               _buildListView(isOwnProfile),
 
             // Alt boşluk
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 100),
-            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],
         ),
       ),
@@ -984,34 +1165,6 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildStatItem(String count, String label, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            count,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _navigateToFollowList(FollowListType listType) {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
@@ -1036,27 +1189,45 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   Widget _buildActionButtons(bool isOwnProfile) {
     if (!isOwnProfile) {
+      // Gizli profil için buton metni/durumu: user_profile_screen ile uyumlu.
+      final isPending =
+          _isProfilePrivate &&
+          !_isFollowing &&
+          _followRequestStatus == 'pending';
+      final String followText = _isFollowing
+          ? 'Takip Ediliyor'
+          : (isPending
+                ? 'İstek Gönderildi'
+                : (_isProfilePrivate ? 'Takip İsteği Gönder' : 'Takip Et'));
+      final bool showGradient = !_isFollowing && !isPending;
+
       return Row(
         children: [
           Expanded(
             child: Container(
               height: 44,
               decoration: BoxDecoration(
-                gradient: _isFollowing
-                    ? null
-                    : LinearGradient(
+                gradient: showGradient
+                    ? LinearGradient(
                         colors: [
                           Theme.of(context).colorScheme.primary,
-                          Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                          Theme.of(
+                            context,
+                          ).colorScheme.primary.withOpacity(0.8),
                         ],
-                      ),
-                color: _isFollowing ? Colors.grey.shade100 : null,
+                      )
+                    : null,
+                color: !showGradient ? Colors.grey.shade100 : null,
                 borderRadius: BorderRadius.circular(12),
-                border: _isFollowing ? Border.all(color: Colors.grey.shade300) : null,
-                boxShadow: !_isFollowing
+                border: !showGradient
+                    ? Border.all(color: Colors.grey.shade300)
+                    : null,
+                boxShadow: showGradient
                     ? [
                         BoxShadow(
-                          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withOpacity(0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
@@ -1070,11 +1241,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                   borderRadius: BorderRadius.circular(12),
                   child: Center(
                     child: Text(
-                      _isFollowing ? 'Takip Ediliyor' : 'Takip Et',
+                      followText,
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: _isFollowing ? Colors.black87 : Colors.white,
+                        color: showGradient ? Colors.white : Colors.black87,
                       ),
                     ),
                   ),
@@ -1133,7 +1304,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.edit_outlined, size: 18, color: Colors.black87),
+                      Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: Colors.black87,
+                      ),
                       SizedBox(width: 8),
                       Text(
                         'Profili Düzenle',
@@ -1193,191 +1368,15 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             child: InkWell(
               onTap: _showSettingsMenu,
               borderRadius: BorderRadius.circular(12),
-              child: Icon(Icons.settings_outlined, color: Colors.grey.shade700, size: 22),
+              child: Icon(
+                Icons.settings_outlined,
+                color: Colors.grey.shade700,
+                size: 22,
+              ),
             ),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildStatsSection() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.purple.shade50,
-            Colors.pink.shade50,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.purple.shade100),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.purple.withOpacity(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: () {
-              setState(() {
-                _statsExpanded = !_statsExpanded;
-                if (_statsExpanded) {
-                  _statsAnimationController.forward();
-                } else {
-                  _statsAnimationController.reverse();
-                }
-              });
-            },
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.purple.shade400, Colors.pink.shade400],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 16),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Bu Ay İstatistiklerim',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
-                  AnimatedBuilder(
-                    animation: _statsAnimation,
-                    builder: (context, child) {
-                      return Transform.rotate(
-                        angle: _statsAnimation.value * 3.14159,
-                        child: Icon(
-                          Icons.expand_more,
-                          color: Colors.purple.shade700,
-                          size: 20,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizeTransition(
-            sizeFactor: _statsAnimation,
-            axisAlignment: -1.0,
-            child: FadeTransition(
-              opacity: _statsAnimation,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Column(
-                  children: [
-                    Divider(color: Colors.purple.shade100, height: 1),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        if (_profileViewStats != null)
-                          Expanded(
-                            child: _buildAnalyticsCard(
-                              icon: Icons.visibility_rounded,
-                              title: 'Profil Ziyaret',
-                              count: _profileViewStats!.totalViews,
-                              subtitle: '${_profileViewStats!.uniqueViewers} benzersiz',
-                              color: Colors.blue,
-                            ),
-                          ),
-                        if (_profileViewStats != null && _postViewStats != null)
-                          const SizedBox(width: 12),
-                        if (_postViewStats != null)
-                          Expanded(
-                            child: _buildAnalyticsCard(
-                              icon: Icons.auto_graph_rounded,
-                              title: 'Post Görüntüleme',
-                              count: _postViewStats!.totalViews,
-                              subtitle: '${_postViewStats!.uniqueViewers} benzersiz',
-                              color: Colors.purple,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnalyticsCard({
-    required IconData icon,
-    required String title,
-    required int count,
-    required String subtitle,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            count.toString(),
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: color,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1420,11 +1419,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           ),
           const SizedBox(height: 8),
           Text(
-            isOwnProfile ? 'İlk gönderinizi paylaşın!' : 'Bu kullanıcı henüz gönderi paylaşmadı.',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            isOwnProfile
+                ? 'İlk gönderinizi paylaşın!'
+                : 'Bu kullanıcı henüz gönderi paylaşmadı.',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
             textAlign: TextAlign.center,
           ),
           if (isOwnProfile) ...[
@@ -1434,11 +1432,19 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               icon: const Icon(Icons.add, size: 20),
-              label: const Text('Gönderi Oluştur', style: TextStyle(fontWeight: FontWeight.w600)),
+              label: const Text(
+                'Gönderi Oluştur',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
           ],
         ],
@@ -1457,68 +1463,157 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           crossAxisSpacing: 2,
           childAspectRatio: 1.0,
         ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final post = _userPosts[index];
-            final firstImage = post.images.isNotEmpty ? post.images.first : null;
-            
-            return GestureDetector(
-              onTap: () => _navigateToPostDetail(post),
-              child: Container(
-                color: Colors.grey.shade200,
-                child: firstImage != null
-                    ? Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          CachedNetworkImage(
-                            imageUrl: firstImage,
-                            fit: BoxFit.cover,
-                            errorWidget: (context, url, error) {
-                              return Container(
-                                color: Colors.grey.shade200,
-                                child: Icon(Icons.broken_image, color: Colors.grey.shade400),
-                              );
-                            },
-                          ),
-                          // Çoklu görsel göstergesi
-                          if (post.images.length > 1)
-                            Positioned(
-                              top: 6,
-                              right: 6,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.photo_library,
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final post = _userPosts[index];
+          final firstImage = post.images.isNotEmpty ? post.images.first : null;
+
+          return GestureDetector(
+            onTap: () => _navigateToPostDetail(post),
+            child: Container(
+              color: Colors.grey.shade200,
+              child: firstImage != null
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: firstImage,
+                          fit: BoxFit.cover,
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: Colors.grey.shade200,
+                              child: Icon(
+                                Icons.broken_image,
+                                color: Colors.grey.shade400,
+                              ),
+                            );
+                          },
+                        ),
+                        // Çoklu görsel göstergesi
+                        if (post.images.length > 1)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.6),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.photo_library,
+                                    color: Colors.white,
+                                    size: 12,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '1/${post.images.length}',
+                                    style: const TextStyle(
                                       color: Colors.white,
-                                      size: 12,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '1/${post.images.length}',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ),
-                          // Beğeni ve yorum overlay
+                          ),
+                        // Beğeni ve yorum overlay
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Colors.black.withOpacity(0.5),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.favorite,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${post.likesCount}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.chat_bubble,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${post.commentsCount}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Stack(
+                        children: [
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (post.content != null)
+                                  Padding(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Text(
+                                      post.content!,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      maxLines: 4,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          // Beğeni ve yorum overlay (metin gönderileri için)
                           Positioned(
                             bottom: 0,
                             left: 0,
                             right: 0,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   begin: Alignment.bottomCenter,
@@ -1531,94 +1626,47 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.favorite, color: Colors.white, size: 12),
+                                  Icon(
+                                    _likedPostIds.contains(post.id)
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
+                                    color: Colors.white,
+                                    size: 12,
+                                  ),
                                   const SizedBox(width: 3),
                                   Text(
                                     '${post.likesCount}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Icon(Icons.chat_bubble, color: Colors.white, size: 12),
+                                  const Icon(
+                                    Icons.chat_bubble,
+                                    color: Colors.white,
+                                    size: 12,
+                                  ),
                                   const SizedBox(width: 3),
                                   Text(
                                     '${post.commentsCount}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
                         ],
-                      )
-                    : Center(
-                        child: Stack(
-                          children: [
-                            Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  if (post.content != null)
-                                    Padding(
-                                      padding: const EdgeInsets.all(6),
-                                      child: Text(
-                                        post.content!,
-                                        style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                                        maxLines: 4,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            // Beğeni ve yorum overlay (metin gönderileri için)
-                            Positioned(
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: [
-                                      Colors.black.withOpacity(0.5),
-                                      Colors.transparent,
-                                    ],
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      _likedPostIds.contains(post.id) ? Icons.favorite : Icons.favorite_border,
-                                      color: Colors.white,
-                                      size: 12,
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '${post.likesCount}',
-                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(Icons.chat_bubble, color: Colors.white, size: 12),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '${post.commentsCount}',
-                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
-              ),
-            );
-          },
-          childCount: _userPosts.length,
-        ),
+                    ),
+            ),
+          );
+        }, childCount: _userPosts.length),
       ),
     );
   }
@@ -1633,306 +1681,342 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final post = _userPosts[index];
-            final firstImage = post.images.isNotEmpty ? post.images.first : null;
-            
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Card(
-                elevation: post.isPinned ? 4 : 2,
-                shadowColor: Colors.black.withOpacity(0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: post.isPinned ? BorderSide(color: Colors.amber.shade400, width: 2) : BorderSide.none,
-                ),
-                child: Stack(
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Profil başlığı
-                    Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                            backgroundColor: Colors.grey.shade200,
-                            child: avatarUrl == null
-                                ? Text(
-                                    username.isNotEmpty
-                                        ? username.substring(0, 1).toUpperCase()
-                                        : '?',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        fullName,
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                        overflow: TextOverflow.visible,
-                                        maxLines: 1,
-                                      ),
-                                    ),
-                                    if (post.isPinned) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.shade700,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.star,
-                                              size: 10,
-                                              color: Colors.white,
-                                            ),
-                                            SizedBox(width: 2),
-                                            Text(
-                                              'Sabitlendi',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                Text(
-                                  '@$username',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (isOwnProfile)
-                            IconButton(
-                              icon: Icon(Icons.more_horiz, color: Colors.grey.shade600, size: 22),
-                              onPressed: () => _showPostMenu(post.id),
-                            ),
-                        ],
-                      ),
-                    ),
-                    // Resim
-                    if (firstImage != null)
-                      GestureDetector(
-                        onTap: () => _navigateToPostDetail(post),
-                        child: Stack(
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final post = _userPosts[index];
+          final firstImage = post.images.isNotEmpty ? post.images.first : null;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Card(
+              elevation: post.isPinned ? 4 : 2,
+              shadowColor: Colors.black.withOpacity(0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: post.isPinned
+                    ? BorderSide(color: Colors.amber.shade400, width: 2)
+                    : BorderSide.none,
+              ),
+              child: Stack(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Profil başlığı
+                      Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
                           children: [
-                            ClipRRect(
-                              borderRadius: post.images.length > 1
-                                  ? const BorderRadius.vertical(top: Radius.circular(16))
-                                  : BorderRadius.zero,
-                              child: CachedNetworkImage(
-                                imageUrl: firstImage,
-                                width: double.infinity,
-                                height: 350,
-                                fit: BoxFit.cover,
-                                errorWidget: (context, url, error) {
-                                  return Container(
-                                    height: 200,
-                                    color: Colors.grey.shade100,
-                                    child: const Icon(Icons.error_outline, size: 48),
-                                  );
-                                },
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundImage: avatarUrl != null
+                                  ? NetworkImage(avatarUrl)
+                                  : null,
+                              backgroundColor: Colors.grey.shade200,
+                              child: avatarUrl == null
+                                  ? Text(
+                                      username.isNotEmpty
+                                          ? username
+                                                .substring(0, 1)
+                                                .toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          fullName,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          overflow: TextOverflow.visible,
+                                          maxLines: 1,
+                                        ),
+                                      ),
+                                      if (post.isPinned) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.shade700,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.star,
+                                                size: 10,
+                                                color: Colors.white,
+                                              ),
+                                              SizedBox(width: 2),
+                                              Text(
+                                                'Sabitlendi',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  Text(
+                                    '@$username',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            // Çoklu görsel göstergesi
-                            if (post.images.length > 1)
-                              Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.6),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.photo_library,
-                                        color: Colors.white,
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${post.images.length} fotoğraf',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                            if (isOwnProfile)
+                              IconButton(
+                                icon: Icon(
+                                  Icons.more_horiz,
+                                  color: Colors.grey.shade600,
+                                  size: 22,
                                 ),
+                                onPressed: () => _showPostMenu(post.id),
                               ),
                           ],
                         ),
                       ),
-                    // İçerik
-                    if (post.content != null && post.content!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                        child: Text(
-                          post.content!,
-                          style: TextStyle(
-                            fontSize: 15,
-                            height: 1.5,
-                            color: Colors.grey.shade800,
+                      // Resim
+                      if (firstImage != null)
+                        GestureDetector(
+                          onTap: () => _navigateToPostDetail(post),
+                          child: Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: post.images.length > 1
+                                    ? const BorderRadius.vertical(
+                                        top: Radius.circular(16),
+                                      )
+                                    : BorderRadius.zero,
+                                child: CachedNetworkImage(
+                                  imageUrl: firstImage,
+                                  width: double.infinity,
+                                  height: 350,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (context, url, error) {
+                                    return Container(
+                                      height: 200,
+                                      color: Colors.grey.shade100,
+                                      child: const Icon(
+                                        Icons.error_outline,
+                                        size: 48,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              // Çoklu görsel göstergesi
+                              if (post.images.length > 1)
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.6),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.photo_library,
+                                          color: Colors.white,
+                                          size: 14,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${post.images.length} fotoğraf',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                      ),
-                    // Aksiyon butonları
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              _likedPostIds.contains(post.id)
-                                  ? Icons.favorite
-                                  : Icons.favorite_border,
-                              color: _likedPostIds.contains(post.id) ? Colors.red : Colors.grey.shade700,
-                              size: 26,
+                      // İçerik
+                      if (post.content != null && post.content!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: Text(
+                            post.content!,
+                            style: TextStyle(
+                              fontSize: 15,
+                              height: 1.5,
+                              color: Colors.grey.shade800,
                             ),
-                            onPressed: currentUserId != null
-                                ? () => _toggleLike(post)
-                                : null,
                           ),
-                          InkWell(
-                            onTap: () => _showLikes(post.id),
-                            child: Text(
-                              '${post.likesCount}',
+                        ),
+                      // Aksiyon butonları
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                _likedPostIds.contains(post.id)
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                color: _likedPostIds.contains(post.id)
+                                    ? Colors.red
+                                    : Colors.grey.shade700,
+                                size: 26,
+                              ),
+                              onPressed: currentUserId != null
+                                  ? () => _toggleLike(post)
+                                  : null,
+                            ),
+                            InkWell(
+                              onTap: () => _showLikes(post.id),
+                              child: Text(
+                                '${post.likesCount}',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              icon: Icon(
+                                Icons.chat_bubble_outline,
+                                color: Colors.grey.shade700,
+                                size: 24,
+                              ),
+                              onPressed: () => _navigateToPostDetail(post),
+                            ),
+                            Text(
+                              '${post.commentsCount}',
                               style: TextStyle(
                                 fontSize: 15,
                                 color: Colors.grey.shade800,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          IconButton(
-                            icon: Icon(
-                              Icons.chat_bubble_outline,
-                              color: Colors.grey.shade700,
-                              size: 24,
+                            const Spacer(),
+                            // Arkadaşa Gönder
+                            IconButton(
+                              icon: Icon(
+                                Icons.send,
+                                color: Colors.grey.shade700,
+                                size: 22,
+                              ),
+                              onPressed: () => _sendToFriend(post),
                             ),
-                            onPressed: () => _navigateToPostDetail(post),
-                          ),
-                          Text(
-                            '${post.commentsCount}',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.grey.shade800,
-                              fontWeight: FontWeight.w600,
+                            // Share
+                            IconButton(
+                              icon: Icon(
+                                Icons.share,
+                                color: Colors.grey.shade700,
+                                size: 22,
+                              ),
+                              onPressed: () => _sharePost(post),
                             ),
-                          ),
-                          const Spacer(),
-                          // Arkadaşa Gönder
-                          IconButton(
-                            icon: Icon(
-                              Icons.send,
-                              color: Colors.grey.shade700,
-                              size: 22,
+                            // Kaydet
+                            IconButton(
+                              icon: Icon(
+                                _savedPosts.contains(post.id)
+                                    ? Icons.bookmark
+                                    : Icons.bookmark_border,
+                                color: _savedPosts.contains(post.id)
+                                    ? Colors.orange
+                                    : Colors.grey.shade700,
+                                size: 22,
+                              ),
+                              onPressed: () => _savePost(post),
                             ),
-                            onPressed: () => _sendToFriend(post),
-                          ),
-                          // Share
-                          IconButton(
-                            icon: Icon(
-                              Icons.share,
-                              color: Colors.grey.shade700,
-                              size: 22,
-                            ),
-                            onPressed: () => _sharePost(post),
-                          ),
-                          // Kaydet
-                          IconButton(
-                            icon: Icon(
-                              _savedPosts.contains(post.id) ? Icons.bookmark : Icons.bookmark_border,
-                              color: _savedPosts.contains(post.id) ? Colors.orange : Colors.grey.shade700,
-                              size: 22,
-                            ),
-                            onPressed: () => _savePost(post),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    // Tarih - Altta göster
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: Text(
-                        _formatDate(post.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
+                      // Tarih - Altta göster
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: Text(
+                          formatRelativeDate(post.createdAt),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Pinned Badge - Stack içinde overlay olarak
+                  if (post.isPinned)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade700,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.push_pin, size: 10, color: Colors.white),
+                            SizedBox(width: 2),
+                            Text(
+                              'Sabitlendi',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
-                // Pinned Badge - Stack içinde overlay olarak
-                if (post.isPinned)
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade700,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.push_pin, size: 10, color: Colors.white),
-                          SizedBox(width: 2),
-                          Text('Sabitlendi', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
           );
-          },
-          childCount: _userPosts.length,
-        ),
+        }, childCount: _userPosts.length),
       ),
     );
   }
@@ -1979,16 +2063,22 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(post.isPinned ? 'Sabitleme kaldırıldı' : 'Gönderi sabitlendi'),
-                            backgroundColor: post.isPinned ? Colors.grey : Colors.amber,
+                            content: Text(
+                              post.isPinned
+                                  ? 'Sabitleme kaldırıldı'
+                                  : 'Gönderi sabitlendi',
+                            ),
+                            backgroundColor: post.isPinned
+                                ? Colors.grey
+                                : Colors.amber,
                           ),
                         );
                       }
                     } catch (e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Hata: $e')),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
                       }
                     }
                   },
@@ -1997,7 +2087,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Gönderiyi Sil', style: TextStyle(color: Colors.red)),
+              title: const Text(
+                'Gönderiyi Sil',
+                style: TextStyle(color: Colors.red),
+              ),
               onTap: () {
                 Navigator.pop(context);
                 _deletePost(postId);
@@ -2012,20 +2105,6 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         ),
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    
-    if (diff.inMinutes < 1) return 'Az önce';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}dk önce';
-    if (diff.inHours < 24) return '${diff.inHours}sa önce';
-    if (diff.inDays < 7) return '${diff.inDays}g önce';
-    
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-    return '${date.day}/${date.month} $hour:$minute';
   }
 
   Future<void> _toggleLike(Post post) async {
@@ -2049,7 +2128,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       } else {
         await _postService.likePost(post.id, currentUserId);
       }
-      
+
       // Başarılıysa post'u yeniden yükle (count trigger'dan güncellenmiş olacak)
       final updatedPost = await _postService.getPostById(post.id);
       if (updatedPost != null && mounted) {
@@ -2069,11 +2148,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           _likedPostIds.remove(post.id);
         }
       });
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
       }
     }
   }
@@ -2081,9 +2160,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   void _navigateToPostDetail(Post post) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(post: post),
-      ),
+      MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
     ).then((_) {
       _loadUserPosts();
     });
@@ -2091,51 +2168,93 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   void _openStories() {
     if (_userStories.isEmpty) return;
-    
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => StoryViewerScreen(
-          stories: _userStories,
-          initialIndex: 0,
-        ),
+        builder: (context) =>
+            StoryViewerScreen(stories: _userStories, initialIndex: 0),
       ),
     ).then((_) {
       _loadUserStories();
     });
   }
 
-  void _showFullScreenImage(String? imageUrl) {
-    if (imageUrl == null || imageUrl.isEmpty) return;
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            iconTheme: const IconThemeData(color: Colors.white),
-            elevation: 0,
+  /// Gizli profil mesajı — başkasının gizli profilini görüntülerken
+  /// gönderi/hikaye yerine gösterilir. user_profile_screen ile aynı içerik.
+  Widget _buildPrivateProfileMessage() {
+    return Container(
+      padding: const EdgeInsets.all(40),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-          body: Center(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
-                fit: BoxFit.contain,
-                errorWidget: (context, url, error) {
-                  return const Icon(
-                    Icons.error_outline,
-                    color: Colors.white,
-                    size: 48,
-                  );
-                },
-              ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.lock_outlined,
+              size: 48,
+              color: Colors.grey.shade400,
             ),
           ),
-        ),
+          const SizedBox(height: 20),
+          Text(
+            'Bu Hesap Gizli',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Gönderilerini ve hikayelerini görmek için\ntakip isteği gönder.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          if (_followRequestStatus == 'pending')
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.schedule, size: 18, color: Colors.orange.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Takip isteği gönderildi',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2143,11 +2262,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _createPost() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const CreatePostScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const CreatePostScreen()),
     );
-    
+
     if (result == true) {
       _loadUserPosts();
     }
@@ -2156,11 +2273,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   void _editProfile() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const EditProfileScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const EditProfileScreen()),
     );
-    
+
     if (result == true) {
       _loadProfile();
     }
@@ -2172,23 +2287,23 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         formattedUrl = 'https://$url';
       }
-      
+
       final uri = Uri.parse(formattedUrl);
       final launched = await launchUrl(
         uri,
         mode: LaunchMode.externalApplication,
       );
-      
+
       if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('URL açılamadı')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('URL açılamadı')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('URL açılırken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('URL açılırken hata: $e')));
       }
     }
   }
@@ -2222,7 +2337,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                 ),
                 child: Icon(Icons.block, color: Colors.red.shade400, size: 20),
               ),
-              title: const Text('Engellenenler', style: TextStyle(fontWeight: FontWeight.w600)),
+              title: const Text(
+                'Engellenenler',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
               onTap: () {
                 Navigator.pop(context);
@@ -2241,9 +2359,16 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.flag_outlined, color: Colors.orange.shade400, size: 20),
+                child: Icon(
+                  Icons.flag_outlined,
+                  color: Colors.orange.shade400,
+                  size: 20,
+                ),
               ),
-              title: const Text('Şikayetlerim', style: TextStyle(fontWeight: FontWeight.w600)),
+              title: const Text(
+                'Şikayetlerim',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
               onTap: () {
                 Navigator.pop(context);
@@ -2277,12 +2402,14 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _startChat() async {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final targetUserId = widget.userId ?? currentUserId;
-    
-    if (currentUserId == null || targetUserId == null || currentUserId == targetUserId) {
+
+    if (currentUserId == null ||
+        targetUserId == null ||
+        currentUserId == targetUserId) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Konuşma başlatılamadı')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Konuşma başlatılamadı')));
       }
       return;
     }
@@ -2294,7 +2421,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           .select('messages_enabled')
           .eq('id', targetUserId)
           .maybeSingle();
-      
+
       if (targetProfile != null && targetProfile['messages_enabled'] == false) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2308,13 +2435,15 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         return;
       }
 
-      final conversation = await _chatService.getOrCreateConversation(targetUserId);
-      
+      final conversation = await _chatService.getOrCreateConversation(
+        targetUserId,
+      );
+
       if (conversation != null && mounted) {
         final otherUser = conversation.otherUser;
         final fullName = otherUser?['full_name'] as String? ?? 'Kullanıcı';
         final avatarUrl = otherUser?['avatar_url'] as String?;
-        
+
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2327,16 +2456,16 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           ),
         );
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Konuşma başlatılamadı')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Konuşma başlatılamadı')));
       }
     } catch (e) {
       debugPrint('Konuşma başlatılırken hata: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Konuşma başlatılamadı: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Konuşma başlatılamadı: $e')));
       }
     }
   }
@@ -2347,9 +2476,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
       if (currentUserId == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Lütfen giriş yapın')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
         }
         return;
       }
@@ -2357,7 +2486,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       // Takip edilen kullanıcıları getir
       final following = await Supabase.instance.client
           .from('follows')
-          .select('following_id, profiles!follows_following_id_fkey(full_name, avatar_url)')
+          .select(
+            'following_id, profiles!follows_following_id_fkey(full_name, avatar_url)',
+          )
           .eq('follower_id', currentUserId)
           .order('created_at', ascending: false);
 
@@ -2392,13 +2523,18 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                   itemBuilder: (context, index) {
                     final user = following[index];
                     final profile = user['profiles'] as Map<String, dynamic>?;
-                    final name = profile?['full_name'] as String? ?? 'Kullanıcı';
+                    final name =
+                        profile?['full_name'] as String? ?? 'Kullanıcı';
                     final avatar = profile?['avatar_url'] as String?;
 
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage: avatar != null ? NetworkImage(avatar) : null,
-                        child: avatar == null ? Text(name[0].toUpperCase()) : null,
+                        backgroundImage: avatar != null
+                            ? NetworkImage(avatar)
+                            : null,
+                        child: avatar == null
+                            ? Text(name[0].toUpperCase())
+                            : null,
                       ),
                       title: Text(name),
                       onTap: () async {
@@ -2406,7 +2542,11 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                         if (mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('$name adlı kullanıcıya gönderildi')),
+                            SnackBar(
+                              content: Text(
+                                '$name adlı kullanıcıya gönderildi',
+                              ),
+                            ),
                           );
                         }
                       },
@@ -2420,39 +2560,30 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     }
   }
 
-  /// Arkadaşa gönderi bildirimi gönder (Push notification ile)
+  /// Arkadaşa gönderi bildirimi gönder
+  /// 2026-08-02 push pipeline refaktörü:
+  /// - İstemci doğrudan notifications INSERT etmez, functions.invoke ile
+  ///   push göndermez.
+  /// - public.share_post_with_user RPC'si çağrılır. Sunucu tarafında
+  ///   gönderen auth.uid() ile belirlenir, alıcı + post doğrulanır,
+  ///   self-share reddedilir, title/content server-side üretilir,
+  ///   idempotency (son 60 saniye) uygulanır. Outbox trigger'ı push'u
+  ///   güvenli şekilde planlar.
   Future<void> _sendPostToFriend(String targetUserId, Post post) async {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    
-    await Supabase.instance.client.from('notifications').insert({
-      'user_id': targetUserId,
-      'type': 'post_share',
-      'title': 'Gönderi Paylaşıldı',
-      'content': '${Supabase.instance.client.auth.currentUser?.userMetadata?['full_name'] ?? 'Bir arkadaşınız'} size bir gönderi paylaştı.',
-      'entity_id': post.id,
-      'entity_type': 'post',
-    });
-    
-    // Push notification gönder
     try {
-      await Supabase.instance.client.functions.invoke(
-        'send-push',
-        body: {
-          'userId': targetUserId,
-          'title': 'Gönderi Paylaşımı',
-          'body': '${Supabase.instance.client.auth.currentUser?.userMetadata?['full_name'] ?? 'Bir arkadaşınız'} size bir gönderi paylaştı',
-          'data': {'type': 'post_share', 'postId': post.id, 'senderId': currentUserId},
-        },
+      await Supabase.instance.client.rpc(
+        'share_post_with_user',
+        params: {'p_post_id': post.id, 'p_recipient_id': targetUserId},
       );
     } catch (e) {
-      debugPrint('Push notification gönderilemedi: $e');
+      debugPrint('Arkadaşa gönder bildirimi gönderilemedi: $e');
     }
   }
 
@@ -2461,7 +2592,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     try {
       final postUrl = 'https://cizreapp.com/post/${post.id}';
       final shareText = '${post.content ?? ''}\n\n$postUrl';
-      
+
       await showModalBottomSheet(
         context: context,
         builder: (context) => SafeArea(
@@ -2479,7 +2610,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
                 leading: Icon(Icons.message, color: Colors.green[700]),
                 title: const Text('WhatsApp'),
                 onTap: () async {
-                  final url = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(shareText)}');
+                  final url = Uri.parse(
+                    'https://wa.me/?text=${Uri.encodeComponent(shareText)}',
+                  );
                   if (await canLaunchUrl(url)) {
                     await launchUrl(url, mode: LaunchMode.externalApplication);
                   }
@@ -2505,9 +2638,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Paylaşım hatası: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Paylaşım hatası: $e')));
       }
     }
   }
@@ -2515,9 +2648,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Link panoya kopyalandı!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Link panoya kopyalandı!')));
     }
   }
 
@@ -2527,20 +2660,20 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Lütfen giriş yapın')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
         }
         return;
       }
 
-      final result = await Supabase.instance.client.rpc('toggle_post_favorite', params: {
-        'p_user_id': userId,
-        'p_post_id': post.id,
-      });
+      final result = await Supabase.instance.client.rpc(
+        'toggle_post_favorite',
+        params: {'p_user_id': userId, 'p_post_id': post.id},
+      );
 
       final isFavorited = result as bool? ?? false;
-      
+
       if (mounted) {
         setState(() {
           if (isFavorited) {
@@ -2549,19 +2682,23 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             _savedPosts.remove(post.id);
           }
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isFavorited ? 'Gönderi kaydedildi' : 'Gönderi kaydedilenlerden kaldırıldı'),
+            content: Text(
+              isFavorited
+                  ? 'Gönderi kaydedildi'
+                  : 'Gönderi kaydedilenlerden kaldırıldı',
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     }
   }

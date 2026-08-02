@@ -30,6 +30,11 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   // ignore: unused_field
   bool _isSummaryExpanded = false;
 
+  // Her dükkan için kupon kodu girişi (shopId -> TextEditingController).
+  final Map<String, TextEditingController> _couponControllers = {};
+  // Şu anda kupon uygulama işleminde olan dükkan (spinner göstermek için).
+  String? _applyingCouponForShopId;
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +96,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _fabController.dispose();
     _slideController.dispose();
     _expandController.dispose();
+    for (final c in _couponControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -132,6 +140,24 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
     final cartProvider = context.watch<CartProvider>();
     debugPrint('🟢 CartScreen.build() - itemCount: ${cartProvider.itemCount}, isEmpty: ${cartProvider.isEmpty}, isLoading: ${cartProvider.isLoading}');
+
+    // Sepet değişikliği sonrası kaldırılan kuponu UI'a bildir.
+    // (Tek seferlik; CartProvider tüketildiği için sonsuz döngüye girmez.)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final removed = cartProvider.consumeLastRemovedCoupon();
+      if (removed != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Kupon kaldırıldı: ${removed.code} (sepet tutarı yetersiz)',
+            ),
+            backgroundColor: Colors.orange.shade700,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    });
 
     return Scaffold(
       body: Container(
@@ -651,9 +677,173 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               return _buildModernCartItem(context, items[index], cartProvider);
             },
           ),
+
+          // Kupon bölümü (dükkan başına)
+          _buildShopCouponSection(context, shopId, cartProvider, shopTotal),
         ],
       ),
     );
+  }
+
+  /// Dükkan için kupon girişi / uygulanmış kupon rozeti.
+  /// CartProvider.couponForShop(shopId) ile okur; applyCoupon/removeCoupon
+  /// üzerinden state'i günceller. SnackBar bildirimleri `_applyCoupon` ve
+  /// `_revalidateCoupons` sonrası gelen `consumeLastRemovedCoupon` üzerinden
+  /// gösterilir.
+  Widget _buildShopCouponSection(
+    BuildContext context,
+    String shopId,
+    CartProvider cartProvider,
+    double shopSubtotal,
+  ) {
+    final theme = Theme.of(context);
+    final coupon = cartProvider.couponForShop(shopId);
+    final controller = _couponControllers.putIfAbsent(
+      shopId,
+      () => TextEditingController(),
+    );
+    // Uygulanan kupon varsa TextField'ı senkron tut.
+    if (coupon != null && controller.text != coupon.code) {
+      controller.value = TextEditingValue(
+        text: coupon.code,
+        selection: TextSelection.collapsed(offset: coupon.code.length),
+      );
+    }
+    final isApplying = _applyingCouponForShopId == shopId;
+
+    if (coupon != null) {
+      final discount = coupon.discountFor(shopSubtotal);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            border: Border.all(color: Colors.green.shade300),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green.shade700),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Kupon Uygulandı',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                    Text(
+                      '${coupon.code} • ${coupon.label} • -₺${discount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.green.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => _removeCoupon(shopId, cartProvider),
+                icon: Icon(Icons.close, color: Colors.green.shade700),
+                tooltip: 'Kuponu Kaldır',
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              textCapitalization: TextCapitalization.characters,
+              enabled: !isApplying,
+              decoration: InputDecoration(
+                hintText: 'Kupon kodunu girin',
+                prefixIcon: const Icon(Icons.local_offer_outlined, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: isApplying
+                ? null
+                : () => _applyCoupon(shopId, controller, cartProvider),
+            icon: isApplying
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.check, size: 18),
+            label: const Text('Uygula'),
+            style: ElevatedButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _applyCoupon(
+    String shopId,
+    TextEditingController controller,
+    CartProvider cartProvider,
+  ) async {
+    final code = controller.text.trim();
+    if (code.isEmpty) return;
+    setState(() => _applyingCouponForShopId = shopId);
+    try {
+      final coupon =
+          await cartProvider.applyCoupon(shopId: shopId, code: code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Kupon uygulandı: ${coupon.label}'),
+          backgroundColor: Colors.green.shade700,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _applyingCouponForShopId = null);
+    }
+  }
+
+  void _removeCoupon(String shopId, CartProvider cartProvider) {
+    cartProvider.removeCoupon(shopId);
+    _couponControllers[shopId]?.clear();
   }
 
   Widget _buildModernCartItem(
@@ -719,28 +909,42 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 4),
                 
-                // Fiyat
+                // Fiyat (flaş indirim bilinçli: effectivePrice flaş varsa flaşı döner)
                 Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                        color: item.isFlashSaleItem
+                            ? const Color(0xFFE53935).withOpacity(0.1)
+                            : Theme.of(context).colorScheme.primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Text(
-                        '${(item.productPrice ?? 0).toStringAsFixed(2)}₺',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (item.isFlashSaleItem) ...[
+                            const Icon(Icons.bolt, size: 10, color: Color(0xFFE53935)),
+                            const SizedBox(width: 2),
+                          ],
+                          Text(
+                            '${item.effectivePrice.toStringAsFixed(2)}₺',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              color: item.isFlashSaleItem
+                                  ? const Color(0xFFE53935)
+                                  : Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     if (item.hasDiscount) ...[
                       const SizedBox(width: 6),
+                      // Eski fiyat: flaş sale ise ürünün normal fiyatı, yoksa oldPrice
                       Text(
-                        '${(item.productOldPrice ?? 0).toStringAsFixed(2)}₺',
+                        '${(item.isFlashSaleItem ? (item.productPrice ?? 0) : (item.productOldPrice ?? 0)).toStringAsFixed(2)}₺',
                         style: TextStyle(
                           fontSize: 11,
                           decoration: TextDecoration.lineThrough,
@@ -1250,6 +1454,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           builder: (context) => CheckoutScreen(
             shopId: shopId,
             shopName: shopName,
+            // Sepette uygulanan kuponları taşı — eskiden taze CartProvider
+            // yüzünden tek-dükkan checkout'unda kuponlar kayboluyordu.
+            couponsByShop: cartProvider.couponsByShop,
           ),
         ),
       );

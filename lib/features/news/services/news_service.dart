@@ -220,25 +220,29 @@ class NewsService {
           .maybeSingle();
 
       // Önce insert yap
-      final insertResponse = await _client.from('news').insert({
-        'title': title,
-        'slug': slug,
-        'content': content,
-        'summary': summary,
-        'thumbnail_url': thumbnailUrl,
-        'category_id': categoryId,
-        'institution_id': institutionId,
-        'author_id': user.id,
-        'author_name': profile?['full_name'] ?? user.email,
-        'author_avatar_url': profile?['avatar_url'],
-        'is_featured': isFeatured,
-        'is_published': isPublished,
-        'is_breaking': isBreaking,
-        'location_name': locationName,
-        'latitude': latitude,
-        'longitude': longitude,
-        'published_at': publishedAt?.toIso8601String(),
-      }).select('id').single();
+      final insertResponse = await _client
+          .from('news')
+          .insert({
+            'title': title,
+            'slug': slug,
+            'content': content,
+            'summary': summary,
+            'thumbnail_url': thumbnailUrl,
+            'category_id': categoryId,
+            'institution_id': institutionId,
+            'author_id': user.id,
+            'author_name': profile?['full_name'] ?? user.email,
+            'author_avatar_url': profile?['avatar_url'],
+            'is_featured': isFeatured,
+            'is_published': isPublished,
+            'is_breaking': isBreaking,
+            'location_name': locationName,
+            'latitude': latitude,
+            'longitude': longitude,
+            'published_at': publishedAt?.toIso8601String(),
+          })
+          .select('id')
+          .single();
 
       final newsId = insertResponse['id'] as String;
 
@@ -276,6 +280,7 @@ class NewsService {
     double? latitude,
     double? longitude,
     DateTime? publishedAt,
+    bool clearThumbnail = false,
   }) async {
     try {
       final updateData = <String, dynamic>{};
@@ -283,7 +288,11 @@ class NewsService {
       if (title != null) updateData['title'] = title;
       if (content != null) updateData['content'] = content;
       if (summary != null) updateData['summary'] = summary;
-      if (thumbnailUrl != null) updateData['thumbnail_url'] = thumbnailUrl;
+      if (clearThumbnail) {
+        updateData['thumbnail_url'] = null;
+      } else if (thumbnailUrl != null) {
+        updateData['thumbnail_url'] = thumbnailUrl;
+      }
       if (categoryId != null) updateData['category_id'] = categoryId;
       if (institutionId != null) updateData['institution_id'] = institutionId;
       if (isFeatured != null) updateData['is_featured'] = isFeatured;
@@ -292,7 +301,9 @@ class NewsService {
       if (locationName != null) updateData['location_name'] = locationName;
       if (latitude != null) updateData['latitude'] = latitude;
       if (longitude != null) updateData['longitude'] = longitude;
-      if (publishedAt != null) updateData['published_at'] = publishedAt.toIso8601String();
+      if (publishedAt != null) {
+        updateData['published_at'] = publishedAt.toIso8601String();
+      }
 
       await _client.from('news').update(updateData).eq('id', id);
       return true;
@@ -339,12 +350,16 @@ class NewsService {
       if (imageUrl == null) return null;
 
       // Veritabanına kaydet
-      final data = await _client.from('news_images').insert({
-        'news_id': newsId,
-        'image_url': imageUrl,
-        'caption': caption,
-        'sort_order': sortOrder,
-      }).select().single();
+      final data = await _client
+          .from('news_images')
+          .insert({
+            'news_id': newsId,
+            'image_url': imageUrl,
+            'caption': caption,
+            'sort_order': sortOrder,
+          })
+          .select()
+          .single();
 
       return NewsImageModel.fromJson(Map<String, dynamic>.from(data));
     } catch (e) {
@@ -419,7 +434,14 @@ class NewsService {
   Future<bool> toggleLike(String newsId) async {
     try {
       final userId = _client.auth.currentUser?.id;
-      if (userId == null) return false;
+      if (userId == null) {
+        debugPrint(
+          '[NEWS_DIAG] toggleLike skipped: unauthenticated news=$newsId',
+        );
+        return false;
+      }
+
+      debugPrint('[NEWS_DIAG] toggleLike start news=$newsId actor=$userId');
 
       // Mevcut beğeni durumunu kontrol et
       final existing = await _client
@@ -432,6 +454,9 @@ class NewsService {
       if (existing != null) {
         // Beğeniyi kaldır
         await _client.from('news_likes').delete().eq('id', existing['id']);
+        debugPrint(
+          '[NEWS_DIAG] toggleLike success action=removed news=$newsId actor=$userId',
+        );
         return false;
       } else {
         // Beğeni ekle
@@ -439,10 +464,13 @@ class NewsService {
           'news_id': newsId,
           'user_id': userId,
         });
+        debugPrint(
+          '[NEWS_DIAG] toggleLike success action=inserted news=$newsId actor=$userId',
+        );
         return true;
       }
     } catch (e) {
-      debugPrint('Beğeni toggle hatası: $e');
+      debugPrint('[NEWS_DIAG] toggleLike failed news=$newsId error=$e');
       return false;
     }
   }
@@ -452,15 +480,56 @@ class NewsService {
     try {
       final userId = _client.auth.currentUser?.id;
 
+      debugPrint(
+        '[NEWS_DIAG] recordView start news=$newsId authenticated=${userId != null}',
+      );
+
       await _client.from('news_views').insert({
         'news_id': newsId,
         'user_id': userId,
-        'device_info': {
-          'platform': Platform.operatingSystem,
-        },
+        'device_info': {'platform': Platform.operatingSystem},
       });
+      debugPrint(
+        '[NEWS_DIAG] recordView success news=$newsId viewer=${userId ?? 'anonymous'}',
+      );
     } catch (e) {
-      debugPrint('Görüntüleme kaydetme hatası: $e');
+      debugPrint('[NEWS_DIAG] recordView failed news=$newsId error=$e');
+    }
+  }
+
+  /// Haber yazarı/admin için görüntüleyen, beğenen ve yorum yapanları getirir.
+  Future<Map<String, List<Map<String, dynamic>>>> getEngagementDetails(
+    String newsId,
+  ) async {
+    try {
+      debugPrint('[NEWS_DIAG] getEngagementDetails start news=$newsId');
+      final response = await _client.rpc(
+        'get_news_engagement_details',
+        params: {'p_news_id': newsId},
+      );
+      final data = Map<String, dynamic>.from(response as Map);
+
+      List<Map<String, dynamic>> rows(String key) =>
+          ((data[key] as List?) ?? const [])
+              .map((item) => Map<String, dynamic>.from(item as Map))
+              .toList();
+
+      final result = <String, List<Map<String, dynamic>>>{
+        'viewers': rows('viewers'),
+        'likes': rows('likes'),
+        'comments': rows('comments'),
+      };
+      debugPrint(
+        '[NEWS_DIAG] getEngagementDetails success news=$newsId '
+        'viewers=${result['viewers']!.length} likes=${result['likes']!.length} '
+        'comments=${result['comments']!.length}',
+      );
+      return result;
+    } catch (e) {
+      debugPrint(
+        '[NEWS_DIAG] getEngagementDetails failed news=$newsId error=$e',
+      );
+      rethrow;
     }
   }
 
@@ -474,16 +543,18 @@ class NewsService {
       final userId = _client.auth.currentUser?.id;
 
       // Ana yorumları getir (parent_id null olanlar - yani üst yorumlar)
-      // Supabase'de null kontrolü için 'null' string kullanılır
       final response = await _client
           .from('news_comments')
           .select()
           .eq('news_id', newsId)
-          .eq('parent_id', 'null')
+          .eq('is_hidden', false)
           .order('is_pinned', ascending: false)
           .order('created_at', ascending: false);
 
-      final data = response as List;
+      // Dart'ta parent_id == null olanları filtrele
+      final data = (response as List)
+          .where((c) => c['parent_id'] == null)
+          .toList();
 
       // Kullanıcının beğeni durumlarını al
       final comments = <NewsCommentModel>[];
@@ -491,11 +562,12 @@ class NewsService {
         final itemMap = Map<String, dynamic>.from(item);
         final isLiked = userId != null
             ? await _client
-                .from('news_comment_likes')
-                .select()
-                .eq('comment_id', item['id'])
-                .eq('user_id', userId)
-                .maybeSingle() != null
+                      .from('news_comment_likes')
+                      .select()
+                      .eq('comment_id', item['id'])
+                      .eq('user_id', userId)
+                      .maybeSingle() !=
+                  null
             : false;
 
         // Alt yorumları getir
@@ -524,7 +596,9 @@ class NewsService {
           .order('created_at', ascending: true);
 
       final data = response as List;
-      return data.map((e) => NewsCommentModel.fromJson(Map<String, dynamic>.from(e))).toList();
+      return data
+          .map((e) => NewsCommentModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
     } catch (e) {
       debugPrint('Alt yorum getirme hatası: $e');
       return [];
@@ -539,7 +613,16 @@ class NewsService {
   }) async {
     try {
       final user = _client.auth.currentUser;
-      if (user == null) return null;
+      if (user == null) {
+        debugPrint(
+          '[NEWS_DIAG] addComment skipped: unauthenticated news=$newsId',
+        );
+        return null;
+      }
+
+      debugPrint(
+        '[NEWS_DIAG] addComment start news=$newsId actor=${user.id} parent=${parentId ?? 'root'}',
+      );
 
       // Kullanıcı bilgilerini al
       final profile = await _client
@@ -548,18 +631,27 @@ class NewsService {
           .eq('id', user.id)
           .maybeSingle();
 
-      final data = await _client.from('news_comments').insert({
-        'news_id': newsId,
-        'parent_id': parentId,
-        'user_id': user.id,
-        'user_name': profile?['full_name'] ?? user.email,
-        'user_avatar_url': profile?['avatar_url'],
-        'content': content,
-      }).select().single();
+      final data = await _client
+          .from('news_comments')
+          .insert({
+            'news_id': newsId,
+            'parent_id': parentId,
+            'user_id': user.id,
+            'user_name': profile?['full_name'] ?? user.email,
+            'user_avatar_url': profile?['avatar_url'],
+            'content': content,
+          })
+          .select()
+          .single();
 
+      debugPrint(
+        '[NEWS_DIAG] addComment success news=$newsId comment=${data['id']} parent=${parentId ?? 'root'}',
+      );
       return NewsCommentModel.fromJson(Map<String, dynamic>.from(data));
     } catch (e) {
-      debugPrint('Yorum ekleme hatası: $e');
+      debugPrint(
+        '[NEWS_DIAG] addComment failed news=$newsId parent=${parentId ?? 'root'} error=$e',
+      );
       return null;
     }
   }
@@ -567,10 +659,10 @@ class NewsService {
   /// Yorum güncelle
   Future<bool> updateComment(String commentId, String content) async {
     try {
-      await _client.from('news_comments').update({
-        'content': content,
-        'is_edited': true,
-      }).eq('id', commentId);
+      await _client
+          .from('news_comments')
+          .update({'content': content, 'is_edited': true})
+          .eq('id', commentId);
       return true;
     } catch (e) {
       debugPrint('Yorum güncelleme hatası: $e');
@@ -593,7 +685,16 @@ class NewsService {
   Future<bool> toggleCommentLike(String commentId) async {
     try {
       final userId = _client.auth.currentUser?.id;
-      if (userId == null) return false;
+      if (userId == null) {
+        debugPrint(
+          '[NEWS_DIAG] toggleCommentLike skipped: unauthenticated comment=$commentId',
+        );
+        return false;
+      }
+
+      debugPrint(
+        '[NEWS_DIAG] toggleCommentLike start comment=$commentId actor=$userId',
+      );
 
       final existing = await _client
           .from('news_comment_likes')
@@ -603,17 +704,28 @@ class NewsService {
           .maybeSingle();
 
       if (existing != null) {
-        await _client.from('news_comment_likes').delete().eq('id', existing['id']);
+        await _client
+            .from('news_comment_likes')
+            .delete()
+            .eq('id', existing['id']);
+        debugPrint(
+          '[NEWS_DIAG] toggleCommentLike success action=removed comment=$commentId',
+        );
         return false;
       } else {
         await _client.from('news_comment_likes').insert({
           'comment_id': commentId,
           'user_id': userId,
         });
+        debugPrint(
+          '[NEWS_DIAG] toggleCommentLike success action=inserted comment=$commentId',
+        );
         return true;
       }
     } catch (e) {
-      debugPrint('Yorum beğeni toggle hatası: $e');
+      debugPrint(
+        '[NEWS_DIAG] toggleCommentLike failed comment=$commentId error=$e',
+      );
       return false;
     }
   }
@@ -632,7 +744,9 @@ class NewsService {
           .order('sort_order', ascending: true);
 
       final data = response as List;
-      return data.map((e) => NewsCategoryModel.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => NewsCategoryModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('Kategori getirme hatası: $e');
       return [];
@@ -649,7 +763,9 @@ class NewsService {
           .order('name', ascending: true);
 
       final data = response as List;
-      return data.map((e) => InstitutionModel.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => InstitutionModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('Kurum getirme hatası: $e');
       return [];
@@ -696,7 +812,9 @@ class NewsService {
           .limit(limit);
 
       final data = response as List;
-      return data.map((e) => NewsModel.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => NewsModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('Haber arama hatası: $e');
       return [];
@@ -837,10 +955,26 @@ class NewsService {
   Future<Map<String, int>> getNewsStats() async {
     try {
       final totalResponse = await _client.from('news').select('id').count();
-      final publishedResponse = await _client.from('news').select('id').eq('is_published', true).count();
-      final draftResponse = await _client.from('news').select('id').eq('is_published', false).count();
-      final featuredResponse = await _client.from('news').select('id').eq('is_featured', true).count();
-      final breakingResponse = await _client.from('news').select('id').eq('is_breaking', true).count();
+      final publishedResponse = await _client
+          .from('news')
+          .select('id')
+          .eq('is_published', true)
+          .count();
+      final draftResponse = await _client
+          .from('news')
+          .select('id')
+          .eq('is_published', false)
+          .count();
+      final featuredResponse = await _client
+          .from('news')
+          .select('id')
+          .eq('is_featured', true)
+          .count();
+      final breakingResponse = await _client
+          .from('news')
+          .select('id')
+          .eq('is_breaking', true)
+          .count();
 
       return {
         'total': totalResponse.count,

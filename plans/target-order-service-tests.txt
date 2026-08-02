@@ -1,0 +1,11 @@
+00:00 +0: loading c:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart
+00:00 +0: OrderService - çift email fix smoke testi createOrder içinde sendNewOrderEmailToSeller çağrısı YOK
+00:00 +1: OrderService - çift email fix smoke testi createMultiShopOrder içinde email çağrıları YOK
+00:00 +2: OrderService - çift email fix smoke testi push notification hâlâ çağrılıyor (Dart tarafı)
+00:00 +3: OrderService - createMultiShopOrder discountByShop createMultiShopOrder imzasında discountByShop parametresi var
+00:00 +4: OrderService - createMultiShopOrder discountByShop discount ByShop kullanımı: discountByShop?[shopId] ?? 0.0
+00:00 +5: OrderService - createOrder temel imzası OrderService sınıfı var ve createOrder public
+00:00 +6: OrderService - createOrder temel imzası freeOrderLimitPerUser sabit olarak 1
+00:00 +7: MultiShopCheckoutScreen - discountByShop aktarımı her mağazanın doğrulanmış indirimi kendi shopId anahtarına aktarılır
+00:00 +8: MultiShopCheckoutScreen - discountByShop aktarımı özet yoksa boş indirim sözleşmesi döner
+00:00 +9: All tests passed!

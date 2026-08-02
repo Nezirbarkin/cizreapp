@@ -59,7 +59,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           .from('profiles')
           .select()
           .eq('id', userId)
-          .single();
+          .maybeSingle();
+
+      if (response == null) {
+        // Profil satırı henüz oluşturulmamış (trigger kaçırılmış olabilir).
+        // Form boş açılır; kaydet tuşunda updateProfile profili oluşturacak.
+        debugPrint('⚠️ Profil satırı bulunamadı (userId=$userId); ilk kayıtta oluşturulacak.');
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profil kaydın bulunamadı. Bilgileri doldurup kaydederek oluşturabilirsin.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
 
       setState(() {
         _fullNameController.text = response['full_name'] ?? '';

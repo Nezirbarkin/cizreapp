@@ -36,15 +36,76 @@ class SmmProviderServiceInfo {
 class DigitalOrderCreateResult {
   final String digitalOrderId;
   final String? externalOrderId;
-  final double totalPrice;
-  final double? newBalance;
+  final String status;
+  final double grossTotalTry;
+  final int pointsSpent;
+  final double pointsDiscountTry;
+  final double cashPaidTry;
+  final bool duplicate;
+  final bool refunded;
 
   DigitalOrderCreateResult({
     required this.digitalOrderId,
     this.externalOrderId,
-    required this.totalPrice,
-    this.newBalance,
+    required this.status,
+    required this.grossTotalTry,
+    required this.pointsSpent,
+    required this.pointsDiscountTry,
+    required this.cashPaidTry,
+    this.duplicate = false,
+    this.refunded = false,
   });
+
+  bool get reconciliationPending => status == 'reconciliation_pending';
+
+  String get compositionLabel {
+    final parts = <String>[];
+    if (pointsSpent > 0) parts.add('$pointsSpent puan');
+    if (cashPaidTry > 0 || parts.isEmpty) {
+      parts.add('${cashPaidTry.toStringAsFixed(2)} TL');
+    }
+    return parts.join(' + ');
+  }
+
+  factory DigitalOrderCreateResult.fromJson(Map<String, dynamic> json) {
+    return DigitalOrderCreateResult(
+      digitalOrderId: json['digital_order_id'] as String,
+      externalOrderId: json['external_order_id']?.toString(),
+      status: json['status'] as String? ?? 'unknown',
+      grossTotalTry: (json['gross_total_try'] as num?)?.toDouble() ?? 0,
+      pointsSpent: (json['points_spent'] as num?)?.toInt() ?? 0,
+      pointsDiscountTry: (json['points_discount_try'] as num?)?.toDouble() ?? 0,
+      cashPaidTry: (json['cash_paid_try'] as num?)?.toDouble() ?? 0,
+      duplicate: json['duplicate'] as bool? ?? false,
+      refunded: json['refunded'] as bool? ?? false,
+    );
+  }
+}
+
+class DigitalOrderStatusUpdateResult {
+  final String newStatus;
+  final int pointsRefunded;
+  final double cashRefundedTry;
+  final bool duplicate;
+
+  const DigitalOrderStatusUpdateResult({
+    required this.newStatus,
+    this.pointsRefunded = 0,
+    this.cashRefundedTry = 0,
+    this.duplicate = false,
+  });
+
+  factory DigitalOrderStatusUpdateResult.fromJson(Map<String, dynamic> json) {
+    final refund = json['refund'] is Map
+        ? Map<String, dynamic>.from(json['refund'] as Map)
+        : const <String, dynamic>{};
+    return DigitalOrderStatusUpdateResult(
+      newStatus: json['new_status'] as String? ?? 'unknown',
+      pointsRefunded: (refund['points_refunded'] as num?)?.toInt() ?? 0,
+      cashRefundedTry: (refund['cash_refunded_try'] as num?)?.toDouble() ?? 0,
+      duplicate: refund['duplicate'] as bool? ?? false,
+    );
+  }
 }
 
 class SmmService {
@@ -55,7 +116,9 @@ class SmmService {
     try {
       final data = await _supabase
           .from('smm_providers')
-          .select('id, owner_type, owner_id, name, api_url, is_active, created_at, updated_at')
+          .select(
+            'id, owner_type, owner_id, name, api_url, is_active, created_at, updated_at',
+          )
           .order('created_at', ascending: false);
       return (data as List)
           .map((e) => SmmProvider.fromJson(e as Map<String, dynamic>))
@@ -125,38 +188,49 @@ class SmmService {
     required String productId,
     required String targetUrl,
     required int quantity,
+    bool usePoints = true,
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _supabase.functions.invoke(
         'smm-order-create',
+        headers: {
+          'x-idempotency-key':
+              idempotencyKey ??
+              'mobile-${DateTime.now().microsecondsSinceEpoch}',
+        },
         body: {
           'product_id': productId,
           'target_url': targetUrl,
           'quantity': quantity,
+          'use_points': usePoints,
         },
       );
 
-      if (response.status != 200) {
-        final error = response.data?['error'] ?? 'Sipariş oluşturulamadı';
+      final raw = response.data;
+      final data = raw is Map ? Map<String, dynamic>.from(raw) : null;
+      if (response.status != 200 && response.status != 202) {
+        final error = data?['error_code'] ?? 'Sipariş oluşturulamadı';
         throw Exception(error);
       }
 
-      final data = response.data;
-      if (data['status'] != 'success') {
-        throw Exception(data['error'] ?? 'Sipariş oluşturulamadı');
+      if (data == null ||
+          (data['status'] != 'success' &&
+              data['status'] != 'reconciliation_pending')) {
+        throw Exception(data?['error_code'] ?? 'Sipariş oluşturulamadı');
       }
 
-      return DigitalOrderCreateResult(
-        digitalOrderId: data['digital_order_id'] as String,
-        externalOrderId: data['external_order_id']?.toString(),
-        totalPrice: (data['total_price'] as num).toDouble(),
-        newBalance: (data['new_balance'] as num?)?.toDouble(),
-      );
+      return DigitalOrderCreateResult.fromJson(data);
     } on FunctionException catch (e) {
       final details = e.details;
       final serverError = details is Map ? details['error'] as String? : null;
-      debugPrint('❌ SMM: Sipariş oluşturma hatası - status: ${e.status}, error: $serverError');
-      throw FriendlyException(serverError ?? 'Dijital sipariş oluşturulamadı.', originalError: e);
+      debugPrint(
+        '❌ SMM: Sipariş oluşturma hatası - status: ${e.status}, error: $serverError',
+      );
+      throw FriendlyException(
+        serverError ?? 'Dijital sipariş oluşturulamadı.',
+        originalError: e,
+      );
     } catch (e) {
       debugPrint('❌ SMM: Sipariş oluşturma hatası - $e');
       throw FriendlyException.from(e);
@@ -178,10 +252,15 @@ class SmmService {
           .eq('user_id', userId)
           .order('created_at', ascending: false);
 
-      debugPrint('📦 SMM: getMyDigitalOrders userId=$userId satır sayısı=${(data as List).length}');
+      debugPrint(
+        '📦 SMM: getMyDigitalOrders userId=$userId satır sayısı=${(data as List).length}',
+      );
 
       final orders = data;
-      final productIds = orders.map((o) => o['product_id'] as String).toSet().toList();
+      final productIds = orders
+          .map((o) => o['product_id'] as String)
+          .toSet()
+          .toList();
       final productNames = <String, String>{};
       if (productIds.isNotEmpty) {
         final products = await _supabase
@@ -206,7 +285,9 @@ class SmmService {
 
   /// Sağlayıcının hizmet (service) listesini getirir. Ürün eklerken açıklama/fiyat/min/max
   /// alanlarının otomatik doldurulması için kullanılır.
-  Future<List<SmmProviderServiceInfo>> getProviderServices(String providerId) async {
+  Future<List<SmmProviderServiceInfo>> getProviderServices(
+    String providerId,
+  ) async {
     try {
       final response = await _supabase.functions.invoke(
         'smm-provider-services',
@@ -224,13 +305,20 @@ class SmmService {
       }
 
       return (data['services'] as List)
-          .map((e) => SmmProviderServiceInfo.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => SmmProviderServiceInfo.fromJson(e as Map<String, dynamic>),
+          )
           .toList();
     } on FunctionException catch (e) {
       final details = e.details;
       final serverError = details is Map ? details['error'] as String? : null;
-      debugPrint('❌ SMM: Servis listesi getirme hatası - status: ${e.status}, error: $serverError');
-      throw FriendlyException(serverError ?? 'Servis listesi alınamadı.', originalError: e);
+      debugPrint(
+        '❌ SMM: Servis listesi getirme hatası - status: ${e.status}, error: $serverError',
+      );
+      throw FriendlyException(
+        serverError ?? 'Servis listesi alınamadı.',
+        originalError: e,
+      );
     } catch (e) {
       debugPrint('❌ SMM: Servis listesi getirme hatası - $e');
       throw FriendlyException.from(e);
@@ -252,7 +340,9 @@ class SmmService {
       if (productList.isEmpty) return [];
 
       final productIds = productList.map((p) => p['id'] as String).toList();
-      final productNames = {for (final p in productList) p['id'] as String: p['name'] as String};
+      final productNames = {
+        for (final p in productList) p['id'] as String: p['name'] as String,
+      };
 
       final data = await _supabase
           .from('digital_orders')
@@ -280,10 +370,16 @@ class SmmService {
           .order('created_at', ascending: false)
           .limit(200);
       final orders = (data as List);
-      final productIds = orders.map((o) => o['product_id'] as String).toSet().toList();
+      final productIds = orders
+          .map((o) => o['product_id'] as String)
+          .toSet()
+          .toList();
       final productNames = <String, String>{};
       if (productIds.isNotEmpty) {
-        final products = await _supabase.from('products').select('id, name').inFilter('id', productIds);
+        final products = await _supabase
+            .from('products')
+            .select('id, name')
+            .inFilter('id', productIds);
         for (final p in products as List) {
           productNames[p['id'] as String] = p['name'] as String;
         }
@@ -309,14 +405,20 @@ class SmmService {
 
   /// Bir dijital siparişin durumunu admin veya provider sahibi satıcı olarak manuel değiştirir.
   /// completed/partial -> satıcıya kazanç kredisi, canceled/refunded -> müşteriye tam iade (otomatik).
-  Future<void> manualUpdateDigitalOrderStatus({
+  Future<DigitalOrderStatusUpdateResult> manualUpdateDigitalOrderStatus({
     required String digitalOrderId,
     required String newStatus,
     int? remains,
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _supabase.functions.invoke(
         'smm-order-manual-status',
+        headers: {
+          'x-idempotency-key':
+              idempotencyKey ??
+              'manual-$digitalOrderId-$newStatus-${remains ?? 'all'}',
+        },
         body: {
           'digital_order_id': digitalOrderId,
           'new_status': newStatus,
@@ -328,20 +430,25 @@ class SmmService {
         final error = response.data?['error'] ?? 'Durum güncellenemedi';
         throw Exception(error);
       }
-      final data = response.data;
+      final data = Map<String, dynamic>.from(response.data as Map);
       if (data['status'] != 'success') {
         throw Exception(data['error'] ?? 'Durum güncellenemedi');
       }
+      return DigitalOrderStatusUpdateResult.fromJson(data);
     } on FunctionException catch (e) {
       final details = e.details;
       final serverError = details is Map ? details['error'] as String? : null;
       final debugDetail = details is Map ? details['debug_detail'] : null;
-      debugPrint('❌ SMM: Manuel durum güncelleme hatası - status: ${e.status}, error: $serverError');
+      debugPrint(
+        '❌ SMM: Manuel durum güncelleme hatası - status: ${e.status}, error: $serverError',
+      );
       if (debugDetail != null) {
         debugPrint('🔎 SMM: debug_detail = $debugDetail');
       }
       throw FriendlyException(
-        debugDetail != null ? '$serverError ($debugDetail)' : (serverError ?? 'Durum güncellenemedi.'),
+        debugDetail != null
+            ? '$serverError ($debugDetail)'
+            : (serverError ?? 'Durum güncellenemedi.'),
         originalError: e,
       );
     } catch (e) {
@@ -353,7 +460,10 @@ class SmmService {
   /// Bekleyen siparişlerin durumunu sağlayıcıdan sorgulatır (manuel tazeleme).
   Future<void> refreshDigitalOrdersStatus() async {
     try {
-      final response = await _supabase.functions.invoke('smm-order-status-check', body: {});
+      final response = await _supabase.functions.invoke(
+        'smm-order-status-check',
+        body: {},
+      );
       debugPrint('📡 SMM: status-check yanıtı - ${response.data}');
     } catch (e) {
       debugPrint('❌ SMM: Durum tazeleme hatası - $e');

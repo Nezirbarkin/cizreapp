@@ -249,10 +249,11 @@ serve(async (req: Request) => {
       throw new Error("Kullanıcı profili bulunamadı");
     }
 
-    // Sistem ayarlarını al (iyzico credentials dahil)
+    // Sistem ayarlarını al. Gizli iyzico kimlik bilgileri yalnızca
+    // Edge Function Secrets üzerinden okunur; public ayarlar tablosunda tutulmaz.
     const { data: settings } = await supabase
       .from("app_about_settings")
-      .select("min_topup_amount, max_topup_amount, balance_enabled, card_topup_enabled, iyzico_api_key, iyzico_secret_key, iyzico_api_url")
+      .select("min_topup_amount, max_topup_amount, balance_enabled, card_topup_enabled, iyzico_api_url")
       .maybeSingle();
 
     if (!settings) {
@@ -270,17 +271,12 @@ serve(async (req: Request) => {
     }
 
     // iyzico credentials kontrolü
-    let iyzicoApiKey = settings?.iyzico_api_key;
-    let iyzicoSecretKey = settings?.iyzico_secret_key;
+    const iyzicoApiKey = Deno.env.get("IYZICO_API_KEY") || "";
+    const iyzicoSecretKey = Deno.env.get("IYZICO_SECRET_KEY") || "";
     const iyzicoApiUrl = settings?.iyzico_api_url || IYZICO_API_URL;
-
-    // Env'den fallback
-    if (!iyzicoApiKey) iyzicoApiKey = Deno.env.get("IYZICO_API_KEY") || "";
-    if (!iyzicoSecretKey) iyzicoSecretKey = Deno.env.get("IYZICO_SECRET_KEY") || "";
 
     if (!iyzicoApiKey || !iyzicoSecretKey) {
       console.error("❌ iyzico credentials eksik!");
-      console.error("   iyzico_api_key: " + (settings?.iyzico_api_key ? "✅ DB'de var" : "❌ DB'de yok"));
       console.error("   IYZICO_API_KEY env: " + (Deno.env.get("IYZICO_API_KEY") ? "✅ env'de var" : "❌ env'de yok"));
       throw new Error("Ödeme sistemi henüz yapılandırılmamış. Lütfen yönetici ile iletişime geçin.");
     }

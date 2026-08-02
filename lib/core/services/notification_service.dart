@@ -4,8 +4,9 @@ import '../models/notification_model.dart';
 import 'notification_preferences_service.dart';
 
 class NotificationService {
-  final NotificationPreferencesService _preferencesService = NotificationPreferencesService();
-  
+  final NotificationPreferencesService _preferencesService =
+      NotificationPreferencesService();
+
   /// Supabase client'ı güvenli şekilde al (lazy)
   SupabaseClient? get _supabase {
     try {
@@ -15,7 +16,7 @@ class NotificationService {
       return null;
     }
   }
-  
+
   /// Supabase başlatılmış mı?
   bool get isSupabaseReady {
     try {
@@ -27,10 +28,13 @@ class NotificationService {
   }
 
   // Kullanıcının bildirimlerini getir
-  Future<List<NotificationModel>> getNotifications(String userId, {int limit = 50}) async {
+  Future<List<NotificationModel>> getNotifications(
+    String userId, {
+    int limit = 50,
+  }) async {
     final client = _supabase;
     if (client == null) return [];
-    
+
     try {
       final response = await client
           .from('notifications')
@@ -43,21 +47,29 @@ class NotificationService {
       // Mesaj/chat bildirimlerini hariç tut (ayrı chat sistemi var)
       final notifications = (response as List)
           .map((json) => NotificationModel.fromJson(json))
-          .where((notification) =>
-              notification.type != 'message' &&
-              notification.type != 'chat')
+          .where(
+            (notification) =>
+                notification.type != 'message' && notification.type != 'chat',
+          )
           .toList();
-      
+
       // Duplike sipariş bildirimlerini temizle
       // Aynı sipariş + aynı durum + kısa süre içinde oluşmuş bildirimler duplike sayılır
       // Farklı durumlar (onaylandı, yolda, teslim edildi) ayrı ayrı gösterilmeli
       final deduplicatedNotifications = <NotificationModel>[];
       final seenOrderKeys = <String>{};
-      
+
       for (var notification in notifications) {
-        final isOrderRelated = ['order_status', 'order_update', 'order_delivered', 'new_order', 'review_request', 'review_pending', 'courier_new_order']
-            .contains(notification.type);
-        
+        final isOrderRelated = [
+          'order_status',
+          'order_update',
+          'order_delivered',
+          'new_order',
+          'review_request',
+          'review_pending',
+          'courier_new_order',
+        ].contains(notification.type);
+
         if (isOrderRelated && notification.entityId != null) {
           // Her sipariş bildirimi için benzersiz key: entityId + title (durum mesajı)
           // Böylece aynı siparişin farklı durum bildirimleri (onaylandı, yolda, teslim edildi) korunur
@@ -71,7 +83,7 @@ class NotificationService {
         }
         deduplicatedNotifications.add(notification);
       }
-      
+
       return deduplicatedNotifications;
     } catch (e) {
       return [];
@@ -83,7 +95,7 @@ class NotificationService {
   Future<int> getUnreadCount(String userId) async {
     final client = _supabase;
     if (client == null) return 0;
-    
+
     try {
       // Mesaj/chat bildirimlerini hariç tutarak okunmamış sayısını al
       // review_pending hariç (PendingReviewChecker'da ayrı gösteriliyor)
@@ -108,7 +120,7 @@ class NotificationService {
     if (client == null) {
       throw Exception('Supabase başlatılmadı');
     }
-    
+
     try {
       await client
           .from('notifications')
@@ -125,7 +137,7 @@ class NotificationService {
     if (client == null) {
       throw Exception('Supabase başlatılmadı');
     }
-    
+
     try {
       await client
           .from('notifications')
@@ -143,12 +155,9 @@ class NotificationService {
     if (client == null) {
       throw Exception('Supabase başlatılmadı');
     }
-    
+
     try {
-      await client
-          .from('notifications')
-          .delete()
-          .eq('id', notificationId);
+      await client.from('notifications').delete().eq('id', notificationId);
     } catch (e) {
       throw Exception('Bildirim silinirken hata: $e');
     }
@@ -171,43 +180,28 @@ class NotificationService {
       debugPrint('⚠️ Supabase başlatılmadı, bildirim oluşturulamıyor');
       return;
     }
-    
+
     try {
       debugPrint('🔔 BİLDİRİM OLUŞTURULUYOR:');
       debugPrint('  - Kullanıcı: $userId');
       debugPrint('  - Tip: $type');
       debugPrint('  - Başlık: $title');
       debugPrint('  - İçerik: $content');
-      
-      // Kullanıcının FCM token'ını kontrol et (DEBUG)
-      try {
-        final profile = await client
-            .from('profiles')
-            .select('fcm_token, username')
-            .eq('id', userId)
-            .maybeSingle();
-        if (profile != null) {
-          final fcmToken = profile['fcm_token'] as String?;
-          if (fcmToken == null || fcmToken.isEmpty) {
-            debugPrint('⚠️⚠️⚠️ KRİTİK: Kullanıcının FCM TOKEN YOK! Push bildirim GELMEYECEK!');
-            debugPrint('⚠️ Kullanıcı: ${profile['username']}');
-          } else {
-            debugPrint('✅ Kullanıcının FCM token var: ${fcmToken.substring(0, 30)}...');
-          }
-        } else {
-          debugPrint('⚠️ Kullanıcı profili bulunamadı!');
-        }
-      } catch (e) {
-        debugPrint('⚠️ FCM token kontrol hatası: $e');
-      }
-      
+
+      // Not: 2026-08-02 push pipeline refaktörü sonrası istemci FCM
+      // token sorgulamaz. Push notifications_outbox_trigger +
+      // process-notification-outbox worker üzerinden gönderilir.
+
       // Kullanıcının bu bildirim türü için tercihini kontrol et
-      final isEnabled = await _preferencesService.isNotificationEnabled(userId, type);
+      final isEnabled = await _preferencesService.isNotificationEnabled(
+        userId,
+        type,
+      );
       if (!isEnabled) {
         debugPrint('⚠️ Bildirim kapalı, gönderilmiyor: $type');
         return;
       }
-      
+
       debugPrint('✅ Bildirim tercihi açık, veritabanına ekleniyor...');
 
       // ÖNEMLİ (2026-07-07): Doğrudan INSERT yerine add_notification RPC'si
@@ -216,20 +210,25 @@ class NotificationService {
       // add_notification SECURITY DEFINER olduğu için RLS'i bypass eder.
       // Kullanıcı kendi adına ekliyorsa bile RPC üzerinden gitmek güvenli
       // ve tutarlıdır (tüm kod yolları aynı mekanizmayı kullanır).
-      final response = await client.rpc('add_notification', params: {
-        'p_user_id': userId,
-        'p_type': type,
-        'p_title': title,
-        'p_content': content,
-        'p_actor_id': actorId,
-        'p_actor_name': actorName,
-        'p_actor_avatar': actorAvatar,
-        'p_entity_id': entityId,
-        'p_entity_image': entityImage,
-      });
+      final response = await client.rpc(
+        'add_notification',
+        params: {
+          'p_user_id': userId,
+          'p_type': type,
+          'p_title': title,
+          'p_content': content,
+          'p_actor_id': actorId,
+          'p_actor_name': actorName,
+          'p_actor_avatar': actorAvatar,
+          'p_entity_id': entityId,
+          'p_entity_image': entityImage,
+        },
+      );
 
       debugPrint('✅ BİLDİRİM BAŞARIYLA OLUŞTURULDU! ID: $response');
-      debugPrint('🔔 Database Trigger tetiklenmeli (push_notification_trigger.sql)');
+      debugPrint(
+        '🔔 Database Trigger tetiklenmeli (push_notification_trigger.sql)',
+      );
     } catch (e) {
       // Bildirim oluşturma hatası sessizce geçilebilir
       // Ana işlemi engellememek için
@@ -382,7 +381,7 @@ class NotificationService {
     final content = productName != null
         ? '$productName için değerlendirme yapın'
         : '$shopName için değerlendirme yapın';
-    
+
     await createNotification(
       userId: userId,
       type: 'review_pending',

@@ -1,0 +1,1 @@
+{"_tag":"Errors","errors":[{"code":"UnrecognizedOption","message":"Unrecognized flag: --schema-only in command supabase db dump"}]}

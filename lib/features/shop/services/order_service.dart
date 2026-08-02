@@ -38,6 +38,8 @@ class OrderService {
     String? notes,
     String? customerPhone, // Müşteri telefonu eklendi
     InvoiceInfo? invoiceInfo, // Fatura bilgileri eklendi
+    String? couponId, // Uygulanan kupon (orders.coupon_id)
+    double couponDiscount = 0, // Kupon indirimi (orders.coupon_discount)
   }) async {
     try {
       debugPrint('🛒 ORDER: Sipariş oluşturuluyor...');
@@ -47,11 +49,13 @@ class OrderService {
 
       // 0 TL siparişler için kullanıcı başı limit kontrolü
       if (total <= 0) {
+        // İptal edilen siparişleri sayma: kullanıcı iptal ettiyse hakkı geri döner.
         final freeOrderResponse = await _supabase
             .from('orders')
             .select('id')
             .eq('user_id', userId)
             .eq('total', 0)
+            .neq('status', 'cancelled')
             .count(CountOption.exact);
         final freeOrderCount = freeOrderResponse.count;
         if (freeOrderCount >= freeOrderLimitPerUser) {
@@ -64,224 +68,142 @@ class OrderService {
       final orderNumber = 'ORD${DateTime.now().millisecondsSinceEpoch}';
       debugPrint('  └─ orderNumber: $orderNumber');
 
-      debugPrint('🛒 ORDER: INSERT işlemi başlatılıyor...');
-      
-      // INSERT işlemini yap (SELECT tetiklemeden) - GERÇEK HATAYI GÖR
-      // Not: Komisyon alanları SQL trigger tarafından otomatik doldurulur
-      // (admin_commission, admin_delivery_fee, seller_net_amount, commission_status)
-      try {
-        // Fatura bilgilerini hazırla
-        final invoiceData = invoiceInfo?.toOrderSnapshot() ?? {};
-        
-        await _supabase.from('orders').insert({
-          'order_number': orderNumber,
-          'user_id': userId,
-          'shop_id': shopId,
-          'delivery_address_text': deliveryAddressText,
-          'address_id': addressId,
-          'customer_phone': customerPhone,
-          'payment_method': paymentMethod.name,
-          'payment_status': 'pending',
-          'subtotal': subtotal,
-          'delivery_fee': deliveryFee,
-          'discount': discount,
-          'total': total,
-          // Komisyon alanları trigger tarafından otomatik doldurulacak
-          // (admin_commission, admin_delivery_fee, seller_net_amount, commission_status)
-          'status': 'pending',
-          'notes': notes,
-          'created_at': DateTime.now().toIso8601String(),
-          'updated_at': DateTime.now().toIso8601String(),
-          // Fatura bilgileri
-          if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
-          if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
-          if (invoiceData['invoice_tax_number'] != null) 'invoice_tax_number': invoiceData['invoice_tax_number'],
-          if (invoiceData['invoice_tc_no'] != null) 'invoice_tc_no': invoiceData['invoice_tc_no'],
-          if (invoiceData['invoice_tax_office'] != null) 'invoice_tax_office': invoiceData['invoice_tax_office'],
-          if (invoiceData['invoice_address'] != null) 'invoice_address': invoiceData['invoice_address'],
-          if (invoiceData['invoice_email'] != null) 'invoice_email': invoiceData['invoice_email'],
-        });
-        debugPrint('✅ ORDER: INSERT basarili');
-      } catch (insertError) {
-        debugPrint('❌ ORDER: INSERT HATA YAKALANDI!');
-        debugPrint('❌ ORDER: Hata tipi: ${insertError.runtimeType}');
-        if (insertError is PostgrestException) {
-          debugPrint('❌ ORDER: PostgrestException - INSERT Failed:');
-          debugPrint('  ├─ message: ${insertError.message}');
-          debugPrint('  ├─ code: ${insertError.code}');
-          debugPrint('  ├─ details: ${insertError.details}');
-          debugPrint('  └─ hint: ${insertError.hint}');
-        } else {
-          debugPrint('❌ ORDER: $insertError');
-        }
-        rethrow; // Hatayı yukarıya fırlat
-      }
-      
-      debugPrint('🛒 ORDER: Order nesnesi getiriliyor...');
-      
-      late Order order;
-      bool selectSuccess = false;
-      
-      // SELECT policy'si recursive loop yapabilir, try-catch ile yakala
-      try {
-        final response = await _supabase
-            .from('orders')
-            .select()
-            .eq('order_number', orderNumber)
-            .eq('user_id', userId)
-            .maybeSingle();
-        
-        if (response != null) {
-          debugPrint('✅ ORDER: Order nesnesi olusturuluyor...');
-          order = Order.fromJson(response);
-          debugPrint('✅ ORDER: Order olusturuldu - ID: ${order.id}');
-          selectSuccess = true;
-        } else {
-          throw Exception('SELECT returned null');
-        }
-      } catch (selectError) {
-        // SELECT policy'sine takildi ama veri database'de var
-        debugPrint('WARN: SELECT hata yakalandi: $selectError');
-        debugPrint('WARN: Order localden olusturuluyor...');
-        order = Order(
-          id: 'ORDER_${DateTime.now().millisecondsSinceEpoch}',
-          userId: userId,
-          shopId: shopId,
-          subtotal: subtotal,
-          discountAmount: discount,
-          deliveryFee: deliveryFee,
-          totalAmount: total,
-          status: OrderStatus.pending,
-          paymentMethod: paymentMethod,
-          paymentStatus: 'pending',
-          items: [],
-          deliveryNotes: notes,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-        debugPrint('WARN: Local Order olusturuldu');
-        debugPrint('WARN: Supabase RLS policy recursive loop yapiyor!');
-        debugPrint('WARN: FIX: FIX_ORDERS_POLICIES_CLEAN.sql SQL Editorda calistir');
-        selectSuccess = false;
-      }
+      // Fatura bilgilerini hazırla
+      final invoiceData = invoiceInfo?.toOrderSnapshot() ?? {};
 
-      // Sipariş öğelerini kaydet - SADECE SELECT başarılı olduysa
-      if (selectSuccess) {
-        debugPrint('🛒 ORDER: Sipariş öğeleri ekleniyor (${items.length} adet)...');
-        for (var i = 0; i < items.length; i++) {
-          final item = items[i];
-          debugPrint('  └─ Item ${i + 1}: ${item.productName} x${item.quantity}');
-          await _supabase.from('order_items').insert({
-            'order_id': order.id,
-            'product_id': item.productId,
-            'product_name': item.productName,
-            'price': item.price,  // Hem price hem product_price ekle
-            'product_price': item.price,  // Schema'da product_price olarak adlandirilmis
-            'quantity': item.quantity,
-            'subtotal': item.subtotal,  // ZORUNLU ALAN - price * quantity
-            'product_image_url': item.productImageUrl,
-            'shop_id': item.shopId,
-            'shop_name': item.shopName,
-            'created_at': DateTime.now().toIso8601String(),
-          });
+      debugPrint('🛒 ORDER: INSERT işlemi başlatılıyor...');
+
+      // Siparişi oluştur ve gerçek satırı (UUID dahil) tek gidişte al.
+      // orders SELECT RLS artık düzeltildi (20260209000001 + 20260209000002),
+      // bu yüzden insert().select() güvenli çalışır. Eski kod INSERT'i
+      // SELECT'ten ayırıp SELECT başarısız olursa SAHTE bir Order
+      // (id: 'ORDER_<ts>') döndürüyordu — bu durumda order_items HİÇ
+      // eklenmiyor, bakiye sahte ID ile düşülmeye çalışılıyor ve DB'de
+      // ürünsüz asılı bir sipariş kalıyordu. Artık tek gidişte gerçek satır
+      // alınıyor; başarısızlıkta sipariş temiz şekilde başarısız olur
+      // (asılı boş sipariş oluşmaz). insert().select() Postgres RETURNING
+      // kullandığı için order_number çakışması da yanlış satır döndürmez.
+      // Komisyon alanları SQL trigger tarafından otomatik doldurulur
+      // (admin_commission, admin_delivery_fee, seller_net_amount, commission_status).
+      final orderResponse = await _supabase.from('orders').insert({
+        'order_number': orderNumber,
+        'user_id': userId,
+        'shop_id': shopId,
+        'delivery_address_text': deliveryAddressText,
+        'address_id': addressId,
+        'customer_phone': customerPhone,
+        'payment_method': paymentMethod.name,
+        'payment_status': 'pending',
+        'subtotal': subtotal,
+        'delivery_fee': deliveryFee,
+        'discount': discount,
+        'total': total,
+        // Kupon kaydı: coupon_id/coupon_discount eskiden hiç yazılmıyordu
+        // (model okuyordu ama insert atlıyordu). Artık yazılıyor; kullanım
+        // sayacı ayrıca use_coupon RPC ile artırılır.
+        if (couponId != null) 'coupon_id': couponId,
+        'coupon_discount': couponDiscount,
+        // Komisyon alanları trigger tarafından otomatik doldurulacak.
+        'status': 'pending',
+        'notes': notes,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+        // Fatura bilgileri
+        if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
+        if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
+        if (invoiceData['invoice_tax_number'] != null) 'invoice_tax_number': invoiceData['invoice_tax_number'],
+        if (invoiceData['invoice_tc_no'] != null) 'invoice_tc_no': invoiceData['invoice_tc_no'],
+        if (invoiceData['invoice_tax_office'] != null) 'invoice_tax_office': invoiceData['invoice_tax_office'],
+        if (invoiceData['invoice_address'] != null) 'invoice_address': invoiceData['invoice_address'],
+        if (invoiceData['invoice_email'] != null) 'invoice_email': invoiceData['invoice_email'],
+      }).select().single();
+      final order = Order.fromJson(orderResponse);
+      debugPrint('✅ ORDER: INSERT başarılı - ID: ${order.id}');
+
+      // Sipariş öğelerini kaydet.
+      debugPrint('🛒 ORDER: Sipariş öğeleri ekleniyor (${items.length} adet)...');
+      for (var i = 0; i < items.length; i++) {
+        final item = items[i];
+        debugPrint('  └─ Item ${i + 1}: ${item.productName} x${item.quantity}'
+            '${item.isFlashSaleItem ? " [FLASH SALE]" : ""}');
+        final insertMap = <String, dynamic>{
+          'order_id': order.id,
+          'product_id': item.productId,
+          'product_name': item.productName,
+          'price': item.price, // Hem price hem product_price ekle
+          'product_price': item.price, // Schema'da product_price olarak adlandırılmış
+          'quantity': item.quantity,
+          'subtotal': item.subtotal, // ZORUNLU ALAN - price * quantity
+          'product_image_url': item.productImageUrl,
+          'shop_id': item.shopId,
+          'shop_name': item.shopName,
+          'created_at': DateTime.now().toIso8601String(),
+        };
+        // Flaş satış bilgisi varsa ekle (faturalama/raporlama için).
+        if (item.flashSaleId != null) {
+          insertMap['flash_sale_id'] = item.flashSaleId;
         }
-        debugPrint('✅ ORDER: Tüm sipariş öğeleri eklendi');
-        
-        // Not: Stok düşürme artık DB trigger'ı (decrease_product_stock) tarafından
-        // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
-        // Dart tarafında çift düşümü önlemek için burada ek işlem yapılmıyor.
-        debugPrint('📦 STOCK: Stok düşürme DB trigger\'ına bırakıldı (confirmed durumunda)');
-      } else {
-        debugPrint('WARN: Fallback Order kullanildi, order_items eklenmedi');
-        debugPrint('WARN: Siparis database\'de mevcut ama SELECT hatasi nedeniyle alinamadi');
+        if (item.flashPrice != null) {
+          insertMap['flash_price'] = item.flashPrice;
+        }
+        await _supabase.from('order_items').insert(insertMap);
       }
-      
-      // Satıcıya bildirim: SQL trigger kaldırıldı, Dart tarafından gönderiliyor
-      // Hem email hem push bildirimi gönderiliyor
-      
-      // Satıcıya "yeni sipariş" e-postası gönder (Dart tarafından doğrudan)
+      debugPrint('✅ ORDER: Tüm sipariş öğeleri eklendi');
+
+      // Not: Stok düşürme artık DB trigger'ı (decrease_product_stock) tarafından
+      // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
+      // Dart tarafında çift düşümü önlemek için burada ek işlem yapılmıyor.
+      debugPrint('📦 STOCK: Stok düşürme DB trigger\'ına bırakıldı (confirmed durumunda)');
+
+      // Satıcıya bildirimler:
+      // - EMAIL → DB trigger'ı `notify_new_order_email` (migration 20260204000000)
+      //   Edge Function `send-order-email` ile zaten gönderiyor. Dart'tan
+      //   tekrar göndermek ÇİFT email yaratıyordu. Bu nedenle email adımı
+      //   kaldırıldı (2026-07-29 FIX).
+      // - PUSH → Dart tarafından gönderiliyor (DB'de push kanalı yok).
+
+      // Müşteri adını al (push bildirim içeriği için)
+      String customerName = 'Müşteri';
       try {
-        // Müşteri bilgilerini al
         final customerProfile = await _supabase
             .from('profiles')
             .select('full_name, username')
             .eq('id', userId)
             .maybeSingle();
-        
-        final customerName = customerProfile?['full_name'] as String? ??
-                            customerProfile?['username'] as String? ?? 'Müşteri';
-        
-        // Ürün bilgilerini hazırla
-        final orderItemsList = items.map((item) => {
-          'product_name': item.productName,
-          'quantity': item.quantity,
-          'price': item.price,
-        }).toList();
-        
-        // Satıcıya email gönder
-        _emailService.sendNewOrderEmailToSeller(
-          shopId: shopId,
-          orderId: order.id,
-          orderNumber: order.orderNumberInt?.toString() ?? order.id.substring(0, 8),
-          customerName: customerName,
-          deliveryAddress: deliveryAddressText,
-          totalAmount: total,
-          orderItems: orderItemsList,
-        );
-        
-        // Admin'e email gönder
-        final shopNameResp = await _supabase
+
+        customerName = customerProfile?['full_name'] as String? ??
+                       customerProfile?['username'] as String? ?? 'Müşteri';
+      } catch (e) {
+        debugPrint('⚠️ ORDER: Müşteri profili alınamadı (push etkilenmez): $e');
+      }
+
+      // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
+      try {
+        final shopOwnerResp = await _supabase
             .from('shops')
-            .select('name')
+            .select('owner_id')
             .eq('id', shopId)
             .maybeSingle();
-        final shopNameStr = shopNameResp?['name'] as String? ?? 'Mağaza';
-        
-        _emailService.sendNewOrderEmailToAdmin(
-          shopId: shopId,
-          orderId: order.id,
-          orderNumber: order.orderNumberInt?.toString() ?? order.id.substring(0, 8),
-          shopName: shopNameStr,
-          customerName: customerName,
-          deliveryAddress: deliveryAddressText,
-          totalAmount: total,
-          orderItems: orderItemsList,
-        );
-        
-        debugPrint('📧 ORDER: E-posta bildirimi Dart tarafından gönderildi');
-        
-        // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
-        try {
-          // Mağaza sahibinin user ID'sini al
-          final shopOwnerResp = await _supabase
-              .from('shops')
-              .select('owner_id')
-              .eq('id', shopId)
-              .maybeSingle();
-          
-          final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
-          
-          if (shopOwnerId != null) {
-            // Satıcıya push bildirimi oluştur
-            await _notificationService.createNotification(
-              userId: shopOwnerId,
-              type: 'new_order',
-              title: 'Yeni Sipariş!',
-              content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
-              actorId: userId,
-              actorName: customerName,
-              entityId: order.id,
-            );
-            
-            debugPrint('🔔 ORDER: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
-          } else {
-            debugPrint('⚠️ ORDER: Mağaza sahibi bulunamadı, bildirim gönderilemedi');
-          }
-        } catch (notifError) {
-          debugPrint('⚠️ ORDER: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
+
+        final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
+
+        if (shopOwnerId != null) {
+          await _notificationService.createNotification(
+            userId: shopOwnerId,
+            type: 'new_order',
+            title: 'Yeni Sipariş!',
+            content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
+            actorId: userId,
+            actorName: customerName,
+            entityId: order.id,
+          );
+
+          debugPrint('🔔 ORDER: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
+        } else {
+          debugPrint('⚠️ ORDER: Mağaza sahibi bulunamadı, push gönderilemedi');
         }
-      } catch (emailError) {
-        debugPrint('⚠️ ORDER: E-posta gönderilirken hata (sipariş etkilenmez): $emailError');
+      } catch (notifError) {
+        debugPrint('⚠️ ORDER: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
       }
 
       return order;
@@ -564,10 +486,13 @@ class OrderService {
   // Belirli bir durumdaki siparişleri getir
   Future<List<Order>> getOrdersByStatus(OrderStatus status) async {
     try {
+      // ÖNEMLİ: status.dbValue kullanılmalı (onTheWay -> 'on_the_way').
+      // status.name kullanılırsa 'onTheWay' gönderilir ama DB 'on_the_way'
+      // sakladığından sorgu yolda siparişleri için sıfır satır dönerdi.
       final response = await _supabase
           .from('orders')
           .select('*, order_items(*)')
-          .eq('status', status.name)
+          .eq('status', status.dbValue)
           .order('created_at', ascending: false);
 
       return (response as List).map((json) => Order.fromJson(json)).toList();
@@ -577,12 +502,14 @@ class OrderService {
   }
 
   // Siparişi iptal et
-  Future<void> cancelOrder(String orderId) async {
+  Future<void> cancelOrder(String orderId, {String? reason}) async {
     try {
       await _supabase
           .from('orders')
           .update({
             'status': 'cancelled',
+            'cancelled_at': DateTime.now().toIso8601String(),
+            'cancellation_reason': reason,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', orderId);
@@ -711,6 +638,9 @@ class OrderService {
     String? notes,
     String? customerPhone, // Müşteri telefonu eklendi
     InvoiceInfo? invoiceInfo, // Fatura bilgileri eklendi
+    Map<String, double>? discountByShop, // shopId -> indirim tutarı (kupon vb.)
+    Map<String, String?>? couponIdByShop, // shopId -> kupon id (orders.coupon_id)
+    Map<String, double>? couponDiscountByShop, // shopId -> kupon indirimi (orders.coupon_discount)
   }) async {
     try {
       debugPrint('🛒 MULTI-SHOP ORDER: Çok dükkanlı sipariş oluşturuluyor...');
@@ -751,21 +681,48 @@ class OrderService {
           final deliveryFee = (shopResponse['delivery_fee'] as num?)?.toDouble() ?? 15.0;
           final commissionRate = (shopResponse['commission_rate'] as num?)?.toDouble() ?? 10.0;
           final commissionAmount = subtotal * (commissionRate / 100);
-          final total = subtotal + deliveryFee;
+          // İndirim (kupon vb.) discountByShop'tan; eski kod 'discount': 0
+          // hardcoded ediyordu ve checkout'taki kuponu sessizce atıyordu.
+          final discount = discountByShop?[shopId] ?? 0.0;
+          final couponId = couponIdByShop?[shopId];
+          final couponDiscount = couponDiscountByShop?[shopId] ?? 0.0;
+          final total = subtotal + deliveryFee - discount;
           
           debugPrint('  ├─ subtotal: $subtotal');
           debugPrint('  ├─ deliveryFee: $deliveryFee');
           debugPrint('  ├─ commissionAmount: $commissionAmount');
           debugPrint('  └─ total: $total');
           
-          // Sipariş numarası oluştur
-          final orderNumber = 'ORD${DateTime.now().millisecondsSinceEpoch}_${shopId.substring(0, 6)}';
+          // Sipariş numarası oluştur. shopId 6 karakterden kısaysa
+          // .substring(0,6) RangeError fırlatıyordu; güvenli ön ek al.
+          final prefix = shopId.length >= 6 ? shopId.substring(0, 6) : shopId;
+          final orderNumber = 'ORD${DateTime.now().millisecondsSinceEpoch}_$prefix';
+
+          // 0 TL siparişler için kullanıcı başı limit kontrolü (tekli createOrder
+          // ile tutarlı). İptal edilenler sayılmaz.
+          if (total <= 0) {
+            final freeOrderResponse = await _supabase
+                .from('orders')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('total', 0)
+                .neq('status', 'cancelled')
+                .count(CountOption.exact);
+            if (freeOrderResponse.count >= freeOrderLimitPerUser) {
+              throw Exception(
+                  'Ücretsiz sipariş hakkınızı kullandınız. '
+                  'Bu üründen sadece $freeOrderLimitPerUser kez ücretsiz sipariş verebilirsiniz.');
+            }
+          }
           
           // Fatura bilgilerini hazırla
           final invoiceData = invoiceInfo?.toOrderSnapshot() ?? {};
           
-          // Siparişi oluştur
-          await _supabase.from('orders').insert({
+          // Siparişi oluştur ve gerçek satırı tek gidişte al (insert().select()).
+          // Eski ayrı SELECT + maybeSingle(), order_number çakışmasında user_id
+          // filtresiz yanlış siparişi çekebilirdi; insert().select() Postgres
+          // RETURNING ile gerçek eklenen satırı döndürür (çakışma-güvenli).
+          final orderResponse = await _supabase.from('orders').insert({
             'order_number': orderNumber,
             'user_id': userId,
             'shop_id': shopId,
@@ -776,8 +733,11 @@ class OrderService {
             'payment_status': 'pending',
             'subtotal': subtotal,
             'delivery_fee': deliveryFee,
-            'discount': 0,
+            'discount': discount,
             'total': total,
+            // Kupon kaydı (multi-shop): eskiden yazılmıyordu.
+            if (couponId != null) 'coupon_id': couponId,
+            'coupon_discount': couponDiscount,
             'status': 'pending',
             'notes': notes,
             'order_group_id': orderGroupId,
@@ -792,21 +752,13 @@ class OrderService {
             if (invoiceData['invoice_tax_office'] != null) 'invoice_tax_office': invoiceData['invoice_tax_office'],
             if (invoiceData['invoice_address'] != null) 'invoice_address': invoiceData['invoice_address'],
             if (invoiceData['invoice_email'] != null) 'invoice_email': invoiceData['invoice_email'],
-          });
-          
-          // Siparişi getir
-          final orderResponse = await _supabase
-              .from('orders')
-              .select()
-              .eq('order_number', orderNumber)
-              .maybeSingle();
-          
-          if (orderResponse != null) {
-            final order = Order.fromJson(orderResponse);
-            
-            // Sipariş öğelerini ekle
-            for (final item in items) {
-              await _supabase.from('order_items').insert({
+          }).select().single();
+          final order = Order.fromJson(orderResponse);
+          debugPrint('✅ Dükkan $shopId siparişi oluşturuldu - ID: ${order.id}');
+
+          // Sipariş öğelerini ekle
+          for (final item in items) {
+              final insertMap = <String, dynamic>{
                 'order_id': order.id,
                 'product_id': item.productId,
                 'product_name': item.productName,
@@ -818,7 +770,14 @@ class OrderService {
                 'shop_id': item.shopId,
                 'shop_name': item.shopName,
                 'created_at': DateTime.now().toIso8601String(),
-              });
+              };
+              if (item.flashSaleId != null) {
+                insertMap['flash_sale_id'] = item.flashSaleId;
+              }
+              if (item.flashPrice != null) {
+                insertMap['flash_price'] = item.flashPrice;
+              }
+              await _supabase.from('order_items').insert(insertMap);
               
               // Not: Stok düşürme DB trigger'ı (decrease_product_stock) tarafından
               // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.
@@ -828,88 +787,55 @@ class OrderService {
             
             createdOrders.add(order);
             debugPrint('✅ Dükkan $shopId siparişi oluşturuldu');
-            
-            // Satıcıya ve Admin'e email gönder
+
+            // EMAIL → DB trigger'ı (notify_new_order_email) Edge Function
+            // `send-order-email` ile zaten gönderiyor. Dart'tan tekrar göndermek
+            // ÇİFT email yaratıyordu → kaldırıldı (2026-07-29 FIX).
+            // PUSH → sadece Dart tarafından.
+
+            // Müşteri adını al (push içeriği için)
+            String customerName = 'Müşteri';
             try {
               final customerProfile = await _supabase
                   .from('profiles')
                   .select('full_name, username')
                   .eq('id', userId)
                   .maybeSingle();
-              
-              final customerName = customerProfile?['full_name'] as String? ??
-                                  customerProfile?['username'] as String? ?? 'Müşteri';
-              
-              final orderItemsList = items.map((item) => {
-                'product_name': item.productName,
-                'quantity': item.quantity,
-                'price': item.price,
-              }).toList();
-              
-              final shopNameResp = await _supabase
+
+              customerName = customerProfile?['full_name'] as String? ??
+                             customerProfile?['username'] as String? ?? 'Müşteri';
+            } catch (e) {
+              debugPrint('⚠️ Multi-shop: Müşteri profili alınamadı: $e');
+            }
+
+            // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
+            try {
+              final shopOwnerResp = await _supabase
                   .from('shops')
-                  .select('name')
+                  .select('owner_id')
                   .eq('id', shopId)
                   .maybeSingle();
-              final shopNameStr = shopNameResp?['name'] as String? ?? 'Mağaza';
-              
-              // Satıcıya email
-              _emailService.sendNewOrderEmailToSeller(
-                shopId: shopId,
-                orderId: order.id,
-                orderNumber: order.orderNumberInt?.toString() ?? order.id.substring(0, 8),
-                customerName: customerName,
-                deliveryAddress: deliveryAddressText,
-                totalAmount: total,
-                orderItems: orderItemsList,
-              );
-              
-              // Admin'e email
-              _emailService.sendNewOrderEmailToAdmin(
-                shopId: shopId,
-                orderId: order.id,
-                orderNumber: order.orderNumberInt?.toString() ?? order.id.substring(0, 8),
-                shopName: shopNameStr,
-                customerName: customerName,
-                deliveryAddress: deliveryAddressText,
-                totalAmount: total,
-                orderItems: orderItemsList,
-              );
-              
-              debugPrint('📧 Multi-shop: Email gönderildi (Dükkan: $shopNameStr)');
-              
-              // 🔔 SATICIYA PUSH BİLDİRİMİ GÖNDER
-              try {
-                final shopOwnerResp = await _supabase
-                    .from('shops')
-                    .select('owner_id')
-                    .eq('id', shopId)
-                    .maybeSingle();
-                
-                final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
-                
-                if (shopOwnerId != null) {
-                  await _notificationService.createNotification(
-                    userId: shopOwnerId,
-                    type: 'new_order',
-                    title: 'Yeni Sipariş!',
-                    content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
-                    actorId: userId,
-                    actorName: customerName,
-                    entityId: order.id,
-                  );
-                  
-                  debugPrint('🔔 Multi-shop: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
-                } else {
-                  debugPrint('⚠️ Multi-shop: Mağaza sahibi bulunamadı, bildirim gönderilemedi');
-                }
-              } catch (notifError) {
-                debugPrint('⚠️ Multi-shop: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
+
+              final shopOwnerId = shopOwnerResp?['owner_id'] as String?;
+
+              if (shopOwnerId != null) {
+                await _notificationService.createNotification(
+                  userId: shopOwnerId,
+                  type: 'new_order',
+                  title: 'Yeni Sipariş!',
+                  content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
+                  actorId: userId,
+                  actorName: customerName,
+                  entityId: order.id,
+                );
+
+                debugPrint('🔔 Multi-shop: Satıcıya push bildirimi gönderildi (ownerId: $shopOwnerId)');
+              } else {
+                debugPrint('⚠️ Multi-shop: Mağaza sahibi bulunamadı, push gönderilemedi');
               }
-            } catch (emailError) {
-              debugPrint('⚠️ Email gönderilirken hata (sipariş etkilenmez): $emailError');
+            } catch (notifError) {
+              debugPrint('⚠️ Multi-shop: Push bildirim gönderilirken hata (sipariş etkilenmez): $notifError');
             }
-          }
         } catch (shopError) {
           debugPrint('❌ Dükkan $shopId için sipariş oluşturulamadı: $shopError');
           errors.add('Dükkan $shopId: $shopError');

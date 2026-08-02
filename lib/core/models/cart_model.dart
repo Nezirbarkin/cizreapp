@@ -10,6 +10,11 @@ class CartItem {
   final String? productName;
   final double? productPrice;
   final double? productOldPrice;
+  /// İndirimli fiyat (DB `products.discount_price` kolonu). Sepet join'inde
+  /// `effectivePrice` mantığıyla birlikte kullanılır — aksi halde kullanıcı
+  /// detayda gördüğü indirimli fiyatı sepete eklediğinde indirimsiz fiyat
+  /// üzerinden işlem görürdü.
+  final double? productDiscountPrice;
   final String? productImageUrl;
   final String? shopId;
   final String? shopName;
@@ -18,6 +23,11 @@ class CartItem {
 
   // Varyant bilgileri (renk, beden, numara)
   final Map<String, dynamic>? variantData;
+
+  /// Flaş satıştan geldiyse ilgili referanslar (DB `cart.flash_sale_id`,
+  /// `cart.flash_price`). null = ürün flaş satışta değildi.
+  final String? flashSaleId;
+  final double? flashPrice;
 
   CartItem({
     required this.id,
@@ -29,12 +39,15 @@ class CartItem {
     this.productName,
     this.productPrice,
     this.productOldPrice,
+    this.productDiscountPrice,
     this.productImageUrl,
     this.shopId,
     this.shopName,
     this.isAvailable,
     this.stockQuantity,
     this.variantData,
+    this.flashSaleId,
+    this.flashPrice,
   });
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
@@ -52,12 +65,17 @@ class CartItem {
       productOldPrice: json['product_old_price'] != null
           ? (json['product_old_price'] as num).toDouble()
           : null,
+      productDiscountPrice: json['product_discount_price'] != null
+          ? (json['product_discount_price'] as num).toDouble()
+          : null,
       productImageUrl: json['product_image_url'] as String?,
       shopId: json['shop_id'] as String?,
       shopName: json['shop_name'] as String?,
       isAvailable: json['is_available'] as bool?,
       stockQuantity: json['stock_quantity'] as int?,
       variantData: json['variant_data'] as Map<String, dynamic>?,
+      flashSaleId: json['flash_sale_id'] as String?,
+      flashPrice: (json['flash_price'] as num?)?.toDouble(),
     );
   }
 
@@ -69,28 +87,77 @@ class CartItem {
       'quantity': quantity,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+      'flash_sale_id': flashSaleId,
+      'flash_price': flashPrice,
     };
   }
 
   // Getters
-  double get itemTotal {
-    return (productPrice ?? 0) * quantity;
+  /// Geçerli (indirimli) birim fiyat. Öncelik sırası:
+  /// 1) `flashPrice` (flaş satıştan geldiyse, sepete eklenirken sabitlenen fiyat),
+  /// 2) `productDiscountPrice` (ürünün kendi indirimli fiyatı),
+  /// 3) `productPrice` (ürünün normal fiyatı).
+  /// Bu sıralama kullanıcının her zaman en iyi fiyatı görmesini sağlar.
+  double get effectivePrice {
+    // 1) Flaş satış (varsa) her şeyi ezer — kullanıcı sepete flaş fiyattan eklediyse
+    // satıcı sonradan sale'i değiştirse bile bu fiyat değişmez.
+    if (flashPrice != null && flashPrice! > 0) {
+      return flashPrice!;
+    }
+    // 2) Ürünün kendi discount_price'ı
+    if (productDiscountPrice != null &&
+        productDiscountPrice! > 0 &&
+        productPrice != null &&
+        productDiscountPrice! < productPrice!) {
+      return productDiscountPrice!;
+    }
+    // 3) Normal fiyat
+    return productPrice ?? 0;
   }
 
+  /// Flaş satıştan mı geldi?
+  bool get isFlashSaleItem => flashSaleId != null && flashPrice != null && flashPrice! > 0;
+
+  double get itemTotal {
+    return effectivePrice * quantity;
+  }
+
+  /// Tasarruf tutarı (gösterim amaçlı): gerçek ödenen fiyat ile
+  /// (flaş orijinal, old_price veya normal price) arasındaki fark × miktar.
+  /// Öncelik sırası: flashPrice (original) > productOldPrice > productPrice.
   double get itemDiscount {
-    if (productOldPrice != null && productPrice != null) {
-      return (productOldPrice! - productPrice!) * quantity;
+    final unit = effectivePrice;
+    if (isFlashSaleItem && productPrice != null && productPrice! > unit) {
+      // Flaş indirimde "eski fiyat" ürünün normal fiyatıdır.
+      return (productPrice! - unit) * quantity;
+    }
+    if (productOldPrice != null && productOldPrice! > unit) {
+      return (productOldPrice! - unit) * quantity;
+    }
+    if (productPrice != null && productPrice! > unit) {
+      return (productPrice! - unit) * quantity;
     }
     return 0;
   }
 
   bool get hasDiscount {
-    return productOldPrice != null && productOldPrice! > (productPrice ?? 0);
+    final unit = effectivePrice;
+    if (isFlashSaleItem && productPrice != null && productPrice! > unit) return true;
+    if (productOldPrice != null && productOldPrice! > unit) return true;
+    if (productPrice != null && productPrice! > unit) return true;
+    return false;
   }
 
   int get discountPercentage {
-    if (hasDiscount && productOldPrice != null && productPrice != null) {
-      return (((productOldPrice! - productPrice!) / productOldPrice!) * 100).round();
+    final unit = effectivePrice;
+    double? base;
+    if (isFlashSaleItem && productPrice != null && productPrice! > unit) {
+      base = productPrice;
+    } else {
+      base = productOldPrice ?? productPrice;
+    }
+    if (base != null && base > 0 && base > unit) {
+      return (((base - unit) / base) * 100).round();
     }
     return 0;
   }
@@ -114,12 +181,15 @@ class CartItem {
     String? productName,
     double? productPrice,
     double? productOldPrice,
+    double? productDiscountPrice,
     String? productImageUrl,
     String? shopId,
     String? shopName,
     bool? isAvailable,
     int? stockQuantity,
     Map<String, dynamic>? variantData,
+    String? flashSaleId,
+    double? flashPrice,
   }) {
     return CartItem(
       id: id ?? this.id,
@@ -131,12 +201,15 @@ class CartItem {
       productName: productName ?? this.productName,
       productPrice: productPrice ?? this.productPrice,
       productOldPrice: productOldPrice ?? this.productOldPrice,
+      productDiscountPrice: productDiscountPrice ?? this.productDiscountPrice,
       productImageUrl: productImageUrl ?? this.productImageUrl,
       shopId: shopId ?? this.shopId,
       shopName: shopName ?? this.shopName,
       isAvailable: isAvailable ?? this.isAvailable,
       stockQuantity: stockQuantity ?? this.stockQuantity,
       variantData: variantData ?? this.variantData,
+      flashSaleId: flashSaleId ?? this.flashSaleId,
+      flashPrice: flashPrice ?? this.flashPrice,
     );
   }
 
@@ -155,6 +228,10 @@ class CartSummary {
   final double total;
   final int totalItems;
 
+  /// Toplam kupon indirimi (tüm dükkanlardaki kuponların toplamı).
+  /// `total` hesaplamasında `subtotal`'dan düşülür.
+  final double couponDiscount;
+
   CartSummary({
     required this.items,
     required this.subtotal,
@@ -162,9 +239,14 @@ class CartSummary {
     required this.deliveryFee,
     required this.total,
     required this.totalItems,
+    this.couponDiscount = 0,
   });
 
-  factory CartSummary.fromItems(List<CartItem> items, {double deliveryFee = 0}) {
+  factory CartSummary.fromItems(
+    List<CartItem> items, {
+    double deliveryFee = 0,
+    double couponDiscount = 0,
+  }) {
     final subtotal = items.fold<double>(
       0,
       (sum, item) => sum + item.itemTotal,
@@ -184,7 +266,12 @@ class CartSummary {
     // (CartItem.itemTotal = productPrice * quantity). `discount` alanı
     // tasarruf miktarıdır (oldPrice - price) * qty; UI'da bilgi amaçlı
     // gösterilir, toplamdan düşülmez (yapılırsa çift düşüm olur).
-    final total = subtotal + deliveryFee;
+    //
+    // Kupon indirimi (`couponDiscount`) ise product indiriminden bağımsız
+    // olarak toplamdan düşülür.
+    final clampedCoupon =
+        couponDiscount.clamp(0.0, subtotal).toDouble();
+    final total = subtotal - clampedCoupon + deliveryFee;
 
     return CartSummary(
       items: items,
@@ -193,6 +280,7 @@ class CartSummary {
       deliveryFee: deliveryFee,
       total: total,
       totalItems: totalItems,
+      couponDiscount: clampedCoupon,
     );
   }
 

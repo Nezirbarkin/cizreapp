@@ -13,6 +13,7 @@ import '../../market/screens/live_sessions_screen.dart';
 import '../../market/widgets/flash_sale_entry_banner.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
+import '../../market/widgets/flash_aware_price_row.dart';
 
 /// Favorilerim Ekranı - Ürün ve Gönderi favorilerini gösterir
 class FavoritesScreen extends StatefulWidget {
@@ -339,13 +340,15 @@ class _ProductCard extends StatelessWidget {
                             color: Colors.grey,
                           ),
                         ),
-                  // İndirim rozeti
-                  if (product.hasDiscount)
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: FlashDiscountBadge(percentage: product.discountPercentage ?? 0),
+                  // İndirim rozeti (flaş indirim veya normal indirim)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: FlashAwareDiscountBadge(
+                      product: product,
+                      compact: false,
                     ),
+                  ),
                   // Kalp ikonu (favori)
                   Positioned(
                     top: 8,
@@ -388,34 +391,18 @@ class _ProductCard extends StatelessWidget {
                           ),
                     ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (product.hasDiscount) ...[
-                        Text(
-                          '${product.oldPrice!.toStringAsFixed(2)} ₺',
-                          style: TextStyle(
-                            decoration: TextDecoration.lineThrough,
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${product.price.toStringAsFixed(2)} ₺',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ] else
-                        Text(
-                          '${product.price.toStringAsFixed(2)} ₺',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                    ],
+                  // Fiyat (flaş indirim bilinçli)
+                  FlashAwarePriceRow(
+                    product: product,
+                    priceStyle: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    oldPriceStyle: TextStyle(
+                      decoration: TextDecoration.lineThrough,
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),

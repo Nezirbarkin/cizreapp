@@ -7,3 +7,30 @@ verify_jwt = false
 
 [functions.iyzico-payment-callback]
 verify_jwt = false
+
+# Google sends no Supabase JWT. This is the only public AdMob endpoint; it
+# performs strict Google ECDSA SSV verification before using service_role.
+[functions.admob-ssv-callback]
+verify_jwt = false
+
+[functions.admob-reward-session]
+verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# Push notification outbox worker (2026-08-02 refaktör)
+# -----------------------------------------------------------------------------
+# Kullanıcı JWT'si yok. INTERNAL_WORKER_SECRET header'ı ile korunur.
+# İstemci (Flutter, tarayıcı) burayı çağırmaz; periyodik scheduler
+# (cron, GitHub Actions, vb.) çağırır.
+[functions.process-notification-outbox]
+verify_jwt = false
+
+# -----------------------------------------------------------------------------
+# Eski push endpoint'leri (2026-08-02 itibarıyla kullanımdan kaldırıldı)
+# -----------------------------------------------------------------------------
+# Canlı ortamdan supabase functions delete ile kaldırılmalıdır:
+#   supabase functions delete send-push --project-ref <ref>
+#   supabase functions delete send-push-notification --project-ref <ref>
+# Kaynak kodda 410 Gone stub olarak bırakıldı; deploy sırasında bu
+# fonksiyonların yeniden deploy edilmemesi önerilir.
+

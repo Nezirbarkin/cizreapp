@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -47,8 +47,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   final FlashSaleService _flashSaleService = FlashSaleService();
 
   // Dijital ürün (SMM panel) sipariş formu
-  final TextEditingController _digitalTargetUrlController = TextEditingController();
-  final TextEditingController _digitalQuantityController = TextEditingController();
+  final TextEditingController _digitalTargetUrlController =
+      TextEditingController();
+  final TextEditingController _digitalQuantityController =
+      TextEditingController();
   int _digitalQuantity = 0;
   bool _isSubmittingDigitalOrder = false;
 
@@ -71,11 +73,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   ProductColor? _selectedColor;
 
   // Zoom için TransformationController
-  final TransformationController _transformationController = TransformationController();
+  final TransformationController _transformationController =
+      TransformationController();
 
   // Review state
   List<ProductReview> _reviews = [];
-  Map<String, dynamic> _ratingStats = {'average': 0.0, 'count': 0, 'distribution': {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}};
+  Map<String, dynamic> _ratingStats = {
+    'average': 0.0,
+    'count': 0,
+    'distribution': {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+  };
   bool _isLoadingReviews = true;
   bool _canReview = false;
   ProductReview? _userReview;
@@ -94,7 +101,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   /// Kullanıcının bu ürün için kurduğu aktif fiyat alarmını kontrol et.
   Future<void> _checkPriceAlert() async {
     try {
-      final alert = await _priceAlertService.getActiveAlertForProduct(widget.productId);
+      final alert = await _priceAlertService.getActiveAlertForProduct(
+        widget.productId,
+      );
       if (mounted) setState(() => _activePriceAlert = alert);
     } catch (_) {}
   }
@@ -102,7 +111,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   /// Bu ürün için aktif flash sale var mı (detayda mini banner + fiyat için).
   Future<void> _checkFlashSale() async {
     try {
-      final sale = await _flashSaleService.getActiveFlashSaleForProduct(widget.productId);
+      final sale = await _flashSaleService.getActiveFlashSaleForProduct(
+        widget.productId,
+      );
       if (mounted) setState(() => _activeFlashSale = sale);
     } catch (_) {}
   }
@@ -136,9 +147,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Kaldırılamadı: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Kaldırılamadı: $e')));
       }
     }
   }
@@ -157,8 +168,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.notifications_active,
-                color: Color(0xFF1B5E20), size: 18),
+            const Icon(
+              Icons.notifications_active,
+              color: Color(0xFF1B5E20),
+              size: 18,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -222,7 +236,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     try {
       final product = await _productService.getProductById(widget.productId);
-      
+
       // Ürün görüntülemeyi kaydet
       _analyticsService.recordProductView(widget.productId, product.shopId);
 
@@ -263,7 +277,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ürün bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}')),
+          SnackBar(
+            content: Text(
+              'Ürün bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}',
+            ),
+          ),
         );
       }
     }
@@ -281,21 +299,25 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Future<void> _toggleFavorite() async {
     final favoritesProvider = context.read<FavoritesProvider>();
     try {
-      final isAdded = await favoritesProvider.toggleProductFavorite(widget.productId);
+      final isAdded = await favoritesProvider.toggleProductFavorite(
+        widget.productId,
+      );
       setState(() => _isFavorite = isAdded);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isAdded ? 'Favorilere eklendi' : 'Favorilerden çıkarıldı'),
+            content: Text(
+              isAdded ? 'Favorilere eklendi' : 'Favorilerden çıkarıldı',
+            ),
             duration: const Duration(seconds: 1),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppErrorHandler.handleError(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(AppErrorHandler.handleError(e))));
       }
     }
   }
@@ -303,22 +325,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   // Reviews methods
   Future<void> _loadReviews({int offset = 0}) async {
     if (!mounted) return;
-    
+
     setState(() => _isLoadingReviews = true);
-    
+
     try {
       final reviews = await _reviewService.getProductReviews(widget.productId);
-      final stats = await _reviewService.getProductRatingStats(widget.productId);
-      
+      final stats = await _reviewService.getProductRatingStats(
+        widget.productId,
+      );
+
       final userId = Supabase.instance.client.auth.currentUser?.id;
       ProductReview? userReview;
       bool canReview = false;
-      
+
       if (userId != null) {
-        userReview = await _reviewService.getUserProductReview(widget.productId, userId);
-        canReview = await _reviewService.hasPurchasedProduct(widget.productId, userId);
+        userReview = await _reviewService.getUserProductReview(
+          widget.productId,
+          userId,
+        );
+        canReview = await _reviewService.hasPurchasedProduct(
+          widget.productId,
+          userId,
+        );
       }
-      
+
       if (mounted) {
         setState(() {
           _reviews = reviews;
@@ -361,7 +391,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     if (!_canReview) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Yorum yapmak için ürünü satın almış ve teslim almış olmanız gerekir')),
+          const SnackBar(
+            content: Text(
+              'Yorum yapmak için ürünü satın almış ve teslim almış olmanız gerekir',
+            ),
+          ),
         );
       }
       return;
@@ -371,7 +405,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: _buildAddReviewBottomSheet(existingReview: _userReview),
       ),
     );
@@ -395,14 +431,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         await _loadReviews();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_userReview != null ? 'Yorumunuz güncellendi' : 'Yorumunuz eklendi')),
+            SnackBar(
+              content: Text(
+                _userReview != null
+                    ? 'Yorumunuz güncellendi'
+                    : 'Yorumunuz eklendi',
+              ),
+            ),
           );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('İşlem başarısız: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
         }
       }
     }
@@ -420,19 +462,19 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     // Önce sipariş durumu (global + dükkan)
     if (!_isOrderable) return false;
-    
+
     // Varyantlı ürün için seçim kontrolü
     if (_product!.hasVariants) {
       if (_product!.colors.isEmpty) return false;
       if (_selectedColor == null) return false;
-      
+
       if (_product!.isClothing && _selectedSize == null) return false;
       if (_product!.isShoes && _selectedShoeSize == null) return false;
-      
+
       // Seçilen rengin stoğu kontrolü
       if (_selectedColor!.stock <= 0) return false;
     }
-    
+
     return _product!.inStock;
   }
 
@@ -442,16 +484,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     // Sipariş durumu mesajları en yüksek öncelikli
     if (!_globalOrdersEnabled) return 'Siparişler Kapalı';
     if (_shop != null && !_shop!.isAcceptingOrders) return 'Geçici Kapalı';
-    
+
     if (!_product!.inStock) return 'Tükendi';
-    
+
     if (_product!.hasVariants) {
       if (_selectedColor == null) return 'Renk Seçin';
       if (_selectedColor!.stock <= 0) return 'Stokta Yok';
       if (_product!.isClothing && _selectedSize == null) return 'Beden Seçin';
       if (_product!.isShoes && _selectedShoeSize == null) return 'Numara Seçin';
     }
-    
+
     return 'Sepete Ekle';
   }
 
@@ -475,9 +517,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lütfen giriş yapın')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
       }
       return;
     }
@@ -495,31 +537,75 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       if (_product!.hasVariants && _selectedColor != null) {
         variantData['color'] = _selectedColor!.name;
         if (_selectedSize != null) variantData['size'] = _selectedSize;
-        if (_selectedShoeSize != null) variantData['shoeSize'] = _selectedShoeSize.toString();
+        if (_selectedShoeSize != null)
+          variantData['shoeSize'] = _selectedShoeSize.toString();
       }
 
-      await cartProvider.addToCart(
-        _product!.id,
-        quantity: _quantity,
-        variantData: variantData.isNotEmpty ? variantData : null,
-      );
+      // Flaş satış ise önce stoğu atomik düş (claim). product_detail
+      // eskiden bu adımı atlıyordu; flash_sales_screen ve main_screen
+      // yapıyor. Atlanırsa sold_count artmaz (stock_limit aşılabilir) ve
+      // sonradan sepetten çıkarınca releaseFlashSale hiç claim edilmemiş
+      // stoğu "iade" edip sold_count'u bozardı.
+      final activeFlash = _activeFlashSale;
+      if (activeFlash != null) {
+        final claim = await _flashSaleService.claimFlashSale(
+          saleId: activeFlash.id,
+          quantity: _quantity,
+        );
+        if (claim['success'] != true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  claim['error']?.toString() ?? 'Flaş satış stoku alınamadı',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        // Sepete ekleme başarısız olursa claim'ı geri bırak.
+        try {
+          await cartProvider.addToCart(
+            _product!.id,
+            quantity: _quantity,
+            variantData: variantData.isNotEmpty ? variantData : null,
+            flashSaleId: activeFlash.id,
+            flashPrice: activeFlash.flashPrice,
+          );
+        } catch (e) {
+          try {
+            await _flashSaleService.releaseFlashSale(
+              saleId: activeFlash.id,
+              quantity: _quantity,
+            );
+          } catch (releaseErr) {
+            debugPrint('release_flash_sale hata: $releaseErr');
+          }
+          rethrow;
+        }
+      } else {
+        await cartProvider.addToCart(
+          _product!.id,
+          quantity: _quantity,
+          variantData: variantData.isNotEmpty ? variantData : null,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$_quantity adet ${_product!.name} sepete eklendi'),
-            action: SnackBarAction(
-              label: 'Sepete Git',
-              onPressed: _goToCart,
-            ),
+            action: SnackBarAction(label: 'Sepete Git', onPressed: _goToCart),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sepete eklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sepete eklenirken hata: $e')));
       }
     }
   }
@@ -541,7 +627,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   void _goToShop() {
     if (_shop == null) return;
-    
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -554,16 +640,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Ürün Detayı'),
-        ),
+        appBar: AppBar(title: const Text('Ürün Detayı')),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Product image skeleton
-              SkeletonLoader.rect(height: 300, borderRadius: BorderRadius.circular(12)),
+              SkeletonLoader.rect(
+                height: 300,
+                borderRadius: BorderRadius.circular(12),
+              ),
               const SizedBox(height: 24),
               // Product info skeleton
               SkeletonLoader.text(width: 200, height: 28),
@@ -625,9 +712,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Image Gallery with Zoom
-                if (product.images.isNotEmpty) ...[
-                  _buildImageGallery(product),
-                ],
+                if (product.images.isNotEmpty) ...[_buildImageGallery(product)],
 
                 // Product Info
                 Padding(
@@ -648,21 +733,70 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         borderRadius: BorderRadius.circular(8),
                         child: Row(
                           children: [
-                            Icon(Icons.star, size: 20, color: Colors.amber.shade600),
+                            Icon(
+                              Icons.star,
+                              size: 20,
+                              color: Colors.amber.shade600,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               '${product.rating.toStringAsFixed(1)} (${product.totalReviews} değerlendirme)',
                               style: const TextStyle(fontSize: 14),
                             ),
                             const SizedBox(width: 4),
-                            Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade500),
+                            Icon(
+                              Icons.arrow_forward_ios,
+                              size: 14,
+                              color: Colors.grey.shade500,
+                            ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 16),
 
-                      // Price - İndirim varsa eski fiyat üstü çizili, indirimli fiyat büyük gösterilir
-                      if (product.hasDiscount) ...[
+                      // Price - Flaş sale varsa flaş fiyat öncelikli, sonra ürün indirimi, sonra normal fiyat
+                      if (_activeFlashSale != null) ...[
+                        // Eski fiyat (üstü çizili) - ürünün normal fiyatı
+                        Text(
+                          '₺${_activeFlashSale!.originalPrice.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            decoration: TextDecoration.lineThrough,
+                            color: Colors.grey,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            // Flaş fiyat (kırmızı, büyük)
+                            Text(
+                              '₺${_activeFlashSale!.flashPrice.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                color: Color(0xFFE53935),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade100,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '%${_activeFlashSale!.discountPercent.round()} İndirim',
+                                style: TextStyle(
+                                  color: Colors.red.shade700,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (product.hasDiscount) ...[
                         // Eski fiyat (üstü çizili)
                         if (product.displayOldPrice != null)
                           Text(
@@ -811,12 +945,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Colors.orange.shade700,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     _digitalWarningNote!,
-                                    style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500, fontSize: 13),
+                                    style: TextStyle(
+                                      color: Colors.orange.shade900,
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -860,10 +1002,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       final product = _product;
                       final minQ = product?.minQuantity ?? 0;
                       final maxQ = product?.maxQuantity ?? 0;
-                      final isQuantityValid = _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
-                      final hasLink = _digitalTargetUrlController.text.trim().isNotEmpty;
-                      final isValid = isQuantityValid && hasLink && !_isSubmittingDigitalOrder;
-                      
+                      final isQuantityValid =
+                          _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
+                      final hasLink = _digitalTargetUrlController.text
+                          .trim()
+                          .isNotEmpty;
+                      final isValid =
+                          isQuantityValid &&
+                          hasLink &&
+                          !_isSubmittingDigitalOrder;
+
                       return ElevatedButton.icon(
                         onPressed: isValid ? () => _submitDigitalOrder() : null,
                         style: ElevatedButton.styleFrom(
@@ -876,15 +1024,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               )
                             : const Icon(Icons.send),
                         label: Text(
                           !hasLink
                               ? 'Link girin'
                               : !isQuantityValid
-                                  ? 'Miktar $minQ - $maxQ arasında olmalı'
-                                  : 'Bakiye ile Satın Al',
+                              ? 'Miktar $minQ - $maxQ arasında olmalı'
+                              : product?.isPointsEligible == true
+                              ? 'Önce puan, sonra TL ile satın al'
+                              : 'TL bakiye ile satın al',
                         ),
                       );
                     },
@@ -898,7 +1051,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _canAddToCart ? () => _addToCart() : null,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primary,
                             foregroundColor: Colors.white,
                             disabledBackgroundColor: Colors.grey.shade300,
                           ),
@@ -914,7 +1069,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       child: ElevatedButton(
                         onPressed: () => _goToCart(),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
                           foregroundColor: Colors.white,
                           padding: EdgeInsets.zero,
                           shape: RoundedRectangleBorder(
@@ -932,19 +1089,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Widget _buildDigitalOrderForm(Product product) {
-    final unitPrice = (product.pricePer1000 ?? 0) / 1000;
-    final total = unitPrice * _digitalQuantity;
     final minQ = product.minQuantity ?? 0;
     final maxQ = product.maxQuantity ?? 0;
-    final isQuantityValid = _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
-    
+    final isQuantityValid =
+        _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Sipariş Bilgileri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              'Sipariş Bilgileri',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _digitalTargetUrlController,
@@ -986,20 +1145,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               },
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Toplam Tutar', style: TextStyle(fontWeight: FontWeight.bold)),
-                Text(
-                  '₺${total.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-              ],
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'Nihai fiyat ve puan/TL ödeme dağılımı sunucuda hesaplanır ve sipariş yanıtında gösterilir.',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
+            if (product.isPointsEligible) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: const Text(
+                  'Bu dijital ürün puan kullanımına uygundur. Sunucu, varsa önce puanı sonra kalan TL bakiyeyi kullanır. Nihai fiyat ve ödeme dağılımı yalnız sipariş yanıtında kesinleşir.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1010,9 +1181,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     if (_product == null) return;
     final targetUrl = _digitalTargetUrlController.text.trim();
     if (targetUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen link girin')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Lütfen link girin')));
       return;
     }
     final minQ = _product!.minQuantity ?? 0;
@@ -1030,12 +1201,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         productId: _product!.id,
         targetUrl: targetUrl,
         quantity: _digitalQuantity,
+        usePoints: true,
       );
       if (mounted) {
+        final message = result.reconciliationPending
+            ? 'Sipariş sağlayıcıda mutabakat bekliyor. İade yapılmış sayılmaz; durum netleşince güncellenecek.'
+            : 'Sipariş oluşturuldu. Ödeme: ${result.compositionLabel} (brüt ${result.grossTotalTry.toStringAsFixed(2)} TL).';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sipariş oluşturuldu: ₺${result.totalPrice.toStringAsFixed(2)}'),
-            backgroundColor: Colors.green,
+            content: Text(message),
+            backgroundColor: result.reconciliationPending
+                ? Colors.orange
+                : Colors.green,
           ),
         );
         Navigator.pop(context);
@@ -1043,7 +1220,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sipariş oluşturulamadı: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Sipariş oluşturulamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -1066,7 +1246,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 final Matrix4 currentMatrix = _transformationController.value;
                 if (currentMatrix.getMaxScaleOnAxis() == 1.0) {
                   // Zoom in - 2x
-                  _transformationController.value = Matrix4.identity()..scale(2.0);
+                  _transformationController.value = Matrix4.identity()
+                    ..scale(2.0);
                 } else {
                   // Zoom out
                   _transformationController.value = Matrix4.identity();
@@ -1083,12 +1264,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   fit: BoxFit.contain,
                   errorWidget: (_, __, ___) => Container(
                     color: Colors.grey.shade200,
-                    child: const Icon(Icons.image, size: 64, color: Colors.grey),
+                    child: const Icon(
+                      Icons.image,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
                   ),
                   placeholder: (_, __) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
+                    return const Center(child: CircularProgressIndicator());
                   },
                 ),
               ),
@@ -1162,20 +1345,27 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               final isSelected = _selectedColor?.name == color.name;
               final isOutOfStock = color.stock <= 0;
               return GestureDetector(
-                onTap: isOutOfStock ? null : () {
-                  setState(() => _selectedColor = color);
-                },
+                onTap: isOutOfStock
+                    ? null
+                    : () {
+                        setState(() => _selectedColor = color);
+                      },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: isOutOfStock
                         ? Colors.grey.shade200
                         : isSelected
-                            ? Colors.orange.shade200
-                            : Colors.grey.shade100,
+                        ? Colors.orange.shade200
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300,
+                      color: isSelected
+                          ? Colors.orange.shade700
+                          : Colors.grey.shade300,
                       width: isSelected ? 2 : 1,
                     ),
                   ),
@@ -1183,15 +1373,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       CircleAvatar(
-                        backgroundColor: Color(int.parse(color.hex.replaceFirst('#', '0xFF'))),
+                        backgroundColor: Color(
+                          int.parse(color.hex.replaceFirst('#', '0xFF')),
+                        ),
                         radius: 10,
                       ),
                       const SizedBox(width: 8),
                       Text(
                         '${color.name} (${color.stock})',
                         style: TextStyle(
-                          color: isOutOfStock ? Colors.grey.shade500 : Colors.black,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isOutOfStock
+                              ? Colors.grey.shade500
+                              : Colors.black,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                         ),
                       ),
                     ],
@@ -1328,10 +1524,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     return Row(
       children: [
-        Text(
-          'Miktar:',
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
+        Text('Miktar:', style: Theme.of(context).textTheme.bodyLarge),
         const SizedBox(width: 12),
         Container(
           decoration: BoxDecoration(
@@ -1381,7 +1574,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Widget _buildReviewsSection(Product product) {
-    final distribution = _ratingStats['distribution'] as Map<int, int>? ?? {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
+    final distribution =
+        _ratingStats['distribution'] as Map<int, int>? ??
+        {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
     final average = _ratingStats['average'] as double? ?? 0.0;
     final count = _ratingStats['count'] as int? ?? 0;
 
@@ -1441,8 +1636,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         }),
                       ),
                       Text('$count değerlendirme'),
-                      if (count > 0)
-                        Text(' / ${count == 1 ? 'kişi' : 'kişi'}'),
+                      if (count > 0) Text(' / ${count == 1 ? 'kişi' : 'kişi'}'),
                     ],
                   ),
                 ],
@@ -1454,7 +1648,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 final starLevel = 5 - starIndex; // 5, 4, 3, 2, 1
                 final starCount = distribution[starLevel] ?? 0;
                 final maxCount = count > 0 ? count : 1;
-                final percentage = maxCount > 0 ? (starCount / maxCount * 100).clamp(0.0, 100.0) : 0.0;
+                final percentage = maxCount > 0
+                    ? (starCount / maxCount * 100).clamp(0.0, 100.0)
+                    : 0.0;
                 final barWidth = percentage * 3; // 300px max width
 
                 return Padding(
@@ -1550,7 +1746,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       context: context,
                       builder: (context) => AlertDialog(
                         title: const Text('Yorumu Sil'),
-                        content: const Text('Yorumunuzu silmek istediğinizden emin misiniz?'),
+                        content: const Text(
+                          'Yorumunuzu silmek istediğinizden emin misiniz?',
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context, false),
@@ -1565,7 +1763,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     );
                     if (confirmed == true && mounted) {
                       try {
-                        await _reviewService.deleteReview(_userReview!.id, widget.productId);
+                        await _reviewService.deleteReview(
+                          _userReview!.id,
+                          widget.productId,
+                        );
                         await _loadReviews();
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -1575,7 +1776,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       } catch (e) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Silme işlemi başarısız: $e')),
+                            SnackBar(
+                              content: Text('Silme işlemi başarısız: $e'),
+                            ),
                           );
                         }
                       }
@@ -1624,7 +1827,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               onReply: () async {
                 // Satıcı cevap özelliği (opsiyonel)
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Satıcı cevabı yakında eklenecek')),
+                  const SnackBar(
+                    content: Text('Satıcı cevabı yakında eklenecek'),
+                  ),
                 );
               },
             );
@@ -1650,7 +1855,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   // Yorum Ekle Bottom Sheet
   Widget _buildAddReviewBottomSheet({required ProductReview? existingReview}) {
     final rating = existingReview?.rating ?? 0;
-    final commentController = TextEditingController(text: existingReview?.comment ?? '');
+    final commentController = TextEditingController(
+      text: existingReview?.comment ?? '',
+    );
 
     return StatefulBuilder(
       builder: (context, setBottomState) {
@@ -1673,7 +1880,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    existingReview != null ? 'Yorumunuzu Güncelleyin' : 'Değerlendirme Yapın',
+                    existingReview != null
+                        ? 'Yorumunuzu Güncelleyin'
+                        : 'Değerlendirme Yapın',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -1736,7 +1945,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
                   counterText: '${commentController.text.length}/500',
                 ),
@@ -1764,7 +1975,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     disabledBackgroundColor: Colors.grey.shade300,
                   ),
                   child: Text(
-                    existingReview != null ? 'Değerlendirmeyi Güncelle' : 'Gönder',
+                    existingReview != null
+                        ? 'Değerlendirmeyi Güncelle'
+                        : 'Gönder',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1870,7 +2083,9 @@ class _ReviewCard extends StatelessWidget {
                     return Icon(
                       Icons.star,
                       size: 16,
-                      color: index < review.rating ? Colors.amber : Colors.grey.shade300,
+                      color: index < review.rating
+                          ? Colors.amber
+                          : Colors.grey.shade300,
                     );
                   }),
                 ),
@@ -1880,10 +2095,7 @@ class _ReviewCard extends StatelessWidget {
 
             // Yorum metni
             if (review.comment != null && review.comment!.isNotEmpty)
-              Text(
-                review.comment!,
-                style: const TextStyle(fontSize: 14),
-              ),
+              Text(review.comment!, style: const TextStyle(fontSize: 14)),
 
             // Satıcı cevabı varsa
             if (review.hasSellerReply) ...[
@@ -1899,7 +2111,11 @@ class _ReviewCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.store, size: 16, color: Colors.orange.shade700),
+                        Icon(
+                          Icons.store,
+                          size: 16,
+                          color: Colors.orange.shade700,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Satıcı Cevabı',

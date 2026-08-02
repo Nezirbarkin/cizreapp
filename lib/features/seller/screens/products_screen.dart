@@ -3,7 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/models/flash_sale_model.dart';
 import '../../../core/models/product_model.dart';
+import '../../market/services/flash_sale_service.dart';
 import '../../market/services/product_service.dart';
 import 'manage_product_screen.dart';
 
@@ -439,6 +441,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   Widget _buildProductCard(Product product) {
     final discountPercent = product.discountPercentage;
+    // Aktif flaş sale'i asenkron çek (ürün kartı zaten asenkron yüklemelere sahip).
+    final flashService = FlashSaleService();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -537,48 +541,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       ),
                     const SizedBox(height: 8),
 
-                    // Fiyat ve indirim
-                    Row(
-                      children: [
-                        Text(
-                          '₺${product.effectivePrice.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade700,
-                          ),
-                        ),
-                        if (product.displayOldPrice != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            '₺${product.displayOldPrice!.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade500,
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade100,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '%$discountPercent',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red.shade700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                    // Fiyat ve indirim (flaş sale bilinçli)
+                    FutureBuilder<FlashSale?>(
+                      future: flashService.getActiveFlashSaleForProduct(product.id),
+                      builder: (context, snap) {
+                        final flash = snap.data;
+                        if (flash != null) {
+                          return _buildFlashSalePriceRow(flash);
+                        }
+                        return _buildNormalPriceRow(product, discountPercent);
+                      },
                     ),
 
                     const SizedBox(height: 8),
@@ -653,6 +625,124 @@ class _ProductsScreenState extends State<ProductsScreen> {
       height: 80,
       color: Colors.grey.shade300,
       child: const Icon(Icons.image, color: Colors.grey),
+    );
+  }
+
+  /// Aktif flaş sale varken gösterilecek fiyat satırı (satıcı kendi ürünü).
+  /// Flaş fiyat büyük, orijinal fiyat üstü çizili, "⚡ Flaş" etiketi.
+  Widget _buildFlashSalePriceRow(FlashSale flash) {
+    return Row(
+      children: [
+        // Flaş etiketi
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF5252), Color(0xFFE53935)],
+            ),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bolt, color: Colors.white, size: 12),
+              SizedBox(width: 2),
+              Text(
+                'Flaş',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Flaş fiyat
+        Text(
+          '₺${flash.flashPrice.toStringAsFixed(2)}',
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFE53935),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Orijinal fiyat (üstü çizili)
+        Text(
+          '₺${flash.originalPrice.toStringAsFixed(2)}',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey.shade500,
+            decoration: TextDecoration.lineThrough,
+          ),
+        ),
+        const SizedBox(width: 4),
+        // İndirim yüzdesi
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.red.shade100,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            '%${flash.discountPercent.round()}',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.red.shade700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Flaş sale yoksa gösterilecek normal indirimli/düz fiyat satırı.
+  Widget _buildNormalPriceRow(Product product, int? discountPercent) {
+    return Row(
+      children: [
+        Text(
+          '₺${product.effectivePrice.toStringAsFixed(2)}',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.orange.shade700,
+          ),
+        ),
+        if (product.displayOldPrice != null) ...[
+          const SizedBox(width: 8),
+          Text(
+            '₺${product.displayOldPrice!.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
+              decoration: TextDecoration.lineThrough,
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (discountPercent != null)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.red.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '%$discountPercent',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red.shade700,
+                ),
+              ),
+            ),
+        ],
+      ],
     );
   }
 }

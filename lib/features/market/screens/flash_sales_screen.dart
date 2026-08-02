@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/flash_sale_model.dart';
+import '../providers/cart_provider.dart';
 import '../services/flash_sale_service.dart';
 import '../widgets/flash_sale_card.dart';
 import '../widgets/flash_countdown_banner.dart';
@@ -174,15 +175,49 @@ class _FlashSalesScreenState extends State<FlashSalesScreen> {
       _snack('Stok tükendi');
       return;
     }
-    final result = await _service.claimFlashSale(
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) {
+      _snack('Lütfen giriş yapın');
+      return;
+    }
+
+    // 1) Önce stoğu atomik düş (claim). Başarısızsa kullanıcıya bildir ve çık.
+    final claim = await _service.claimFlashSale(
       saleId: sale.id,
       quantity: 1,
     );
     if (!mounted) return;
-    if (result['success'] == true) {
-      _snack('✅ Flash satıştan sepete eklendi! Kalan: ${result['remaining']}');
-    } else {
-      _snack(result['error']?.toString() ?? 'Eklenemedi');
+    if (claim['success'] != true) {
+      _snack(claim['error']?.toString() ?? 'Flaş stok alınamadı');
+      return;
+    }
+
+    // 2) Stoğu başarıyla aldıysak, asıl sepet satırına da ekle.
+    // Hata olursa claim'ı geri bırak (release).
+    try {
+      final cartProvider = context.read<CartProvider>();
+      await cartProvider.addToCart(
+        sale.productId,
+        quantity: 1,
+        flashSaleId: sale.id,
+        flashPrice: sale.flashPrice,
+      );
+      if (!mounted) return;
+      _snack('✅ Flaş satıştan sepete eklendi! Kalan: ${claim['remaining']}');
+      // Liste stoklarını tazele
+      _load();
+    } catch (e) {
+      // Sepete ekleme başarısız — claim'ı geri bırak
+      try {
+        await _service.releaseFlashSale(
+          saleId: sale.id,
+          quantity: 1,
+        );
+      } catch (releaseErr) {
+        debugPrint('release_flash_sale hata: $releaseErr');
+      }
+      if (!mounted) return;
+      _snack('Sepete eklenemedi: $e');
     }
   }
 

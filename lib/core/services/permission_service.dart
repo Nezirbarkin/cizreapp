@@ -80,7 +80,7 @@ class PermissionService {
 
     // Galeri izni (fotoğraf seçmek için)
     results['photos'] = await _checkPermission(Permission.photos, 'Fotoğraf Galerisi');
-    
+
     // Storage izni (dosya erişimi için - Android 13+)
     results['storage'] = await _checkPermission(Permission.storage, 'Depolama');
 
@@ -91,6 +91,26 @@ class PermissionService {
     results['location'] = await _checkPermission(Permission.location, 'Konum');
 
     debugPrint('🔐 İzin durumu: $results');
+    return results;
+  }
+
+  /// Uygulama açılışında KONUM HARİÇ tüm izinleri kontrol et ve talep et.
+  /// Konum izni kullanıcı konum butonuna bastığında ayrıca istenecek —
+  /// haritaya girilir girilmez otomatik sorulmaz.
+  Future<Map<String, PermissionResult>> checkAndRequestAllPermissionsExceptLocation() async {
+    if (kIsWeb) {
+      debugPrint('🔐 Web platformunda izin kontrolü atlanıyor');
+      return {};
+    }
+
+    final results = <String, PermissionResult>{};
+
+    results['camera'] = await _checkPermission(Permission.camera, 'Kamera');
+    results['photos'] = await _checkPermission(Permission.photos, 'Fotoğraf Galerisi');
+    results['storage'] = await _checkPermission(Permission.storage, 'Depolama');
+    results['notifications'] = await _checkPermission(Permission.notification, 'Bildirimler');
+
+    debugPrint('🔐 İzin durumu (konum hariç): $results');
     return results;
   }
 

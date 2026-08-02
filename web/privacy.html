@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">
+  <meta name="robots" content="index, follow">
   <title>Gizlilik Politikası - CizreApp</title>
   <style>
     * {
@@ -118,7 +118,7 @@
     <div class="header">
       <div class="logo">CizreApp</div>
       <h1>Gizlilik Politikası</h1>
-      <p class="last-updated">Son Güncelleme: 15 Temmuz 2026</p>
+      <p class="last-updated">Son Güncelleme: 30 Temmuz 2026</p>
     </div>
 
     <div class="content">
@@ -147,6 +147,16 @@
         <li>Çerezler aracılığıyla toplanan bilgiler</li>
       </ul>
 
+      <h3>1.3. İsteğe Bağlı Ödüllü Reklam ve SSV Verileri</h3>
+      <p>Ödüllü reklamı kullanmayı seçerseniz Google AdMob, reklamın gösterilmesi ve sunucu tarafı doğrulama (Server-Side Verification — SSV) için teknik veriler işler. Google callback'i; reklam ağı ve reklam birimi kimliği, sağlayıcı işlem kimliği, ödül bilgisi, callback zamanı, imza anahtar kimliği, imza, özel veri (custom data) ve varsa sağlayıcı kullanıcı kimliği gibi alanlar içerebilir.</p>
+      <ul>
+        <li>Sağlayıcı işlem kimliği ve varsa sağlayıcı kullanıcı kimliği, kalıcı ödül doğrulama kayıtlarına ham biçimde değil, sunucu sırrıyla üretilen deterministik HMAC takma değerleri olarak yazılır.</li>
+        <li>Custom data'nın ham değeri kalıcı kayda veya uygulama loguna yazılmaz; bunun yerine ödül oturumu ile HMAC/özetlenmiş nonce bağı tutulur. Ham callback sorgusu ve imza da kalıcı kayda veya uygulama loguna yazılmaz.</li>
+        <li>Reklam birimi kimliği, callback zamanı ve imza anahtar kimliği doğrulama/audit metadata'sı olarak kaydedilir.</li>
+        <li>Ödül oturumu şemasında ağ/IP ve cihaz sinyalleri için yalnız HMAC ile üretilmiş takma değer alanları kabul edilir; ham IP veya ham cihaz kimliği için kalıcı kolon bulunmaz. Mevcut istemci akışı bu takma değer alanlarını doldurmamaktadır.</li>
+      </ul>
+      <p>Takma adlandırılmış veya özetlenmiş veriler, başka bilgilerle ilişkilendirilebildikleri ölçüde kişisel veri niteliğini koruyabilir.</p>
+
       <h2>2. Bilgilerin Kullanım Amaçları</h2>
       <p>Topladığımız bilgileri aşağıdaki amaçlarla kullanıyoruz:</p>
       <ul>
@@ -156,6 +166,7 @@
         <li>Size bildirimler göndermek</li>
         <li>Müşteri destek hizmeti sunmak</li>
         <li>Uygulama güvenliğini sağlamak</li>
+        <li>İsteğe bağlı reklam ödülünü SSV ile doğrulamak, tekrar krediyi önlemek (idempotency), kötüye kullanımı değerlendirmek ve kullanıcı/platform limitleri ile günlük puan bütçesini uygulamak</li>
         <li>Yasal yükümlülüklerimizi yerine getirmek</li>
         <li>İstatistiksel analizler yapmak</li>
       </ul>
@@ -165,7 +176,7 @@
       <ul>
         <li>Açık rızanız olduğunda</li>
         <li>Yasal zorunluluk bulunduğunda</li>
-        <li>Hizmet sağlayıcılarımızla (ödeme işlemcileri, kargo şirketleri)</li>
+        <li>Hizmet sağlayıcılarımızla (ödeme işlemcileri, kargo şirketleri ve ödüllü reklamı seçmeniz halinde Google AdMob)</li>
         <li>İş ortaklarımızla (sadece açık rızanızla)</li>
       </ul>
 
@@ -184,6 +195,7 @@
 
       <h2>5. Veri Saklama</h2>
       <p>Kişisel verilerinizi, toplama amaçlarını gerçekleştirmek için gerekli olan süre boyunca veya yasal yükümlülüklerimiz doğrultusunda saklıyoruz. Hesabınızı sildiğinizde, verilerinizi makul bir süre içinde anonimleştirir veya sileriz.</p>
+      <p>Ödül doğrulamasında kullanılan sağlayıcı-kullanıcı, cihaz ve ağ takma değerleri için teknik saklama ayarının başlangıç değeri 30 gündür; süresi dolan ilgili takma değer alanları temizlik sürecinde boşaltılır. Sağlayıcı işlem HMAC'ı, reklam birimi/callback zamanı ve puan defteri gibi doğrulama ve işlem kayıtları ise tekrar krediyi önleme, güvenlik denetimi, uyuşmazlık incelemesi ve uygulanabilir saklama yükümlülükleri için gerekli olduğu ölçüde daha uzun tutulabilir. Saklama ihtiyacı sona erdiğinde silme, anonimleştirme veya erişimi kısıtlama yaklaşımı uygulanır.</p>
 
       <h2>6. Haklarınız</h2>
       <p>Aşağıdaki haklara sahipsiniz:</p>
@@ -202,11 +214,27 @@
 
       <h2>8. Çocukların Gizliliği</h2>
       <p>Hizmetlerimiz 18 yaşın altındaki bireylere yönelik değildir. Bilerek 18 yaşın altındaki kişilerden kişisel bilgi toplamıyoruz. Eğer bir çocuğun bilgilerini topladığımızı fark ederseniz, lütfen bizimle iletişime geçin.</p>
+      <p>Ödüllü reklamlar, çocuklara yönelik veya yaş/rıza koşullarının sağlanmadığı bir bağlamda etkinleştirilmemelidir. Uygulanabilir kuralların gerektirdiği yaş ve veli/rıza kontrolleri ile reklam kişiselleştirme tercihleri yayın ve kullanım öncesinde dikkate alınır.</p>
 
       <h2>9. Üçüncü Taraf Bağlantıları</h2>
       <p>Uygulamamız, üçüncü taraf web sitelerine veya hizmetlerine bağlantılar içerebilir. Bu web sitelerinin gizlilik uygulamalarından sorumlu değiliz. Bu siteleri ziyaret ettiğinizde kendi gizlilik politikalarını incelemenizi öneririz.</p>
 
-      <h2>9.1. Yapay Zeka (AI) Hizmetleri ve Üçüncü Taraf Entegrasyonları</h2>
+      <h2>9.1. Google AdMob, SSV ve Puan Programı</h2>
+      <p>Ödüllü reklam izlemek tamamen isteğe bağlıdır. Reklamı izlememeyi seçmeniz, puan kazanamamanız dışında hesabın temel özelliklerini kullanmanıza engel olmaz. Reklamı seçtiğinizde reklam Google AdMob tarafından sunulur; Google, reklam tanımlayıcıları ve reklam etkileşimi gibi verileri kendi şartları ve gizlilik politikası kapsamında işleyebilir.</p>
+      <p>Kişiselleştirilmiş reklamlar yalnız uygulanabilir rıza ve uygunluk koşulları sağlandığında kullanılmalıdır. Rıza veya kişiselleştirme tercihinizi sunmamanız ya da geri almanız; kişiselleştirilmemiş/sınırlı reklam gösterilmesine veya ödüllü reklamın kullanılamamasına yol açabilir. İlgili tercihleri uygulamadaki izin/tercih yüzeylerinden, cihazınızdan veya Google hesabı/reklam ayarlarından yönetebilirsiniz.</p>
+      <p>Google'ın veri işleme uygulamaları için <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Gizlilik Politikası</a> ve <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">Google hizmetlerini kullanan site ve uygulamalardan gelen bilgileri nasıl kullandığı</a> açıklamalarını inceleyebilirsiniz. Reklam tercihlerinizi <a href="https://myadcenter.google.com/" target="_blank" rel="noopener noreferrer">Google Reklam Merkezim</a> üzerinden yönetebilirsiniz.</p>
+      <p>Mobil reklam SDK'sının “ödül kazanıldı” bildirimi tek başına puan oluşturmaz. Puan ancak Google'ın SSV callback'i; ECDSA imzası, anahtar kimliği, zaman penceresi, izinli reklam birimi, imzalı custom data ve tekil işlem kontrollerinden geçtikten sonra sunucuda kaydedilir. Doğrulama yapılandırması eksikse veya doğrulama başarısızsa sistem kapalı davranır ve puan vermez.</p>
+      <h3>Puanların Kullanım Sınırları</h3>
+      <ul>
+        <li>Puan para, elektronik para, alacak veya çekilebilir bakiye değildir; nakit karşılığı, faiz veya geri alım vaadi taşımaz.</li>
+        <li>Puan IBAN'a çekilemez, banka hesabına gönderilemez, başka kullanıcıya veya satıcıya transfer edilemez, satılamaz ve fiziksel ürün/kurye ödemesinde kullanılamaz.</li>
+        <li>Puan yalnız sunucunun uygun olarak işaretlediği uygulama içi dijital ürün/hizmetlerde kullanılabilir. Sipariş hesaplaması istemcide değil sunucuda yapılır; uygun siparişte önce puan, kalan tutar varsa TL bakiyesi uygulanır.</li>
+        <li>Geçerli hesap oranı sipariş anındaki sunucu ayarından alınır. Başlangıç varsayılanı 100 puanın 1 TL dijital indirim hesabına karşılık gelmesidir; bu oran nakit kur veya ödeme vaadi değildir.</li>
+        <li>İade oluşursa puanla ödenen bölüm puana, TL bakiyesiyle ödenen bölüm TL bakiyesine döner. Puan iadesi TL'ye çevrilmez; kısmi iadeler de kaynağını korur.</li>
+        <li>Geçmiş sistemde reklam karşılığında TL bakiyeye işlenmiş başarılı ödüller tarihsel (grandfathered) TL kaydı olarak korunur. Bunlar yeni puana kopyalanmaz ve yeni puan hakkı doğurmaz.</li>
+      </ul>
+
+      <h2>9.2. Yapay Zeka (AI) Hizmetleri ve Üçüncü Taraf Entegrasyonları</h2>
       <p>Uygulamamızdaki AI sohbet özelliği, metin tabanlı sorularınızı yanıtlamak, görsel üretmek ve görsel analiz yapmak için aşağıdaki üçüncü taraf yapay zeka servislerini kullanmaktadır. Bu servisler, Google Play'in Üçüncü Taraf AI Entegrasyonları politikası kapsamında "limited use" (sınırlı kullanım) ilkesiyle çalışmaktadır.</p>
 
       <h3>Kullandığımız AI Servisleri</h3>

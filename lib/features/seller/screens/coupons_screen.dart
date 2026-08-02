@@ -257,24 +257,90 @@ class _CouponsScreenState extends State<CouponsScreen> {
                   return;
                 }
 
+                // Sayısal alanları güvenli şekilde parse et.
+                // Türkçe locale'de ondalık ayırıcı virgül olabilir, noktaya çevir.
+                String normalizeNumber(String raw) =>
+                    raw.trim().replaceAll(',', '.');
+
+                final discountValue = double.tryParse(
+                  normalizeNumber(discountValueController.text),
+                );
+                final minOrder = minOrderController.text.trim().isEmpty
+                    ? 0.0
+                    : double.tryParse(normalizeNumber(minOrderController.text));
+                final maxDiscount = maxDiscountController.text.trim().isEmpty
+                    ? null
+                    : double.tryParse(normalizeNumber(maxDiscountController.text));
+                final usageLimit = usageLimitController.text.trim().isEmpty
+                    ? null
+                    : int.tryParse(usageLimitController.text.trim());
+                final usagePerUser = usagePerUserController.text.trim().isEmpty
+                    ? 1
+                    : int.tryParse(usagePerUserController.text.trim());
+
+                // Geçersiz sayısal giriş kontrolü
+                if (discountValue == null || discountValue <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Geçerli bir indirim tutarı/yüzdesi girin'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                if (minOrder == null || minOrder < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Geçerli bir minimum sipariş tutarı girin'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                if (maxDiscountController.text.trim().isNotEmpty &&
+                    maxDiscount == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Geçerli bir maksimum indirim tutarı girin'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                if (usageLimitController.text.trim().isNotEmpty &&
+                    usageLimit == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Geçerli bir kullanım limiti girin'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                if (usagePerUser == null || usagePerUser < 1) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Kullanıcı başına kullanım en az 1 olmalı'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
                 try {
                   final data = {
                     'shop_id': _shopId,
                     'code': codeController.text.toUpperCase(),
                     'title': titleController.text,
-                    'description': descController.text.isEmpty 
-                        ? null 
+                    'description': descController.text.isEmpty
+                        ? null
                         : descController.text,
                     'discount_type': discountType,
-                    'discount_value': double.parse(discountValueController.text),
-                    'minimum_order_amount': double.parse(minOrderController.text),
-                    'maximum_discount_amount': maxDiscountController.text.isEmpty
-                        ? null
-                        : double.parse(maxDiscountController.text),
-                    'usage_limit': usageLimitController.text.isEmpty
-                        ? null
-                        : int.parse(usageLimitController.text),
-                    'usage_per_user': int.parse(usagePerUserController.text),
+                    'discount_value': discountValue,
+                    'minimum_order_amount': minOrder,
+                    'maximum_discount_amount': maxDiscount,
+                    'usage_limit': usageLimit,
+                    'usage_per_user': usagePerUser,
                     'is_active': isActive,
                   };
 

@@ -1,2 +1,29 @@
-'Get-ChildItem' is not recognized as an internal or external command,
-operable program or batch file.
+warning: in the working copy of 'PROJE_HAVIZA_CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'PROJE_HAVIZA_FUNCTIONS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'PROJE_HAVIZA_RLS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'PROJE_HAVIZA_SCHEMA.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'analysis_options.yaml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'android/build/reports/problems/problems-report.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/models/digital_order_model.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/services/courier_location_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/services/smm_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/admin/screens/admin_smm_providers_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/admin/screens/courier_quick_settings_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/courier/screens/courier_panel_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/main/screens/main_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/market/screens/cart_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/market/screens/market_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/market/screens/search_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/news/screens/news_detail_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/news/screens/news_editor_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/news/screens/news_reporter_panel_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/seller/screens/seller_digital_orders_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/shop/screens/digital_order_detail_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/shop/screens/digital_orders_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/user_courier/screens/package_history_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/user_courier/screens/package_tracking_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/user_courier/screens/send_package_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/user_courier/widgets/couriers_map_card.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/sehirici/widgets/sehirici_route_map_widget.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'supabase/functions/admin-deduct-balance/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'supabase/functions/grant-ad-reward/index.ts', LF will be replaced by CRLF the next time Git touches it

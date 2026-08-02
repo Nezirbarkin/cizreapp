@@ -45,7 +45,8 @@ class CourierNotificationService {
           .select('fee_per_delivery')
           .maybeSingle();
 
-      final feeAmount = (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
+      final feeAmount =
+          (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
 
       // 3. En az iş yapmış (veya teslimat yapmamış) online kuryeyi bul
       // Bu basit bir strateji - en az teslimat yapmış kuryeyi seç
@@ -62,8 +63,12 @@ class CourierNotificationService {
       }
 
       // Online kuryeleri öncelikle al
-      final onlineCouriers = couriers.where((c) => c['is_online'] == true).toList();
-      final selectedCourierList = onlineCouriers.isNotEmpty ? onlineCouriers : couriers;
+      final onlineCouriers = couriers
+          .where((c) => c['is_online'] == true)
+          .toList();
+      final selectedCourierList = onlineCouriers.isNotEmpty
+          ? onlineCouriers
+          : couriers;
 
       if (selectedCourierList.isEmpty) {
         debugPrint('📦 Uygun kurye bulunamadı');
@@ -91,7 +96,9 @@ class CourierNotificationService {
       // orders.status = 'on_the_way' sadece kurye siparişi kabul ettiğinde yapılmalı
       // Aksi halde sipariş kurye panelinin "Atanabilir Siparişler" listesinden düşer
       // ve "Siparişlerim" listesinde de görünmez
-      debugPrint('✅ Sipariş $orderId courier_assignments\'a eklendi (status değişmedi)');
+      debugPrint(
+        '✅ Sipariş $orderId courier_assignments\'a eklendi (status değişmedi)',
+      );
 
       // 6. Kuryeye bildirim gönder
       await _notifyCourierOfAssignment(
@@ -116,43 +123,35 @@ class CourierNotificationService {
     if (client == null) return;
 
     try {
-      // Kuryenin FCM token'ını al
-      final courierProfile = await client
-          .from('profiles')
-          .select('fcm_token')
-          .eq('id', courierId)
-          .maybeSingle();
-
       // Bildirim oluştur.
       // ÖNEMLİ: Doğrudan INSERT yerine add_notification RPC kullanılıyor.
       // RLS nedeniyle mevcut kullanıcı (auth.uid()) kurye adına satır
       // yazamıyordu (42501). RPC SECURITY DEFINER, RLS bypass.
-      await client.rpc('add_notification', params: {
-        'p_user_id': courierId,
-        'p_type': 'courier_order_assigned',
-        'p_title': '🛵 Sipariş Sana Atandı!',
-        'p_content': '$shopName - ₺${orderTotal.toStringAsFixed(2)} tutarında sipariş sana atandı. Hemen teslimata çık!',
-        'p_entity_id': orderId,
-      });
+      //
+      // Push notification:
+      //   - 2026-08-02 öncesi: burada functions.invoke('send-push-notification')
+      //     ile ek push gönderiliyordu; bu açıktı (herhangi bir müşteri
+      //     isteği kuryeye keyfi push tetikleyebilirdi) ve çift bildirim
+      //     üretiyordu.
+      //   - 2026-08-02 sonrası: add_notification → notifications INSERT →
+      //     outbox trigger'ı → process-notification-outbox worker → FCM.
+      //     İstemci tarafında FCM token SELECT veya functions.invoke
+      //     YAPILMAZ.
+      await client.rpc(
+        'add_notification',
+        params: {
+          'p_user_id': courierId,
+          'p_type': 'courier_order_assigned',
+          'p_title': '🛵 Sipariş Sana Atandı!',
+          'p_content':
+              '$shopName - ₺${orderTotal.toStringAsFixed(2)} tutarında sipariş sana atandı. Hemen teslimata çık!',
+          'p_entity_id': orderId,
+        },
+      );
 
-      debugPrint('✅ Kurye $courierId\'e atama bildirimi gönderildi');
-
-      // Push notification gönder (varsa FCM token)
-      if (courierProfile?['fcm_token'] != null) {
-        try {
-          await client.functions.invoke('send-push-notification', body: {
-            'userId': courierId,
-            'title': '🛵 Sipariş Sana Atandı!',
-            'body': '$shopName - ₺${orderTotal.toStringAsFixed(2)} sipariş sana atandı!',
-            'data': {
-              'order_id': orderId,
-              'type': 'courier_order_assigned',
-            },
-          });
-        } catch (e) {
-          debugPrint('⚠️ Push notification gönderilemedi: $e');
-        }
-      }
+      debugPrint(
+        '✅ Kurye $courierId\'e atama bildirimi gönderildi (outbox → worker)',
+      );
     } catch (e) {
       debugPrint('❌ Kurye bildirimi hatası: $e');
     }
@@ -179,7 +178,9 @@ class CourierNotificationService {
           .maybeSingle();
 
       if (existingAssignment != null) {
-        debugPrint('📦 Sipariş zaten bir kuryeye atanmış, bildirim gonderilmedi');
+        debugPrint(
+          '📦 Sipariş zaten bir kuryeye atanmış, bildirim gonderilmedi',
+        );
         return; // Kurye atanmış, tekrar bildirim gonderme
       }
 
@@ -191,13 +192,19 @@ class CourierNotificationService {
       final existingNotification = await client
           .from('notifications')
           .select('id')
-          .inFilter('type', ['courier_new_order', 'courier_order_ready', 'courier_order_assigned'])
-          .eq('data->>order_id', orderId)
+          .inFilter('type', [
+            'courier_new_order',
+            'courier_order_ready',
+            'courier_order_assigned',
+          ])
+          .eq('metadata->>order_id', orderId)
           .limit(1)
           .maybeSingle();
 
       if (existingNotification != null) {
-        debugPrint('📦 Bu sipariş için kuryelere zaten bildirim gönderilmiş, tekrar gönderilmedi');
+        debugPrint(
+          '📦 Bu sipariş için kuryelere zaten bildirim gönderilmiş, tekrar gönderilmedi',
+        );
         return;
       }
 
@@ -214,9 +221,10 @@ class CourierNotificationService {
       }
 
       // 3. Tum kuryeleri bul (online/offline fark etmez, hepsine bildirim gitsin)
+      // Not: fcm_token SELECT edilmiyor (artık istemci push göndermez).
       final couriers = await client
           .from('profiles')
-          .select('id, fcm_token')
+          .select('id')
           .eq('role', 'courier');
 
       if (couriers.isEmpty) {
@@ -242,18 +250,25 @@ class CourierNotificationService {
       final String notificationTitle;
       final String notificationContent;
       final String notificationType;
-      
+
       if (orderStatus == 'confirmed') {
         notificationTitle = '🛵 Yeni Sipariş Onaylandı!';
-        notificationContent = '$shopNameFinal - ₺${totalAmount.toStringAsFixed(2)} tutarında yeni sipariş onaylandı. Yakında hazır olacak!';
+        notificationContent =
+            '$shopNameFinal - ₺${totalAmount.toStringAsFixed(2)} tutarında yeni sipariş onaylandı. Yakında hazır olacak!';
         notificationType = 'courier_new_order';
       } else {
         notificationTitle = '🛵 Yeni Sipariş Hazır!';
-        notificationContent = '$shopNameFinal - ₺${totalAmount.toStringAsFixed(2)} tutarında yeni sipariş hazırlandı. Teslimata çıkabilirsiniz!';
+        notificationContent =
+            '$shopNameFinal - ₺${totalAmount.toStringAsFixed(2)} tutarında yeni sipariş hazırlandı. Teslimata çıkabilirsiniz!';
         notificationType = 'courier_order_ready';
       }
 
-      // 3. Her kuryeye bildirim gönder
+      // 5. Her kuryeye notifications INSERT.
+      //    outbox trigger'ı (notifications_outbox_trigger) her INSERT için
+      //    otomatik olarak notification_outbox'a kayıt ekler.
+      //    process-notification-outbox worker'ı FCM'yi gönderir.
+      //    İstemci (Flutter) push için FCM token SELECT etmez,
+      //    functions.invoke çağrısı yapmaz.
       final notifications = [];
       for (final courier in couriers) {
         notifications.add({
@@ -261,7 +276,7 @@ class CourierNotificationService {
           'type': notificationType,
           'title': notificationTitle,
           'content': notificationContent,
-          'data': {
+          'metadata': {
             'order_id': orderId,
             'shop_id': shopId,
             'shop_name': shopNameFinal,
@@ -274,114 +289,14 @@ class CourierNotificationService {
         });
       }
 
-      // 4. Bildirimleri toplu olarak ekle
       if (notifications.isNotEmpty) {
         await client.from('notifications').insert(notifications);
-        debugPrint('✅ ${notifications.length} kuryeye DB bildirimi gönderildi ($orderStatus)');
+        debugPrint(
+          '✅ ${notifications.length} kuryeye DB bildirimi gönderildi ($orderStatus) — outbox/worker FCM iletecek',
+        );
       }
-
-      // 5. Push notification gönder (FCM)
-      await _sendPushNotificationToCouriers(
-        couriers: couriers,
-        title: notificationTitle,
-        body: notificationContent,
-        data: {
-          'order_id': orderId,
-          'shop_id': shopId,
-          'order_status': orderStatus,
-          'type': notificationType,
-        },
-      );
     } catch (e) {
       debugPrint('❌ Kurye bildirimi gönderilirken hata: $e');
-    }
-  }
-
-  /// Push notification gönder (Supabase Edge Function üzerinden)
-  Future<void> _sendPushNotificationToCouriers({
-    required List<Map<String, dynamic>> couriers,
-    required String title,
-    required String body,
-    required Map<String, dynamic> data,
-  }) async {
-    final client = _supabase;
-    if (client == null) return;
-
-    try {
-      // FCM token'ı olan kuryeleri filtrele
-      final couriersWithToken = couriers
-          .where((c) => c['fcm_token'] != null && (c['fcm_token'] as String).isNotEmpty)
-          .toList();
-
-      if (couriersWithToken.isEmpty) {
-        debugPrint('⚠️ FCM tokeni olan kurye yok, push notification gonderilemedi');
-        return;
-      }
-
-      // Edge Function üzerinden toplu push notification gönder
-      // Not: Supabase Edge Function 'send-push-notification' tanımlı olmalı
-      final tokens = couriersWithToken.map((c) => c['fcm_token']).toList();
-      
-      debugPrint('📤 ${tokens.length} FCM token\'a push notification gönderiliyor...');
-
-      // Her kurye için ayrı ayrı gönder (toplu gönderim desteği için edge function gerekiyor)
-      for (final courier in couriersWithToken) {
-        try {
-          await client.functions.invoke('send-push-notification', body: {
-            'userId': courier['id'],
-            'title': title,
-            'body': body,
-            'data': data,
-          });
-        } catch (e) {
-          // Tekil hata genel bildirimi durdurmasın
-          debugPrint('⚠️ Push notification hatası (${courier['id']}): $e');
-        }
-      }
-
-      debugPrint('✅ Push notification gönderimi tamamlandı');
-    } catch (e) {
-      debugPrint('❌ Push notification gönderme hatası: $e');
-      // Push notification hatası kritik değil, DB bildirimi zaten gönderildi
-    }
-  }
-
-  /// Push notification gönder (FCM üzerinden)
-  Future<void> sendPushNotificationToCouriers({
-    required String title,
-    required String body,
-    required Map<String, dynamic> data,
-  }) async {
-    final client = _supabase;
-    if (client == null) return;
-
-    try {
-      // Online kuryeleri bul
-      final onlineCouriers = await client
-          .from('profiles')
-          .select('id')
-          .eq('role', 'courier')
-          .eq('is_online', true);
-
-      if (onlineCouriers.isEmpty) return;
-
-      // Edge function üzerinden push notification gönder
-      // Not: Bu Supabase Edge Function olarak çalışmalı
-      for (final courier in onlineCouriers) {
-        try {
-          await client.functions.invoke('send-push-notification', body: {
-            'userId': courier['id'],
-            'title': title,
-            'body': body,
-            'data': data,
-          });
-        } catch (e) {
-          debugPrint('⚠️ Push notification gönderilemedi: $e');
-          // Devam et, diğer kuryelere göndermeye çalış
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Push notification hatası: $e');
     }
   }
 
@@ -400,9 +315,7 @@ class CourierNotificationService {
         'type': 'order_update',
         'title': '🚴 Siparişiniz Yolda!',
         'content': '$courierName siparişinizi teslim etmek için yola çıktı.',
-        'data': {
-          'order_id': orderId,
-        },
+        'data': {'order_id': orderId},
         'is_read': false,
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -427,10 +340,7 @@ class CourierNotificationService {
         'type': 'order_delivered',
         'title': 'Sipariş Teslim Edildi',
         'content': 'Satıcıyı ve ürünü değerlendirmek için tıklayın.',
-        'data': {
-          'order_id': orderId,
-          'type': 'order_delivered',
-        },
+        'data': {'order_id': orderId, 'type': 'order_delivered'},
         'is_read': false,
         'created_at': DateTime.now().toIso8601String(),
       });
