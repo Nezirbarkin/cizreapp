@@ -43,8 +43,12 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
         return 'Bekliyor';
       case 'accepted':
         return 'Kurye Yolda';
+      case 'delivery_pending_confirmation':
+        return 'Onay Bekleniyor';
       case 'delivered':
         return 'Teslim Edildi';
+      case 'cancelled':
+        return 'İptal Edildi';
       default:
         return status ?? '-';
     }
@@ -56,8 +60,12 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
         return Colors.orange;
       case 'accepted':
         return Colors.blue;
+      case 'delivery_pending_confirmation':
+        return Colors.indigo;
       case 'delivered':
         return Colors.green;
+      case 'cancelled':
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -75,80 +83,114 @@ class _PackageHistoryScreenState extends State<PackageHistoryScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _requests.isEmpty
-              ? const Center(child: Text('Henüz paket talebiniz yok'))
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _requests.length,
-                    itemBuilder: (context, index) {
-                      final r = _requests[index];
-                      final totalFee = (r['total_fee'] as num?)?.toDouble() ?? 0;
-                      final status = r['status'] as String?;
-                      final canTrack = status == 'accepted' || status == 'pending' || status == 'delivered';
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+          ? const Center(child: Text('Henüz paket talebiniz yok'))
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _requests.length,
+                itemBuilder: (context, index) {
+                  final r = _requests[index];
+                  final totalFee = (r['total_fee'] as num?)?.toDouble() ?? 0;
+                  final status = r['status'] as String?;
+                  final canTrack =
+                      status == 'accepted' ||
+                      status == 'pending' ||
+                      status == 'delivered';
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(_formatDate(r['created_at']),
-                                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _statusColor(status).withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      _statusLabel(status),
-                                      style: TextStyle(color: _statusColor(status), fontSize: 12, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                _formatDate(r['created_at']),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              const SizedBox(height: 8),
-                              Text('Alım: ${r['pickup_address'] ?? '-'}', style: const TextStyle(fontSize: 13)),
-                              Text('Teslim: ${r['delivery_address'] ?? '-'}', style: const TextStyle(fontSize: 13)),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    '-${totalFee.toStringAsFixed(2)} ₺',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _statusColor(
+                                    status,
+                                  ).withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _statusLabel(status),
+                                  style: TextStyle(
+                                    color: _statusColor(status),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  if (canTrack)
-                                    ElevatedButton.icon(
-                                      onPressed: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => PackageTrackingScreen(
-                                            packageId: r['id'] as String,
-                                            packageTitle: 'Paket Takibi - ${r['pickup_address'] ?? 'Paket'}',
-                                          ),
-                                        ),
-                                      ),
-                                      icon: const Icon(Icons.two_wheeler, size: 16),
-                                      label: const Text('Takip Et', style: TextStyle(fontSize: 12)),
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      ),
-                                    ),
-                                ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Alım: ${r['pickup_address'] ?? '-'}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          Text(
+                            'Teslim: ${r['delivery_address'] ?? '-'}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '-${totalFee.toStringAsFixed(2)} ₺',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                              if (canTrack)
+                                ElevatedButton.icon(
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => PackageTrackingScreen(
+                                        packageId: r['id'] as String,
+                                        packageTitle:
+                                            'Paket Takibi - ${r['pickup_address'] ?? 'Paket'}',
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.two_wheeler, size: 16),
+                                  label: const Text(
+                                    'Takip Et',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 

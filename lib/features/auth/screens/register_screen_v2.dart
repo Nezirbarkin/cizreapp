@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
 
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -26,17 +26,14 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   // OTP controllers - 6 haneli kod için
   final List<TextEditingController> _otpControllers = List.generate(
     6,
     (_) => TextEditingController(),
   );
-  final List<FocusNode> _otpFocusNodes = List.generate(
-    6,
-    (_) => FocusNode(),
-  );
-  
+  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -45,7 +42,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   bool _kvkkAccepted = false;
   bool _termsAccepted = false; // EULA/Kullanım Koşulları kabul
   String? _selectedGender;
-  
+
   // OTP state
   bool _otpSent = false;
   int _remainingSeconds = 0;
@@ -53,7 +50,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   Timer? _timer;
   Timer? _resendTimer;
   String? _verifiedEmail;
-  
+
   final _verificationService = VerificationService();
   final _authService = AuthService();
 
@@ -98,15 +95,19 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
     }
     if (username.length < 3) return;
     setState(() => _isCheckingUsername = true);
-    
+
     try {
       final response = await Supabase.instance.client
           .from('profiles')
           .select('username')
           .eq('username', username.toLowerCase())
           .maybeSingle();
-      
-      if (mounted) setState(() { _isUsernameAvailable = response == null; _isCheckingUsername = false; });
+
+      if (mounted)
+        setState(() {
+          _isUsernameAvailable = response == null;
+          _isCheckingUsername = false;
+        });
     } catch (e) {
       if (mounted) setState(() => _isCheckingUsername = false);
     }
@@ -132,7 +133,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   /// OTP gönder
   Future<void> _sendOtp() async {
     if (!_validateForm()) return;
-    
+
     setState(() => _isLoading = true);
 
     try {
@@ -147,12 +148,14 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
           _resendCooldown = 60; // 60 saniye yeniden gönderme cooldown
           _verifiedEmail = _emailController.text.trim();
         });
-        
+
         _startTimer();
         _startResendTimer();
-        
-        _showSuccess(result['message'] ?? 'Doğrulama kodu e-posta adresinize gönderildi');
-        
+
+        _showSuccess(
+          result['message'] ?? 'Doğrulama kodu e-posta adresinize gönderildi',
+        );
+
         // İlk OTP kutusuna odaklan
         _otpFocusNodes[0].requestFocus();
       }
@@ -209,7 +212,9 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
         },
       );
 
-      debugPrint('📋 REGISTER: signUp response - user: ${authResponse.user?.id}, session: ${authResponse.session != null}');
+      debugPrint(
+        '📋 REGISTER: signUp response - user: ${authResponse.user?.id}, session: ${authResponse.session != null}',
+      );
 
       if (authResponse.user == null) {
         throw Exception('Kayıt oluşturulamadı');
@@ -226,33 +231,24 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
       }
 
       // Profil SQL trigger tarafından otomatik oluşturulur (handle_new_user fonksiyonu)
-      // Fallback: Trigger çalışmazsa profili manuel oluştur
+      // Fallback: Trigger çalışmazsa profili güvenli varsayılanlarla oluştur.
+      // Not: profiles INSERT grant'i REVOKE edildi. Doğrudan INSERT yerine
+      // SECURITY DEFINER ensure_my_profile() RPC'si çağrılır; rol/is_admin
+      // her zaman güvenli varsayılanlar (customer/false) olur.
       try {
         final userId = authResponse.user!.id;
         await Future.delayed(const Duration(seconds: 1));
-        final existingProfile = await Supabase.instance.client
-            .from('profiles')
-            .select('id')
-            .eq('id', userId)
-            .maybeSingle();
-        
-        if (existingProfile == null) {
-          debugPrint('⚠️ REGISTER: Trigger çalışmadı, profil manuel oluşturuluyor...');
-          await Supabase.instance.client.from('profiles').upsert({
-            'id': userId,
-            'email': email,
-            'username': username,
-            'full_name': fullName,
-            if (_selectedGender != null) 'gender': _selectedGender,
-            'created_at': DateTime.now().toUtc().toIso8601String(),
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }, onConflict: 'id');
-          debugPrint('✅ REGISTER: Profil manuel olarak oluşturuldu');
-        } else {
-          debugPrint('✅ REGISTER: Profil trigger ile oluşturulmuş');
-        }
+        // RPC idempotent: mevcutsa dokunmaz.
+        await Supabase.instance.client.rpc('ensure_my_profile');
+        // Username/full_name gibi public alanlar update_my_public_profile
+        // ile yazılabilir; ancak register akışında username/full_name
+        // auth metadata'dan zaten trigger tarafından alınır, bu nedenle
+        // ek bir UPDATE yapmıyoruz.
+        debugPrint('✅ REGISTER: Profil hazır (id=$userId)');
       } catch (profileError) {
-        debugPrint('⚠️ REGISTER: Profil oluşturma hatası (kayıt başarılı): $profileError');
+        debugPrint(
+          '⚠️ REGISTER: Profil oluşturma hatası (kayıt başarılı): $profileError',
+        );
       }
 
       if (mounted) {
@@ -295,16 +291,16 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
           _remainingSeconds = result['expires_in_seconds'] ?? 300;
           _resendCooldown = 60;
         });
-        
+
         _startTimer();
         _startResendTimer();
-        
+
         // OTP alanlarını temizle
         for (var controller in _otpControllers) {
           controller.clear();
         }
         _otpFocusNodes[0].requestFocus();
-        
+
         _showSuccess('Yeni doğrulama kodu gönderildi');
       }
     } catch (e) {
@@ -346,7 +342,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
       // Sonraki kutuya geç
       _otpFocusNodes[index + 1].requestFocus();
     }
-    
+
     // Tüm kutular doluysa otomatik doğrula
     if (_otpCode.length == 6) {
       // Klavyeyi kapat
@@ -356,7 +352,7 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
 
   /// OTP geri silme
   void _onOtpKeyPressed(int index, RawKeyEvent event) {
-    if (event is RawKeyDownEvent && 
+    if (event is RawKeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
         _otpControllers[index].text.isEmpty &&
         index > 0) {
@@ -377,13 +373,30 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(color: Color(0xFFE8F8F5), shape: BoxShape.circle),
-              child: const Icon(Icons.check_rounded, size: 40, color: Color(0xFF1ABC9C)),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F8F5),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_rounded,
+                size: 40,
+                color: Color(0xFF1ABC9C),
+              ),
             ),
             const SizedBox(height: 20),
-            const Text('Kayıt Başarılı!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50))),
+            const Text(
+              'Kayıt Başarılı!',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF2C3E50),
+              ),
+            ),
             const SizedBox(height: 8),
-            const Text('Hoş geldiniz!', style: TextStyle(color: Color(0xFF7F8C8D))),
+            const Text(
+              'Hoş geldiniz!',
+              style: TextStyle(color: Color(0xFF7F8C8D)),
+            ),
           ],
         ),
         actions: [
@@ -398,10 +411,15 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
                 backgroundColor: const Color(0xFF1ABC9C),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 elevation: 0,
               ),
-              child: const Text('Başla', style: TextStyle(fontWeight: FontWeight.w600)),
+              child: const Text(
+                'Başla',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
           ),
         ],
@@ -416,12 +434,20 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: const [
-            Icon(Icons.privacy_tip_outlined, color: Color(0xFF3498DB), size: 26),
+            Icon(
+              Icons.privacy_tip_outlined,
+              color: Color(0xFF3498DB),
+              size: 26,
+            ),
             SizedBox(width: 10),
             Expanded(
               child: Text(
                 'Kişisel Verilerin Korunması',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2C3E50),
+                ),
               ),
             ),
           ],
@@ -439,7 +465,12 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
                 ),
                 child: const Text(
                   '6698 sayılı Kişisel Verilerin Korunması Kanunu (KVKK) kapsamında, kişisel verilerinizin işlenmesi hakkında sizi bilgilendirmek isteriz.',
-                  style: TextStyle(fontSize: 13, height: 1.5, color: Color(0xFF2C3E50), fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: Color(0xFF2C3E50),
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -456,11 +487,11 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '2. İşlenen Kişisel Veriler',
                 '• Kimlik Bilgileri: Ad, soyad, kullanıcı adı, profil fotoğrafı\n'
-                '• İletişim Bilgileri: E-posta adresi, telefon numarası (opsiyonel)\n'
-                '• Konum Bilgileri: Adres bilgileri (sipariş teslimatı için)\n'
-                '• İşlem Güvenliği Bilgileri: IP adresi, cihaz bilgileri, giriş kayıtları\n'
-                '• Kullanım Verileri: Platform kullanım geçmişi, tercihler, sepet bilgileri\n'
-                '• Finansal Bilgiler: Ödeme yöntemi tercihleri (kredi kartı bilgileri depolanmaz)',
+                    '• İletişim Bilgileri: E-posta adresi, telefon numarası (opsiyonel)\n'
+                    '• Konum Bilgileri: Adres bilgileri (sipariş teslimatı için)\n'
+                    '• İşlem Güvenliği Bilgileri: IP adresi, cihaz bilgileri, giriş kayıtları\n'
+                    '• Kullanım Verileri: Platform kullanım geçmişi, tercihler, sepet bilgileri\n'
+                    '• Finansal Bilgiler: Ödeme yöntemi tercihleri (kredi kartı bilgileri depolanmaz)',
                 Icons.folder_outlined,
               ),
               const SizedBox(height: 16),
@@ -469,12 +500,12 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '3. Verilerin İşlenme Amaçları',
                 '• Platform üyeliğinizin oluşturulması ve yönetilmesi\n'
-                '• Alışveriş ve sipariş işlemlerinin gerçekleştirilmesi\n'
-                '• Ödeme ve teslimat süreçlerinin yürütülmesi\n'
-                '• Müşteri hizmetleri ve destek sağlanması\n'
-                '• Platformun güvenliğinin sağlanması ve dolandırıcılık tespiti\n'
-                '• Yasal yükümlülüklerin yerine getirilmesi\n'
-                '• Kullanıcı deneyiminin iyileştirilmesi (anonim analizler)',
+                    '• Alışveriş ve sipariş işlemlerinin gerçekleştirilmesi\n'
+                    '• Ödeme ve teslimat süreçlerinin yürütülmesi\n'
+                    '• Müşteri hizmetleri ve destek sağlanması\n'
+                    '• Platformun güvenliğinin sağlanması ve dolandırıcılık tespiti\n'
+                    '• Yasal yükümlülüklerin yerine getirilmesi\n'
+                    '• Kullanıcı deneyiminin iyileştirilmesi (anonim analizler)',
                 Icons.settings_outlined,
               ),
               const SizedBox(height: 16),
@@ -483,12 +514,12 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '4. Kişisel Verilerin Aktarılması',
                 'Verileriniz aşağıdaki durumlarda üçüncü taraflarla paylaşılabilir:\n\n'
-                '• Satıcılar: Siparişlerinizin hazırlanması ve teslimatı için\n'
-                '• Ödeme Kuruluşları: Güvenli ödeme işlemleri için\n'
-                '• Kargo/Kurye Şirketleri: Teslimat için gerekli adres bilgileri\n'
-                '• Bulut Hizmet Sağlayıcıları: Veri depolama ve altyapı hizmetleri için\n'
-                '• Yasal Merciler: Kanuni yükümlülükler çerçevesinde\n\n'
-                'Tüm veri aktarımları KVKK ve ilgili mevzuata uygun olarak gerçekleştirilir.',
+                    '• Satıcılar: Siparişlerinizin hazırlanması ve teslimatı için\n'
+                    '• Ödeme Kuruluşları: Güvenli ödeme işlemleri için\n'
+                    '• Kargo/Kurye Şirketleri: Teslimat için gerekli adres bilgileri\n'
+                    '• Bulut Hizmet Sağlayıcıları: Veri depolama ve altyapı hizmetleri için\n'
+                    '• Yasal Merciler: Kanuni yükümlülükler çerçevesinde\n\n'
+                    'Tüm veri aktarımları KVKK ve ilgili mevzuata uygun olarak gerçekleştirilir.',
                 Icons.share_outlined,
               ),
               const SizedBox(height: 16),
@@ -497,11 +528,11 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '5. Verilerin Toplanma Yöntemi',
                 'Kişisel verileriniz otomatik ve otomatik olmayan yöntemlerle toplanır:\n\n'
-                '• Kayıt formları ve profil ayarlarınız\n'
-                '• Platform kullanımınız sırasında otomatik toplanan veriler\n'
-                '• Sipariş ve ödeme işlemleri\n'
-                '• Müşteri hizmetleri ile iletişimleriniz\n'
-                '• Çerezler (cookies) ve benzer teknolojiler',
+                    '• Kayıt formları ve profil ayarlarınız\n'
+                    '• Platform kullanımınız sırasında otomatik toplanan veriler\n'
+                    '• Sipariş ve ödeme işlemleri\n'
+                    '• Müşteri hizmetleri ile iletişimleriniz\n'
+                    '• Çerezler (cookies) ve benzer teknolojiler',
                 Icons.file_download_outlined,
               ),
               const SizedBox(height: 16),
@@ -510,11 +541,11 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '6. Verilerin Saklanma Süresi',
                 'Kişisel verileriniz, işleme amacının gerektirdiği süre boyunca ve yasal saklama yükümlülükleri çerçevesinde saklanır:\n\n'
-                '• Hesap Bilgileri: Hesabınız aktif olduğu süre boyunca\n'
-                '• İşlem Kayıtları: Vergi ve ticari mevzuat gereği 10 yıl\n'
-                '• İletişim Kayıtları: Hizmet kalitesi için 3 yıl\n'
-                '• Log Kayıtları: Güvenlik amacıyla 2 yıl\n\n'
-                'Hesap silme talebiniz durumunda, yasal yükümlülükler hariç tüm verileriniz kalıcı olarak silinir.',
+                    '• Hesap Bilgileri: Hesabınız aktif olduğu süre boyunca\n'
+                    '• İşlem Kayıtları: Vergi ve ticari mevzuat gereği 10 yıl\n'
+                    '• İletişim Kayıtları: Hizmet kalitesi için 3 yıl\n'
+                    '• Log Kayıtları: Güvenlik amacıyla 2 yıl\n\n'
+                    'Hesap silme talebiniz durumunda, yasal yükümlülükler hariç tüm verileriniz kalıcı olarak silinir.',
                 Icons.schedule_outlined,
               ),
               const SizedBox(height: 16),
@@ -523,15 +554,15 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '7. KVKK Kapsamındaki Haklarınız',
                 'KVKK\'nın 11. maddesi uyarınca aşağıdaki haklara sahipsiniz:\n\n'
-                '✓ Kişisel verilerinizin işlenip işlenmediğini öğrenme\n'
-                '✓ İşlenen verileriniz hakkında bilgi talep etme\n'
-                '✓ Verilerin işlenme amacını ve amaca uygun kullanılıp kullanılmadığını öğrenme\n'
-                '✓ Yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri bilme\n'
-                '✓ Eksik veya yanlış işlenmiş verilerin düzeltilmesini isteme\n'
-                '✓ Verilerin silinmesini veya yok edilmesini talep etme\n'
-                '✓ Düzeltme/silme/yok etme işlemlerinin aktarıldığı taraflara bildirilmesini isteme\n'
-                '✓ Münhasıran otomatik sistemlerle analiz edilmesi nedeniyle aleyhinize bir sonuç doğmasına itiraz etme\n'
-                '✓ Kanuna aykırı veri işleme nedeniyle zararınızın giderilmesini talep etme',
+                    '✓ Kişisel verilerinizin işlenip işlenmediğini öğrenme\n'
+                    '✓ İşlenen verileriniz hakkında bilgi talep etme\n'
+                    '✓ Verilerin işlenme amacını ve amaca uygun kullanılıp kullanılmadığını öğrenme\n'
+                    '✓ Yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri bilme\n'
+                    '✓ Eksik veya yanlış işlenmiş verilerin düzeltilmesini isteme\n'
+                    '✓ Verilerin silinmesini veya yok edilmesini talep etme\n'
+                    '✓ Düzeltme/silme/yok etme işlemlerinin aktarıldığı taraflara bildirilmesini isteme\n'
+                    '✓ Münhasıran otomatik sistemlerle analiz edilmesi nedeniyle aleyhinize bir sonuç doğmasına itiraz etme\n'
+                    '✓ Kanuna aykırı veri işleme nedeniyle zararınızın giderilmesini talep etme',
                 Icons.verified_user_outlined,
               ),
               const SizedBox(height: 16),
@@ -540,10 +571,10 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               _buildKvkkSection(
                 '8. Haklarınızı Kullanma ve İletişim',
                 'KVKK kapsamındaki haklarınızı kullanmak için:\n\n'
-                '📧 E-posta: destek@cizreapp.com\n'
-                '📱 Uygulama: Hesap Ayarları > Destek Merkezi\n\n'
-                'Başvurularınız en geç 30 gün içinde değerlendirilir ve size bilgi verilir. Başvurunuzda kimlik teyidi için gerekli bilgileri (T.C. kimlik numarası, ad-soyad) belirtiniz.\n\n'
-                'Kişisel Verileri Koruma Kurulu\'na şikayette bulunma hakkınız saklıdır.',
+                    '📧 E-posta: destek@cizreapp.com\n'
+                    '📱 Uygulama: Hesap Ayarları > Destek Merkezi\n\n'
+                    'Başvurularınız en geç 30 gün içinde değerlendirilir ve size bilgi verilir. Başvurunuzda kimlik teyidi için gerekli bilgileri (T.C. kimlik numarası, ad-soyad) belirtiniz.\n\n'
+                    'Kişisel Verileri Koruma Kurulu\'na şikayette bulunma hakkınız saklıdır.',
                 Icons.contact_support_outlined,
               ),
               const SizedBox(height: 20),
@@ -558,12 +589,20 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
                 ),
                 child: Row(
                   children: const [
-                    Icon(Icons.info_outline, size: 18, color: Color(0xFF7F8C8D)),
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Color(0xFF7F8C8D),
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Son Güncelleme: Mart 2026\nBu metin güncellenebilir, değişiklikler uygulama üzerinden duyurulur.',
-                        style: TextStyle(fontSize: 11, color: Color(0xFF7F8C8D), height: 1.4),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF7F8C8D),
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -576,7 +615,10 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
           TextButton.icon(
             onPressed: () => Navigator.of(ctx).pop(),
             icon: const Icon(Icons.check_circle_outline, size: 20),
-            label: const Text('Anladım', style: TextStyle(fontWeight: FontWeight.w600)),
+            label: const Text(
+              'Anladım',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFF3498DB),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -649,7 +691,8 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
   void _showTermsDialog() async {
     // Kayıt yüzeyi kısa özeti. Uygulama içi tam metin ayrıca
     // app_about_settings üzerinden admin tarafından yönetilir.
-    String termsContent = '''
+    String termsContent =
+        '''
 CizreApp Kullanım Koşulları
 
 Son Güncelleme: 30 Temmuz 2026
@@ -712,7 +755,8 @@ Bu kullanım koşulları güncellenebilir. Önemli değişiklikler uygulama üze
 Sorularınız için support@cizreapp.com adresinden bize ulaşabilirsiniz.
 ''';
 
-    String privacyContent = '''
+    String privacyContent =
+        '''
 CizreApp Gizlilik Politikası
 
 Son Güncelleme: 30 Temmuz 2026
@@ -761,12 +805,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: const [
-            Icon(Icons.description_outlined, color: Color(0xFF3498DB), size: 26),
+            Icon(
+              Icons.description_outlined,
+              color: Color(0xFF3498DB),
+              size: 26,
+            ),
             SizedBox(width: 10),
             Expanded(
               child: Text(
                 'Kullanım Koşulları ve Gizlilik Politikası',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2C3E50),
+                ),
               ),
             ),
           ],
@@ -788,12 +840,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
                   children: [
                     const Text(
                       '📋 Kullanım Koşulları',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF2C3E50)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: Color(0xFF2C3E50),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       termsContent,
-                      style: const TextStyle(fontSize: 11, height: 1.5, color: Color(0xFF34495E)),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.5,
+                        color: Color(0xFF34495E),
+                      ),
                     ),
                   ],
                 ),
@@ -811,12 +871,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
                   children: [
                     const Text(
                       '🔒 Gizlilik Politikası',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF2C3E50)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: Color(0xFF2C3E50),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       privacyContent,
-                      style: const TextStyle(fontSize: 11, height: 1.5, color: Color(0xFF34495E)),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.5,
+                        color: Color(0xFF34495E),
+                      ),
                     ),
                   ],
                 ),
@@ -830,12 +898,19 @@ Tam ve güncel metin: $_privacyPolicyUrl
                 ),
                 child: const Row(
                   children: [
-                    Icon(Icons.info_outline, size: 18, color: Color(0xFFE65100)),
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Color(0xFFE65100),
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Kayıt olarak bu koşulları kabul etmiş sayılırsınız.',
-                        style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFE65100),
+                        ),
                       ),
                     ),
                   ],
@@ -856,7 +931,10 @@ Tam ve güncel metin: $_privacyPolicyUrl
               setState(() => _termsAccepted = true);
             },
             icon: const Icon(Icons.check_circle_outline, size: 20),
-            label: const Text('Kabul Ediyorum', style: TextStyle(fontWeight: FontWeight.w600)),
+            label: const Text(
+              'Kabul Ediyorum',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFF27AE60),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -893,17 +971,24 @@ Tam ve güncel metin: $_privacyPolicyUrl
             child: Column(
               children: [
                 const SizedBox(height: 60),
-                
+
                 const Text(
                   'Kayıt Ol',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2C3E50),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _otpSent 
+                  _otpSent
                       ? 'E-postanıza kod gönderildi'
                       : 'CizreApp\'e hoşgeldiniz',
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF95A5A6)),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF95A5A6),
+                  ),
                 ),
                 const SizedBox(height: 32),
 
@@ -912,7 +997,13 @@ Tam ve güncel metin: $_privacyPolicyUrl
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 4))],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 20,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: _otpSent ? _buildOtpSection() : _buildRegisterForm(),
                 ),
@@ -921,11 +1012,21 @@ Tam ve güncel metin: $_privacyPolicyUrl
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Zaten hesabınız var mı? ', style: TextStyle(color: Color(0xFF95A5A6))),
+                    const Text(
+                      'Zaten hesabınız var mı? ',
+                      style: TextStyle(color: Color(0xFF95A5A6)),
+                    ),
                     TextButton(
-                      onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
-                      style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: const Color(0xFF2C3E50)),
-                      child: const Text('Giriş Yap', style: TextStyle(fontWeight: FontWeight.w600)),
+                      onPressed: () =>
+                          Navigator.of(context).pushReplacementNamed('/login'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        foregroundColor: const Color(0xFF2C3E50),
+                      ),
+                      child: const Text(
+                        'Giriş Yap',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ],
                 ),
@@ -959,10 +1060,23 @@ Tam ve güncel metin: $_privacyPolicyUrl
               _checkUsername(sanitized);
             },
             suffixIcon: _isCheckingUsername
-                ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)))
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
                 : _usernameController.text.length >= 3
-                    ? Icon(_isUsernameAvailable ? Icons.check_circle : Icons.cancel, color: _isUsernameAvailable ? const Color(0xFF27AE60) : const Color(0xFFE74C3C), size: 20)
-                    : null,
+                ? Icon(
+                    _isUsernameAvailable ? Icons.check_circle : Icons.cancel,
+                    color: _isUsernameAvailable
+                        ? const Color(0xFF27AE60)
+                        : const Color(0xFFE74C3C),
+                    size: 20,
+                  )
+                : null,
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9._-]')),
             ],
@@ -983,12 +1097,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
             padding: const EdgeInsets.only(left: 16, bottom: 8),
             child: Row(
               children: [
-                Icon(Icons.info_outline, size: 14, color: Colors.orange.shade700),
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: Colors.orange.shade700,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Sadece harf, rakam, nokta, _ ve - kullanılabilir (3-20 karakter). Kullanıcı adınız sonradan değiştirilemez.',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade700, height: 1.3),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade700,
+                      height: 1.3,
+                    ),
                   ),
                 ),
               ],
@@ -1008,7 +1130,9 @@ Tam ve güncel metin: $_privacyPolicyUrl
             hint: 'E-posta',
             icon: Icons.mail_outline,
             keyboardType: TextInputType.emailAddress,
-            validator: (v) => (v?.isEmpty ?? true) ? 'E-posta gerekli' : (v!.contains('@') ? null : 'Geçerli e-posta'),
+            validator: (v) => (v?.isEmpty ?? true)
+                ? 'E-posta gerekli'
+                : (v!.contains('@') ? null : 'Geçerli e-posta'),
           ),
           const SizedBox(height: 6),
           // Email doğrulama uyarısı
@@ -1021,7 +1145,11 @@ Tam ve güncel metin: $_privacyPolicyUrl
                 Expanded(
                   child: Text(
                     'E-posta adresinize doğrulama kodu gönderilecektir',
-                    style: TextStyle(fontSize: 12, color: Colors.blue.shade700, height: 1.3),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue.shade700,
+                      height: 1.3,
+                    ),
                   ),
                 ),
               ],
@@ -1034,7 +1162,9 @@ Tam ve güncel metin: $_privacyPolicyUrl
             icon: Icons.lock_outline,
             obscure: _obscurePassword,
             onTap: () => setState(() => _obscurePassword = !_obscurePassword),
-            validator: (v) => (v?.isEmpty ?? true) ? 'Şifre gerekli' : (v!.length < 6 ? 'En az 6 karakter' : null),
+            validator: (v) => (v?.isEmpty ?? true)
+                ? 'Şifre gerekli'
+                : (v!.length < 6 ? 'En az 6 karakter' : null),
           ),
           const SizedBox(height: 14),
           _buildField(
@@ -1042,8 +1172,11 @@ Tam ve güncel metin: $_privacyPolicyUrl
             hint: 'Şifre tekrar',
             icon: Icons.lock_outline,
             obscure: _obscureConfirmPassword,
-            onTap: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
-            validator: (v) => v != _passwordController.text ? 'Şifreler eşleşmiyor' : null,
+            onTap: () => setState(
+              () => _obscureConfirmPassword = !_obscureConfirmPassword,
+            ),
+            validator: (v) =>
+                v != _passwordController.text ? 'Şifreler eşleşmiyor' : null,
           ),
           const SizedBox(height: 16),
 
@@ -1051,10 +1184,14 @@ Tam ve güncel metin: $_privacyPolicyUrl
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _kvkkAccepted ? const Color(0xFFE8F8F0) : const Color(0xFFF8F9FA),
+              color: _kvkkAccepted
+                  ? const Color(0xFFE8F8F0)
+                  : const Color(0xFFF8F9FA),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _kvkkAccepted ? const Color(0xFF27AE60) : const Color(0xFFE0E0E0),
+                color: _kvkkAccepted
+                    ? const Color(0xFF27AE60)
+                    : const Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
@@ -1069,9 +1206,12 @@ Tam ve güncel metin: $_privacyPolicyUrl
                       height: 22,
                       child: Checkbox(
                         value: _kvkkAccepted,
-                        onChanged: (v) => setState(() => _kvkkAccepted = v ?? false),
+                        onChanged: (v) =>
+                            setState(() => _kvkkAccepted = v ?? false),
                         activeColor: const Color(0xFF27AE60),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
@@ -1081,13 +1221,24 @@ Tam ve güncel metin: $_privacyPolicyUrl
                         onTap: () => _showKvkkDialog(),
                         child: RichText(
                           text: const TextSpan(
-                            style: TextStyle(fontSize: 13, color: Color(0xFF34495E), height: 1.4),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF34495E),
+                              height: 1.4,
+                            ),
                             children: [
                               TextSpan(
                                 text: 'Aydınlatma Metnini ',
-                                style: TextStyle(color: Color(0xFF3498DB), fontWeight: FontWeight.w700, decoration: TextDecoration.underline),
+                                style: TextStyle(
+                                  color: Color(0xFF3498DB),
+                                  fontWeight: FontWeight.w700,
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
-                              TextSpan(text: 'okudum ve kişisel verilerimin KVKK kapsamında işlenmesini kabul ediyorum.'),
+                              TextSpan(
+                                text:
+                                    'okudum ve kişisel verilerimin KVKK kapsamında işlenmesini kabul ediyorum.',
+                              ),
                             ],
                           ),
                         ),
@@ -1101,12 +1252,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
                     padding: const EdgeInsets.only(left: 32),
                     child: Row(
                       children: const [
-                        Icon(Icons.check_circle, size: 14, color: Color(0xFF27AE60)),
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: Color(0xFF27AE60),
+                        ),
                         SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             'KVKK aydınlatma metnini okudunuz ve kabul ettiniz',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF27AE60), fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF27AE60),
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -1122,10 +1281,14 @@ Tam ve güncel metin: $_privacyPolicyUrl
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _termsAccepted ? const Color(0xFFE8F0F8) : const Color(0xFFF8F9FA),
+              color: _termsAccepted
+                  ? const Color(0xFFE8F0F8)
+                  : const Color(0xFFF8F9FA),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _termsAccepted ? const Color(0xFF3498DB) : const Color(0xFFE0E0E0),
+                color: _termsAccepted
+                    ? const Color(0xFF3498DB)
+                    : const Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
@@ -1140,9 +1303,12 @@ Tam ve güncel metin: $_privacyPolicyUrl
                       height: 22,
                       child: Checkbox(
                         value: _termsAccepted,
-                        onChanged: (v) => setState(() => _termsAccepted = v ?? false),
+                        onChanged: (v) =>
+                            setState(() => _termsAccepted = v ?? false),
                         activeColor: const Color(0xFF3498DB),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
@@ -1152,13 +1318,24 @@ Tam ve güncel metin: $_privacyPolicyUrl
                         onTap: () => _showTermsDialog(),
                         child: RichText(
                           text: const TextSpan(
-                            style: TextStyle(fontSize: 13, color: Color(0xFF34495E), height: 1.4),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF34495E),
+                              height: 1.4,
+                            ),
                             children: [
                               TextSpan(
-                                text: 'Kullanım Koşulları ve Gizlilik Politikası\'nı ',
-                                style: TextStyle(color: Color(0xFF3498DB), fontWeight: FontWeight.w700, decoration: TextDecoration.underline),
+                                text:
+                                    'Kullanım Koşulları ve Gizlilik Politikası\'nı ',
+                                style: TextStyle(
+                                  color: Color(0xFF3498DB),
+                                  fontWeight: FontWeight.w700,
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
-                              TextSpan(text: 'okudum, anladım ve kabul ediyorum.'),
+                              TextSpan(
+                                text: 'okudum, anladım ve kabul ediyorum.',
+                              ),
                             ],
                           ),
                         ),
@@ -1172,12 +1349,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
                     padding: const EdgeInsets.only(left: 32),
                     child: Row(
                       children: const [
-                        Icon(Icons.check_circle, size: 14, color: Color(0xFF3498DB)),
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: Color(0xFF3498DB),
+                        ),
                         SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             'Kullanım Koşulları ve Gizlilik Politikası\'nı kabul ettiniz',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF3498DB), fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF3498DB),
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -1193,16 +1378,34 @@ Tam ve güncel metin: $_privacyPolicyUrl
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
-              onPressed: (_isLoading || !_kvkkAccepted || !_termsAccepted) ? null : _sendOtp,
+              onPressed: (_isLoading || !_kvkkAccepted || !_termsAccepted)
+                  ? null
+                  : _sendOtp,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF3498DB),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 elevation: 0,
               ),
               child: _isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Doğrulama Kodu Gönder', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Doğrulama Kodu Gönder',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -1223,12 +1426,20 @@ Tam ve güncel metin: $_privacyPolicyUrl
           ),
           child: Row(
             children: [
-              const Icon(Icons.mail_outline, color: Color(0xFF3498DB), size: 20),
+              const Icon(
+                Icons.mail_outline,
+                color: Color(0xFF3498DB),
+                size: 20,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   _verifiedEmail ?? '',
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF2C3E50), fontWeight: FontWeight.w500),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF2C3E50),
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               TextButton(
@@ -1242,7 +1453,13 @@ Tam ve güncel metin: $_privacyPolicyUrl
                     }
                   });
                 },
-                child: const Text('Değiştir', style: TextStyle(color: Color(0xFF3498DB), fontWeight: FontWeight.w600)),
+                child: const Text(
+                  'Değiştir',
+                  style: TextStyle(
+                    color: Color(0xFF3498DB),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1252,7 +1469,11 @@ Tam ve güncel metin: $_privacyPolicyUrl
         // OTP başlık
         const Text(
           'Doğrulama Kodu',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF2C3E50)),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2C3E50),
+          ),
         ),
         const SizedBox(height: 8),
         const Text(
@@ -1286,16 +1507,35 @@ Tam ve güncel metin: $_privacyPolicyUrl
           width: double.infinity,
           height: 54,
           child: ElevatedButton(
-            onPressed: (_isLoading || _otpCode.length != 6 || _remainingSeconds <= 0) ? null : _verifyOtpAndRegister,
+            onPressed:
+                (_isLoading || _otpCode.length != 6 || _remainingSeconds <= 0)
+                ? null
+                : _verifyOtpAndRegister,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF3498DB),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
               elevation: 0,
             ),
             child: _isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('Kodu Doğrula ve Kayıt Ol', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text(
+                    'Kodu Doğrula ve Kayıt Ol',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 16),
@@ -1304,11 +1544,13 @@ Tam ve güncel metin: $_privacyPolicyUrl
         TextButton(
           onPressed: (_resendCooldown > 0 || _isLoading) ? null : _resendOtp,
           child: Text(
-            _resendCooldown > 0 
-                ? 'Yeniden gönder (${_resendCooldown}s)' 
+            _resendCooldown > 0
+                ? 'Yeniden gönder (${_resendCooldown}s)'
                 : 'Kodu Yeniden Gönder',
             style: TextStyle(
-              color: _resendCooldown > 0 ? const Color(0xFFBDC3C7) : const Color(0xFF3498DB),
+              color: _resendCooldown > 0
+                  ? const Color(0xFFBDC3C7)
+                  : const Color(0xFF3498DB),
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1326,8 +1568,8 @@ Tam ve güncel metin: $_privacyPolicyUrl
         color: const Color(0xFFF8F9FA),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _otpFocusNodes[index].hasFocus 
-              ? const Color(0xFF3498DB) 
+          color: _otpFocusNodes[index].hasFocus
+              ? const Color(0xFF3498DB)
               : Colors.transparent,
           width: 2,
         ),
@@ -1342,9 +1584,7 @@ Tam ve güncel metin: $_privacyPolicyUrl
           textAlignVertical: TextAlignVertical.center,
           keyboardType: TextInputType.number,
           maxLength: 1,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-          ],
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w600,
@@ -1426,8 +1666,8 @@ Tam ve güncel metin: $_privacyPolicyUrl
     final genderEmoji = value == 'male'
         ? '♂'
         : value == 'female'
-            ? '♀'
-            : '○';
+        ? '♀'
+        : '○';
     return InkWell(
       onTap: () => setState(() => _selectedGender = value),
       borderRadius: BorderRadius.circular(12),
@@ -1437,7 +1677,9 @@ Tam ve güncel metin: $_privacyPolicyUrl
           color: isSelected ? const Color(0xFFE8F4F8) : const Color(0xFFF8F9FA),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF3498DB) : const Color(0xFFE0E0E0),
+            color: isSelected
+                ? const Color(0xFF3498DB)
+                : const Color(0xFFE0E0E0),
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -1447,7 +1689,9 @@ Tam ve güncel metin: $_privacyPolicyUrl
               genderEmoji,
               style: TextStyle(
                 fontSize: 28,
-                color: isSelected ? const Color(0xFF3498DB) : const Color(0xFF7F8C8D),
+                color: isSelected
+                    ? const Color(0xFF3498DB)
+                    : const Color(0xFF7F8C8D),
               ),
             ),
             const SizedBox(height: 6),
@@ -1456,7 +1700,9 @@ Tam ve güncel metin: $_privacyPolicyUrl
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? const Color(0xFF3498DB) : const Color(0xFF7F8C8D),
+                color: isSelected
+                    ? const Color(0xFF3498DB)
+                    : const Color(0xFF7F8C8D),
               ),
             ),
           ],
@@ -1489,14 +1735,42 @@ Tam ve güncel metin: $_privacyPolicyUrl
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFFBDC3C7)),
         prefixIcon: Icon(icon, color: const Color(0xFF3498DB), size: 20),
-        suffixIcon: suffixIcon ?? (onTap != null ? IconButton(icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 20, color: const Color(0xFF95A5A6)), onPressed: onTap) : null),
+        suffixIcon:
+            suffixIcon ??
+            (onTap != null
+                ? IconButton(
+                    icon: Icon(
+                      obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 20,
+                      color: const Color(0xFF95A5A6),
+                    ),
+                    onPressed: onTap,
+                  )
+                : null),
         filled: true,
         fillColor: const Color(0xFFF8F9FA),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1)),
-        focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF3498DB), width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF3498DB), width: 1.5),
+        ),
         errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
       ),
     );

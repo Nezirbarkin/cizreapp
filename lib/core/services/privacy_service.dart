@@ -28,6 +28,7 @@ class PrivacyService {
   /// Kullanıcının gerçek çevrimiçi durumunu güncelle (is_online).
   /// Bu, app ön plan/arka plan geçişlerinde ve heartbeat'te yazılır.
   /// Kullanıcının *tercihi* için [updateOnlineEnabled] kullanılır.
+  /// Doğrudan profiles UPDATE yazmaz; SECURITY DEFINER RPC kullanır.
   Future<bool> updateOnlineStatus(bool isOnline) async {
     try {
       final supabase = _supabase;
@@ -43,12 +44,7 @@ class PrivacyService {
 
       AppLogger.debug('Updating online status to: $isOnline for user: $userId');
 
-      final now = DateTime.now().toUtc().toIso8601String();
-      await supabase.from('profiles').update({
-        'is_online': isOnline,
-        'last_seen': now,
-        'updated_at': now,
-      }).eq('id', userId);
+      await supabase.rpc('set_my_presence', params: {'p_is_online': isOnline});
 
       AppLogger.debug('Online status updated successfully');
       return true;
@@ -61,8 +57,7 @@ class PrivacyService {
 
   /// Kullanıcının *tercihini* (çevrimiçi görünüp görünmeyeceğini) günceller.
   /// Bu tercih kalıcıdır: false ise app ön plana gelse bile otomatik online yapılmaz.
-  /// Aynı zamanda `is_online` alanını da buna göre setler (online enabled=false ise çevrimdışı).
-  /// Toggle ekranları bu metodu çağırmalıdır.
+  /// RPC: update_my_privacy_settings.
   Future<bool> updateOnlineEnabled(bool enabled) async {
     try {
       final supabase = _supabase;
@@ -78,15 +73,10 @@ class PrivacyService {
 
       AppLogger.debug('Updating online enabled to: $enabled for user: $userId');
 
-      final now = DateTime.now().toUtc().toIso8601String();
-      // enabled=true ise is_online=true, enabled=false ise is_online=false
-      // last_seen her durumda güncellenir
-      await supabase.from('profiles').update({
-        'is_online_enabled': enabled,
-        'is_online': enabled, // tercih anında gerçek durumu da eşitler
-        'last_seen': now,
-        'updated_at': now,
-      }).eq('id', userId);
+      await supabase.rpc(
+        'update_my_privacy_settings',
+        params: {'p_is_online_enabled': enabled},
+      );
 
       AppLogger.debug('Online enabled updated successfully');
       return true;
@@ -113,13 +103,10 @@ class PrivacyService {
 
       AppLogger.debug('Updating ghost mode to: $isGhostMode for user: $userId');
 
-      final now = DateTime.now().toUtc().toIso8601String();
-      // Hayalet mod açılırsa kullanıcıyı çevrimdışı yap (mevcut davranış korunur)
-      await supabase.from('profiles').update({
-        'is_ghost_mode': isGhostMode,
-        if (isGhostMode) 'is_online': false,
-        'updated_at': now,
-      }).eq('id', userId);
+      await supabase.rpc(
+        'update_my_privacy_settings',
+        params: {'p_is_ghost_mode': isGhostMode},
+      );
 
       AppLogger.debug('Ghost mode updated successfully');
       return true;
@@ -131,7 +118,6 @@ class PrivacyService {
   }
 
   /// Kullanıcının mevcut gerçek çevrimiçi durumunu al (is_online).
-  /// UI'da toggle görüntüleme için [getOnlineEnabled] tercih edilir.
   Future<bool> getOnlineStatus() async {
     try {
       final supabase = _supabase;
@@ -142,13 +128,10 @@ class PrivacyService {
         return false;
       }
 
-      final response = await supabase
-          .from('profiles')
-          .select('is_online')
-          .eq('id', userId)
-          .single();
-
-      return response['is_online'] as bool? ?? false;
+      final response = await supabase.rpc<Map<String, dynamic>>(
+        'get_my_profile',
+      );
+      return (response['is_online'] as bool?) ?? false;
     } catch (e, stackTrace) {
       AppLogger.error('Error getting online status: $e');
       AppLogger.error('Stack trace: $stackTrace');
@@ -157,7 +140,6 @@ class PrivacyService {
   }
 
   /// Kullanıcının çevrimiçi görünüp görünmeyeceği *tercihini* al (is_online_enabled).
-  /// Toggle ekranları bu değeri göstermeli/güncellemelidir.
   Future<bool> getOnlineEnabled() async {
     try {
       final supabase = _supabase;
@@ -168,18 +150,13 @@ class PrivacyService {
         return true;
       }
 
-      final response = await supabase
-          .from('profiles')
-          .select('is_online_enabled')
-          .eq('id', userId)
-          .single();
-
-      // Sütun henüz eklenmemişse (migration yapılmadıysa) true döner
-      return response['is_online_enabled'] as bool? ?? true;
+      final response = await supabase.rpc<Map<String, dynamic>>(
+        'get_my_profile',
+      );
+      return (response['is_online_enabled'] as bool?) ?? true;
     } catch (e, stackTrace) {
       AppLogger.error('Error getting online enabled: $e');
       AppLogger.error('Stack trace: $stackTrace');
-      // Hata durumunda true dönmek mevcut (eski) davranışı korur
       return true;
     }
   }
@@ -195,13 +172,10 @@ class PrivacyService {
         return false;
       }
 
-      final response = await supabase
-          .from('profiles')
-          .select('is_ghost_mode')
-          .eq('id', userId)
-          .single();
-
-      return response['is_ghost_mode'] as bool? ?? false;
+      final response = await supabase.rpc<Map<String, dynamic>>(
+        'get_my_profile',
+      );
+      return (response['is_ghost_mode'] as bool?) ?? false;
     } catch (e, stackTrace) {
       AppLogger.error('Error getting ghost mode: $e');
       AppLogger.error('Stack trace: $stackTrace');
@@ -210,7 +184,7 @@ class PrivacyService {
   }
 
   /// Heartbeat gönder - last_seen ve is_online günceller
-  /// ÖNEMLI DÜZELTME (2026-07-02): Sadece last_seen değil, is_online da güncellenir
+  /// RPC: set_my_presence (server timestamp).
   Future<void> _sendHeartbeat() async {
     try {
       final supabase = _supabase;
@@ -221,23 +195,13 @@ class PrivacyService {
       // Önce tercihleri kontrol et
       final enabled = await getOnlineEnabled();
       if (!enabled) {
-        // Tercih kapalı: sadece last_seen güncelle, is_online false kalsın
-        final now = DateTime.now().toUtc().toIso8601String();
-        await supabase.from('profiles').update({
-          'last_seen': now,
-        }).eq('id', userId);
-        AppLogger.debug('Heartbeat (offline mode) at $now');
+        // Tercih kapalı: RPC yine çağrılır ama RPC is_online=false yazar.
+        await supabase.rpc('set_my_presence', params: {'p_is_online': false});
         return;
       }
 
-      // Tercih açık: is_online=true ve last_seen güncelle
-      final now = DateTime.now().toUtc().toIso8601String();
-      await supabase.from('profiles').update({
-        'is_online': true,
-        'last_seen': now,
-      }).eq('id', userId);
-
-      AppLogger.debug('Heartbeat sent at $now (is_online=true)');
+      await supabase.rpc('set_my_presence', params: {'p_is_online': true});
+      AppLogger.debug('Heartbeat sent (is_online=true)');
     } catch (e) {
       AppLogger.error('Heartbeat error: $e');
     }
@@ -249,7 +213,9 @@ class PrivacyService {
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
       _sendHeartbeat();
     });
-    AppLogger.debug('Heartbeat timer started (interval: ${_heartbeatInterval.inSeconds}s)');
+    AppLogger.debug(
+      'Heartbeat timer started (interval: ${_heartbeatInterval.inSeconds}s)',
+    );
   }
 
   /// Heartbeat timer'ı durdur

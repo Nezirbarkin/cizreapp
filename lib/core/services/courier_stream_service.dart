@@ -8,10 +8,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Tek bir kuryenin (role='courier') haritada gösterilecek kırpılmış bilgisi.
 /// Konum paylaşımı açık olan kullanıcılar için geçerlidir; null lat/lng
 /// olanlar haritaya hiç girmez, hizmet dışında tutulur.
+/// NOT: phone alanı kaldırıldı; kurye telefon numarası artık public
+/// akışta ifşa edilmez. Tam konum yerine yalnız approx_lat/lng (0.01
+/// derece ~1.1 km karelaj) gösterilir.
 class CourierInfo {
   final String id;
   final String name;
-  final String? phone;
   final String? avatarUrl;
   final int deliveredCount;
   final double lat;
@@ -21,7 +23,6 @@ class CourierInfo {
   const CourierInfo({
     required this.id,
     required this.name,
-    this.phone,
     this.avatarUrl,
     this.deliveredCount = 0,
     required this.lat,
@@ -29,20 +30,20 @@ class CourierInfo {
     this.updatedAt,
   });
 
-  /// `profiles` satırından kırpılmış kurye bilgisi üretir. lat/lng null
-  /// olanlar `null` döner — hizmet bunları cache'e almaz.
+  /// `get_nearby_couriers` RPC satırından kırpılmış kurye bilgisi üretir.
+  /// lat/lng null olanlar `null` döner — hizmet bunları cache'e almaz.
   static CourierInfo? fromRow(Map<String, dynamic> row) {
-    final lat = (row['last_known_lat'] as num?)?.toDouble();
-    final lng = (row['last_known_lng'] as num?)?.toDouble();
+    final lat = (row['approx_lat'] as num?)?.toDouble();
+    final lng = (row['approx_lng'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
     final id = row['id'] as String?;
     if (id == null) return null;
     return CourierInfo(
       id: id,
-      name: (row['full_name'] as String?) ??
+      name:
+          (row['full_name'] as String?) ??
           (row['username'] as String?) ??
           'Kurye',
-      phone: row['phone'] as String?,
       avatarUrl: row['avatar_url'] as String?,
       deliveredCount: (row['delivered_count'] as num?)?.toInt() ?? 0,
       lat: lat,
@@ -74,6 +75,7 @@ class CourierStreamService {
   final Map<String, CourierInfo> _cache = {};
   final List<void Function(Map<String, CourierInfo>)> _listeners = [];
 
+  Timer? _pollTimer;
   StreamSubscription<List<Map<String, dynamic>>>? _channelSub;
   bool _bootstrapInFlight = false;
   String? _lastError;
@@ -101,15 +103,14 @@ class CourierStreamService {
     if (_listeners.isEmpty) {
       _channelSub?.cancel();
       _channelSub = null;
+      _pollTimer?.cancel();
+      _pollTimer = null;
     }
   }
 
   Future<void> _bootstrapAndStart() async {
-    // İlk sorgu: kanal açıldığında realtime zaten snapshot verecek ama
-    // bazı ortamlarda ilk payload gecikebiliyor; bu yüzden açık bir
-    // sorgu ile cache'i doldurup, sonra realtime'a düşüyoruz. İkisi de
-    // aynı tabloya yazdığı için çift işlem riski yok (insert/update
-    // `id` PK üzerinden çakışır).
+    // İlk sorgu: cache'i doldur. Sonra periyodik poll ile güncelle.
+    // (Realtime'dan profiles row payload almak PII sızdırır.)
     if (_bootstrapInFlight) return;
     _bootstrapInFlight = true;
     try {
@@ -123,61 +124,39 @@ class CourierStreamService {
       _bootstrapInFlight = false;
     }
 
-    // Realtime akış: tablo değişikliklerini dinle. Birincil anahtar id.
-    try {
-      _channelSub = _client
-          .from('profiles')
-          .stream(primaryKey: ['id'])
-          .eq('role', 'courier')
-          .listen(
-        (List<Map<String, dynamic>> rows) {
-          _mergeRows(rows);
-          _emit();
-        },
-        onError: (Object e) {
-          debugPrint('⚠️ CourierStreamService.realtime hatası: $e');
-        },
-      );
-    } catch (e) {
-      debugPrint('⚠️ CourierStreamService.stream başlatılamadı: $e');
-    }
+    // Periyodik poll: 30 saniyede bir cache'i güncelle. Realtime
+    // yerine RPC poll tercih edildi; çünkü profiles tablosu için
+    // SELECT grant'i REVOKE edildi ve realtime row payload'ı PII
+    // sızdırır.
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      try {
+        final rows = await _fetchCouriers();
+        _mergeRows(rows);
+        _emit();
+      } catch (e) {
+        debugPrint('⚠️ CourierStreamService.poll hatası: $e');
+      }
+    });
   }
 
-  /// Sütunlar kademeli olarak dener. Yeni eklenen bir sütun (örn.
-  /// delivered_count) henüz DB'de yoksa PostgrestException fırlatır;
-  /// bu durumda daha dar sütun kümesiyle tekrar denenir. Sonunda
-  /// minimum lat/lng/id kalmazsa boş liste döner.
+  /// Kuryeleri getir. profiles tablosundan doğrudan SELECT yapılmaz;
+  /// SECURITY DEFINER get_nearby_couriers() RPC'si kullanılır. RPC
+  /// yalnız güvenli sütunları (id, full_name, username, avatar_url,
+  /// delivered_count, yuvarlatılmış approx_lat/lng, last_location_update)
+  /// döner; telefon/PII sızdırmaz, konum 0.01 derece (~1.1 km)
+  /// karelajına yuvarlanır.
   Future<List<Map<String, dynamic>>> _fetchCouriers() async {
-    const tries = <String>[
-      // Tam sütun seti (delivered_count, avatar_url, phone hepsi var)
-      'id, full_name, username, phone, avatar_url, delivered_count, '
-          'last_known_lat, last_known_lng, last_location_update',
-      // Orta: delivered_count yok
-      'id, full_name, username, phone, avatar_url, '
-          'last_known_lat, last_known_lng, last_location_update',
-      // Orta-: avatar_url yok
-      'id, full_name, username, phone, '
-          'last_known_lat, last_known_lng, last_location_update',
-      // Minimum: sadece konum + isim
-      'id, full_name, last_known_lat, last_known_lng, last_location_update',
-      // Son çare: sadece konum
-      'id, last_known_lat, last_known_lng',
-    ];
-    for (final cols in tries) {
-      try {
-        final res = await _client
-            .from('profiles')
-            .select(cols)
-            .eq('role', 'courier')
-            .not('last_known_lat', 'is', null)
-            .not('last_known_lng', 'is', null);
-        return List<Map<String, dynamic>>.from(res);
-      } catch (e) {
-        debugPrint('⚠️ CourierStreamService.fetch daraltılıyor: $e');
-        // Sonraki denemeye geç
-      }
+    try {
+      final res = await _client.rpc<List<dynamic>>(
+        'get_nearby_couriers',
+        params: {'p_max_age_seconds': 600},
+      );
+      return List<Map<String, dynamic>>.from(res);
+    } catch (e) {
+      debugPrint('⚠️ CourierStreamService.get_nearby_couriers hatası: $e');
+      return [];
     }
-    return const [];
   }
 
   void _mergeRows(List<Map<String, dynamic>> rows) {
@@ -206,7 +185,8 @@ class CourierStreamService {
       Map<String, CourierInfo>.from(_cache),
     );
     for (final l in List<void Function(Map<String, CourierInfo>)>.from(
-        _listeners)) {
+      _listeners,
+    )) {
       try {
         l(snap);
       } catch (e) {

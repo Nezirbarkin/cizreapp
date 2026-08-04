@@ -30,6 +30,31 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
 
+  // Sunucudan dönen son gerçek tutar (UI'da onay sonrası gösterilir)
+  double? _lastServerTotalFee;
+
+  // Idempotency key: aynı submit'te çift tıklama sunucu tarafında tek talebe
+  // dönüşür. Session başına tek bir key kullanırız.
+  late final String _paketIdempotencyKey;
+
+  static String _generateUuid() {
+    // Hafif bir v4 üretici: 16 byte random.
+    final r = DateTime.now().microsecondsSinceEpoch;
+    final bytes = List<int>.generate(
+      16,
+      (i) => ((r * (i + 1)) ^ (i * 0x9E3779B1)) & 0xFF,
+    );
+    bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 1
+    String hex(int b) => b.toRadixString(16).padLeft(2, '0');
+    final h = bytes.map(hex).join();
+    return '${h.substring(0, 8)}-'
+        '${h.substring(8, 12)}-'
+        '${h.substring(12, 16)}-'
+        '${h.substring(16, 20)}-'
+        '${h.substring(20)}';
+  }
+
   List<Map<String, dynamic>> _serviceNotices = [];
 
   // build() içinde her seferinde yeni Future yaratmak yerine tek sefer cache'le.
@@ -60,6 +85,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   @override
   void initState() {
     super.initState();
+    _paketIdempotencyKey = _generateUuid();
     _loadPricing();
     _loadServiceNotices();
     _refreshNearbyCouriers();
@@ -99,7 +125,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
           .order('created_at', ascending: false);
 
       if (mounted) {
-        setState(() => _serviceNotices = List<Map<String, dynamic>>.from(notices));
+        setState(
+          () => _serviceNotices = List<Map<String, dynamic>>.from(notices),
+        );
       }
     } catch (e) {
       debugPrint('Uyarılar yükleme hatası: $e');
@@ -140,7 +168,8 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
           userId: courier['id'] as String,
           type: 'new_package_request',
           title: 'Yeni Paket Talebi',
-          content: 'Alım: ${_pickupAddress?.addressLine1 ?? '-'} → Teslim: ${_deliveryAddress?.addressLine1 ?? '-'}',
+          content:
+              'Alım: ${_pickupAddress?.addressLine1 ?? '-'} → Teslim: ${_deliveryAddress?.addressLine1 ?? '-'}',
         );
       }
     } catch (e) {
@@ -170,7 +199,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         _deliveryAddress?.longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Alım ve teslim noktaları için haritadan konum seçiniz'),
+          content: Text(
+            'Alım ve teslim noktaları için haritadan konum seçiniz',
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -185,7 +216,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Oturumunuz sona erdi. Lütfen tekrar giriş yapınız.'),
+              content: Text(
+                'Oturumunuz sona erdi. Lütfen tekrar giriş yapınız.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -193,41 +226,51 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         return;
       }
 
-      insertedRequest = await Supabase.instance.client.from('courier_requests').insert({
-        'sender_id': userId,
-        'sender_name': _senderNameController.text.trim(),
-        'sender_phone': _senderPhoneController.text.trim(),
-        'recipient_name': _recipientController.text.trim(),
-        'recipient_phone': _recipientPhoneController.text.trim(),
-        'pickup_address': _pickupAddress!.addressLine1,
-        'pickup_lat': _pickupAddress!.latitude,
-        'pickup_lng': _pickupAddress!.longitude,
-        'delivery_address': _deliveryAddress!.addressLine1,
-        'delivery_address_detail': _recipientAddressDetailController.text.trim(),
-        'delivery_lat': _deliveryAddress!.latitude,
-        'delivery_lng': _deliveryAddress!.longitude,
-        'description': _descriptionController.text.trim(),
-        'distance_km': _distanceKm,
-        'total_fee': _totalFee,
-        'status': 'pending',
-      }).select().single();
+      // Sunucu-otoriteli atomik talep: mesafe, fiyat, bakiye düşümü ve ledger
+      // kaydı tek bir RPC'de yapılır. İstemci hiçbir finansal değer göndermez.
+      // Idempotency key: aynı gönderimde çift tıklama aynı sonucu üretir.
+      final idempotencyKey = _paketIdempotencyKey;
+      insertedRequest = await Supabase.instance.client
+          .rpc(
+            'create_package_request',
+            params: {
+              'p_pickup_lat': _pickupAddress!.latitude,
+              'p_pickup_lng': _pickupAddress!.longitude,
+              'p_delivery_lat': _deliveryAddress!.latitude,
+              'p_delivery_lng': _deliveryAddress!.longitude,
+              'p_sender_name': _senderNameController.text.trim(),
+              'p_sender_phone': _senderPhoneController.text.trim(),
+              'p_recipient_name': _recipientController.text.trim(),
+              'p_recipient_phone': _recipientPhoneController.text.trim(),
+              'p_pickup_address': _pickupAddress!.addressLine1,
+              'p_delivery_address': _deliveryAddress!.addressLine1,
+              'p_delivery_address_detail': _recipientAddressDetailController
+                  .text
+                  .trim(),
+              'p_description': _descriptionController.text.trim(),
+              'p_idempotency_key': idempotencyKey,
+            },
+          )
+          .select('id,total_fee')
+          .single();
 
-      // Ücreti kullanıcı bakiyesinden düş (yetersizse RPC exception fırlatır)
-      await Supabase.instance.client.rpc('deduct_from_balance', params: {
-        'p_user_id': userId,
-        'p_amount': _totalFee,
-        'p_type': 'courier_payment',
-        'p_reference_type': 'courier_request',
-        'p_reference_id': insertedRequest['id'],
-        'p_description': 'Paket gönderim ücreti',
-      });
+      // Sunucu tarafından hesaplanan tutarı UI'a uygula
+      final serverTotalFee = (insertedRequest['total_fee'] as num?)?.toDouble();
+      if (serverTotalFee != null && mounted) {
+        setState(() => _lastServerTotalFee = serverTotalFee);
+      }
 
       _notifyCouriers();
 
       if (mounted) {
+        final fee = _lastServerTotalFee;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Paket talebiniz gönderildi!'),
+          SnackBar(
+            content: Text(
+              fee == null
+                  ? 'Paket talebiniz gönderildi!'
+                  : 'Paket talebiniz gönderildi! Ücret: ₺${fee.toStringAsFixed(2)}',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -237,39 +280,27 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
       }
     } catch (e) {
       debugPrint('Paket talebini gönderme hatası: $e');
-      // Bakiye kesintisi başarısızsa oluşturulan talebi geri al
-      if (insertedRequest != null) {
-        try {
-          await Supabase.instance.client
-              .from('courier_requests')
-              .delete()
-              .eq('id', insertedRequest['id']);
-        } catch (rollbackErr) {
-          // Geri alma da başarısız olursa (RLS/ağ): ücreti düşülmemiş talebin
-          // kuryelere görünmesi riskini bildir.
-          debugPrint('❌ Talep geri alınamadı: $rollbackErr');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('İşlem başarısız oldu ancak talep silinemedi. Lütfen destekle iletişime geçin.'),
-                backgroundColor: Colors.red,
-                duration: Duration(seconds: 6),
-              ),
-            );
-          }
-        }
-      }
+      // create_package_request RPC atomik: talep ya da bakiye düşümü kalıcı
+      // değilse hiçbir satır oluşmaz. İstemci tarafında manuel rollback'e gerek
+      // yoktur; hata mesajı doğrudan gösterilir.
       if (mounted) {
         // Yetersiz bakiye hatası kontrolü
         final errorMessage = e.toString();
-        if (errorMessage.contains('Insufficient balance') || errorMessage.contains('yetersiz bakiye')) {
+        if (errorMessage.contains('Insufficient balance') ||
+            errorMessage.contains('yetersiz bakiye')) {
           // Bakiye miktarlarını ayıkla
           String? availableText;
           String? requiredText;
           try {
             if (errorMessage.contains('Available:')) {
-              availableText = errorMessage.split('Available:')[1].split(',')[0].trim();
-              requiredText = errorMessage.split('Required:')[1].split(',')[0].trim();
+              availableText = errorMessage
+                  .split('Available:')[1]
+                  .split(',')[0]
+                  .trim();
+              requiredText = errorMessage
+                  .split('Required:')[1]
+                  .split(',')[0]
+                  .trim();
             }
           } catch (_) {}
 
@@ -293,19 +324,25 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Mevcut bakiye: ₺$availableText',
+                          Text(
+                            'Mevcut bakiye: ₺$availableText',
                             style: const TextStyle(fontSize: 13),
                           ),
                           const SizedBox(height: 4),
-                          Text('Gerekli miktar: ₺$requiredText',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                          Text(
+                            'Gerekli miktar: ₺$requiredText',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ],
                   const SizedBox(height: 12),
-                  const Text('Bakiye yüklemek ister misiniz?',
+                  const Text(
+                    'Bakiye yüklemek ister misiniz?',
                     style: TextStyle(fontSize: 13),
                   ),
                 ],
@@ -330,12 +367,17 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
           );
         } else {
           // Diğer hatalar için genel mesaj
-          String userFriendlyMessage = 'Paket talebiniz gönderilirken bir sorun oluştu.';
+          String userFriendlyMessage =
+              'Paket talebiniz gönderilirken bir sorun oluştu.';
 
-          if (errorMessage.contains('P0001') || errorMessage.contains('PostgrestException')) {
-            userFriendlyMessage = 'İşlem sırasında bir sorun oluştu. Lütfen tekrar deneyiniz.';
-          } else if (errorMessage.contains('timeout') || errorMessage.contains('Timeout')) {
-            userFriendlyMessage = 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyiniz.';
+          if (errorMessage.contains('P0001') ||
+              errorMessage.contains('PostgrestException')) {
+            userFriendlyMessage =
+                'İşlem sırasında bir sorun oluştu. Lütfen tekrar deneyiniz.';
+          } else if (errorMessage.contains('timeout') ||
+              errorMessage.contains('Timeout')) {
+            userFriendlyMessage =
+                'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyiniz.';
           }
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -557,7 +599,11 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.two_wheeler, color: Colors.blue.shade700, size: 20),
+                  Icon(
+                    Icons.two_wheeler,
+                    color: Colors.blue.shade700,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Yakın Kuryeler (${couriers.length})',
@@ -584,7 +630,10 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         alignment: Alignment.center,
-                        child: const Text('🏍️', style: TextStyle(fontSize: 12)),
+                        child: const Text(
+                          '🏍️',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -626,7 +675,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
             tooltip: 'Geçmiş Paketlerim',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const PackageHistoryScreen()),
+              MaterialPageRoute(
+                builder: (context) => const PackageHistoryScreen(),
+              ),
             ),
           ),
         ],
@@ -679,17 +730,24 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     const SizedBox(height: 12),
                     Card(
                       color: primary.withValues(alpha: 0.08),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Mesafe: ${distanceKm!.toStringAsFixed(1)} km'),
+                            Text(
+                              'Mesafe: ${distanceKm!.toStringAsFixed(1)} km',
+                            ),
                             const SizedBox(height: 4),
                             Text(
                               'Açılış: ${_baseFee.toStringAsFixed(2)} ₺  +  ${distanceKm.toStringAsFixed(1)} km × ${_perKmFee.toStringAsFixed(2)} ₺',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Row(
@@ -698,7 +756,11 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                                 const Text('Toplam Ücret'),
                                 Text(
                                   '${totalFee.toStringAsFixed(2)} ₺',
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: primary, fontSize: 16),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: primary,
+                                    fontSize: 16,
+                                  ),
                                 ),
                               ],
                             ),
@@ -718,7 +780,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Gönderen Adı',
                       prefixIcon: const Icon(Icons.person_outline),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -728,7 +792,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Gönderen Telefonu',
                       prefixIcon: const Icon(Icons.phone_outlined),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -742,7 +808,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Alıcı Adı',
                       prefixIcon: const Icon(Icons.person),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -752,7 +820,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Telefon',
                       prefixIcon: const Icon(Icons.phone),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -762,7 +832,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Açık Adres (Kat, Daire, Tarif vb.)',
                       prefixIcon: const Icon(Icons.map_outlined),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -777,7 +849,9 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     decoration: InputDecoration(
                       labelText: 'Açıklama',
                       prefixIcon: const Icon(Icons.description),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -789,17 +863,25 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                         backgroundColor: primary,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       child: _isSubmitting
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
                           : const Text(
                               'Paket Talebini Gönder',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                     ),
                   ),

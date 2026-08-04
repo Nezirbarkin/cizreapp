@@ -338,7 +338,9 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
     );
     final eta = _estimateEtaMinutes(distance);
     final distanceText = _formatDistance(distance);
-    final phone = c.phone;
+    // phone artık public CourierInfo'da bulunmuyor (PII sızıntısı
+    // engellendi). Talep sonrası kurye atanırsa atanmış kuryenin telefonu
+    // yalnız talep göndericisine ayrı bir RPC ile gösterilir.
     final avatarUrl = c.avatarUrl;
 
     showModalBottomSheet(
@@ -452,29 +454,16 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
               if (c.deliveredCount > 0)
                 _infoRow(Icons.check_circle_outline,
                     '${c.deliveredCount} teslimat tamamladı'),
-              if (phone != null && phone.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _infoRow(Icons.phone_outlined, phone),
-              ],
+              // Kurye telefonu artık public akışta ifşa edilmiyor (PII
+              // sızıntısı engellendi). Atanmış kuryenin telefonu yalnız
+              // aktif talep göndericisine ayrı bir RPC ile gösterilir;
+              // buradaki kartta telefon alanı ve "Kuryeyi Ara" butonu
+              // kaldırıldı.
               if (c.updatedAt != null) ...[
                 const SizedBox(height: 8),
                 _infoRow(Icons.update, 'Son konum: ${_formatUpdate(c.updatedAt)}'),
               ],
               const SizedBox(height: 16),
-              if (phone != null && phone.isNotEmpty)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _callPhone(phone),
-                    icon: const Icon(Icons.phone),
-                    label: const Text('Kuryeyi Ara'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),

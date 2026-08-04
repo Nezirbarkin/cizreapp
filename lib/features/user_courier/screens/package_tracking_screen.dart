@@ -24,6 +24,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   final Set<Polyline> _polylines = {};
   bool _isLoading = true;
   bool _loadFailed = false;
+  bool _isConfirmingDelivery = false;
 
   Position? _userLocation;
   Map<String, dynamic>? _courierLocation;
@@ -43,10 +44,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   }
 
   Future<void> _init() async {
-    await Future.wait([
-      _getUserLocation(),
-      _loadPackageData(),
-    ]);
+    await Future.wait([_getUserLocation(), _loadPackageData()]);
     if (mounted) {
       setState(() => _isLoading = false);
       // Veriler yüklendiğinde marker'ları hemen çiz ki harita açılışta boş kalmasın.
@@ -160,6 +158,64 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
         });
   }
 
+  /// 2026-08-03: Gönderici kendi paketinin teslimatını onaylar. Sunucu
+  /// (confirm_package_delivery RPC) atomik olarak status='delivered' yapar,
+  /// courier_earnings + delivered_count artırır, kuryeye bildirim gönderir.
+  Future<void> _confirmDelivery() async {
+    if (_isConfirmingDelivery) return;
+    if (_packageData?['id'] == null) return;
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Teslimat Onayı'),
+        content: const Text(
+          'Paketin alıcısına ulaştığını onaylıyor musunuz? Bu işlem geri alınamaz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Onayla'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isConfirmingDelivery = true);
+    try {
+      await Supabase.instance.client.rpc(
+        'confirm_package_delivery',
+        params: {'p_request_id': _packageData!['id']},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Teslimat onaylandı'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      // Yerel state'i de güncelle ki status göstergesi doğru olsun
+      setState(() {
+        _packageData = {..._packageData!, 'status': 'delivered'};
+      });
+    } catch (e) {
+      debugPrint('Teslimat onaylama hatası: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isConfirmingDelivery = false);
+    }
+  }
+
   void _startLocationTracking() {
     _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _updateUserLocation();
@@ -203,9 +259,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           markerId: const MarkerId('user_location'),
           position: LatLng(_userLocation!.latitude, _userLocation!.longitude),
           infoWindow: const InfoWindow(title: 'Benim Konumum'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueBlue,
-          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         ),
       );
     }
@@ -257,9 +311,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           Marker(
             markerId: const MarkerId('pickup_location'),
             position: LatLng(pickupLat, pickupLng),
-            infoWindow: const InfoWindow(
-              title: 'Alım Noktası',
-            ),
+            infoWindow: const InfoWindow(title: 'Alım Noktası'),
             icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueGreen,
             ),
@@ -276,9 +328,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           Marker(
             markerId: const MarkerId('delivery_location'),
             position: LatLng(deliveryLat, deliveryLng),
-            infoWindow: const InfoWindow(
-              title: 'Teslim Noktası',
-            ),
+            infoWindow: const InfoWindow(title: 'Teslim Noktası'),
             icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueOrange,
             ),
@@ -311,10 +361,18 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     double maxLng = _markers.first.position.longitude;
 
     for (final marker in _markers) {
-      minLat = minLat > marker.position.latitude ? marker.position.latitude : minLat;
-      maxLat = maxLat < marker.position.latitude ? marker.position.latitude : maxLat;
-      minLng = minLng > marker.position.longitude ? marker.position.longitude : minLng;
-      maxLng = maxLng < marker.position.longitude ? marker.position.longitude : maxLng;
+      minLat = minLat > marker.position.latitude
+          ? marker.position.latitude
+          : minLat;
+      maxLat = maxLat < marker.position.latitude
+          ? marker.position.latitude
+          : maxLat;
+      minLng = minLng > marker.position.longitude
+          ? marker.position.longitude
+          : minLng;
+      maxLng = maxLng < marker.position.longitude
+          ? marker.position.longitude
+          : maxLng;
     }
 
     return LatLngBounds(
@@ -326,9 +384,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   void _fitBounds() {
     final controller = _mapController;
     if (controller == null || _markers.isEmpty) return;
-    controller.animateCamera(
-      CameraUpdate.newLatLngBounds(_getBounds(), 100),
-    );
+    controller.animateCamera(CameraUpdate.newLatLngBounds(_getBounds(), 100));
   }
 
   String? _getDistance() {
@@ -396,34 +452,39 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
         ],
       ),
       body: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(color: primary),
-            )
+          ? Center(child: CircularProgressIndicator(color: primary))
           : _loadFailed
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Paket bilgileri yüklenemedi.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 15),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Paket bulunamadı veya yetki sorunu olabilir.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red,
                     ),
-                  ),
-                )
-              : Stack(
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Paket bilgileri yüklenemedi.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Paket bulunamadı veya yetki sorunu olabilir.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Stack(
               children: [
                 GoogleMap(
                   initialCameraPosition: const CameraPosition(
@@ -433,9 +494,13 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                   onMapCreated: (controller) {
                     _mapController = controller;
                     if (_markers.isNotEmpty) {
-                      Future.delayed(const Duration(milliseconds: 500), _fitBounds);
+                      Future.delayed(
+                        const Duration(milliseconds: 500),
+                        _fitBounds,
+                      );
                     }
-                  },markers: _markers,
+                  },
+                  markers: _markers,
                   polylines: _polylines,
                   zoomControlsEnabled: false,
                   myLocationButtonEnabled: false,
@@ -459,26 +524,38 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                           if (_packageData != null) ...[
                             Text(
                               'Alım: ${_packageData!['pickup_address'] ?? '-'}',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'Teslim: ${_packageData!['delivery_address'] ?? '-'}',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                             const SizedBox(height: 12),
                           ],
                           if (_courierLocation != null) ...[
                             Row(
                               children: [
-                                Icon(Icons.two_wheeler, color: Colors.red, size: 20),
+                                Icon(
+                                  Icons.two_wheeler,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        _courierLocation!['full_name'] ?? 'Kurye',
+                                        _courierLocation!['full_name'] ??
+                                            'Kurye',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 14,
@@ -511,13 +588,63 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.two_wheeler, color: Colors.blue.shade700, size: 20),
+                                  Icon(
+                                    Icons.two_wheeler,
+                                    color: Colors.blue.shade700,
+                                    size: 20,
+                                  ),
                                   const SizedBox(width: 8),
                                   Text(
                                     'Kurye yola çıktı, konum bekleniyor...',
                                     style: TextStyle(
                                       color: Colors.blue.shade700,
                                       fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // 2026-08-03: Gönderici, kurye onay isteği gelmeden
+                            // de teslimatı doğrulayabilir (accepted durumunda).
+                            // Sunucu tarafında courier_id ve status kontrol edilir.
+                            Center(
+                              child: ElevatedButton.icon(
+                                onPressed: _isConfirmingDelivery
+                                    ? null
+                                    : _confirmDelivery,
+                                icon: const Icon(Icons.check_circle_outline),
+                                label: const Text('Teslimatı Onayla'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green.shade600,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ] else if (_packageData?['status'] ==
+                              'delivery_pending_confirmation') ...[
+                            Center(
+                              child: Column(
+                                children: [
+                                  const Text(
+                                    'Kurye teslimat onayı istiyor',
+                                    style: TextStyle(
+                                      color: Colors.indigo,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ElevatedButton.icon(
+                                    onPressed: _isConfirmingDelivery
+                                        ? null
+                                        : _confirmDelivery,
+                                    icon: const Icon(Icons.check_circle),
+                                    label: const Text(
+                                      'Teslim Edildi olarak işaretle',
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green.shade700,
+                                      foregroundColor: Colors.white,
                                     ),
                                   ),
                                 ],

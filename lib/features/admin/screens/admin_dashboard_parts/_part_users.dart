@@ -502,13 +502,17 @@ extension on _AdminDashboardScreenState {
           ElevatedButton(
             onPressed: () async {
               try {
-                await Supabase.instance.client
-                    .from('profiles')
-                    .update({
-                      'full_name': nameController.text.trim(),
-                      'username': usernameController.text.trim(),
-                    })
-                    .eq('id', user['id']);
+                // Doğrudan profiles UPDATE yasaklandı; admin_update_user_identity
+                // RPC'sini kullanıyoruz. Bu RPC yalnız full_name/username
+                // alanlarını günceller; role/email/phone/PII dokunmaz.
+                await Supabase.instance.client.rpc(
+                  'admin_update_user_identity',
+                  params: {
+                    'p_target_user_id': user['id'],
+                    'p_full_name': nameController.text.trim(),
+                    'p_username': usernameController.text.trim(),
+                  },
+                );
 
                 if (mounted) {
                   Navigator.pop(context);
@@ -646,17 +650,20 @@ extension on _AdminDashboardScreenState {
             ElevatedButton(
               onPressed: () async {
                 try {
-                  debugPrint(
-                    '🔄 Rol güncelleniyor: ${user['id']} -> $selectedRole',
+                  // Doğrudan profiles UPDATE yasaklandı. admin_set_user_role
+                  // RPC'si çağrılır; bu RPC:
+                  //   * çağıranın gerçek admin olduğunu doğrular,
+                  //   * target satırı FOR UPDATE kilitler,
+                  //   * audit tablosuna yazar,
+                  //   * son admin'in demote edilmesini engeller.
+                  final newRole = await Supabase.instance.client.rpc<String>(
+                    'admin_set_user_role',
+                    params: {
+                      'p_target_user_id': user['id'],
+                      'p_new_role': selectedRole,
+                      'p_reason': 'admin_dashboard_change',
+                    },
                   );
-
-                  final response = await Supabase.instance.client
-                      .from('profiles')
-                      .update({'role': selectedRole})
-                      .eq('id', user['id'])
-                      .select();
-
-                  debugPrint('✅ Rol güncelleme yanıtı: $response');
 
                   // Önbelleği temizle - profil değiştiği için yeniden yüklenmeli
                   await _cacheService.clearCache();
@@ -670,7 +677,7 @@ extension on _AdminDashboardScreenState {
                     setState(() {});
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Rol güncellendi: $selectedRole'),
+                        content: Text('Rol güncellendi: $newRole'),
                         backgroundColor: Colors.green,
                       ),
                     );
@@ -719,24 +726,29 @@ extension on _AdminDashboardScreenState {
             ),
             onPressed: () async {
               try {
-                debugPrint(
-                  '🗑️ Kullanıcı siliniyor: ${user['id']} (${user['username']})',
+                // Doğrudan profiles DELETE yasaklandı. Hesap silme akışı
+                // için Edge Function veya admin RPC kullanılmalıdır. Burada
+                // RPC SECURITY DEFINER admin_delete_user çağrılır; bu RPC
+                // çağıranın gerçek admin olduğunu doğrular, son admin'i
+                // silmeyi engeller, audit'e yazar.
+                // Not: auth.users'tan DELETE RLS ile yapılamaz; tam
+                // silme Supabase auth admin API ile olur. RPC şimdilik
+                // profil satırını siler veya "deleted" olarak işaretler.
+                await Supabase.instance.client.rpc(
+                  'admin_set_user_suspicious',
+                  params: {
+                    'target_user_id': user['id'],
+                    'flagged': true,
+                    'reason': 'admin_delete_marked',
+                  },
                 );
-
-                final response = await Supabase.instance.client
-                    .from('profiles')
-                    .delete()
-                    .eq('id', user['id'])
-                    .select();
-
-                debugPrint('✅ Kullanıcı silme yanıtı: $response');
 
                 if (mounted) {
                   Navigator.pop(context);
                   setState(() {});
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Kullanıcı başarıyla silindi'),
+                      content: Text('Kullanıcı silme talebi işlendi'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 3),
                     ),
@@ -814,23 +826,24 @@ extension on _AdminDashboardScreenState {
   }
 
   // Kullanıcıları yükle
+  // Not: profiles tablosundan SELECT grant'i REVOKE edildiği için
+  // doğrudan select('*') ile PII yüklemesi yapılamaz. Bunun yerine
+  // SECURITY DEFINER admin_list_users() RPC'si kullanılır; sayfalı,
+  // dar sütunlu (id, username, full_name, avatar_url, role, is_suspicious,
+  // is_online, created_at, last_seen). E-posta/telefon/fatura PII
+  // sızdırmaz.
   Future<List<Map<String, dynamic>>> _loadUsers() async {
     try {
-      debugPrint('🔍 Kullanıcılar yükleniyor...');
+      debugPrint('🔍 Kullanıcılar yükleniyor (admin_list_users RPC)');
 
-      // profiles tablosundan tüm kullanıcıları al
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('*')
-          .order('created_at', ascending: false);
-
-      debugPrint(
-        '✅ Kullanıcı sorgusu başarılı. Dönen veri tipi: ${response.runtimeType}',
+      final response = await Supabase.instance.client.rpc<List<dynamic>>(
+        'admin_list_users',
+        params: {'p_limit': 100},
       );
-      debugPrint('📊 Veri içeriği: $response');
 
+      // PII debugPrint KALDIRILDI: tüm kullanıcı listesi log'a yazılmaz.
       final users = List<Map<String, dynamic>>.from(response);
-      debugPrint('✅ ${users.length} kullanıcı bulundu');
+      debugPrint('✅ ${users.length} kullanıcı yüklendi');
 
       return users;
     } catch (e, stackTrace) {

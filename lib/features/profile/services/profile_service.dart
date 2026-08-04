@@ -15,23 +15,23 @@ class ProfileService {
   }
 
   // Profil bilgilerini çek
+  // Not: Bu fonksiyon başka kullanıcıların public yüzeyini döner.
+  // Hassas alanlar (email, telefon, fatura, role, is_admin, is_suspicious,
+  // delete_confirmation_code, last_known_lat/lng) base profiles tablosundan
+  // anon/authenticated'a REVOKE edildi. public_profiles_safe view'ı yalnız
+  // güvenli sütunları döner; burada onu kullanıyoruz.
   Future<Map<String, dynamic>> getUserProfile(String userId) async {
     try {
       final response = await _supabase
-          .from('profiles')
-          .select('*')
+          .from('public_profiles_safe')
+          .select()
           .eq('id', userId)
           .maybeSingle();
 
       // Profil bulunamadıysa hata fırlat
       if (response == null) {
-        throw Exception('Profil bulunamadı. Lütfen FIX_FOREIGN_KEY.sql script\'ini çalıştırın.');
+        throw Exception('Profil bulunamadı.');
       }
-
-      // Sadece profil satırını döndür. Gönderi/takipçi/takip sayıları
-      // çağıran ekranlar tarafından zaten ayrı yükleniyor
-      // (PostService.getUserPosts + loadFollowCounts); burada ekstra count
-      // sorgusu yapmıyoruz — her profil açılışında 3 israf sorguyu önler.
       return response;
     } catch (e) {
       debugPrint('Profil bilgileri alınamadı: $e');
@@ -50,7 +50,8 @@ class ProfileService {
 
       debugPrint('📤 Avatar yükleniyor (web): ${bytes.length} bytes');
 
-      final fileName = 'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final fileName =
+          'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       // Dosyayı yükle
       final uploadResponse = await _supabase.storage
@@ -58,29 +59,21 @@ class ProfileService {
           .uploadBinary(
             fileName,
             bytes,
-            fileOptions: const FileOptions(
-              cacheControl: '3600',
-              upsert: true,
-            ),
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
           );
 
       debugPrint('✅ Dosya yüklendi: $uploadResponse');
 
       // Public URL al
-      final url = _supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
+      final url = _supabase.storage.from('avatars').getPublicUrl(fileName);
 
-      debugPrint('🔗 Public URL: $url');
+      // Hassas URL debug log'a yazılmaz.
 
-      // Profili güncelle
-      final updateResponse = await _supabase
-          .from('profiles')
-          .update({'avatar_url': url, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', userId)
-          .select();
-
-      debugPrint('✅ Profil güncellendi: $updateResponse');
+      // Profili güncelle: doğrudan UPDATE yerine dar RPC.
+      await _supabase.rpc(
+        'update_my_public_profile',
+        params: {'p_avatar_url': url},
+      );
 
       return url;
     } catch (e) {
@@ -100,7 +93,8 @@ class ProfileService {
 
       debugPrint('📤 Kapak fotoğrafı yükleniyor (web): ${bytes.length} bytes');
 
-      final fileName = 'cover_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final fileName =
+          'cover_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       // Dosyayı yükle
       final uploadResponse = await _supabase.storage
@@ -108,29 +102,21 @@ class ProfileService {
           .uploadBinary(
             fileName,
             bytes,
-            fileOptions: const FileOptions(
-              cacheControl: '3600',
-              upsert: true,
-            ),
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
           );
 
       debugPrint('✅ Dosya yüklendi: $uploadResponse');
 
       // Public URL al
-      final url = _supabase.storage
-          .from('covers')
-          .getPublicUrl(fileName);
+      final url = _supabase.storage.from('covers').getPublicUrl(fileName);
 
-      debugPrint('🔗 Public URL: $url');
+      // Hassas URL debug log'a yazılmaz.
 
-      // Profili güncelle
-      final updateResponse = await _supabase
-          .from('profiles')
-          .update({'cover_url': url, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', userId)
-          .select();
-
-      debugPrint('✅ Profil güncellendi: $updateResponse');
+      // Profili güncelle: doğrudan UPDATE yerine dar RPC.
+      await _supabase.rpc(
+        'update_my_public_profile',
+        params: {'p_cover_url': url},
+      );
 
       return url;
     } catch (e) {
@@ -140,6 +126,9 @@ class ProfileService {
   }
 
   // Profili güncelle
+  // Not: Bu fonksiyon doğrudan profiles UPDATE yapmaz; onun yerine
+  // update_my_public_profile RPC'sini çağırır. RPC yalnız izinli sütunları
+  // günceller ve server timestamp yazar.
   Future<bool> updateProfile({
     String? fullName,
     String? bio,
@@ -151,55 +140,38 @@ class ProfileService {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return false;
 
-      final updates = <String, dynamic>{};
-      if (fullName != null) updates['full_name'] = fullName;
-      if (bio != null) updates['bio'] = bio;
-      if (website != null) updates['website'] = website;
-      if (location != null) updates['location'] = location;
-      if (gender != null) updates['gender'] = gender;
-
-      if (updates.isEmpty) return false;
-
-      updates['updated_at'] = DateTime.now().toUtc().toIso8601String();
-
-      // .select() ile dönen satırı kontrol et: RLS bir UPDATE'i engellediğinde
-      // Supabase hata fırlatmaz, sadece 0 satır günceller.
-      final result = await _supabase
-          .from('profiles')
-          .update(updates)
-          .eq('id', userId)
-          .select();
-
-      if (result.isNotEmpty) return true;
-
-      // 0 satır döndü: profil satırı yok (trigger ile otomatik oluşturulmamış).
-      // auth metadata ile profili oluştur, böylece düzenleme kaybolmasın.
-      final user = _supabase.auth.currentUser;
-      final meta = user?.userMetadata ?? {};
-      final now = DateTime.now().toUtc().toIso8601String();
-
-      final created = await _supabase
-          .from('profiles')
-          .upsert({
-            'id': userId,
-            'email': user?.email ?? '',
-            'username': (meta['username'] as String?) ?? '',
-            'full_name': updates['full_name'] ?? (meta['full_name'] as String?) ?? '',
-            ...updates,
-            'created_at': now,
-          }, onConflict: 'id')
-          .select();
-
-      if (created.isEmpty) {
-        // Hem UPDATE hem INSERT 0 satır döndü -> RLS engelliyor.
-        throw Exception(
-            'Profil güncellenemedi: yetki hatası veya kayıt bulunamadı.');
+      if (fullName == null &&
+          bio == null &&
+          website == null &&
+          location == null &&
+          gender == null) {
+        return false;
       }
 
+      // Profil satırı yoksa ensure_my_profile ile güvenli varsayılanlarla
+      // oluştur (idempotent).
+      try {
+        await _supabase.rpc('ensure_my_profile');
+      } catch (e) {
+        debugPrint('ℹ️ ensure_my_profile atlandı: $e');
+      }
+
+      // update_my_public_profile: username burada değiştirilmez; rename
+      // akışı farklı bir RPC'de yapılır (priv_rpc_rename_username vb.).
+      await _supabase.rpc(
+        'update_my_public_profile',
+        params: {
+          if (fullName != null) 'p_full_name': fullName,
+          if (bio != null) 'p_bio': bio,
+          if (website != null) 'p_website': website,
+          if (location != null) 'p_location': location,
+          if (gender != null) 'p_gender': gender,
+        },
+      );
       return true;
     } catch (e) {
       debugPrint('Profil güncellenemedi: $e');
-      rethrow; // Gerçek hatayı ekrana taşı ki kullanıcı sessizce "başarılı" görmesin
+      rethrow;
     }
   }
 
@@ -240,7 +212,9 @@ class ProfileService {
         return 'not_logged_in';
       }
 
-      debugPrint('🔍 Şikayet kontrolü: reporter=$currentUserId, reported=$reportedUserId');
+      debugPrint(
+        '🔍 Şikayet kontrolü: reporter=$currentUserId, reported=$reportedUserId',
+      );
 
       // Zaten şikayet edilmiş mi kontrol et
       final existing = await _supabase
@@ -253,7 +227,9 @@ class ProfileService {
       debugPrint('🔍 Mevcut şikayet: $existing');
 
       if (existing != null) {
-        debugPrint('⚠️ Bu kullanıcıyı daha önce şikayet etmişsiniz (ID: ${existing['id']}, Status: ${existing['status']})');
+        debugPrint(
+          '⚠️ Bu kullanıcıyı daha önce şikayet etmişsiniz (ID: ${existing['id']}, Status: ${existing['status']})',
+        );
         return 'duplicate';
       }
 
@@ -429,10 +405,7 @@ class ProfileService {
               .maybeSingle();
 
           if (userProfile != null) {
-            blockedUsers.add({
-              ...block,
-              'blocked_user': userProfile,
-            });
+            blockedUsers.add({...block, 'blocked_user': userProfile});
           }
         } catch (e) {
           debugPrint('Profil alınamadı: $e');
@@ -454,7 +427,9 @@ class ProfileService {
 
       final response = await _supabase
           .from('user_reports')
-          .select('id, reported_user_id, reason, description, status, created_at')
+          .select(
+            'id, reported_user_id, reason, description, status, created_at',
+          )
           .eq('reporter_id', currentUserId)
           .order('created_at', ascending: false);
 
@@ -469,10 +444,7 @@ class ProfileService {
               .maybeSingle();
 
           if (userProfile != null) {
-            reports.add({
-              ...report,
-              'reported_user': userProfile,
-            });
+            reports.add({...report, 'reported_user': userProfile});
           }
         } catch (e) {
           debugPrint('Profil alınamadı: $e');
@@ -491,11 +463,13 @@ class ProfileService {
   // ============================================
 
   /// Username'den kullanıcı bilgilerini getir
+  /// Not: Email PII sızıntısını önlemek için yalnız public sütunlar seçilir
+  /// ve public_profiles_safe view'i kullanılır.
   Future<Map<String, dynamic>?> getUserByUsername(String username) async {
     try {
       final response = await _supabase
-          .from('profiles')
-          .select('id, email, username, full_name, avatar_url')
+          .from('public_profiles_safe')
+          .select()
           .eq('username', username.trim().toLowerCase())
           .maybeSingle();
 
@@ -507,6 +481,11 @@ class ProfileService {
   }
 
   /// Email veya username'den email'i al
+  /// Not: Username → email eşlemesi artık profiles tablosundan SELECT ile
+  /// değil; yalnız RPC üzerinden yapılır. RPC SECURITY DEFINER + SET
+  /// search_path='' ile çalışır; e-posta adresi dışında hiçbir sütun
+  /// sızdırmaz. Production'da bu RPC'nin Supabase Edge Function üzerinden
+  /// rate-limit edilmesi gerekir.
   Future<String?> getEmailByIdentifier(String identifier) async {
     try {
       // Email ise direkt döndür
@@ -514,9 +493,12 @@ class ProfileService {
         return identifier.trim();
       }
 
-      // Username ise lookup yap
-      final user = await getUserByUsername(identifier);
-      return user?['email'] as String?;
+      // Username ise server-side RPC ile email'i al
+      final email = await _supabase.rpc<String>(
+        'lookup_email_by_username',
+        params: {'p_username': identifier},
+      );
+      return email;
     } catch (e) {
       debugPrint('❌ Email lookup hatası: $e');
       return null;
@@ -558,13 +540,17 @@ class ProfileService {
       debugPrint('📤 Avatar XFile yükleniyor...');
 
       // Resmi sıkıştır
-      final compressedBytes = await ImageCompressionHelper.compressProfilePhotoXFile(xFile);
+      final compressedBytes =
+          await ImageCompressionHelper.compressProfilePhotoXFile(xFile);
       final imageBytes = compressedBytes ?? await xFile.readAsBytes();
 
       final fileSize = imageBytes.length;
-      debugPrint('📏 Yüklenecek boyut: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB');
+      debugPrint(
+        '📏 Yüklenecek boyut: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB',
+      );
 
-      final fileName = 'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final fileName =
+          'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       // Dosyayı yükle (byte array ile)
       final uploadResponse = await _supabase.storage
@@ -572,29 +558,21 @@ class ProfileService {
           .uploadBinary(
             fileName,
             imageBytes,
-            fileOptions: const FileOptions(
-              cacheControl: '3600',
-              upsert: true,
-            ),
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
           );
 
       debugPrint('✅ Dosya yüklendi: $uploadResponse');
 
       // Public URL al
-      final url = _supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
+      final url = _supabase.storage.from('avatars').getPublicUrl(fileName);
 
-      debugPrint('🔗 Public URL: $url');
+      // Hassas URL debug log'a yazılmaz.
 
-      // Profili güncelle
-      final updateResponse = await _supabase
-          .from('profiles')
-          .update({'avatar_url': url, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', userId)
-          .select();
-
-      debugPrint('✅ Profil güncellendi: $updateResponse');
+      // Profili güncelle: doğrudan UPDATE yerine dar RPC.
+      await _supabase.rpc(
+        'update_my_public_profile',
+        params: {'p_avatar_url': url},
+      );
 
       return url;
     } catch (e) {
@@ -616,13 +594,17 @@ class ProfileService {
       debugPrint('📤 Kapak XFile yükleniyor...');
 
       // Resmi sıkıştır
-      final compressedBytes = await ImageCompressionHelper.compressCoverPhotoXFile(xFile);
+      final compressedBytes =
+          await ImageCompressionHelper.compressCoverPhotoXFile(xFile);
       final imageBytes = compressedBytes ?? await xFile.readAsBytes();
 
       final fileSize = imageBytes.length;
-      debugPrint('📏 Yüklenecek boyut: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB');
+      debugPrint(
+        '📏 Yüklenecek boyut: ${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB',
+      );
 
-      final fileName = 'cover_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final fileName =
+          'cover_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       // Dosyayı yükle (byte array ile)
       final uploadResponse = await _supabase.storage
@@ -630,29 +612,21 @@ class ProfileService {
           .uploadBinary(
             fileName,
             imageBytes,
-            fileOptions: const FileOptions(
-              cacheControl: '3600',
-              upsert: true,
-            ),
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
           );
 
       debugPrint('✅ Dosya yüklendi: $uploadResponse');
 
       // Public URL al
-      final url = _supabase.storage
-          .from('covers')
-          .getPublicUrl(fileName);
+      final url = _supabase.storage.from('covers').getPublicUrl(fileName);
 
-      debugPrint('🔗 Public URL: $url');
+      // Hassas URL debug log'a yazılmaz.
 
-      // Profili güncelle
-      final updateResponse = await _supabase
-          .from('profiles')
-          .update({'cover_url': url, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', userId)
-          .select();
-
-      debugPrint('✅ Profil güncellendi: $updateResponse');
+      // Profili güncelle: doğrudan UPDATE yerine dar RPC.
+      await _supabase.rpc(
+        'update_my_public_profile',
+        params: {'p_cover_url': url},
+      );
 
       return url;
     } catch (e) {

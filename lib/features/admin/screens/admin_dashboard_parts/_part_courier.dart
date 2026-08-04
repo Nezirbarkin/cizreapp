@@ -612,6 +612,29 @@ extension on _AdminDashboardScreenState {
 
   // --- _resetCourierBalance ---
   Future<void> _resetCourierBalance(Map<String, dynamic> courier) async {
+    // 2026-08-03: Kurye bakiyesi artık courier_earnings + courier_payout_items
+    // üzerinden RPC ile yönetilir. authenticated doğrudan tablo yazamaz.
+    // Toplu sıfırlama için admin_reject_courier_payout kullanılabilir
+    // (payout reddi ile ilgili earnings'ler pending'e döner). Burada
+    // kullanıcıyı bilgilendirip kısa yol bırakıyoruz.
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Bakiye sıfırlama artık ödeme istekleri üzerinden yönetiliyor. '
+            'Lütfen "Ödeme İstekleri" sekmesini kullanın.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+    return;
+  }
+
+  // Eski implementasyon aşağıda referans için tutuluyor (erişilemez).
+  // ignore: unused_element
+  Future<void> _resetCourierBalanceLegacy(Map<String, dynamic> courier) async {
     final courierId = courier['id'] as String?;
     final courierName = courier['full_name'] ?? courier['username'] ?? 'Kurye';
     final pendingAmount =
@@ -726,6 +749,26 @@ extension on _AdminDashboardScreenState {
 
   // --- _markCourierPaid ---
   Future<void> _markCourierPaid(Map<String, dynamic> courier) async {
+    // 2026-08-03: Toplu ödeme artık admin_approve_courier_payout üzerinden
+    // item-tabanlı yapılıyor. Burada kullanıcıyı yönlendiriyoruz.
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Toplu ödeme artık ödeme istekleri üzerinden yapılıyor. '
+            'Lütfen "Ödeme İstekleri" sekmesinden ilgili payout'
+            'ı onaylayın.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+    return;
+  }
+
+  // ignore: unused_element
+  Future<void> _markCourierPaidLegacy(Map<String, dynamic> courier) async {
     final courierId = courier['id'] as String?;
     final courierName = courier['full_name'] ?? courier['username'] ?? 'Kurye';
     final pendingAmount =
@@ -990,9 +1033,10 @@ extension on _AdminDashboardScreenState {
       if (!mounted) return;
 
       // Onay dialogu goster
+      final referenceController = TextEditingController();
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (ctx) => AlertDialog(
           title: const Text('Odeme Onayi'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1026,15 +1070,24 @@ extension on _AdminDashboardScreenState {
                   ),
                 ),
               ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: referenceController,
+                decoration: const InputDecoration(
+                  labelText: 'Ödeme Referansı (Havale Dekont No / Açıklama)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Iptal'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
@@ -1046,55 +1099,29 @@ extension on _AdminDashboardScreenState {
       );
 
       if (confirmed != true) return;
+      final paymentReference = referenceController.text.trim();
 
-      // Odeme istegini onayla
-      await Supabase.instance.client
-          .from('courier_payout_requests')
-          .update({
-            'status': 'approved',
-            'approved_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', payoutId);
-
-      // Bu ödeme isteğine dahil olan kazançları "paid" olarak işaretle.
-      // Payout isteği oluşturulurken kuryenin pending kazançları 'requested'
-      // durumuna çevrilir (courier_panel_screen.dart). Dolayısıyla burada
-      // 'pending' değil 'requested' olanlar ödenmeli — aksi halde istek
-      // sonrası yapılan YENİ teslimatlar (hâlâ 'pending') yanlışlıkla ödenir
-      // ve asıl istenen tutar ödenmemiş kalır.
+      // Sunucu-otoriteli onay: payout header + items + earnings status +
+      // timestamp + bildirim tek transaction'da. İstemci doğrudan tablo
+      // yazmaz; sadece RPC çağırır.
       try {
-        await Supabase.instance.client
-            .from('courier_earnings')
-            .update({'status': 'paid'})
-            .eq('courier_id', payout['courier_id'])
-            .eq('status', 'requested');
-      } catch (e) {
-        debugPrint('Kurye kazanc guncelleme hatasi: $e');
-      }
-
-      // Kuryeye bildirim gönder.
-      // 2026-08-02 push pipeline refaktörü:
-      //   - İstemci FCM token SELECT etmez, functions.invoke çağırmaz.
-      //   - notifications INSERT sonrası notifications_outbox_trigger
-      //     otomatik olarak notification_outbox'a yazar.
-      //   - process-notification-outbox worker'ı FCM'yi iletir.
-      try {
-        await Supabase.instance.client.from('notifications').insert({
-          'user_id': payout['courier_id'],
-          'type': 'courier_payout_approved',
-          'title': '💰 Ödemeniz Onaylandı!',
-          'content':
-              '₺${amount.toStringAsFixed(2)} tutarındaki ödemeniz onaylandı ve kısa süre içinde hesabınıza aktarılacaktır.',
-          'metadata': {
-            'payout_id': payoutId,
-            'amount': amount,
-            'type': 'courier_payout',
+        await Supabase.instance.client.rpc(
+          'admin_approve_courier_payout',
+          params: {
+            'p_payout_id': payoutId,
+            'p_payment_reference': paymentReference.isEmpty
+                ? null
+                : paymentReference,
           },
-          'is_read': false,
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        );
       } catch (e) {
-        debugPrint('Bildirim gonderme hatasi: $e');
+        debugPrint('Payout onaylama hatasi: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          );
+        }
+        return;
       }
 
       if (mounted) {

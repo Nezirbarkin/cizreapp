@@ -4,7 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 
 class CourierLocationService {
-  static final CourierLocationService _instance = CourierLocationService._internal();
+  static final CourierLocationService _instance =
+      CourierLocationService._internal();
 
   factory CourierLocationService() {
     return _instance;
@@ -15,11 +16,6 @@ class CourierLocationService {
   StreamSubscription<Position>? _positionStream;
   Timer? _updateTimer;
   bool _isTracking = false;
-
-  /// Eksik profiles satırı için self-heal denemesi yalnızca bir kez yapılır.
-  /// Satır gerçekten yoksa insert eder; insert başarısız olursa (RLS/kısıt)
-  /// her periyodik güncellemede tekrar denemek anlamsız ve gürültülü olur.
-  bool _profileSelfHealAttempted = false;
 
   bool get isTracking => _isTracking;
 
@@ -71,22 +67,25 @@ class CourierLocationService {
       });
 
       // Gerçek zamanlı akış
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 10, // 10 metrelik değişim
-          timeLimit: Duration(seconds: 5),
-        ),
-      ).listen(
-        (Position position) {
-          _updateLocationInDatabase(position);
-        },
-        onError: (Object error) {
-          // timeLimit veya platform hatası akışı öldürmesin; logla ve devam et.
-          // Konum hala periyodik timer ile güncellendiği için takip kesilmez.
-          debugPrint('⚠️ Kurye konum akışı hatası (timer devam ediyor): $error');
-        },
-      );
+      _positionStream =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.best,
+              distanceFilter: 10, // 10 metrelik değişim
+              timeLimit: Duration(seconds: 5),
+            ),
+          ).listen(
+            (Position position) {
+              _updateLocationInDatabase(position);
+            },
+            onError: (Object error) {
+              // timeLimit veya platform hatası akışı öldürmesin; logla ve devam et.
+              // Konum hala periyodik timer ile güncellendiği için takip kesilmez.
+              debugPrint(
+                '⚠️ Kurye konum akışı hatası (timer devam ediyor): $error',
+              );
+            },
+          );
 
       debugPrint('✅ Kurye konum takibi başladı');
       return true;
@@ -117,20 +116,21 @@ class CourierLocationService {
     }
   }
 
-  /// Konumu profiles tablosuna yazar. Başarı durumunda true, hata/null
-  /// kullanıcıda false döner (çağıran taraf buton geri bildirimi için kullanır).
+  /// Konumu server'a güvenli RPC üzerinden yazar.
   ///
-  /// Strateji:
-  ///  1) Önce `select('id')` ile satırın var olup olmadığını kontrol et.
-  ///  2) Satır varsa düz `update` (location patch). .select() eklemeye gerek
-  ///     yok; RLS UPDATE politikası başarılıysa exception fırlatmaz.
-  ///  3) Satır yoksa (handle_new_user atlamış / satır silinmiş) bir kez
-  ///     self-heal: `insert` ile role='courier' + konum yaz. Yarış durumunda
-  ///     (arada satır oluşmuşsa) Postgrest code=23505 gelir; bunu yakalayıp
-  ///     düz update'e düş — UPDATE politikası satırı bulabildiği için yazar.
+  /// Bu sürüm, 20260803000006_secure_profiles_privileges_and_pii migration'ı
+  /// sonrasında doğrudan profiles INSERT/UPDATE yapmaz. Bunun yerine:
+  ///  1) `ensure_my_profile()` ile eksik legacy profili güvenli varsayılanlarla
+  ///     oluşturur (her zaman role=customer, is_admin=false).
+  ///  2) `set_my_courier_location(p_lat, p_lng)` SECURITY DEFINER RPC'si
+  ///     sunucu tarafında çağıranın role='courier' olduğunu doğrular, sınır
+  ///     kontrolü yapar ve server timestamp yazar. Normal customer bu RPC'yi
+  ///     çağıramaz; yetkisizse SQLSTATE 42501 alır.
   ///
-  /// Mobil ağ kesintili olduğunda DNS/Socket hataları aralıklı çıkar; bu
-  /// yüzden ağ hatasında birkaç kez kısa gecikmeyle yeniden dener.
+  /// Not: Önceki sürümde olduğu gibi `role='courier'` istemciden atanamaz;
+  /// kurye rol ataması yalnız admin tarafından `admin_set_user_role` RPC'si
+  /// ile yapılır. Eğer kullanıcının role='courier' değilse RPC 42501 döner
+  /// ve bu fonksiyon false döner.
   Future<bool> _updateLocationInDatabase(
     Position position, {
     int maxAttempts = 3,
@@ -139,117 +139,49 @@ class CourierLocationService {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return false;
 
-    final locationPatch = {
-      'last_known_lat': position.latitude,
-      'last_known_lng': position.longitude,
-      'last_location_update': DateTime.now().toIso8601String(),
-    };
-
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // 1) Satır var mı? SELECT herkese açık (profiles_select_policy USING true).
-        final existing = await client
-            .from('profiles')
-            .select('id')
-            .eq('id', userId)
-            .maybeSingle();
-
-        if (existing != null) {
-          // 2) Satır var. Düz update — RLS UPDATE politikası kendi satırı için
-          // izin veriyor, Postgrest hata fırlatmazsa başarılı sayılır.
-          await client.from('profiles').update(locationPatch).eq('id', userId);
-          debugPrint(
-            '📍 Konum güncellendi (deneme $attempt): '
-            '${position.latitude}, ${position.longitude}',
-          );
-          return true;
-        }
-
-        // 3) Satır yok. Self-heal: handle_new_user trigger'ı atlamış olabilir.
-        if (_profileSelfHealAttempted) {
-          debugPrint(
-            '❌ Konum yazılamadı: profiles satırı bulunamadı, self-heal '
-            'daha önce denendi ve başarısız oldu (id=$userId).',
-          );
-          return false;
-        }
-        _profileSelfHealAttempted = true;
-
+        // 1) Eksik legacy profili güvenli varsayılanlarla oluştur (idempotent,
+        //    mevcutsa dokunmaz). Bu adım idempotenttir.
         try {
-          await _insertProfileRow(client, userId, position);
-          debugPrint(
-            '✅ Eksik profiles satırı oluşturuldu ve konum yazıldı '
-            '(id=$userId, role=courier)',
-          );
-          return true;
-        } on PostgrestException catch (pe) {
-          if (pe.code == '23505') {
-            // Yarış: arada satır oluşmuş. SELECT'i tekrar etmeden düz
-            // update'i dene — UPDATE politikası mevcut satırı bulup yazar.
-            debugPrint(
-              'ℹ️ Self-heal yarışı (23505): satır oluşmuş, update ile devam.',
-            );
-            await client.from('profiles').update(locationPatch).eq('id', userId);
-            return true;
-          }
-          debugPrint(
-            '⚠️ profiles satırı oluşturma Postgrest hatası: '
-            'code=${pe.code}, message=${pe.message}, details=${pe.details}, '
-            'hint=${pe.hint}',
-          );
+          await client.rpc('ensure_my_profile');
+        } catch (e) {
+          // ensure_my_profile yetki/auth hatası verirse yine de konum
+          // deneyebiliriz; konum RPC kendi içinde kontrol yapacak.
+          debugPrint('ℹ️ ensure_my_profile çağrısı atlandı: $e');
+        }
+
+        // 2) Konumu server'a yaz. RPC çağıranın role='courier' olduğunu
+        //    doğrular; değilse 42501 SQLSTATE ile reddeder.
+        await client.rpc(
+          'set_my_courier_location',
+          params: {'p_lat': position.latitude, 'p_lng': position.longitude},
+        );
+        // Hassas koordinat debug log'a yazılmaz.
+        debugPrint('📍 Konum güncellendi (deneme $attempt)');
+        return true;
+      } on PostgrestException catch (e) {
+        if (e.code == '42501') {
+          // Kullanıcı courier değil: konum servisi başlatılmamalıydı.
+          // Sessizce false dönmek UI tarafında butonu geri çevirmesine yol
+          // açar; bu doğru davranış. (Yetkisiz çağrı loglanmaz.)
+          debugPrint('❌ set_my_courier_location: kullanıcı courier değil');
           return false;
         }
+        debugPrint(
+          '⚠️ Konum yazma denemesi $attempt/$maxAttempts Postgrest hatası: '
+          'code=${e.code}, message=${e.message}',
+        );
       } catch (e) {
-        if (e is PostgrestException) {
-          debugPrint(
-            '⚠️ Konum yazma denemesi $attempt/$maxAttempts Postgrest hatası: '
-            'code=${e.code}, message=${e.message}, details=${e.details}, '
-            'hint=${e.hint}',
-          );
-        } else {
-          debugPrint(
-            '⚠️ Konum yazma denemesi $attempt/$maxAttempts başarısız: $e',
-          );
-        }
-        if (attempt < maxAttempts) {
-          await Future.delayed(Duration(seconds: 2 * attempt));
-        }
+        debugPrint(
+          '⚠️ Konum yazma denemesi $attempt/$maxAttempts başarısız: $e',
+        );
+      }
+      if (attempt < maxAttempts) {
+        await Future.delayed(Duration(seconds: 2 * attempt));
       }
     }
     return false;
-  }
-
-  /// Eksik profiles satırını auth kullanıcı meta verisinden oluşturur ve
-  /// konumu yazar. handle_new_user trigger'ının yaptığı insert'i taklit eder
-  /// (id, email, full_name, username) ve ek olarak role='courier' + konum
-  /// alanlarını set eder. INSERT RLS kuralı (id = auth.uid()) kendi satırını
-  /// eklemeye izin verir.
-  ///
-  /// Çağıran taraf `code=23505` (duplicate key) hatasını ayrıca yakalar;
-  /// bu metot sadece insert denemesini yapar, hata kodlarını ayırt etmez.
-  Future<void> _insertProfileRow(
-    SupabaseClient client,
-    String userId,
-    Position position,
-  ) async {
-    final user = client.auth.currentUser;
-    final email = user?.email ?? '';
-    final meta = user?.userMetadata ?? const <String, dynamic>{};
-    final fullName = (meta['full_name'] as String?) ??
-        (meta['name'] as String?) ??
-        '';
-    final username = (meta['username'] as String?) ?? '';
-
-    await client.from('profiles').insert({
-      'id': userId,
-      'email': email,
-      'full_name': fullName,
-      'username': username,
-      'role': 'courier',
-      'last_known_lat': position.latitude,
-      'last_known_lng': position.longitude,
-      'last_location_update': DateTime.now().toIso8601String(),
-    });
   }
 
   Future<void> stopTracking() async {
@@ -258,8 +190,6 @@ class CourierLocationService {
     _updateTimer?.cancel();
     _positionStream = null;
     _updateTimer = null;
-    // Bir sonraki takip oturumu, gerekirse self-heal'i tekrar deneyebilsin.
-    _profileSelfHealAttempted = false;
     debugPrint('✅ Kurye konum takibi durduruldu');
   }
 
