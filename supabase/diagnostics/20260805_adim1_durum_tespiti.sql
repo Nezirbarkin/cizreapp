@@ -46,7 +46,7 @@ SELECT * FROM (
   UNION ALL SELECT 5,
     'Toplam uygulanmis migration sayisi',
     (SELECT count(*)::text FROM supabase_migrations.schema_migrations),
-    'Repoda 333 dosya var (25 cift prefix dahil)'
+    'Repoda 333 dosya vardi (23 cift prefix grubu / 56 dosya, 22 legacy adli)'
 ) t ORDER BY sira;
 
 
