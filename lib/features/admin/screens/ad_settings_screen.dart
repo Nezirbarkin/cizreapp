@@ -721,11 +721,16 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
   }
 
   Widget _readinessCard() {
-    final lastCallback = _overview == null || _overview!.recent.isEmpty
-        ? 'Henüz görünür doğrulanmış callback yok'
-        : DateFormat(
-            'dd.MM.yyyy HH:mm',
-          ).format(_overview!.recent.first.creditedAt ?? DateTime.now());
+    String lastCallback;
+    if (_overview == null || _overview!.recent.isEmpty) {
+      lastCallback = 'Henüz görünür doğrulanmış callback yok';
+    } else {
+      final firstEvent = _overview!.recent.first;
+      final creditedAt = firstEvent.creditedAt;
+      lastCallback = creditedAt == null
+          ? 'Beklemede (henüz SSV doğrulanmadı)'
+          : DateFormat('dd.MM.yyyy HH:mm').format(creditedAt);
+    }
     return Card(
       color: (_productionReady ? Colors.green : Colors.orange).shade50,
       child: Padding(
@@ -800,7 +805,7 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
       const SizedBox(height: 8),
       const Text(
         'AdMob App ID ve rewarded unit ID\'leri native build config / dart-define '
-        've Edge Function Secrets üzerinden yönetilir. Burada yalnızız okunabilir '
+        've Edge Function Secrets üzerinden yönetilir. Burada yalnızca okunabilir '
         'durum gösterilir; anahtarlar uygulamaya açılmaz.',
         style: TextStyle(fontSize: 11),
       ),

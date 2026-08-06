@@ -41,18 +41,22 @@ class PostService {
   }
 
   /// Network'ten feed verilerini çek (cache'ten bağımsız)
+  /// ✅ OPTİMİZE: posts_with_profiles view'ını kullanır.
+  /// Tek sorguda post + yazar profil bilgisi (username, full_name, avatar_url,
+  /// role, is_verified) gelir — N+1 problemi yok.
+  /// View LEFT JOIN kullandığı için profil kaydı olmayan postlar da görünür
+  /// (author_profile_exists=false olarak işaretlenir).
   Future<List<Post>> _fetchFeedFromNetwork({required int limit, required int offset}) async {
     try {
       // Feed'de sadece admin sabitlediği gönderiler üstte gösterilir
       // Kullanıcının kendi sabitlediği gönderiler normal olarak tarihe göre sıralanır
       final response = await _supabase
-          .from('posts')
+          .from('posts_with_profiles')
           .select()
-          .eq('is_active', true)
           .order('admin_pinned', ascending: false, nullsFirst: false)
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
-      
+
       // Debug: Sabitlenmiş gönderileri logla
       for (var post in response) {
         final isAdminPinned = post['admin_pinned'] == true;
@@ -86,17 +90,15 @@ class PostService {
   }
 
   // Kullanıcının gönderilerini getir
-  // ✅ OPTİMİZE: N+1 query problemi düzeltildi
+  // ✅ OPTİMİZE: posts_with_profiles view'ını kullanır (yazar bilgisi dahil)
   Future<List<Post>> getUserPosts(String userId) async {
     try {
       final response = await _supabase
-          .from('posts')
+          .from('posts_with_profiles')
           .select()
           .eq('user_id', userId)
-          .eq('is_active', true)
           .order('created_at', ascending: false);
 
-      // ✅ PERFORMANS: likes_count ve comments_count posts tablosundan doğrudan okunuyor
       return (response as List).map((json) => Post.fromJson(json)).toList();
     } catch (e) {
       throw Exception('Kullanıcı gönderileri yüklenirken hata: $e');
@@ -104,10 +106,14 @@ class PostService {
   }
 
   // ID'ye göre gönderi getir
+  // ✅ OPTİMİZE: posts_with_profiles view'ını kullanır (yazar bilgisi dahil)
   Future<Post?> getPostById(String id) async {
     try {
-      final response =
-          await _supabase.from('posts').select().eq('id', id).maybeSingle();
+      final response = await _supabase
+          .from('posts_with_profiles')
+          .select()
+          .eq('id', id)
+          .maybeSingle();
 
       if (response == null) return null;
       return Post.fromJson(response);

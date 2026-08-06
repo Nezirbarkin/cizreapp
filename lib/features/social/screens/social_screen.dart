@@ -180,6 +180,26 @@ class _SocialScreenState extends State<SocialScreen> {
         }
       }
 
+      // 🐛 DEBUG BANNER KALDIRILDI - sorun çözüldü, banner'a gerek yok
+
+      // ✅ Orphan post fix: Profil kaydı OLMAYAN yazarlar (eski user_id'ler
+      //    silinmiş veya profiles'a hiç yazılmamış) için view'dan gelen
+      //    author_* alanlarını _userProfiles map'ine enjekte et. Aksi halde
+      //    avatar/isim/handle boş kalır ve post header'ı kaybolur.
+      for (final post in posts) {
+        if (post.userId.isEmpty) continue;
+        if (profiles.containsKey(post.userId)) continue;
+        if (!post.authorProfileExists) {
+          profiles[post.userId] = {
+            'id': post.userId,
+            'username': post.authorUsername,
+            'full_name': post.authorFullName,
+            'avatar_url': post.authorAvatarUrl,
+            '_orphan': true,
+          };
+        }
+      }
+
       // Beğeni durumlarını işle
       final likedStatus = <String, bool>{};
       final likedPostIds = profileAndLikes[1] as Set<String>;
@@ -195,6 +215,7 @@ class _SocialScreenState extends State<SocialScreen> {
         _userProfiles = profiles;
         _likedPosts = likedStatus;
         _isLoading = false;
+        // _debugBanner zaten atandı (yukarıda) - setState rebuild tetikler
       });
 
       // Animasyon ayarlarını yükle
@@ -849,7 +870,15 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _sharePost(Post post) async {
     try {
       final userProfile = _userProfiles[post.userId];
-      final username = userProfile?['full_name'] ?? userProfile?['username'] ?? 'Bilinmeyen';
+      // ✅ UX FIX: Paylaşım metninde de UUID kırpıntısı göstermemek için
+      //    jenerik fallback kullanıyoruz. Gerçek isim yoksa "Kullanıcı" de.
+      final hasRealName = (userProfile?['full_name']?.toString().trim().isNotEmpty ?? false) ||
+          (userProfile?['username']?.toString().trim().isNotEmpty ?? false);
+      final username = hasRealName
+          ? (userProfile!['full_name']?.toString().trim().isNotEmpty == true
+              ? userProfile['full_name'].toString()
+              : userProfile['username'].toString())
+          : 'Kullanıcı';
       
       // Paylaşım metni oluştur
       final StringBuffer shareText = StringBuffer();
@@ -1364,8 +1393,16 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Widget _buildStoryCardDynamic(Story story, double size) {
     final userProfile = _userProfiles[story.userId];
-    final username = userProfile?['username'] ?? (story.userId.length >= 8 ? story.userId.substring(0, 8) : story.userId);
-    final fullName = userProfile?['full_name'] ?? username;
+    // ✅ UX FIX: Profil kaydı OLMAYAN eski story sahipleri için UUID kırpıntısı
+    //    göstermek yerine jenerik "kullanici" fallback'i kullanıyoruz. Eski
+    //    profil kaydı silinen / hiç oluşmamış kullanıcılar için tutarlı bir
+    //    gösterim sağlar.
+    final rawUsername = userProfile?['username']?.toString().trim();
+    final hasRealUsername = rawUsername != null && rawUsername.isNotEmpty;
+    final username = hasRealUsername ? rawUsername : 'kullanici';
+    final fullName = (userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)
+        ? userProfile!['full_name'].toString()
+        : username;
     final avatarUrl = userProfile?['avatar_url'];
     
     return Padding(
@@ -1778,15 +1815,66 @@ class _SocialScreenState extends State<SocialScreen> {
     );
   }
 
+  /// Yazar rolüne göre rozet rengi
+  Color _getAuthorRoleColor(AuthorRole role) {
+    switch (role) {
+      case AuthorRole.seller:
+        return const Color(0xFFE91E63); // Pembe (Satıcı)
+      case AuthorRole.courier:
+        return const Color(0xFF4CAF50); // Yeşil (Kurye)
+      case AuthorRole.driver:
+        return const Color(0xFF2196F3); // Mavi (Sürücü)
+      case AuthorRole.admin:
+        return const Color(0xFF9C27B0); // Mor (Admin)
+      default:
+        return Colors.grey;
+    }
+  }
+
   Widget _buildTwitterPostCard(Post post) {
-    final userProfile = _userProfiles[post.userId];
-    final fullName = userProfile?['full_name'] ?? userProfile?['username'] ?? 'Kullanıcı';
-    final username = userProfile?['username'] ?? post.userId.substring(0, 8);
+    // ✅ Orphan post tespiti: profiles satırı olmayan yazarlar için
+    //    avatar/isim/handle tamamen jenerik olur. post.authorProfileExists
+    //    view'dan gelir (LEFT JOIN sonucu). user_id null/boş ise de orphan
+    //    sayılır (silinmiş kullanıcı profili).
+    final isOrphanPost = !post.authorProfileExists || post.userId.isEmpty;
+
+    // ✅ Yazar bilgisi önce post modelinden alınır (view'dan geldi),
+    //    fallback olarak eski _userProfiles map'i kullanılır (geriye uyumluluk)
+    final userProfile = isOrphanPost ? null : _userProfiles[post.userId];
+    final fullName = isOrphanPost
+        ? 'Bilinmeyen Kullanıcı'
+        : firstNonEmpty([
+            post.authorFullName,
+            userProfile?['full_name']?.toString(),
+            post.authorUsername,
+            userProfile?['username']?.toString(),
+          ]);
+    // ✅ UX FIX: Profil kaydı bulunmayan (orphan) eski yazarlar için UUID kırpıntısı
+    //    (@e453djf gibi) göstermek yerine jenerik bir fallback kullanıyoruz. Eski
+    //    postlarda DB'de profiles satırı yoksa bu jenerik isim gösterilir; yeni
+    //    backfill migrasyonu çalıştırıldığında gerçek isim geri gelir.
+    final hasRealName = isOrphanPost
+        ? false
+        : (post.authorFullName?.trim().isNotEmpty ?? false) ||
+            (post.authorUsername?.trim().isNotEmpty ?? false) ||
+            ((userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)) ||
+            ((userProfile?['username']?.toString().trim().isNotEmpty ?? false));
+    final username = isOrphanPost
+        ? 'kullanici'
+        : (hasRealName
+            ? (post.authorUsername ??
+                userProfile?['username'] ??
+                'kullanici')
+            : 'kullanici');
     final handle = '@$username';
-    final avatarUrl = userProfile?['avatar_url'];
+    final avatarUrl = isOrphanPost
+        ? null
+        : (post.authorAvatarUrl ?? userProfile?['avatar_url']);
+    final authorRole = isOrphanPost ? AuthorRole.unknown : post.authorRole;
+    final isVerified = isOrphanPost ? false : post.authorIsVerified;
     final isLiked = _likedPosts[post.id] ?? false;
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    final isOwnPost = post.userId == currentUserId;
+    final isOwnPost = !isOrphanPost && post.userId == currentUserId;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque, // Tüm alanı tıklanabilir yap
@@ -1872,6 +1960,37 @@ class _SocialScreenState extends State<SocialScreen> {
                                       maxLines: 1,
                                     ),
                                   ),
+                                  // ✅ Doğrulanmış kullanıcı rozeti
+                                  if (isVerified) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.verified,
+                                      size: 14,
+                                      color: Color(0xFF1DA1F2),
+                                    ),
+                                  ],
+                                  // ✅ Yazar rol rozeti (Satıcı / Kurye / Sürücü / Admin)
+                                  if (authorRole.isStaff) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _getAuthorRoleColor(authorRole),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        authorRole.displayLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   if (post.adminPinned) ...[
                                     const SizedBox(width: 4),
                                     Container(

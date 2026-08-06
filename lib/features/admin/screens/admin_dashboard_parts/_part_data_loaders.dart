@@ -233,14 +233,24 @@ extension on _AdminDashboardScreenState {
         final ownerId = shop['owner_id'] as String?;
         if (ownerId != null) {
           try {
-            final ownerResponse = await Supabase.instance.client
-                .from('profiles')
-                .select('id, email, username, full_name')
-                .eq('id', ownerId)
-                .maybeSingle();
-
-            if (ownerResponse != null) {
-              shop['profiles'] = ownerResponse;
+            // 20260803000006 sonrasında profiles üzerinde authenticated
+            // SELECT policy'si yok; email/role sütunları revoke edildi.
+            // Minimal profil bilgisi admin_profiles_minimal RPC üzerinden,
+            // email ise admin_get_profile_email RPC üzerinden alınır.
+            final minimalResp = await Supabase.instance.client.rpc<List<dynamic>>(
+              'admin_profiles_minimal',
+              params: {'p_user_ids': [ownerId]},
+            );
+            final profile = minimalResp.isNotEmpty
+                ? Map<String, dynamic>.from(minimalResp.first)
+                : null;
+            final email = await Supabase.instance.client.rpc<String?>(
+              'admin_get_profile_email',
+              params: {'p_user_id': ownerId},
+            );
+            if (profile != null) {
+              profile['email'] = email;
+              shop['profiles'] = profile;
             }
           } catch (e) {
             debugPrint('⚠️ Profile yüklenemedi (owner_id: $ownerId): $e');
@@ -960,61 +970,23 @@ extension on _AdminDashboardScreenState {
 
   // --- _loadLogsData ---
   Future<Map<String, dynamic>> _loadLogsData() async {
-    final now = DateTime.now().toUtc();
-    final todayStart = DateTime.utc(now.year, now.month, now.day);
-    final weekAgo = now.subtract(const Duration(days: 7));
-    final fiveMinAgo = now.subtract(const Duration(minutes: 5));
-
     final client = Supabase.instance.client;
 
-    final onlineCount = await client
-        .from('profiles')
-        .select('id')
-        .gte('last_seen', fiveMinAgo.toIso8601String())
-        .count(CountOption.exact);
+    // 20260803000006 ile profiles tablosunda authenticated SELECT
+    // policy'si kaldırıldı; doğrudan from('profiles').count(...) RLS
+    // deny→0 yüzünden hep 0 döner. SECURITY DEFINER admin_logs_counts
+    // RPC üzerinden tek atomik count çağrısı yapıyoruz.
+    final countsRows = await client.rpc<List<dynamic>>('admin_logs_counts');
+    final c = (countsRows.first as Map).cast<String, dynamic>();
 
-    final dauCount = await client
-        .from('profiles')
-        .select('id')
-        .gte('last_seen', todayStart.toIso8601String())
-        .count(CountOption.exact);
-
-    final wauCount = await client
-        .from('profiles')
-        .select('id')
-        .gte('last_seen', weekAgo.toIso8601String())
-        .count(CountOption.exact);
-
-    final monthAgo = now.subtract(const Duration(days: 30));
-    final mauCount = await client
-        .from('profiles')
-        .select('id')
-        .gte('last_seen', monthAgo.toIso8601String())
-        .count(CountOption.exact);
-
-    final totalUsersCount = await client
-        .from('profiles')
-        .select('id')
-        .count(CountOption.exact);
-
-    final newTodayCount = await client
-        .from('profiles')
-        .select('id')
-        .gte('created_at', todayStart.toIso8601String())
-        .count(CountOption.exact);
-
-    final recentUsers = await client
-        .from('profiles')
-        .select('id, username, full_name, last_seen, is_online')
-        .not('last_seen', 'is', null)
-        .order('last_seen', ascending: false)
-        .limit(20);
-
-    final inactiveCount = await client
-        .from('profiles')
-        .select('id')
-        .lt('last_seen', monthAgo.toIso8601String())
-        .count(CountOption.exact);
+    // recent_users listesi de aynı RLS sebeple boş döner; yine RPC
+    // üzerinden alıyoruz. last_seen DESC sırasıyla last_seen,
+    // is_online, full_name, username döner; UI bu alanları kullanır.
+    final recentUsersResp = await client.rpc<List<dynamic>>(
+      'admin_recent_active_users',
+      params: {'p_limit': 20},
+    );
+    final recentUsers = recentUsersResp;
 
     final errors = _analyticsService.getErrors(limit: 20);
     final errorTypeCounts = <String, int>{};
@@ -1024,16 +996,16 @@ extension on _AdminDashboardScreenState {
     }
 
     return {
-      'online': onlineCount.count,
-      'inactive': inactiveCount.count,
+      'online': (c['online_count'] as num).toInt(),
+      'inactive': (c['inactive_count'] as num).toInt(),
       'errorTypeCounts': errorTypeCounts,
       'hourlyDistribution': _analyticsService.getHourlyDistribution(),
       'mostViewedPosts': _analyticsService.getMostViewedPosts(limit: 5),
-      'dau': dauCount.count,
-      'wau': wauCount.count,
-      'mau': mauCount.count,
-      'totalUsers': totalUsersCount.count,
-      'newToday': newTodayCount.count,
+      'dau': (c['dau_count'] as num).toInt(),
+      'wau': (c['wau_count'] as num).toInt(),
+      'mau': (c['mau_count'] as num).toInt(),
+      'totalUsers': (c['total_users'] as num).toInt(),
+      'newToday': (c['new_today_count'] as num).toInt(),
       'totalEvents': _analyticsService.eventCount,
       'avgViewDuration': _analyticsService.getAveragePostViewDuration(),
       'errorCount': errors.length,
@@ -1188,13 +1160,13 @@ extension on _AdminDashboardScreenState {
   // --- _loadCouriers ---
   Future<List<Map<String, dynamic>>> _loadCouriers() async {
     try {
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select(
-            'id, username, full_name, email, avatar_url, is_online, delivered_count',
-          )
-          .eq('role', 'courier')
-          .order('created_at', ascending: false);
+      // 20260803000006 ile profiles üzerinde authenticated SELECT
+      // policy'si kaldırıldı; ayrıca email/role/delivered_count
+      // sütunları grant'sız. SECURITY DEFINER admin_list_couriers
+      // RPC üzerinden alıyoruz.
+      final response = await Supabase.instance.client.rpc<List<dynamic>>(
+        'admin_list_couriers',
+      );
 
       final couriers = List<Map<String, dynamic>>.from(response);
 

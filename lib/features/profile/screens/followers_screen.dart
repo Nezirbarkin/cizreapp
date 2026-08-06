@@ -119,8 +119,10 @@ class _FollowListScreenState extends State<FollowListScreen> {
         final friendIds = followers.intersection(following).toList();
 
         if (friendIds.isNotEmpty) {
+          // public_profiles_safe SECURITY DEFINER view; RLS bypass ile
+          // tüm takipçi/takip edilen kullanıcıların public bilgisi okunur.
           final response = await Supabase.instance.client
-              .from('profiles')
+              .from('public_profiles_safe')
               .select('id, username, full_name, avatar_url, bio')
               .inFilter('id', friendIds);
 
@@ -157,8 +159,9 @@ class _FollowListScreenState extends State<FollowListScreen> {
 
     try {
       // Hedef kullanıcının profilini kontrol et
+      // public_profiles_safe SECURITY DEFINER; RLS bypass.
       final targetProfile = await Supabase.instance.client
-          .from('profiles')
+          .from('public_profiles_safe')
           .select('profile_is_public')
           .eq('id', targetUserId)
           .maybeSingle();

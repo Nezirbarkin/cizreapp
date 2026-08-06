@@ -795,11 +795,16 @@ extension on _AdminDashboardScreenState {
         }
       }
 
-      // Tüm kullanıcıları al
-      final usersResponse = await Supabase.instance.client
-          .from('profiles')
-          .select('id, username, full_name, email, role')
-          .order('created_at', ascending: false);
+      // Tüm kullanıcıları al — profiles tablosuna authenticated SELECT
+      // grant'i 20260803000006 ile kaldırıldı; doğrudan from('profiles')
+      // çağrısı 42501 fırlatır. SECURITY DEFINER admin_list_users RPC
+      // üzerinden, sayfalı/dar sütunlu liste çekilir.
+      // NOT: Bu RPC `email` sütununu döndürmez (PII). Bu ekran yalnız
+      // dükkan atamak için kullanıldığından email gerekmiyor.
+      final usersResponse = await Supabase.instance.client.rpc<List<dynamic>>(
+        'admin_list_users',
+        params: {'p_limit': 100},
+      );
 
       // Yinelenenleri filtrele ve dükkanı olmayanları al
       final seenIds = <String>{};

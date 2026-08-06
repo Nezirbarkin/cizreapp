@@ -1,13 +1,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { hmacSha256Base64Url, hmacSha256Hex } from "../_shared/crypto.ts";
+import { hmacSha256Base64Url, hmacSha256Hex } from "./_shared/crypto.ts";
 import {
   bearerToken,
   json,
   options,
   requireEnv,
   safeErrorCode,
-} from "../_shared/http.ts";
+} from "./_shared/http.ts";
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return options("POST, OPTIONS");

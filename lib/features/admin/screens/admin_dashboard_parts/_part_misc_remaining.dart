@@ -146,10 +146,18 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _loadRealData ---
+  //
+  // 20260803000006_secure_profiles_privileges_and_pii.sql sonrasında
+  // profiles üzerindeki authenticated SELECT policy'si kaldırıldı;
+  // support_tickets policy gövdesi de inline
+  // `SELECT role FROM profiles` içeriyordu. Tüm sorguları tek tek
+  // yapıp tek bir setState'te birleştirmek, RLS patlamasında tüm
+  // sayaçların 0 kalmasına yol açıyordu. Çözüm: SECURITY DEFINER
+  // admin_dashboard_counts() RPC üzerinden tek atomik çağrı.
   Future<void> _loadRealData() async {
-    try {
-      setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
+    try {
       final client = Supabase.instance.client;
       debugPrint('📊 Admin Dashboard veri yüklemesi başladı...');
       debugPrint('📊 Mevcut kullanıcı: ${client.auth.currentUser?.id}');
@@ -157,63 +165,25 @@ extension on _AdminDashboardScreenState {
         '📊 Mevcut kullanıcı email: ${client.auth.currentUser?.email}',
       );
 
-      // Kullanıcı sayısı - liste uzunluğu kullan
-      final usersResponse = await client.from('profiles').select('id');
-      debugPrint('📊 Kullanıcı sayısı: ${usersResponse.length}');
-
-      // Post sayısı
-      final postsResponse = await client.from('posts').select('id');
-      debugPrint('📊 Post sayısı: ${postsResponse.length}');
-
-      // Ürün sayısı
-      final productsResponse = await client.from('products').select('id');
-      debugPrint('📊 Ürün sayısı: ${productsResponse.length}');
-
-      // Sipariş sayısı
-      final ordersResponse = await client.from('orders').select('id');
-      debugPrint('📊 Sipariş sayısı: ${ordersResponse.length}');
-
-      // Şikayet sayısı - user_reports tablosu kullanıyoruz
-      final reportsResponse = await client.from('user_reports').select('id');
-      debugPrint('📊 Şikayet sayısı: ${reportsResponse.length}');
-
-      // Yanıtlanmamış şikayet sayısı
-      final unansweredData = await client
-          .from('user_reports')
-          .select('id')
-          .inFilter('status', ['pending', 'reviewing']);
-      debugPrint('📊 Yanıtlanmamış şikayet: ${unansweredData.length}');
-
-      // Gönderi şikayetleri sayısı
-      int unansweredPostReportsCount = 0;
-      try {
-        final unansweredPostReports = await client
-            .from('post_reports')
-            .select('id')
-            .inFilter('status', ['pending', 'reviewing']);
-        unansweredPostReportsCount = unansweredPostReports.length;
-      } catch (e) {
-        debugPrint('⚠️ post_reports tablosu henüz yok: $e');
-      }
-
-      // Yanıtlanmamış destek talebi sayısı
-      final unansweredTicketsData = await client
-          .from('support_tickets')
-          .select('id')
-          .eq('status', 'open');
-      debugPrint(
-        '📊 Yanıtlanmamış destek talebi: ${unansweredTicketsData.length}',
+      final rows = await client.rpc<List<dynamic>>(
+        'admin_dashboard_counts',
       );
 
+      if (rows.isEmpty) {
+        throw Exception('admin_dashboard_counts boş döndü');
+      }
+      final r = (rows.first as Map).cast<String, dynamic>();
+
+      if (!mounted) return;
       setState(() {
-        _totalUsers = usersResponse.length;
-        _totalPosts = postsResponse.length;
-        _totalProducts = productsResponse.length;
-        _totalOrders = ordersResponse.length;
-        _totalReports = reportsResponse.length;
+        _totalUsers = (r['total_users'] as num).toInt();
+        _totalPosts = (r['total_posts'] as num).toInt();
+        _totalProducts = (r['total_products'] as num).toInt();
+        _totalOrders = (r['total_orders'] as num).toInt();
+        _totalReports = (r['total_reports'] as num).toInt();
         _unansweredComplaintCount =
-            unansweredData.length + unansweredPostReportsCount;
-        _unansweredTicketCount = unansweredTicketsData.length;
+            (r['unanswered_complaints'] as num).toInt();
+        _unansweredTicketCount = (r['unanswered_tickets'] as num).toInt();
         _isLoading = false;
       });
 
@@ -224,7 +194,17 @@ extension on _AdminDashboardScreenState {
     } catch (e, stackTrace) {
       debugPrint('❌ Veriler yüklenirken hata: $e');
       debugPrint('❌ Stack trace: $stackTrace');
+      if (!mounted) return;
       setState(() => _isLoading = false);
+      // Sessiz catch→0 deseni bu bug'ı görünmez yapıyordu; hatayı
+      // artık kullanıcıya da gösteriyoruz.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dashboard verileri yüklenemedi: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 6),
+        ),
+      );
     }
   }
 

@@ -59,8 +59,10 @@ class ChatService {
     AppLogger.debug('getOrCreateConversation: currentUserId=$currentUserId, otherUserId=$otherUserId');
 
     try {
+      // public_profiles_chat SECURITY DEFINER; messages_enabled sütununu
+      // profiles tablosundan RLS bypass ile okur.
       final otherUserProfile = await _supabase
-          .from('profiles')
+          .from('public_profiles_chat')
           .select('messages_enabled')
           .eq('id', otherUserId)
           .maybeSingle();
@@ -146,8 +148,11 @@ class ChatService {
   Future<Map<String, dynamic>?> _getOtherUserProfile(String? userId) async {
     if (userId == null) return null;
     try {
+      // public_profiles_chat: SECURITY DEFINER view; is_online, last_seen,
+      // messages_enabled sütunlarını da içerir (profiles tablosu RLS yüzünden
+      // başka kullanıcıları döndürmez).
       final profile = await _supabase
-          .from('profiles')
+          .from('public_profiles_chat')
           .select('id, full_name, username, avatar_url, is_online, last_seen')
           .eq('id', userId)
           .maybeSingle();
@@ -205,8 +210,11 @@ class ChatService {
       final userConvs = partnerToConv.values.toList();
 
       final otherUserIds = userConvs.map((c) => c['other_user_id'] as String).toSet().toList();
+      // public_profiles_chat: SECURITY DEFINER view; is_online ve last_seen
+      // sütunlarını da içerir (profiles tablosu RLS yüzünden başkalarını
+      // döndürmez).
       final profiles = await _supabase
-          .from('profiles')
+          .from('public_profiles_chat')
           .select('id, full_name, username, avatar_url, is_online, last_seen')
           .inFilter('id', otherUserIds);
       final profileMap = <String, Map<String, dynamic>>{};

@@ -807,10 +807,14 @@ extension on _AdminDashboardScreenState {
                 }
 
                 try {
-                  // Bulk notification için tüm kullanıcılara gönder
+                  // Bulk notification için tüm kullanıcılara gönder.
+                  // 20260803000006 sonrasında profiles üzerinde
+                  // authenticated SELECT policy'si yok; SECURITY DEFINER
+                  // admin_profiles_minimal RPC üzerinden alıyoruz.
                   final usersResponse = await Supabase.instance.client
-                      .from('profiles')
-                      .select('id');
+                      .rpc<List<dynamic>>('admin_profiles_minimal', params: {
+                    'p_user_ids': null,
+                  });
 
                   if (usersResponse.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(

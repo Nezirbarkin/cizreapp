@@ -224,8 +224,12 @@ class _UserProfileScreenState extends State<UserProfileScreen>
 
   Future<void> _loadUserProfile() async {
     try {
+      // profiles tablosu RLS nedeniyle başka kullanıcıları döndürmez.
+      // public_profiles_safe SECURITY DEFINER view; tüm public profilleri
+      // RLS bypass ile okur. (cover_url ve website sütunları public view'da
+      // zaten var.)
       final response = await Supabase.instance.client
-          .from('profiles')
+          .from('public_profiles_safe')
           .select(
             'id, username, full_name, avatar_url, bio, cover_url, website, profile_is_public',
           )
@@ -2139,8 +2143,10 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
 
     // Kullanıcının mesaj alma özelliğini kontrol et
+    // public_profiles_chat SECURITY DEFINER view; RLS bypass ile
+    // messages_enabled sütununu okur.
     final targetProfile = await Supabase.instance.client
-        .from('profiles')
+        .from('public_profiles_chat')
         .select('messages_enabled')
         .eq('id', widget.userId)
         .maybeSingle();

@@ -70,10 +70,22 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
       final list = List<Map<String, dynamic>>.from(response);
       for (var i = 0; i < list.length; i++) {
         try {
-          final profile = await _supabase.from('profiles')
-              .select('full_name, avatar_url, username')
-              .eq('id', list[i]['user_id']).maybeSingle();
-          list[i]['profiles'] = profile ?? {};
+          // 20260803000006 sonrasında profiles üzerinde authenticated
+          // SELECT policy'si yok; SECURITY DEFINER admin_profiles_minimal
+          // RPC üzerinden tek profili alıyoruz.
+          final userId = list[i]['user_id'] as String?;
+          if (userId == null) {
+            list[i]['profiles'] = {};
+            continue;
+          }
+          final profileResp = await _supabase.rpc<List<dynamic>>(
+            'admin_profiles_minimal',
+            params: {'p_user_ids': [userId]},
+          );
+          final profile = profileResp.isNotEmpty
+              ? Map<String, dynamic>.from(profileResp.first)
+              : <String, dynamic>{};
+          list[i]['profiles'] = profile;
         } catch (_) {
           list[i]['profiles'] = {};
         }
@@ -452,10 +464,22 @@ class _MembersDialogState extends State<_MembersDialog> {
         final list = List<Map<String, dynamic>>.from(r);
         for (var i = 0; i < list.length; i++) {
           try {
-            final profile = await widget.supabase.from('profiles')
-                .select('full_name, avatar_url, username')
-                .eq('id', list[i]['user_id']).maybeSingle();
-            list[i]['profiles'] = profile ?? {};
+            // 20260803000006 sonrasında profiles üzerinde authenticated
+            // SELECT policy'si yok; SECURITY DEFINER admin_profiles_minimal
+            // RPC üzerinden alıyoruz.
+            final userId = list[i]['user_id'] as String?;
+            if (userId == null) {
+              list[i]['profiles'] = {};
+              continue;
+            }
+            final profileResp = await widget.supabase.rpc<List<dynamic>>(
+              'admin_profiles_minimal',
+              params: {'p_user_ids': [userId]},
+            );
+            final profile = profileResp.isNotEmpty
+                ? Map<String, dynamic>.from(profileResp.first)
+                : <String, dynamic>{};
+            list[i]['profiles'] = profile;
           } catch (_) {
             list[i]['profiles'] = {};
           }
@@ -560,11 +584,25 @@ class _GroupRequestsDialogState extends State<_GroupRequestsDialog> {
       // FK olmadığı için ayrı sorgu ile profil bilgilerini getir
       final r = await widget.supabase.from('group_join_requests').select('*').eq('group_id', widget.groupId).eq('status', 'pending').order('created_at', ascending: false);
       final list = List<Map<String, dynamic>>.from(r);
-      // Her istek için profil bilgisini getir
+      // Her istek için profil bilgisini getir.
+      // 20260803000006 sonrasında profiles üzerinde authenticated
+      // SELECT policy'si yok; SECURITY DEFINER admin_profiles_minimal
+      // RPC üzerinden alıyoruz.
       for (var i = 0; i < list.length; i++) {
         try {
-          final profile = await widget.supabase.from('profiles').select('full_name, avatar_url, username').eq('id', list[i]['user_id']).maybeSingle();
-          list[i]['profiles'] = profile ?? {};
+          final userId = list[i]['user_id'] as String?;
+          if (userId == null) {
+            list[i]['profiles'] = {};
+            continue;
+          }
+          final profileResp = await widget.supabase.rpc<List<dynamic>>(
+            'admin_profiles_minimal',
+            params: {'p_user_ids': [userId]},
+          );
+          final profile = profileResp.isNotEmpty
+              ? Map<String, dynamic>.from(profileResp.first)
+              : <String, dynamic>{};
+          list[i]['profiles'] = profile;
         } catch (_) {
           list[i]['profiles'] = {};
         }

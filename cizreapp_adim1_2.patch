@@ -1,0 +1,935 @@
+From c1554342ae3c0894cc4b7904f94bd46bc45b1f21 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 13:36:57 +0000
+Subject: [PATCH 1/4] chore(supabase): adim 1 canli durum tespiti SQL'i ekle
+
+20260802* migration'larinin canliya uygulanip uygulanmadigini ve
+Flutter'in cagirdigi 66 RPC'nin canli DB'de gercekten cagrilabilir
+olup olmadigini tespit eden salt-okunur teshis scripti.
+
+Bes blok:
+- A: schema_migrations uzerinden migration durumu
+- B: eski (canli kullanilan) RPC/tablo yetkileri hala ayakta mi
+- C: private sema durumu + PostgREST expose edilen semalar
+- D: 66 RPC icin etkin cagrilabilirlik (sema USAGE + EXECUTE + expose)
+- E: ozet sayim
+
+Yerel PostgreSQL 16 fixture'inda ON_ERROR_STOP=1 ile dogrulandi.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018qx6EK82bwAMKTdEpeH25Z
+---
+ .../20260805_adim1_durum_tespiti.sql          | 331 ++++++++++++++++++
+ 1 file changed, 331 insertions(+)
+ create mode 100644 supabase/diagnostics/20260805_adim1_durum_tespiti.sql
+
+diff --git a/supabase/diagnostics/20260805_adim1_durum_tespiti.sql b/supabase/diagnostics/20260805_adim1_durum_tespiti.sql
+new file mode 100644
+index 0000000..934d798
+--- /dev/null
++++ b/supabase/diagnostics/20260805_adim1_durum_tespiti.sql
+@@ -0,0 +1,331 @@
++-- ============================================================================
++-- ADIM 1 - CANLI DURUM TESPITI (salt-okunur, hicbir sey degistirmez)
++-- Tarih: 2026-08-05
++-- Proje: xsbukxkgtmdyickknqzf (CizreApp)
++-- ----------------------------------------------------------------------------
++-- Amac: 20260802* migration'larinin canliya uygulanip uygulanmadigini ve
++--       Flutter'in cagirdigi 66 RPC'nin canli DB'de gercekten var olup
++--       olmadigini kesinlestirmek.
++--
++-- KULLANIM: Supabase Dashboard > SQL Editor'de A/B/C/D/E bloklarini
++--           sirayla calistir, her blogun ciktisini kopyala.
++-- GUVENLIK: Sadece SELECT. Hicbir DDL/DML yok.
++-- ============================================================================
++
++
++-- ============================================================================
++-- BLOK A - MIGRATION DURUMU
++-- ============================================================================
++SELECT * FROM (
++  SELECT 1 AS sira,
++    'Uygulanmis 2026-08-01..03 migration surumleri' AS kontrol,
++    COALESCE((
++      SELECT string_agg(version, ', ' ORDER BY version)
++      FROM supabase_migrations.schema_migrations
++      WHERE version >= '20260801' AND version < '20260804'
++    ), '(hicbiri uygulanmamis)') AS sonuc,
++    'Bos ise 20260802* hic push edilmemis demektir' AS yorum
++
++  UNION ALL SELECT 2,
++    '20260802000008_revoke_legacy_writes',
++    CASE WHEN EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20260802000008')
++         THEN 'UYGULANDI' ELSE 'uygulanmadi' END,
++    'UYGULANDI ise siparis/kupon/flash sale su an KIRIK'
++
++  UNION ALL SELECT 3,
++    '20260802000013_coupon_limit_enforcement_strict',
++    CASE WHEN EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20260802000013')
++         THEN 'UYGULANDI' ELSE 'uygulanmadi' END,
++    'UYGULANDI ise public.use_coupon/validate_coupon silinmis'
++
++  UNION ALL SELECT 4,
++    'En son uygulanan migration',
++    COALESCE((SELECT max(version) FROM supabase_migrations.schema_migrations), '(kayit yok)'),
++    'Repodaki en son: 20260803000006'
++
++  UNION ALL SELECT 5,
++    'Toplam uygulanmis migration sayisi',
++    (SELECT count(*)::text FROM supabase_migrations.schema_migrations),
++    'Repoda 333 dosya var (25 cift prefix dahil)'
++) t ORDER BY sira;
++
++
++-- ============================================================================
++-- BLOK B - ESKI (CANLI KULLANILAN) YUZEYLER HALA AYAKTA MI?
++-- Flutter su an bunlara bagimli. "YOK" cikan her satir = kirik ozellik.
++-- ============================================================================
++SELECT * FROM (
++  SELECT 1 AS sira, 'public.use_coupon' AS nesne,
++    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++                      WHERE n.nspname='public' AND p.proname='use_coupon')
++         THEN 'VAR' ELSE 'YOK -> KIRIK' END AS durum,
++    'market/checkout:744,1030 + shop/checkout:408' AS cagiran
++
++  UNION ALL SELECT 2, 'public.validate_coupon',
++    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++                      WHERE n.nspname='public' AND p.proname='validate_coupon')
++         THEN 'VAR' ELSE 'YOK -> KIRIK' END,
++    'shop/cart_screen:209 + cart_provider:168'
++
++  UNION ALL SELECT 3, 'public.claim_flash_sale',
++    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++                      WHERE n.nspname='public' AND p.proname='claim_flash_sale')
++         THEN 'VAR' ELSE 'YOK -> KIRIK' END,
++    'market/services/flash_sale_service:76'
++
++  UNION ALL SELECT 4, 'public.release_flash_sale',
++    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++                      WHERE n.nspname='public' AND p.proname='release_flash_sale')
++         THEN 'VAR' ELSE 'YOK -> KIRIK' END,
++    'market/services/flash_sale_service:94'
++
++  UNION ALL SELECT 5, 'authenticated -> INSERT public.orders',
++    CASE WHEN to_regclass('public.orders') IS NULL THEN '(tablo yok)'
++         WHEN has_table_privilege('authenticated','public.orders','INSERT')
++         THEN 'VAR' ELSE 'YOK -> SIPARIS OLUSTURULAMAZ' END,
++    'shop/services/order_service:88,725'
++
++  UNION ALL SELECT 6, 'authenticated -> INSERT public.order_items',
++    CASE WHEN to_regclass('public.order_items') IS NULL THEN '(tablo yok)'
++         WHEN has_table_privilege('authenticated','public.order_items','INSERT')
++         THEN 'VAR' ELSE 'YOK -> SIPARIS KALEMI EKLENEMEZ' END,
++    'shop/services/order_service:149,780'
++
++  UNION ALL SELECT 7, 'authenticated -> INSERT public.coupon_usages',
++    CASE WHEN to_regclass('public.coupon_usages') IS NULL THEN '(tablo yok)'
++         WHEN has_table_privilege('authenticated','public.coupon_usages','INSERT')
++         THEN 'VAR' ELSE 'YOK' END,
++    'kupon kullanim kaydi'
++
++  UNION ALL SELECT 8, 'authenticated -> UPDATE public.payment_transactions',
++    CASE WHEN to_regclass('public.payment_transactions') IS NULL THEN '(tablo yok)'
++         WHEN has_table_privilege('authenticated','public.payment_transactions','UPDATE')
++         THEN 'VAR' ELSE 'YOK -> KIRIK' END,
++    'core/services/payment_service:148'
++
++  UNION ALL SELECT 9, 'authenticated -> UPDATE public.user_balances',
++    CASE WHEN to_regclass('public.user_balances') IS NULL THEN '(tablo yok)'
++         WHEN has_table_privilege('authenticated','public.user_balances','UPDATE')
++         THEN 'VAR' ELSE 'YOK' END,
++    'bakiye guncelleme'
++) t ORDER BY sira;
++
++
++-- ============================================================================
++-- BLOK C - YENI (private) KATMAN DURUMU
++-- ============================================================================
++SELECT * FROM (
++  SELECT 1 AS sira, 'private semasi mevcut mu?' AS kontrol,
++    CASE WHEN to_regnamespace('private') IS NOT NULL THEN 'VAR' ELSE 'YOK' END AS sonuc,
++    'Yoksa 20260802000005 hic uygulanmamis' AS yorum
++
++  UNION ALL SELECT 2, 'authenticated -> USAGE ON SCHEMA private',
++    CASE WHEN to_regnamespace('private') IS NULL THEN '(sema yok)'
++         WHEN has_schema_privilege('authenticated','private','USAGE') THEN 'VAR'
++         ELSE 'YOK -> RPC EXECUTE grant''i ise yaramaz' END,
++    'Migration bunu bilerek REVOKE ediyor'
++
++  UNION ALL SELECT 3, 'private semasindaki fonksiyonlar',
++    COALESCE((SELECT string_agg(p.proname, ', ' ORDER BY p.proname)
++              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++              WHERE n.nspname='private'), '(yok)'),
++    'prepare_checkout_session, commit_cod_order, commit_balance_order beklenir'
++
++  UNION ALL SELECT 4, 'PostgREST expose edilen semalar',
++    COALESCE((SELECT array_to_string(s.setconfig, ' | ')
++              FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole
++              WHERE r.rolname = 'authenticator'), '(ayar yok = varsayilan public)'),
++    'private burada YOKSA .rpc() ile cagrilamaz (PGRST202)'
++) t ORDER BY sira;
++
++
++-- ============================================================================
++-- BLOK D - FLUTTER'IN CAGIRDIGI 66 RPC CANLI DB'DE VAR MI?
++-- "EKSIK" cikan her satir = uygulamada kirik ozellik.
++-- ============================================================================
++WITH dart_rpc(ad) AS (
++  VALUES
++    ('add_notification'),
++    ('admin_add_group_member'),
++    ('admin_approve_join_request'),
++    ('admin_change_member_role'),
++    ('admin_create_group'),
++    ('admin_delete_group'),
++    ('admin_delete_sehirici_city'),
++    ('admin_delete_sehirici_stop'),
++    ('admin_get_all_groups'),
++    ('admin_get_group_members'),
++    ('admin_list_suspicious_users'),
++    ('admin_reject_join_request'),
++    ('admin_remove_group_member'),
++    ('admin_reward_points_overview'),
++    ('admin_scan_fraud_signals'),
++    ('admin_set_user_suspicious'),
++    ('admin_update_group'),
++    ('admin_upsert_sehirici_city'),
++    ('admin_upsert_sehirici_line'),
++    ('admin_upsert_sehirici_stop'),
++    ('apply_campaign_rewards_for_order'),
++    ('approve_group_join_request'),
++    ('can_review_order'),
++    ('cancel_order'),
++    ('claim_flash_sale'),
++    ('commit_balance_order'),
++    ('commit_cod_order'),
++    ('compute_sehirici_next_stop'),
++    ('dismiss_review_reminder'),
++    ('end_live_session'),
++    ('ensure_my_profile'),
++    ('get_admin_commission_report'),
++    ('get_group_messages_with_read_count'),
++    ('get_message_read_count'),
++    ('get_message_read_receipts'),
++    ('get_pending_reviews'),
++    ('get_sehirici_active_trips'),
++    ('get_sehirici_lines_with_stops'),
++    ('get_sehirici_trip_path'),
++    ('get_sehirici_trips_for_stop'),
++    ('get_seller_commission_summary'),
++    ('get_shop_today_views'),
++    ('get_shop_total_views'),
++    ('get_task_stats'),
++    ('get_top_customers'),
++    ('get_top_viewed_products'),
++    ('get_user_groups'),
++    ('increment_story_likes'),
++    ('join_open_group'),
++    ('mark_group_messages_as_read'),
++    ('mark_group_messages_read_receipts'),
++    ('mark_messages_as_read'),
++    ('prepare_checkout_session'),
++    ('reject_group_join_request'),
++    ('release_flash_sale'),
++    ('search_groups'),
++    ('set_my_presence'),
++    ('set_sehirici_trip_status'),
++    ('start_live_session'),
++    ('start_sehirici_trip'),
++    ('update_sehirici_trip_location'),
++    ('upsert_follow_request'),
++    ('use_coupon'),
++    ('validate_coupon'),
++    ('verify_code'),
++    ('verify_registration_otp')
++)
++SELECT
++  d.ad AS rpc_adi,
++  CASE WHEN p.proname IS NULL THEN 'EKSIK' ELSE 'var' END AS durum,
++  COALESCE(n.nspname, '-') AS sema,
++  -- Etkin cagrilabilirlik: PostgREST sadece public'i expose eder VE
++  -- fonksiyon EXECUTE + sema USAGE'in ikisi birden gerekir.
++  CASE
++    WHEN p.proname IS NULL THEN 'RPC YOK'
++    WHEN n.nspname <> 'public' THEN 'HAYIR - ' || n.nspname || ' semasi PostgREST''e acik degil'
++    WHEN NOT has_schema_privilege('authenticated', n.nspname, 'USAGE') THEN 'HAYIR - sema USAGE yok'
++    WHEN NOT has_function_privilege('authenticated', p.oid, 'EXECUTE') THEN 'HAYIR - EXECUTE yok'
++    ELSE 'evet'
++  END AS flutter_cagirabilir_mi
++FROM dart_rpc d
++LEFT JOIN LATERAL (
++  SELECT pp.oid, pp.proname, pp.pronamespace
++  FROM pg_proc pp JOIN pg_namespace nn ON nn.oid = pp.pronamespace
++  WHERE pp.proname = d.ad AND nn.nspname IN ('public','private')
++  ORDER BY CASE WHEN nn.nspname = 'public' THEN 0 ELSE 1 END
++  LIMIT 1
++) p ON TRUE
++LEFT JOIN pg_namespace n ON n.oid = p.pronamespace
++ORDER BY (p.proname IS NOT NULL), d.ad;
++
++
++-- ============================================================================
++-- BLOK E - OZET SAYIM (tek satir, hizli bakis)
++-- ============================================================================
++WITH dart_rpc(ad) AS (
++  VALUES
++    ('add_notification'),
++    ('admin_add_group_member'),
++    ('admin_approve_join_request'),
++    ('admin_change_member_role'),
++    ('admin_create_group'),
++    ('admin_delete_group'),
++    ('admin_delete_sehirici_city'),
++    ('admin_delete_sehirici_stop'),
++    ('admin_get_all_groups'),
++    ('admin_get_group_members'),
++    ('admin_list_suspicious_users'),
++    ('admin_reject_join_request'),
++    ('admin_remove_group_member'),
++    ('admin_reward_points_overview'),
++    ('admin_scan_fraud_signals'),
++    ('admin_set_user_suspicious'),
++    ('admin_update_group'),
++    ('admin_upsert_sehirici_city'),
++    ('admin_upsert_sehirici_line'),
++    ('admin_upsert_sehirici_stop'),
++    ('apply_campaign_rewards_for_order'),
++    ('approve_group_join_request'),
++    ('can_review_order'),
++    ('cancel_order'),
++    ('claim_flash_sale'),
++    ('commit_balance_order'),
++    ('commit_cod_order'),
++    ('compute_sehirici_next_stop'),
++    ('dismiss_review_reminder'),
++    ('end_live_session'),
++    ('ensure_my_profile'),
++    ('get_admin_commission_report'),
++    ('get_group_messages_with_read_count'),
++    ('get_message_read_count'),
++    ('get_message_read_receipts'),
++    ('get_pending_reviews'),
++    ('get_sehirici_active_trips'),
++    ('get_sehirici_lines_with_stops'),
++    ('get_sehirici_trip_path'),
++    ('get_sehirici_trips_for_stop'),
++    ('get_seller_commission_summary'),
++    ('get_shop_today_views'),
++    ('get_shop_total_views'),
++    ('get_task_stats'),
++    ('get_top_customers'),
++    ('get_top_viewed_products'),
++    ('get_user_groups'),
++    ('increment_story_likes'),
++    ('join_open_group'),
++    ('mark_group_messages_as_read'),
++    ('mark_group_messages_read_receipts'),
++    ('mark_messages_as_read'),
++    ('prepare_checkout_session'),
++    ('reject_group_join_request'),
++    ('release_flash_sale'),
++    ('search_groups'),
++    ('set_my_presence'),
++    ('set_sehirici_trip_status'),
++    ('start_live_session'),
++    ('start_sehirici_trip'),
++    ('update_sehirici_trip_location'),
++    ('upsert_follow_request'),
++    ('use_coupon'),
++    ('validate_coupon'),
++    ('verify_code'),
++    ('verify_registration_otp')
++)
++SELECT
++  count(*) AS toplam_rpc,
++  count(*) FILTER (WHERE p.proname IS NOT NULL) AS canlida_var,
++  count(*) FILTER (WHERE p.proname IS NULL) AS eksik,
++  count(*) FILTER (
++    WHERE p.proname IS NOT NULL
++      AND NOT (
++        p.nspname = 'public'
++        AND has_schema_privilege('authenticated', p.nspname, 'USAGE')
++        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
++      )
++  ) AS var_ama_cagrilamaz
++FROM dart_rpc d
++LEFT JOIN LATERAL (
++  SELECT pp.oid, pp.proname, nn.nspname
++  FROM pg_proc pp JOIN pg_namespace nn ON nn.oid = pp.pronamespace
++  WHERE pp.proname = d.ad AND nn.nspname IN ('public','private')
++  ORDER BY CASE WHEN nn.nspname = 'public' THEN 0 ELSE 1 END
++  LIMIT 1
++) p ON TRUE;
+-- 
+2.43.0
+
+
+From 8e2e97cf946463fa875bf8e9005057fe83d0feb8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 13:47:57 +0000
+Subject: [PATCH 2/4] chore(supabase): adim 1b fonksiyon ikizleri teshis SQL'i
+
+Adim 1 sonucu checkout RPC'lerinin hem public hem private semasinda
+durdugunu gosterdi. Bu sorgu public kopyalarin wrapper mi yoksa
+bagimsiz implementasyon mu oldugunu ve migration defterinin tam
+icerigini cikarir.
+
+Yerel PostgreSQL 16 fixture'inda ON_ERROR_STOP=1 ile dogrulandi.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018qx6EK82bwAMKTdEpeH25Z
+---
+ .../20260805_adim1b_fonksiyon_ikizleri.sql    | 55 +++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+ create mode 100644 supabase/diagnostics/20260805_adim1b_fonksiyon_ikizleri.sql
+
+diff --git a/supabase/diagnostics/20260805_adim1b_fonksiyon_ikizleri.sql b/supabase/diagnostics/20260805_adim1b_fonksiyon_ikizleri.sql
+new file mode 100644
+index 0000000..2a18762
+--- /dev/null
++++ b/supabase/diagnostics/20260805_adim1b_fonksiyon_ikizleri.sql
+@@ -0,0 +1,55 @@
++-- ============================================================================
++-- ADIM 1B - FONKSIYON IKIZLERI + MIGRATION DEFTERI (salt-okunur)
++-- Tarih: 2026-08-05
++-- ----------------------------------------------------------------------------
++-- Adim 1 sonucu: checkout RPC'leri HEM public HEM private semasinda duruyor.
++-- Bu sorgu, public kopyalarin ne oldugunu netlestirir:
++--   - private'e delege eden ince bir wrapper mi?
++--   - yoksa bagimsiz (muhtemelen eski) bir implementasyon mu?
++-- Adim 2'de yazilacak duzeltme migration'inin sekli buna bagli.
++--
++-- KULLANIM: Supabase SQL Editor'de F ve G bloklarini calistir, ciktilari yapistir.
++-- GUVENLIK: Sadece SELECT. Hicbir DDL/DML yok.
++-- ============================================================================
++
++
++-- ============================================================================
++-- BLOK F - CHECKOUT RPC IKIZLERI (public vs private)
++-- ============================================================================
++SELECT
++  p.proname                                    AS fonksiyon,
++  n.nspname                                    AS sema,
++  pg_get_function_identity_arguments(p.oid)    AS imza,
++  CASE WHEN p.prosecdef THEN 'DEFINER' ELSE 'INVOKER' END AS security,
++  CASE WHEN has_function_privilege('authenticated', p.oid, 'EXECUTE')
++       THEN 'evet' ELSE 'HAYIR' END            AS auth_execute,
++  length(p.prosrc)                             AS govde_uzunlugu,
++  -- Govde private'e delege ediyorsa wrapper'dir:
++  CASE WHEN p.prosrc ILIKE '%private.%' THEN 'private''e delege ediyor'
++       ELSE 'bagimsiz implementasyon' END      AS tur,
++  left(regexp_replace(p.prosrc, '\s+', ' ', 'g'), 180) AS govde_ilk_180
++FROM pg_proc p
++JOIN pg_namespace n ON n.oid = p.pronamespace
++WHERE n.nspname IN ('public', 'private')
++  AND p.proname IN (
++    'prepare_checkout_session',
++    'commit_cod_order',
++    'commit_balance_order',
++    'commit_online_order',
++    'use_coupon',
++    'validate_coupon'
++  )
++ORDER BY p.proname, n.nspname;
++
++
++-- ============================================================================
++-- BLOK G - MIGRATION DEFTERINDE KAYITLI TUM SURUMLER
++-- Adim 1'de "13 kayit / en son 20240123000009" cikti. Repoda 333 dosya var.
++-- Defterin gercekte ne bildigini gormek icin tam liste:
++-- ============================================================================
++SELECT
++  count(*)                                          AS kayitli_migration,
++  min(version)                                      AS en_eski,
++  max(version)                                      AS en_yeni,
++  string_agg(version, ', ' ORDER BY version)        AS tum_surumler
++FROM supabase_migrations.schema_migrations;
+-- 
+2.43.0
+
+
+From 09738efa6ddc0e7ec7ba0fe65954102da5214837 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 14:01:27 +0000
+Subject: [PATCH 3/4] fix(supabase): yikici iki migration'i deferred/ altina al
+
+supabase db push su an guvenli degil: schema_migrations defterinde 13
+kayit var (en yenisi 20240123000009, ikisi gecersiz), oysa ~320
+migration canliya elle uygulanmis. Push denenirse defterde olmayan
+her dosya yeniden calisir.
+
+En yikici iki dosya migrations/ disina alindi:
+
+- 20260802000008_revoke_legacy_writes: hicbir sey olusturmaz, yalniz
+  siler. public.use_coupon / validate_coupon / claim_flash_sale /
+  release_flash_sale DROP eder ve orders + order_items INSERT yetkisini
+  authenticated'dan geri alir. Bunlarin hepsi canli Flutter akisinin
+  bagimli oldugu yuzeyler. Sildigi use_coupon/validate_coupon ayrica
+  canlida uygulamayi ayakta tutan uyumluluk wrapper'larinin kendisi.
+
+- 20260802000013_coupon_limit_enforcement_strict: private bolumu canliya
+  zaten uygulanmis. Kalan etkisi public.validate_coupon(UUID,TEXT,
+  NUMERIC,UUID) ve public.use_coupon(UUID,UUID,UUID,NUMERIC) DROP etmek;
+  bu imzalar canlidaki wrapper'larla birebir ayni.
+
+deferred/ arsiv degildir: bu dosyalar gecerli, yalniz Flutter cutover'i
+tamamlanmadan uygulanamaz. Kosullar deferred/README.md'de.
+
+Ayrica README'ye db push uyarisi eklendi ve teshis dosyasindaki hatali
+cift-prefix sayimi duzeltildi (23 grup / 56 dosya, 25 degil).
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018qx6EK82bwAMKTdEpeH25Z
+---
+ supabase/README.md                            |  25 +++-
+ .../20260802000008_revoke_legacy_writes.sql   |   0
+ ...000013_coupon_limit_enforcement_strict.sql |   0
+ supabase/deferred/README.md                   | 113 ++++++++++++++++++
+ .../20260805_adim1_durum_tespiti.sql          |   2 +-
+ 5 files changed, 138 insertions(+), 2 deletions(-)
+ rename supabase/{migrations => deferred}/20260802000008_revoke_legacy_writes.sql (100%)
+ rename supabase/{migrations => deferred}/20260802000013_coupon_limit_enforcement_strict.sql (100%)
+ create mode 100644 supabase/deferred/README.md
+
+diff --git a/supabase/README.md b/supabase/README.md
+index a9f9a80..26bb5c5 100644
+--- a/supabase/README.md
++++ b/supabase/README.md
+@@ -2,12 +2,35 @@
+ 
+ Bu dizin, CizreApp'in Supabase (Postgres + Auth + Storage + Realtime + Edge Functions) altyapisini yonetir.
+ 
++> ## ⚠️ `supabase db push` SU AN GUVENLI DEGIL
++>
++> **Tespit tarihi:** 2026-08-05 — bkz. [`diagnostics/`](diagnostics/)
++>
++> `supabase_migrations.schema_migrations` defterinde **13 kayit** var; en yenisi
++> `20240123000009` (Ocak 2024). Ikisi (`0`, `09`) gecerli surum numarasi bile degil.
++> Oysa canli veritabaninda 2026'nin tum isleri duruyor.
++>
++> Yani **~320 migration canliya elle uygulanmis, deftere hic yazilmamis.**
++>
++> Bunun sonucu: `supabase db push` defterde olmayan her dosyayi uygulamaya
++> calisir — zaten uygulanmis ~320 dosyayi yeniden calistirmayi dener.
++> Ayrica repoda **23 grup cift versiyon prefix'i (56 dosya)** var; ayni
++> `version` degeri `schema_migrations` icinde birden fazla satir olamaz.
++>
++> **Defter gercekle hizalanana kadar `db push` calistirma.** Migration'lari
++> bugune kadarki gibi Supabase SQL Editor'den elle uygula.
++>
++> En yikici iki dosya onlem olarak [`deferred/`](deferred/) altina tasindi.
++
+ ## Dizin Yapisi
+ 
+ ```
+ supabase/
+-├── migrations/             # 314 aktif SQL: 292 standard + 22 legacy adli
++├── migrations/             # 331 aktif SQL: 309 standard + 22 legacy adli
+ │   └── ...                # Yerel kaynak envanteri; remote-applied kaniti degil
++├── deferred/               # Gecerli ama HENUZ uygulanamaz migration'lar
++│   └── ...                # Flutter cutover'i beklerler; bkz. deferred/README.md
++├── diagnostics/            # Salt-okunur durum tespiti sorgulari
+ ├── archive/                # Arsivlenmis SQL'ler (calistirilmamali)
+ │   ├── 2025-q1/           # 2025-2026 erken donem fix'leri
+ │   ├── 2026-q2/           # 2026 Nisan-Haziran eski dosyalar
+diff --git a/supabase/migrations/20260802000008_revoke_legacy_writes.sql b/supabase/deferred/20260802000008_revoke_legacy_writes.sql
+similarity index 100%
+rename from supabase/migrations/20260802000008_revoke_legacy_writes.sql
+rename to supabase/deferred/20260802000008_revoke_legacy_writes.sql
+diff --git a/supabase/migrations/20260802000013_coupon_limit_enforcement_strict.sql b/supabase/deferred/20260802000013_coupon_limit_enforcement_strict.sql
+similarity index 100%
+rename from supabase/migrations/20260802000013_coupon_limit_enforcement_strict.sql
+rename to supabase/deferred/20260802000013_coupon_limit_enforcement_strict.sql
+diff --git a/supabase/deferred/README.md b/supabase/deferred/README.md
+new file mode 100644
+index 0000000..39de65a
+--- /dev/null
++++ b/supabase/deferred/README.md
+@@ -0,0 +1,113 @@
++# Ertelenmis Migration'lar
++
++**Olusturma:** 2026-08-05
++
++Bu dizindeki dosyalar **gecerli ve gelecekte uygulanacak** migration'lardir.
++Arsiv **degildir** — [`../archive/`](../archive/) "bir daha asla calistirilmayacak"
++demektir, burasi "henuz calistirilamaz" demektir.
++
++`supabase/migrations/` disinda tutulmalarinin tek sebebi: `supabase db push`
++komutunun bunlari **yanlislikla** uygulamasini engellemek. Su anki canli
++durumda calistirilirlarsa uygulamayi aninda kirarlar.
++
++---
++
++## Neden ertelendiler?
++
++2026-08-02 "server-authoritative checkout" refaktoru **yarim** durumda:
++
++| Katman | Durum |
++|---|---|
++| `private.*` implementasyonlari | Canliya elle uygulanmis, calisiyor |
++| `public.*` uyumluluk wrapper'lari | Canlida elle olusturulmus, calisiyor |
++| Flutter yeni katmani (`lib/services/`, `lib/screens/`) | Yazilmis ama **hicbir ekrandan cagrilmiyor** |
++| Flutter canli akisi (`lib/features/**`) | Hala eski client-otoriteli yolu kullaniyor |
++
++Yani uygulama su an **eski yuzeye** bagimli. Bu iki migration ise tam olarak
++o eski yuzeyi yok ediyor.
++
++---
++
++## Dosyalar
++
++### `20260802000008_revoke_legacy_writes.sql`
++
++Tamamen yikici — hicbir sey olusturmaz, yalniz siler ve yetki geri alir.
++
++| Ne yapiyor | Kirdigi canli cagri |
++|---|---|
++| `DROP public.use_coupon` | `market/checkout_screen.dart:744,1030` · `shop/checkout_screen.dart:408` |
++| `DROP public.validate_coupon` | `shop/cart_screen.dart:209` · `market/providers/cart_provider.dart:168` |
++| `DROP public.claim_flash_sale` / `release_flash_sale` | `market/services/flash_sale_service.dart:76,94` |
++| `REVOKE INSERT ON orders FROM authenticated` | `shop/services/order_service.dart:88,725` — siparis olusturma tamamen durur |
++| `REVOKE INSERT ON order_items` | `shop/services/order_service.dart:149,780` |
++| `REVOKE UPDATE ON payment_transactions` | `core/services/payment_service.dart:148` |
++
++Ayrica sildigi `public.use_coupon` / `public.validate_coupon`, canlida
++uygulamayi ayakta tutan **uyumluluk wrapper'larinin ta kendisidir**.
++
++### `20260802000013_coupon_limit_enforcement_strict.sql`
++
++`private` bolumu canliya **zaten uygulanmis** (`private.use_coupon` ve
++`private.validate_coupon` canlida mevcut). Geriye kalan etkisi yikici:
++
++```sql
++DROP FUNCTION IF EXISTS public.validate_coupon(UUID, TEXT, NUMERIC, UUID);
++DROP FUNCTION IF EXISTS public.use_coupon(UUID, UUID, UUID, NUMERIC);
++```
++
++Bu iki imza, canlidaki public wrapper'larin imzalariyla **birebir aynidir**.
++Yeniden calistirilirsa wrapper'lar silinir, yerine bir sey konmaz.
++
++---
++
++## Ne zaman uygulanabilir?
++
++Asagidakilerin **hepsi** dogru olduktan sonra:
++
++1. Flutter ekranlari `lib/services/checkout_service.dart` uzerinden
++   `prepare_checkout_session` + `commit_cod_order` / `commit_balance_order`
++   akisina gecmis olmali. (Bugun `lib/services/` ve `lib/screens/` altindaki
++   yeni katmani import eden **tek bir satir yok**.)
++2. `lib/features/shop/services/order_service.dart` icindeki dogrudan
++   `orders` / `order_items` INSERT'leri kaldirilmis olmali.
++3. `lib/features/market/services/flash_sale_service.dart` icindeki
++   `claim_flash_sale` / `release_flash_sale` cagrilari kaldirilmis olmali.
++4. `iyzico-payment-callback` Edge Function'i calisir hale getirilmis olmali
++   (bkz. asagidaki not).
++5. Yeni surum kullanicilarin cogunlugunda yayinda olmali — eski surumdeki
++   kullanicilar bu migration sonrasi siparis veremez.
++
++**Uygulama sekli:** bu dosyalari `migrations/` altina geri tasima. Bunun
++yerine o gunun tarihiyle **yeni** bir migration olustur ve iceriklerini
++oraya kopyala. Boylece kronoloji ve `schema_migrations` tutarli kalir.
++
++---
++
++## Ilgili acik konu: `iyzico-payment-callback`
++
++Bu dizinle dogrudan ilgili degil ama ayni refaktorun parcasi ve ayni sekilde
++yarim kalmis. [`../functions/iyzico-payment-callback/index.ts`](../functions/iyzico-payment-callback/index.ts)
++su cagrilari yapiyor:
++
++```ts
++supabase.rpc("private.atomic_finalize_payment_transaction", { ... })  // 3 yer
++supabase.rpc("private.commit_online_order", { ... })                  // 1 yer
++```
++
++Uc ayri sorun var:
++
++1. **Yanlis API kullanimi.** supabase-js `.rpc()` cikplak fonksiyon adi bekler;
++   sema `.schema('private').rpc('...')` ile verilir. `"private.foo"` seklinde
++   gecmek PostgREST'te `public."private.foo"` aranmasina ve PGRST202'ye yol acar.
++2. **Sema expose degil.** Dogru sozdizimi kullanilsa bile `private`, PostgREST'in
++   expose ettigi semalar arasinda degil (canlida `pgrst.db_schemas` ayari yok,
++   varsayilan `public, graphql_public`). `.schema('private')` PGRST106 doner.
++3. **Hedef fonksiyonlar canlida yok.** `private.commit_online_order` ve
++   `private.atomic_finalize_payment_transaction` yalniz
++   [`../migrations/20260802000009_lock_payment_finalizer_to_backend.sql`](../migrations/20260802000009_lock_payment_finalizer_to_backend.sql)
++   ile olusuyor; o migration canliya uygulanmamis.
++
++Bu Edge Function'in bu hali deploy edilirse **online (iyzico) odeme tamamen
++durur**. Deploy edilmeden once ya `public` wrapper'lara cevrilmeli ya da
++20260802000009 uygulanip cagrilar `.schema('private')` ile duzeltilmeli.
+diff --git a/supabase/diagnostics/20260805_adim1_durum_tespiti.sql b/supabase/diagnostics/20260805_adim1_durum_tespiti.sql
+index 934d798..45ed543 100644
+--- a/supabase/diagnostics/20260805_adim1_durum_tespiti.sql
++++ b/supabase/diagnostics/20260805_adim1_durum_tespiti.sql
+@@ -46,7 +46,7 @@ SELECT * FROM (
+   UNION ALL SELECT 5,
+     'Toplam uygulanmis migration sayisi',
+     (SELECT count(*)::text FROM supabase_migrations.schema_migrations),
+-    'Repoda 333 dosya var (25 cift prefix dahil)'
++    'Repoda 333 dosya vardi (23 cift prefix grubu / 56 dosya, 22 legacy adli)'
+ ) t ORDER BY sira;
+ 
+ 
+-- 
+2.43.0
+
+
+From 515494bfa4154d4432f4af11a45716f4792d4d54 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 20:05:33 +0000
+Subject: [PATCH 4/4] docs(supabase): 2026-08-05 durum tespiti bulgularini
+ belgele
+
+Flutter <-> Supabase sozlesmesinin tam denetimi. Statik kod analizi +
+canli DB'de salt-okunur teshis sorgulari.
+
+Ana bulgular:
+
+- Repo ile canli DB ayrismis: Dart'tan kullanilan 66 RPC'nin 19'u,
+  104 tablonun 37'si ve 5 public wrapper'in tamami migration'larda
+  tanimli degil. Eksik tablolar arasinda profiles, orders, products,
+  shops var; bu dortlu icin repoda hicbir CREATE TABLE yok. Bu 61
+  nesnenin tek kopyasi production'da.
+- schema_migrations defterinde 13 kayit var (ikisi gecersiz, en yenisi
+  Ocak 2024), oysa ~320 migration elle uygulanmis. Ek olarak 23 grup
+  cift versiyon prefix'i (56 dosya) ve 22 legacy adli dosya.
+- Server-authoritative refaktor yarim: private implementasyonlar ve
+  public wrapper'lar canlida hazir, imzalar Dart ile birebir tutuyor,
+  ama Flutter yeni katmani hicbir ekrandan import edilmiyor. Isim
+  cakismasi nedeniyle ekranlar lib/features altindaki eski servisleri
+  cagiriyor; bu yuzden analyze temiz ve testler geciyor.
+- iyzico-payment-callback yeni surumu rpc("private.X") biciminde cagri
+  yapiyor. Yanlis API kullanimi, sema expose degil ve hedef fonksiyonlar
+  canlida yok. Onceki surum calisir durumda; risk yalniz deploy etmekte.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018qx6EK82bwAMKTdEpeH25Z
+---
+ supabase/diagnostics/BULGULAR_20260805.md | 213 ++++++++++++++++++++++
+ 1 file changed, 213 insertions(+)
+ create mode 100644 supabase/diagnostics/BULGULAR_20260805.md
+
+diff --git a/supabase/diagnostics/BULGULAR_20260805.md b/supabase/diagnostics/BULGULAR_20260805.md
+new file mode 100644
+index 0000000..ba3a691
+--- /dev/null
++++ b/supabase/diagnostics/BULGULAR_20260805.md
+@@ -0,0 +1,213 @@
++# Durum Tespiti — 2026-08-05
++
++**Kapsam:** Flutter ↔ Supabase sozlesmesinin tam denetimi.
++**Yontem:** Statik kod analizi (repo) + canli DB'de salt-okunur teshis sorgulari
++([`20260805_adim1_durum_tespiti.sql`](20260805_adim1_durum_tespiti.sql),
++[`20260805_adim1b_fonksiyon_ikizleri.sql`](20260805_adim1b_fonksiyon_ikizleri.sql)).
++**Proje:** `xsbukxkgtmdyickknqzf`
++
++---
++
++## Ozet
++
++| | Durum |
++|---|---|
++| Canli uygulama | ✅ Calisiyor — kirik bir ozellik tespit edilmedi |
++| Flutter yeni checkout katmani | ❌ Yazilmis ama hicbir ekrandan cagrilmiyor (olu kod) |
++| `supabase db push` | 🔴 Guvenli degil — calistirilirsa uygulamayi kirar |
++| `supabase db reset` | 🔴 Calismaz — cekirdek tablolarin tanimi repoda yok |
++| `iyzico-payment-callback` yeni surumu | 🔴 Deploy edilirse online odeme durur |
++
++---
++
++## 1) Canli DB ile repo birbirinden ayrismis
++
++`supabase/migrations/` **veritabanini tarif etmiyor**. Olculen fark:
++
++| Nesne turu | Kullanimda | Repo'da tanimli | Eksik |
++|---|---:|---:|---:|
++| RPC (Dart'tan cagrilan) | 66 | 47 | **19** |
++| Tablo (Dart'tan erisilen) | 104 | 67 | **37** |
++| `public` uyumluluk wrapper'i | 5 | 0 | **5** |
++
++Eksik 37 tablo arasinda cekirdegin tamami var: `profiles`, `orders`,
++`order_items`, `products`, `shops`, `posts`, `stories`, `groups`,
++`group_messages`, `addresses`, `cart`, `cart_items`.
++Bu dortlu icin repoda hicbir yerde `CREATE TABLE` yok:
++
++```
++profiles  orders  products  shops
++```
++
++Eksik 19 RPC'nin tamami grup sohbeti + takip istegi:
++
++```
++admin_add_group_member       admin_change_member_role    admin_create_group
++admin_delete_group           admin_get_all_groups        admin_get_group_members
++admin_remove_group_member    admin_update_group          approve_group_join_request
++get_group_messages_with_read_count   get_message_read_count
++get_message_read_receipts    get_user_groups             join_open_group
++mark_group_messages_as_read  mark_group_messages_read_receipts
++reject_group_join_request    search_groups               upsert_follow_request
++```
++
++Eksik 5 wrapper (bkz. §3):
++
++```
++public.prepare_checkout_session   public.commit_cod_order
++public.commit_balance_order       public.use_coupon
++public.validate_coupon
++```
++
++**Sonuc:** Bu 61 nesnenin kaynak kodunun tek kopyasi production'dadir.
++Yedegi yoktur. Storage bucket'lari bu sorunun disindadir — onlar
++migration'larda tanimli.
++
++---
++
++## 2) Migration defteri iki yildir guncellenmiyor
++
++`supabase_migrations.schema_migrations` icerigi:
++
++```
++13 kayit — "0", "09", 20240122000000, 20240123000000 … 20240123000009
++```
++
++Ilk iki kayit gecerli surum numarasi bile degil. En yenisi Ocak 2024.
++Repoda ise 331 dosya var. Yani **~320 migration canliya elle uygulanmis,
++deftere hic yazilmamis.**
++
++Ek olarak:
++- **23 grup cift versiyon prefix'i (56 dosya).** Ayni `version` degeri
++  `schema_migrations` icinde birden fazla satir olamaz.
++- **22 legacy adli dosya** 14 haneli CLI standardina uymuyor.
++
++**Sonuc:** `supabase db push` defterde olmayan her dosyayi uygulamaya
++calisir. Defter gercekle hizalanana kadar calistirilmamalidir.
++
++---
++
++## 3) Server-authoritative checkout refaktoru yarim kalmis
++
++2026-08-02 tarihli `0852a26` commit'i buyuk bir guvenlik refaktoru getirdi.
++Durumu katman katman:
++
++| Katman | Durum |
++|---|---|
++| `private.*` implementasyonlari | ✅ Canliya elle uygulanmis |
++| `public.*` uyumluluk wrapper'lari | ✅ Canlida elle olusturulmus (repoda yok) |
++| Flutter `lib/services/` + `lib/screens/` | ❌ Hicbir yerden import edilmiyor |
++| Flutter canli akisi `lib/features/**` | ⚠️ Hala eski client-otoriteli yol |
++
++### Wrapper'lar dogru kurulmus
++
++Bes wrapper da `SECURITY DEFINER`, `auth.uid()` kontrolu yapip `private`'e
++delege ediyor. Geriye donuk uyumluluk korunmus:
++
++| Wrapper imzasi | Davranis |
++|---|---|
++| `use_coupon(coupon_id, order_id, user_id, discount_amount)` | Son iki parametreyi **yok sayar**, `private.use_coupon(coupon_id, order_id)`'a gider — indirimi sunucu yeniden hesaplar |
++| `validate_coupon(shop_id, code, subtotal, user_id)` | Kodu kupon kimligine cevirip magaza kapsamiyla `private`'e devreder |
++
++Yani **client artik indirim tutarini uyduramiyor**; guvenlik hedefi kupon
++tarafinda mevcut Flutter kodu hic degismeden saglanmis.
++
++### Flutter katmani neden olu kaldi
++
++Isim cakismasi: `cart_service.dart`, `order_service.dart`,
++`payment_service.dart`, `flash_sale_service.dart` **hem** `lib/services/`
++**hem** `lib/features/*/services/` altinda var. Ekranlar goreli yolla
++eskilerini import ediyor:
++
++```dart
++// lib/features/market/screens/checkout_screen.dart:22
++import '../../shop/services/order_service.dart';   // ESKI olan
++```
++
++`lib/features/**` ve `lib/main.dart` icinden yeni katmana **tek bir import
++yok**. `lib/screens/multi_shop_checkout_handler.dart`,
++`lib/screens/product_detail_checkout_button.dart` ve
++`lib/widgets/server_quote_display.dart` dosyalarinin importer sayisi sifir.
++
++Bu yuzden `flutter analyze` temiz ve 242 test geciyor — kod derleniyor,
++yalnizca calismiyor.
++
++### Iyi haber: imzalar tutuyor
++
++`public.prepare_checkout_session` 9 parametreli ve `p_coupon_code` iceriyor;
++[`lib/services/checkout_service.dart:64`](../../lib/services/checkout_service.dart:64)
++tam olarak bu 9 parametreyi gonderiyor. `commit_cod_order` /
++`commit_balance_order` de `(p_session_id uuid)` ile birebir esliyor.
++
++**Yani cutover icin DB tarafinda engel yok — is tamamen Flutter'da ekran
++baglama isi.**
++
++---
++
++## 4) Ertelenen migration'lar
++
++Iki dosya [`../deferred/`](../deferred/) altina alindi. Gerekce ve
++uygulama kosullari icin [`../deferred/README.md`](../deferred/README.md).
++
++| Dosya | Neden |
++|---|---|
++| `20260802000008_revoke_legacy_writes` | Hicbir sey olusturmaz; canli akisin bagimli oldugu 4 RPC'yi DROP eder, `orders`/`order_items` INSERT yetkisini geri alir. Sildigi `use_coupon`/`validate_coupon` ayrica §3'teki wrapper'larin kendisi |
++| `20260802000013_coupon_limit_enforcement_strict` | `private` bolumu zaten uygulanmis; kalan etkisi wrapper imzalariyla birebir eslesen iki `DROP FUNCTION` |
++
++---
++
++## 5) `iyzico-payment-callback` — deploy edilmemeli
++
++[`../functions/iyzico-payment-callback/index.ts`](../functions/iyzico-payment-callback/index.ts)
++dort cagri yerinde su bicimi kullaniyor:
++
++```ts
++supabase.rpc("private.atomic_finalize_payment_transaction", { ... })
++supabase.rpc("private.commit_online_order", { ... })
++```
++
++Uc bagimsiz sorun:
++
++1. **Yanlis API kullanimi.** supabase-js `.rpc()` ciplak fonksiyon adi bekler;
++   sema `.schema('private').rpc('...')` ile verilir. `"private.foo"` biciminde
++   gecmek PostgREST'te `public."private.foo"` aranmasina ve PGRST202'ye yol acar.
++2. **Sema expose degil.** Dogru sozdizimiyle bile `private`, PostgREST'in
++   expose ettigi semalar arasinda degil (canlida `pgrst.db_schemas` ayari yok).
++   `.schema('private')` PGRST106 doner.
++3. **Hedef fonksiyonlar canlida yok.** `private.commit_online_order` ve
++   `private.atomic_finalize_payment_transaction` yalniz
++   [`../migrations/20260802000009_lock_payment_finalizer_to_backend.sql`](../migrations/20260802000009_lock_payment_finalizer_to_backend.sql)
++   ile olusuyor; o migration uygulanmamis.
++
++Onceki surum (`a97a422`) ciplak `atomic_finalize_payment_transaction` ve
++`complete_online_payment` cagiriyordu; ikisi de canlida mevcut. **Deploy
++edilmis surum eski ise online odeme su an calisiyor** ve risk yalnizca yeni
++surumu deploy etmektedir. Bu antipattern baska hicbir Edge Function'da yok.
++
++---
++
++## 6) Onerilen sira
++
++1. **Production sema dokumu al.** 61 nesnenin tek kopyasinin production'da
++   olmasi kabul edilebilir bir risk degil.
++   ```bash
++   supabase db dump --linked --schema public,private -f supabase/schema_snapshot_20260805.sql
++   ```
++   > `dump_err.txt`'deki `--schema-only` bayragi CLI'dan kaldirilmis; sema
++   > dokumu zaten varsayilan davranis.
++
++2. **Baseline (squash).** Dokumu tek bir `00000000000000_baseline.sql` yap,
++   331 tarihsel migration'i `archive/pre-baseline/` altina tasi, deftere
++   yalnizca baseline surumunu yaz. Bu tek hamlede defter duzelir, 23 cift
++   prefix ve 22 legacy ad sorunu ortadan kalkar, 61 nesne surum kontrolune
++   girer. 331 dosya icin tek tek "bu uygulandi mi?" tahmini yapilmasina
++   gerek kalmaz.
++
++3. **`iyzico-payment-callback` kararini ver** — eski surume geri don veya
++   `20260802000009` + public wrapper'lar ile ileri git.
++
++4. **Flutter cutover'i** — ekranlari `lib/services/checkout_service.dart`
++   akisina bagla, eski dogrudan `orders`/`order_items` INSERT'lerini kaldir.
++
++5. **Ertelenen migration'lari uygula** — yalnizca 4 tamamlandiktan ve yeni
++   surum yayildiktan sonra, yeni tarihli migration olarak.
+-- 
+2.43.0
+

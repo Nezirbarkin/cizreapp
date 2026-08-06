@@ -5,9 +5,9 @@ import {
   validateTimestamp,
   verifyCustomData,
   verifySsvSignature,
-} from "../_shared/admob_ssv.ts";
-import { hmacSha256Hex } from "../_shared/crypto.ts";
-import { json, requireEnv, safeErrorCode } from "../_shared/http.ts";
+} from "./_shared/admob_ssv.ts";
+import { hmacSha256Hex } from "./_shared/crypto.ts";
+import { json, requireEnv, safeErrorCode } from "./_shared/http.ts";
 
 serve(async (req: Request) => {
   if (req.method !== "GET") {

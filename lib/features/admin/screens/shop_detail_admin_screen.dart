@@ -82,14 +82,15 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
       
       // Sahip bilgilerini ayrı sorgu ile al (foreign key join yerine daha güvenilir)
       if (ownerId != null) {
-        final ownerResponse = await _supabase
-            .from('profiles')
-            .select('full_name, email, phone')
-            .eq('id', ownerId)
-            .maybeSingle();
-        
-        if (ownerResponse != null) {
-          _shopOwner = Map<String, dynamic>.from(ownerResponse);
+        // 20260803000006 sonrasında profiles üzerinde authenticated
+        // SELECT policy'si yok; email/phone sütunları revoke edildi.
+        // SECURITY DEFINER admin_get_owner_profile RPC üzerinden alıyoruz.
+        final ownerResp = await _supabase.rpc<List<dynamic>>(
+          'admin_get_owner_profile',
+          params: {'p_user_id': ownerId},
+        );
+        if (ownerResp.isNotEmpty) {
+          _shopOwner = Map<String, dynamic>.from(ownerResp.first);
         }
       }
 

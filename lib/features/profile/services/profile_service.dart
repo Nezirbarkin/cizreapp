@@ -30,7 +30,7 @@ class ProfileService {
 
       // Profil bulunamadıysa hata fırlat
       if (response == null) {
-        throw Exception('Profil bulunamadı.');
+        throw Exception('Profil bulunamadı. userId=$userId');
       }
       return response;
     } catch (e) {
@@ -176,12 +176,15 @@ class ProfileService {
   }
 
   // Kullanıcı ara (isim veya kullanıcı adı ile)
+  // Not: profiles tablosu RLS nedeniyle yalnız kendi satırınızı döndürür.
+  // public_profiles_safe SECURITY DEFINER modda olduğu için tüm public
+  // profiller buradan okunabilir.
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
     try {
       if (query.trim().isEmpty) return [];
 
       final response = await _supabase
-          .from('profiles')
+          .from('public_profiles_safe')
           .select('id, username, full_name, avatar_url, bio')
           .or('username.ilike.%$query%,full_name.ilike.%$query%')
           .limit(20);

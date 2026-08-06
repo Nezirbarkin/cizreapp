@@ -48,17 +48,17 @@ class _BalanceLoadTabWidgetState extends State<BalanceLoadTabWidget> {
 
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase
-          .from('profiles')
-          .select('id, full_name, phone, email')
-          .or(
-            'full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%,username.ilike.%$query%',
-          )
-          .limit(10);
+      // 20260803000006 sonrasında profiles üzerinde authenticated
+      // SELECT policy'si yok; phone/email sütunları revoke edildi.
+      // SECURITY DEFINER admin_search_users RPC üzerinden arama yapılır.
+      final response = await supabase.rpc<List<dynamic>>(
+        'admin_search_users',
+        params: {'p_query': query, 'p_limit': 10},
+      );
 
       if (mounted) {
         setState(() {
-          _searchResults = List<Map<String, dynamic>>.from(response as List);
+          _searchResults = List<Map<String, dynamic>>.from(response);
           _isSearching = false;
         });
       }
