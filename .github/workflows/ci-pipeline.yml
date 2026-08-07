@@ -1,0 +1,167 @@
+name: CI Pipeline
+
+# Ana CI pipeline - tüm testleri sırayla çalıştırır
+# - Lint + format
+# - Tüm Flutter testleri
+# - Edge function type-check
+# - Database pgTAP (mevcut security-database.yml ile)
+#
+# Bu workflow başarısız olursa merge/PR bloklanır
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+# Aynı repo'da başka CI varsa çakışmayı önle
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # 1) STATİK ANALİZ (hızlı, paralel)
+  # ===========================================================================
+  static-analysis:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos
+
+  # ===========================================================================
+  # 2) TÜM FLUTTER TESTLERİ
+  # ===========================================================================
+  flutter-tests:
+    name: Flutter Tests
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Supabase config test
+        run: flutter test test/supabase_config_test.dart --reporter=compact
+
+      - name: Supabase backend test
+        run: flutter test test/supabase_backend_test.dart --reporter=compact
+
+      - name: Seller panel tests
+        run: flutter test test/seller/ --reporter=expanded
+
+      - name: Service tests
+        run: flutter test test/services/ --reporter=compact
+
+      - name: Integration tests
+        run: flutter test test/integration/ --reporter=compact
+
+      - name: Generate coverage
+        if: always()
+        run: |
+          flutter test --coverage
+          # lcov.info coverage/lcov.info içinde oluşur
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Archive coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/lcov.info
+          retention-days: 14
+
+  # ===========================================================================
+  # 3) EDGE FUNCTION TİP KONTROLÜ
+  # ===========================================================================
+  edge-functions:
+    name: Edge Functions Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.40.0
+
+      - name: Type-check
+        run: |
+          cd supabase/functions
+          for fn_dir in */; do
+            fn_name="${fn_dir%/}"
+            if [ -f "${fn_name}/index.ts" ]; then
+              echo "🔍 ${fn_name}"
+              deno check "${fn_name}/index.ts" || exit 1
+            fi
+          done
+
+      - name: Lint
+        run: |
+          cd supabase/functions
+          deno lint **/index.ts
+
+  # ===========================================================================
+  # 4) ÖZET (her zaman en son)
+  # ===========================================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [static-analysis, flutter-tests, edge-functions]
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.static-analysis.result }}" != "success" ] || \
+             [ "${{ needs.flutter-tests.result }}" != "success" ] || \
+             [ "${{ needs.edge-functions.result }}" != "success" ]; then
+            echo "❌ CI BAŞARISIZ"
+            echo "  static-analysis: ${{ needs.static-analysis.result }}"
+            echo "  flutter-tests:   ${{ needs.flutter-tests.result }}"
+            echo "  edge-functions:  ${{ needs.edge-functions.result }}"
+            exit 1
+          fi
+          echo "✅ TÜM CI AŞAMALARI BAŞARILI"

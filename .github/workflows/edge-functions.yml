@@ -1,0 +1,77 @@
+name: Edge Functions Lint
+
+# Supabase Edge Function'larını lint ve tip kontrolü yapar
+# - Deno type-check
+# - Deno lint kuralları
+# - Satıcı fonksiyonları özellikle kontrol edilir
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/functions/deno.json'
+      - '.github/workflows/edge-functions.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/functions/deno.json'
+      - '.github/workflows/edge-functions.yml'
+  workflow_dispatch:
+
+jobs:
+  lint-edge-functions:
+    name: Lint & Type-Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.40.0
+
+      - name: Show Deno version
+        run: deno --version
+
+      - name: Type-check all edge functions
+        run: |
+          cd supabase/functions
+          # Her fonksiyon için tip kontrolü
+          for fn_dir in */; do
+            fn_name="${fn_dir%/}"
+            if [ -f "${fn_name}/index.ts" ]; then
+              echo "🔍 Type-checking: ${fn_name}"
+              deno check "${fn_name}/index.ts" || exit 1
+            fi
+          done
+
+      - name: Lint all edge functions
+        run: |
+          cd supabase/functions
+          for fn_dir in */; do
+            fn_name="${fn_dir%/}"
+            if [ -f "${fn_name}/index.ts" ]; then
+              echo "🧹 Linting: ${fn_name}"
+              deno lint "${fn_name}/index.ts" || exit 1
+            fi
+          done
+
+      - name: Type-check seller-specific functions (strict)
+        run: |
+          cd supabase/functions
+          echo "🔍 Satıcı fonksiyonları (strict) kontrol ediliyor..."
+          for fn in get-seller-earnings request-withdrawal cancel-withdrawal process-withdrawal; do
+            if [ -d "$fn" ]; then
+              echo "  → $fn"
+              deno check --quiet "$fn/index.ts" || exit 1
+              deno lint --quiet "$fn/index.ts" || exit 1
+            else
+              echo "  ⚠️ $fn dizini bulunamadı, atlanıyor"
+            fi
+          done
+          echo "✅ Tüm satıcı fonksiyonları temiz"

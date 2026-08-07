@@ -1,0 +1,74 @@
+name: PR Status Checks
+
+# Pull request'lerde durum kontrolü
+# - Branch'lerin güncel olduğunu doğrular
+# - Merge conflict uyarısı
+# - Değişen dosyalara göre hangi testlerin çalıştırılması gerektiğini önerir
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, develop ]
+
+jobs:
+  pr-info:
+    name: PR Bilgisi
+    runs-on: ubuntu-latest
+
+    outputs:
+      has_seller_changes: ${{ steps.changes.outputs.seller }}
+      has_db_changes: ${{ steps.changes.outputs.db }}
+      has_edge_changes: ${{ steps.changes.outputs.edge }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Değişen alanları tespit et
+        id: changes
+        run: |
+          # Satıcı kodu değişti mi?
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E "^(lib/features/seller/|test/seller/)" > /dev/null; then
+            echo "seller=true" >> $GITHUB_OUTPUT
+            echo "📦 Satıcı kodu değişti"
+          else
+            echo "seller=false" >> $GITHUB_OUTPUT
+            echo "📦 Satıcı kodu değişmedi"
+          fi
+
+          # DB değişti mi?
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E "^(supabase/migrations/|supabase/tests/)" > /dev/null; then
+            echo "db=true" >> $GITHUB_OUTPUT
+            echo "🗄️ DB şeması değişti"
+          else
+            echo "db=false" >> $GITHUB_OUTPUT
+            echo "🗄️ DB şeması değişmedi"
+          fi
+
+          # Edge function değişti mi?
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E "^supabase/functions/" > /dev/null; then
+            echo "edge=true" >> $GITHUB_OUTPUT
+            echo "⚡ Edge function değişti"
+          else
+            echo "edge=false" >> $GITHUB_OUTPUT
+            echo "⚡ Edge function değişmedi"
+          fi
+
+      - name: PR yorumu
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: ci-pipeline
+          message: |
+            ## 🔍 CI Pipeline Özeti
+
+            | Alan | Değişti mi? | Çalıştırılacak İş |
+            |------|-------------|-------------------|
+            | 📦 Satıcı kodu | ${{ steps.changes.outputs.seller }} | seller-tests.yml |
+            | 🗄️ DB şeması | ${{ steps.changes.outputs.db }} | security-database.yml |
+            | ⚡ Edge functions | ${{ steps.changes.outputs.edge }} | edge-functions.yml |
+            | 🌐 Tüm pipeline | her zaman | ci-pipeline.yml |
+
+            Detaylar için Actions sekmesine bakın.

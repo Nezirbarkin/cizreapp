@@ -1,0 +1,80 @@
+name: Seller Panel Tests
+
+# Satıcı paneli (seller feature) için özel test workflow
+# - Sadece seller ile ilgili değişikliklerde tetiklenir
+# - Manuel olarak da çalıştırılabilir
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'lib/features/seller/**'
+      - 'test/seller/**'
+      - 'supabase/functions/get-seller-earnings/**'
+      - 'supabase/functions/request-withdrawal/**'
+      - 'supabase/functions/cancel-withdrawal/**'
+      - 'supabase/functions/process-withdrawal/**'
+      - '.github/workflows/seller-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'lib/features/seller/**'
+      - 'test/seller/**'
+      - 'supabase/functions/get-seller-earnings/**'
+      - 'supabase/functions/request-withdrawal/**'
+      - 'supabase/functions/cancel-withdrawal/**'
+      - 'supabase/functions/process-withdrawal/**'
+      - '.github/workflows/seller-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  seller-tests:
+    name: Seller Panel Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          channel: 'stable'
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Lint seller code
+        run: flutter analyze --no-fatal-infos lib/features/seller test/seller
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib/features/seller test/seller
+
+      - name: Run seller service tests
+        run: flutter test test/seller/shop_service_test.dart --reporter=expanded
+
+      - name: Run seller backend HTTP tests
+        run: flutter test test/seller/seller_backend_test.dart --reporter=expanded
+
+      - name: Run seller edge function tests
+        run: flutter test test/seller/seller_edge_function_test.dart --reporter=expanded
+
+      - name: Run all seller tests (summary)
+        run: flutter test test/seller/ --reporter=compact
+
+      - name: Archive test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-test-output
+          path: |
+            test_output.txt
+            .dart_tool/test/**/test_output.txt
+          retention-days: 7
+          if-no-files-found: ignore
