@@ -9,6 +9,9 @@ import '../utils/sehirici_time_utils.dart';
 import 'sehirici_location_tracker.dart';
 import 'sehirici_trip_service.dart';
 
+/// Otomasyon durum makinesinin fazları.
+enum SehiriciAutoTripPhase { stopped, watching, driving }
+
 /// Şoför paneli tam otomasyonu: GPS/çalışma saati/hat bölgesi sinyallerine
 /// göre seferleri **kendiliğinden** başlatıp bitiren durum makinesi.
 ///
@@ -26,16 +29,14 @@ class SehiriciAutoTripController {
   static final SehiriciAutoTripController instance =
       SehiriciAutoTripController._internal();
 
-  enum Phase { stopped, watching, driving }
-
   final SehiriciTripService _tripService = SehiriciTripService();
   final SehiriciLocationTracker _tracker = SehiriciLocationTracker();
 
-  Phase _phase = Phase.stopped;
-  Phase get phase => _phase;
-  bool get isActive => _phase != Phase.stopped;
-  bool get isWatching => _phase == Phase.watching;
-  bool get isDriving => _phase == Phase.driving;
+  SehiriciAutoTripPhase _phase = SehiriciAutoTripPhase.stopped;
+  SehiriciAutoTripPhase get phase => _phase;
+  bool get isActive => _phase != SehiriciAutoTripPhase.stopped;
+  bool get isWatching => _phase == SehiriciAutoTripPhase.watching;
+  bool get isDriving => _phase == SehiriciAutoTripPhase.driving;
 
   // ── Ayarlanabilir eşikler ────────────────────────────────────────────
   /// Hareket sayılan minimum hız (m/s, ~10.8 km/s).
@@ -84,7 +85,7 @@ class SehiriciAutoTripController {
     TimeOfDay? workStart,
     TimeOfDay? workEnd,
   }) async {
-    if (_phase != Phase.stopped) {
+    if (_phase != SehiriciAutoTripPhase.stopped) {
       await stop();
     }
     _driverId = driverId;
@@ -112,7 +113,7 @@ class SehiriciAutoTripController {
 
   /// Otomasyonu tamamen durdur. Aktif sefere dokunmaz (bitirmez).
   Future<void> stop() async {
-    _phase = Phase.stopped;
+    _phase = SehiriciAutoTripPhase.stopped;
     await _watchSub?.cancel();
     _watchSub = null;
     _watchFallback?.cancel();
@@ -130,7 +131,7 @@ class SehiriciAutoTripController {
   // ─────────────────────────────────────────────────────────────────────
 
   void _enterWatching() {
-    _phase = Phase.watching;
+    _phase = SehiriciAutoTripPhase.watching;
     _startBuffer.clear();
     _lastWatchPosition = null;
 
@@ -145,7 +146,7 @@ class SehiriciAutoTripController {
 
     // Stream tetiklenmezse (sabit kalırsa) periyodik örnek al.
     _watchFallback = Timer.periodic(kSampleInterval, (_) async {
-      if (_phase != Phase.watching) return;
+      if (_phase != SehiriciAutoTripPhase.watching) return;
       try {
         final pos = await Geolocator.getCurrentPosition(
           locationSettings: sehiriciLocationSettings(distanceFilter: 0),
@@ -158,7 +159,7 @@ class SehiriciAutoTripController {
   }
 
   Future<void> _onWatchPosition(Position pos) async {
-    if (_phase != Phase.watching || _busy) return;
+    if (_phase != SehiriciAutoTripPhase.watching || _busy) return;
     final signal = _evaluateStartSignal(pos);
     _lastWatchPosition = pos;
     _startBuffer.add(signal);
@@ -184,7 +185,7 @@ class SehiriciAutoTripController {
   }
 
   Future<void> _autoStart(Position pos) async {
-    if (_busy || _phase != Phase.watching) return;
+    if (_busy || _phase != SehiriciAutoTripPhase.watching) return;
     final driverId = _driverId;
     final line = _line;
     if (driverId == null || line == null) return;
@@ -203,7 +204,7 @@ class SehiriciAutoTripController {
         lng: pos.longitude,
       );
       if (tripId == null) {
-        debugPrint('[AutoTrip] startTrip başarısız → watching'e geri dönülüyor');
+        debugPrint('[AutoTrip] startTrip basarili degil, watching fazina donuluyor');
         _enterWatching();
         return;
       }
@@ -228,7 +229,7 @@ class SehiriciAutoTripController {
   // ─────────────────────────────────────────────────────────────────────
 
   Future<void> _enterDriving(String tripId) async {
-    _phase = Phase.driving;
+    _phase = SehiriciAutoTripPhase.driving;
 
     // Her başarılı konum yazımında bitiş koşullarını değerlendir.
     _tracker.onPositionWritten = _onDrivingPosition;
@@ -249,7 +250,7 @@ class SehiriciAutoTripController {
   void _onDrivingPosition(Position pos) => _checkEnd(pos);
 
   void _checkEnd(Position? pos) {
-    if (_phase != Phase.driving || _busy) return;
+    if (_phase != SehiriciAutoTripPhase.driving || _busy) return;
     final reason = _evaluateEndConditions(pos);
     if (reason != null) {
       _autoEnd(reason);
@@ -275,7 +276,7 @@ class SehiriciAutoTripController {
   }
 
   Future<void> _autoEnd(String reason) async {
-    if (_busy || _phase != Phase.driving) return;
+    if (_busy || _phase != SehiriciAutoTripPhase.driving) return;
     final tripId = _tracker.currentTripId;
     _busy = true;
     try {
@@ -298,7 +299,7 @@ class SehiriciAutoTripController {
       _busy = false;
       // Çalışma saati bittiyse watching yeniden sefer başlatmaz (saat dışı).
       // Yine de fazı watching'e alalım: saat tekrar girerse otomatik devam.
-      if (_phase != Phase.stopped) _enterWatching();
+      if (_phase != SehiriciAutoTripPhase.stopped) _enterWatching();
     }
   }
 

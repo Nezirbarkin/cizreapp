@@ -270,6 +270,13 @@ class RewardedAdService {
       debugPrint('[RewardedAd] preload_blocked reason=settings');
       return false;
     }
+    // loadSettings fail-closed dönerken son config tanı amacıyla bellekte
+    // kalabilir. preload doğrudan çağrıldığında bu cache güvenlik kapısını
+    // atlamamalı; her yüklemede güncel feature sözleşmesi yeniden doğrulanır.
+    if (!settings.canRequestRewardSession) {
+      debugPrint('[RewardedAd] preload_blocked reason=feature_contract');
+      return false;
+    }
     final unitId = _unitIdFor(settings);
     if (unitId == null || unitId.isEmpty) {
       debugPrint(
