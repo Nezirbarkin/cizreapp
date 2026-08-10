@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/responsive_wrapper.dart';
 import '../services/auth_service.dart';
 
+/// NOT: Bu ekran artık ana akışta kullanılmıyor. Yeni akış OTP tabanlı
+/// (`ResetPasswordScreen` → e-posta OTP → yeni şifre). Bu ekran yalnızca
+/// eski link tıklamalarından gelen (nadir) durumlarda Supabase'in oluşturduğu
+/// recovery session ile şifre güncellemek için fallback olarak tutuluyor.
 class ResetPasswordConfirmScreen extends StatefulWidget {
   const ResetPasswordConfirmScreen({super.key});
 
@@ -15,6 +19,45 @@ class ResetPasswordConfirmScreen extends StatefulWidget {
 
 class _ResetPasswordConfirmScreenState
     extends State<ResetPasswordConfirmScreen> {
+  bool _isCheckingSession = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Eğer Supabase'in oluşturduğu bir recovery session yoksa, kullanıcıyı
+    // yeni OTP akışına yönlendir. Aksi halde eski akış çalışır.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkSession());
+  }
+
+  Future<void> _checkSession() async {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      final isRecovery =
+          Supabase.instance.client.auth.currentUser != null && session != null;
+      if (!isRecovery) {
+        if (kDebugMode) {
+          debugPrint('ℹ️ Recovery session yok; OTP akışına yönlendiriliyor.');
+        }
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/reset-password',
+            (route) => false,
+          );
+        }
+      } else {
+        if (mounted) setState(() => _isCheckingSession = false);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Session check error: $e');
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/reset-password',
+          (route) => false,
+        );
+      }
+    }
+  }
+
   final _formKey = GlobalKey<FormState>();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -106,7 +149,10 @@ class _ResetPasswordConfirmScreenState
       body: ResponsiveWrapper(
         maxWidth: 500,
         child: SafeArea(
-          child: SingleChildScrollView(
+          // Session kontrol edilirken yükleme gster; aksi halde eski form.
+          child: _isCheckingSession
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Form(
               key: _formKey,

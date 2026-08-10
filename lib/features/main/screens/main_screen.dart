@@ -70,7 +70,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    
+
     // Uygulama açıldığında çevrimiçi durumunu güncelle ve heartbeat başlat
     _privacyService.onAppResumed();
     // Bildirim sayısı hemen yüklenir; MarketScreen'in açılış ağ trafiğiyle

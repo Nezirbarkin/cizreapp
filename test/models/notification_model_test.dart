@@ -192,10 +192,7 @@ void main() {
     test('admin_notification: Duyuru', () {
       final content = NotificationModel.getNotificationContent(
         'admin_notification',
-        {
-          'title': 'Özel Kampanya',
-          'body': 'Tüm ürünlerde %50 indirim',
-        },
+        {'title': 'Özel Kampanya', 'body': 'Tüm ürünlerde %50 indirim'},
       );
       expect(content['title'], equals('Özel Kampanya'));
       expect(content['body'], equals('Tüm ürünlerde %50 indirim'));

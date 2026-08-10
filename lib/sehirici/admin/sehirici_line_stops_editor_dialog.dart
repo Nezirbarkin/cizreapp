@@ -3,8 +3,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/sehirici_models.dart';
+import '../providers/sehirici_provider.dart';
 import '../services/sehirici_line_service.dart';
+import 'sehirici_line_route_draw_dialog.dart';
 
 /// Bir hatta durak ekleme/çıkarma/sıralama ekranı.
 /// Basit mantık: solda "Hatta eklenen duraklar" (sıralı, sürükle-bırak),
@@ -357,6 +360,50 @@ class _SehiriciLineStopsEditorDialogState
                           onPressed: _showAddStopPicker,
                           icon: const Icon(Icons.add_location_alt_outlined),
                           label: const Text('Durak Ekle'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: (_saving || _autoSaving)
+                              ? null
+                              : () async {
+                                  // Dialog kendi içinde durakları çekip
+                                  // md5 imzayı hesaplar; biz sadece
+                                  // mevcut çizimi (varsa) aktarıyoruz.
+                                  final lineForDraw = SehiriciLine(
+                                    id: widget.line.id,
+                                    code: widget.line.code,
+                                    name: widget.line.name,
+                                    colorHex: widget.line.colorHex,
+                                    vehicleType: widget.line.vehicleType,
+                                    roadPolyline: widget.line.roadPolyline,
+                                  );
+                                  final saved = await showDialog<bool>(
+                                    context: context,
+                                    builder: (_) =>
+                                        SehiriciLineRouteDrawDialog(
+                                            line: lineForDraw),
+                                  );
+                                  if (saved == true && mounted) {
+                                    context
+                                        .read<SehiriciProvider>()
+                                        .invalidateAllCaches();
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                      const SnackBar(
+                                        content:
+                                            Text('Yol rotası güncellendi'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  }
+                                },
+                          icon: const Icon(Icons.draw, size: 18),
+                          label: const Text('Rota Çiz'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),

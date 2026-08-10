@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 const _libRoot = 'lib';
+const _functionsRoot = 'supabase/functions';
 
 const _forbiddenPatterns = <String, String>{
   "functions.invoke('send-push'":
@@ -69,7 +70,8 @@ bool _hasRealCodeMatch(String content, String pattern) {
         inBlockComment = true;
         stripped = stripped.substring(0, blockStart);
       } else {
-        stripped = stripped.substring(0, blockStart) +
+        stripped =
+            stripped.substring(0, blockStart) +
             stripped.substring(blockEnd + 2);
       }
     }
@@ -109,6 +111,50 @@ void main() {
     if (violations.isNotEmpty) {
       fail('Push pipeline ihlalleri:\n${violations.join('\n')}');
     }
+  });
+
+  test(
+    'aktif Edge Function kodunda emekli doğrudan push çağrısı yok',
+    () async {
+      final root = Directory(_functionsRoot);
+      if (!root.existsSync()) return;
+
+      final files = <File>[];
+      // TypeScript dosyalarını da ayrıca topla.
+      await for (final entity in root.list(recursive: true)) {
+        if (entity is File && entity.path.endsWith('.ts')) files.add(entity);
+      }
+      final violations = <String>[];
+      for (final file in files) {
+        final normalized = file.path.replaceAll('\\', '/');
+        if (normalized.endsWith('/send-push/index.ts') ||
+            normalized.endsWith('/send-push-notification/index.ts') ||
+            normalized.contains('/_shared/')) {
+          continue;
+        }
+        final source = file.readAsStringSync();
+        if (source.contains('functions.invoke("send-push-notification"') ||
+            source.contains("functions.invoke('send-push-notification'") ||
+            source.contains('functions.invoke("send-push"') ||
+            source.contains("functions.invoke('send-push'")) {
+          violations.add(file.path);
+        }
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason: 'Aktif function doğrudan/legacy push çağırmamalı: $violations',
+      );
+    },
+  );
+
+  test('istemci genel FCM topic aboneliği oluşturmuyor', () async {
+    final source = File(
+      'lib/core/services/push_notification_service.dart',
+    ).readAsStringSync();
+    expect(source, isNot(contains('subscribeToTopic(')));
+    expect(source, contains("unsubscribeFromTopic('all_users')"));
+    expect(source, contains("unsubscribeFromTopic('logged_in_users')"));
   });
 
   test('lib/ içinde profiles.fcm_token SELECT yok', () async {

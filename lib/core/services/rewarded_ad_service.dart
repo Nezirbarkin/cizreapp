@@ -232,19 +232,68 @@ class RewardedAdService {
     return buildValue.isEmpty ? null : buildValue;
   }
 
+  /// Reklam yükleme kaynağını platform SDK'sına dokunmadan doğrulamak için
+  /// okunabilir seçim noktası. Üretimde public config, yalnız geriye uyumluluk
+  /// amacıyla da dart-define kullanılır; test modunda resmi Google ID'si seçilir.
+  @visibleForTesting
+  String? resolveUnitId(AdSettings settings) => _unitIdFor(settings);
+
   Future<AdSettings?> loadSettings() async {
     _settings = await settingsService.getSettings();
-    if (_settings?.canRequestRewardSession != true) return null;
+    final settings = _settings;
+    if (settings == null) {
+      debugPrint('[RewardedAd] settings_unavailable');
+      return null;
+    }
+    if (!settings.canRequestRewardSession) {
+      debugPrint(
+        '[RewardedAd] settings_blocked '
+        'testMode=${settings.testMode} mode=${settings.rewardFeatureMode.name} '
+        'schemaReady=${settings.rewardPointsSchemaReady} '
+        'earnEnabled=${settings.rewardPointsEarnEnabled} '
+        'ssvRequired=${settings.rewardPointsSsvRequired} '
+        'ssvEnabled=${settings.rewardPointsSsvEnabled} '
+        'legacyTlDisabled=${settings.legacyAdTlGrantDisabled}',
+      );
+      return null;
+    }
+    debugPrint(
+      '[RewardedAd] settings_ready '
+      'testMode=${settings.testMode} mode=${settings.rewardFeatureMode.name}',
+    );
     return _settings;
   }
 
   Future<bool> preload() async {
     final settings = _settings ?? await loadSettings();
-    if (settings == null) return false;
+    if (settings == null) {
+      debugPrint('[RewardedAd] preload_blocked reason=settings');
+      return false;
+    }
     final unitId = _unitIdFor(settings);
-    if (unitId == null || unitId.isEmpty) return false;
+    if (unitId == null || unitId.isEmpty) {
+      debugPrint(
+        '[RewardedAd] preload_blocked reason=missing_unit '
+        'platform=${Platform.isIOS ? 'ios' : 'android'} '
+        'testMode=${settings.testMode}',
+      );
+      return false;
+    }
+    final configuredUnit = Platform.isIOS
+        ? settings.admobRewardedUnitIdIos
+        : settings.admobRewardedUnitIdAndroid;
+    final source = settings.testMode
+        ? 'google_test'
+        : configuredUnit?.trim().isNotEmpty == true
+        ? 'public_config'
+        : 'dart_define';
+    debugPrint(
+      '[RewardedAd] preload_start '
+      'platform=${Platform.isIOS ? 'ios' : 'android'} source=$source',
+    );
     _rewardedAd?.dispose();
     _rewardedAd = await adLoader.load(unitId);
+    debugPrint('[RewardedAd] preload_result ready=${_rewardedAd != null}');
     return _rewardedAd != null;
   }
 

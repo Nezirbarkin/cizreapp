@@ -577,6 +577,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
     try {
       final userId = _supabase.auth.currentUser?.id;
+      // ignore: avoid_print
+      print('SAVE START currentUser=$userId sessionExists=${_supabase.auth.currentSession != null}');
       if (userId == null) throw Exception('Kullanıcı oturumu bulunamadı');
 
       final shopResponse = await _supabase
@@ -590,6 +592,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
 
       final shopId = shopResponse['id'] as String;
+      // ignore: avoid_print
+      print('addProduct DEBUG userId=$userId shopId=$shopId productType=$_productType');
 
       if (_productType == 'digital') {
         await _supabase
@@ -706,11 +710,16 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           Navigator.pop(context, true);
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       debugPrint('Ürün kaydetme hatası: $e');
+      debugPrint('STACK: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+          ),
         );
       }
     } finally {

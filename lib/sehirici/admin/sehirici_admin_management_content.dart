@@ -11,6 +11,7 @@ import '../services/sehirici_line_service.dart';
 import '../services/sehirici_driver_service.dart';
 import 'sehirici_route_viewer_dialog.dart';
 import 'sehirici_line_stops_editor_dialog.dart';
+import 'sehirici_line_route_draw_dialog.dart';
 
 /// Admin paneli: Şehiriçi Yönetimi içerik widget'ı.
 /// Tabs: Şehirler, Hatlar, Duraklar, Şoförler, Ayarlar.
@@ -573,6 +574,27 @@ class _LinesTabState extends State<_LinesTab> {
                 },
                 icon: const Icon(Icons.map, color: Colors.blue),
                 label: const Text('Rotalar', style: TextStyle(color: Colors.blue)),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final saved = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => SehiriciLineRouteDrawDialog(line: line),
+                  );
+                  if (saved == true && mounted) {
+                    _load();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Yol rotası güncellendi'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.draw, color: Colors.deepPurple),
+                label: const Text('Rota Çiz',
+                    style: TextStyle(color: Colors.deepPurple)),
               ),
               TextButton.icon(
                 onPressed: () async {

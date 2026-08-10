@@ -246,10 +246,22 @@ void main() {
         expect(minQ <= maxQ, isTrue);
 
         // Test senaryoları
-        expect(100 >= minQ && 100 <= maxQ, isTrue, reason: 'min miktar geçerli');
-        expect(5000 >= minQ && 5000 <= maxQ, isTrue, reason: 'max miktar geçerli');
+        expect(
+          100 >= minQ && 100 <= maxQ,
+          isTrue,
+          reason: 'min miktar geçerli',
+        );
+        expect(
+          5000 >= minQ && 5000 <= maxQ,
+          isTrue,
+          reason: 'max miktar geçerli',
+        );
         expect(50 >= minQ && 50 <= maxQ, isFalse, reason: 'min altı geçersiz');
-        expect(10000 >= minQ && 10000 <= maxQ, isFalse, reason: 'max üstü geçersiz');
+        expect(
+          10000 >= minQ && 10000 <= maxQ,
+          isFalse,
+          reason: 'max üstü geçersiz',
+        );
       });
     });
   });

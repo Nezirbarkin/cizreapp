@@ -27,13 +27,54 @@ class SehiriciDriverService {
       if (user == null) return null;
       final response = await _client
           .from('sehirici_drivers')
-          .select('*, sehirici_lines(id, code, name, color_hex, vehicle_type)')
+          .select(
+              '*, sehirici_lines(id, code, name, color_hex, vehicle_type), '
+              'working_hours_start, working_hours_end, auto_location_enabled, '
+              'auto_route_from_traveled_path, auto_trip_enabled')
           .eq('profile_id', user.id)
           .maybeSingle();
       return response;
     } catch (e) {
       debugPrint('getMyDriverProfile hata: $e');
       return null;
+    }
+  }
+
+  /// Şoför ayarlarını güncelle (çalışma saatleri + otomatik konum kapatma).
+  /// Yalnızca null olmayan parametreler güncellenir. updated_at her zaman yenilenir.
+  /// [workingHoursStart] ve [workingHoursEnd] "HH:mm" formatında olmalı.
+  Future<bool> updateDriverSettings({
+    required String driverId,
+    String? workingHoursStart,
+    String? workingHoursEnd,
+    bool? autoLocationEnabled,
+    bool? autoRouteFromTraveledPath,
+    bool? autoTripEnabled,
+  }) async {
+    try {
+      final update = <String, dynamic>{
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (workingHoursStart != null) {
+        update['working_hours_start'] = workingHoursStart;
+      }
+      if (workingHoursEnd != null) {
+        update['working_hours_end'] = workingHoursEnd;
+      }
+      if (autoLocationEnabled != null) {
+        update['auto_location_enabled'] = autoLocationEnabled;
+      }
+      if (autoRouteFromTraveledPath != null) {
+        update['auto_route_from_traveled_path'] = autoRouteFromTraveledPath;
+      }
+      if (autoTripEnabled != null) {
+        update['auto_trip_enabled'] = autoTripEnabled;
+      }
+      await _client.from('sehirici_drivers').update(update).eq('id', driverId);
+      return true;
+    } catch (e) {
+      debugPrint('updateDriverSettings hata: $e');
+      return false;
     }
   }
 

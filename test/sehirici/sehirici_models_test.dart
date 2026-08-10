@@ -4,23 +4,25 @@ import 'package:cizreapp/sehirici/models/sehirici_models.dart';
 void main() {
   group('SehiriciVehicleType', () {
     test('fromString tüm enum değerlerini doğru eşler', () {
-      expect(SehiriciVehicleType.fromString('minibus'),
-          SehiriciVehicleType.minibus);
-      expect(SehiriciVehicleType.fromString('bus'),
-          SehiriciVehicleType.bus);
-      expect(SehiriciVehicleType.fromString('midibus'),
-          SehiriciVehicleType.midibus);
-      expect(SehiriciVehicleType.fromString('dolmus'),
-          SehiriciVehicleType.dolmus);
-      expect(SehiriciVehicleType.fromString('tram'),
-          SehiriciVehicleType.tram);
+      expect(
+        SehiriciVehicleType.fromString('minibus'),
+        SehiriciVehicleType.minibus,
+      );
+      expect(SehiriciVehicleType.fromString('bus'), SehiriciVehicleType.bus);
+      expect(
+        SehiriciVehicleType.fromString('midibus'),
+        SehiriciVehicleType.midibus,
+      );
+      expect(
+        SehiriciVehicleType.fromString('dolmus'),
+        SehiriciVehicleType.dolmus,
+      );
+      expect(SehiriciVehicleType.fromString('tram'), SehiriciVehicleType.tram);
     });
 
     test('fromString bilinmeyen değer other döner', () {
-      expect(SehiriciVehicleType.fromString('xxx'),
-          SehiriciVehicleType.other);
-      expect(SehiriciVehicleType.fromString(null),
-          SehiriciVehicleType.other);
+      expect(SehiriciVehicleType.fromString('xxx'), SehiriciVehicleType.other);
+      expect(SehiriciVehicleType.fromString(null), SehiriciVehicleType.other);
     });
 
     test('label boş değildir', () {
@@ -32,12 +34,18 @@ void main() {
 
   group('SehiriciTripStatus', () {
     test('fromString doğru eşler', () {
-      expect(SehiriciTripStatus.fromString('active'),
-          SehiriciTripStatus.active);
-      expect(SehiriciTripStatus.fromString('paused'),
-          SehiriciTripStatus.paused);
-      expect(SehiriciTripStatus.fromString('completed'),
-          SehiriciTripStatus.completed);
+      expect(
+        SehiriciTripStatus.fromString('active'),
+        SehiriciTripStatus.active,
+      );
+      expect(
+        SehiriciTripStatus.fromString('paused'),
+        SehiriciTripStatus.paused,
+      );
+      expect(
+        SehiriciTripStatus.fromString('completed'),
+        SehiriciTripStatus.completed,
+      );
     });
 
     test('dbValue name ile aynıdır', () {

@@ -29,9 +29,18 @@ void main() {
 
       test('should parse fromString correctly', () {
         expect(OrderStatus.fromString('pending'), equals(OrderStatus.pending));
-        expect(OrderStatus.fromString('confirmed'), equals(OrderStatus.confirmed));
-        expect(OrderStatus.fromString('on_the_way'), equals(OrderStatus.onTheWay));
-        expect(OrderStatus.fromString('delivered'), equals(OrderStatus.delivered));
+        expect(
+          OrderStatus.fromString('confirmed'),
+          equals(OrderStatus.confirmed),
+        );
+        expect(
+          OrderStatus.fromString('on_the_way'),
+          equals(OrderStatus.onTheWay),
+        );
+        expect(
+          OrderStatus.fromString('delivered'),
+          equals(OrderStatus.delivered),
+        );
       });
 
       test('should default to pending for invalid status', () {
@@ -50,9 +59,18 @@ void main() {
 
       test('should parse fromString correctly', () {
         expect(PaymentMethod.fromString('cash'), equals(PaymentMethod.cash));
-        expect(PaymentMethod.fromString('cardOnDelivery'), equals(PaymentMethod.cardOnDelivery));
-        expect(PaymentMethod.fromString('online'), equals(PaymentMethod.online));
-        expect(PaymentMethod.fromString('balance'), equals(PaymentMethod.balance));
+        expect(
+          PaymentMethod.fromString('cardOnDelivery'),
+          equals(PaymentMethod.cardOnDelivery),
+        );
+        expect(
+          PaymentMethod.fromString('online'),
+          equals(PaymentMethod.online),
+        );
+        expect(
+          PaymentMethod.fromString('balance'),
+          equals(PaymentMethod.balance),
+        );
       });
 
       test('should default to cash for invalid method', () {
@@ -69,10 +87,22 @@ void main() {
       });
 
       test('should parse fromString correctly', () {
-        expect(CommissionStatus.fromString('pending'), equals(CommissionStatus.pending));
-        expect(CommissionStatus.fromString('collected'), equals(CommissionStatus.collected));
-        expect(CommissionStatus.fromString('debt'), equals(CommissionStatus.debt));
-        expect(CommissionStatus.fromString('waived'), equals(CommissionStatus.waived));
+        expect(
+          CommissionStatus.fromString('pending'),
+          equals(CommissionStatus.pending),
+        );
+        expect(
+          CommissionStatus.fromString('collected'),
+          equals(CommissionStatus.collected),
+        );
+        expect(
+          CommissionStatus.fromString('debt'),
+          equals(CommissionStatus.debt),
+        );
+        expect(
+          CommissionStatus.fromString('waived'),
+          equals(CommissionStatus.waived),
+        );
       });
     });
 
@@ -96,18 +126,15 @@ void main() {
       });
 
       test('should calculate subtotal correctly', () {
-        final item = OrderItem.fromJson(TestHelpers.createMockOrderItemJson(
-          price: 25.0,
-          quantity: 4,
-        ));
+        final item = OrderItem.fromJson(
+          TestHelpers.createMockOrderItemJson(price: 25.0, quantity: 4),
+        );
 
         expect(item.subtotal, equals(100.0));
       });
 
       test('should use default values for missing fields', () {
-        final json = {
-          'created_at': '2024-01-01T00:00:00.000Z',
-        };
+        final json = {'created_at': '2024-01-01T00:00:00.000Z'};
 
         final item = OrderItem.fromJson(json);
 
@@ -159,7 +186,11 @@ void main() {
         for (final status in OrderStatus.values) {
           final json = TestHelpers.createMockOrderJson(status: status.name);
           final order = Order.fromJson(json);
-          expect(order.status, equals(status), reason: 'Status: ${status.name}');
+          expect(
+            order.status,
+            equals(status),
+            reason: 'Status: ${status.name}',
+          );
         }
       });
 
@@ -194,9 +225,7 @@ void main() {
       });
 
       test('should use correct dbValue for on_the_way status', () {
-        final order = TestHelpers.createMockOrder(
-          status: OrderStatus.onTheWay,
-        );
+        final order = TestHelpers.createMockOrder(status: OrderStatus.onTheWay);
 
         final json = order.toJson();
 
@@ -206,7 +235,9 @@ void main() {
 
     group('Order helper properties', () {
       test('isCompleted should return true for delivered orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.delivered);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.delivered,
+        );
         expect(order.isCompleted, isTrue);
       });
 
@@ -216,7 +247,9 @@ void main() {
       });
 
       test('isCancelled should return true for cancelled orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.cancelled);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.cancelled,
+        );
         expect(order.isCancelled, isTrue);
       });
 
@@ -226,29 +259,42 @@ void main() {
       });
 
       test('isActive should return false for completed orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.delivered);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.delivered,
+        );
         expect(order.isActive, isFalse);
       });
 
       test('isActive should return false for cancelled orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.cancelled);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.cancelled,
+        );
         expect(order.isActive, isFalse);
       });
 
       test('isPaid should return true for balance payment', () {
-        final order = TestHelpers.createMockOrder(paymentMethod: PaymentMethod.balance);
+        final order = TestHelpers.createMockOrder(
+          paymentMethod: PaymentMethod.balance,
+        );
         expect(order.isPaid, isTrue);
       });
 
       test('isPaid should return true for online payment', () {
-        final order = TestHelpers.createMockOrder(paymentMethod: PaymentMethod.online);
+        final order = TestHelpers.createMockOrder(
+          paymentMethod: PaymentMethod.online,
+        );
         expect(order.isPaid, isTrue);
       });
 
-      test('isPaid should return false for cash payment without completion', () {
-        final order = TestHelpers.createMockOrder(paymentMethod: PaymentMethod.cash);
-        expect(order.isPaid, isFalse);
-      });
+      test(
+        'isPaid should return false for cash payment without completion',
+        () {
+          final order = TestHelpers.createMockOrder(
+            paymentMethod: PaymentMethod.cash,
+          );
+          expect(order.isPaid, isFalse);
+        },
+      );
 
       test('canCancel should return true for pending orders', () {
         final order = TestHelpers.createMockOrder(status: OrderStatus.pending);
@@ -256,12 +302,16 @@ void main() {
       });
 
       test('canCancel should return true for confirmed orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.confirmed);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.confirmed,
+        );
         expect(order.canCancel, isTrue);
       });
 
       test('canCancel should return false for preparing orders', () {
-        final order = TestHelpers.createMockOrder(status: OrderStatus.preparing);
+        final order = TestHelpers.createMockOrder(
+          status: OrderStatus.preparing,
+        );
         expect(order.canCancel, isFalse);
       });
 
@@ -290,7 +340,10 @@ void main() {
       test('formattedDate should return correct format', () {
         final order = TestHelpers.createMockOrder();
         // Model format: d.M.yyyy HH:mm (örn: 1.1.2024 00:00)
-        expect(order.formattedDate, matches(RegExp(r'\d{1,2}\.\d{1,2}\.\d{4} \d{2}:\d{2}')));
+        expect(
+          order.formattedDate,
+          matches(RegExp(r'\d{1,2}\.\d{1,2}\.\d{4} \d{2}:\d{2}')),
+        );
       });
     });
 
@@ -298,23 +351,29 @@ void main() {
     // fiyatı içermeli. Eski kodda price = products.price yazılıyordu ve kullanıcı
     // detayda gördüğü indirimli fiyat DB'ye yansımıyordu.
     group('OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX)', () {
-      test('OrderItem.price hem "price" hem "product_price" kolonunu destekler', () {
-        // Dart tarafı OrderService.createOrder iki kolonu da yazıyor (geriye
-        // uyumluluk). fromJson önce 'price' sonra 'product_price' okur.
-        final jsonWithPrice = {
-          'id': 'i1',
-          'order_id': 'o1',
-          'product_id': 'p1',
-          'product_name': 'Test',
-          'price': 75.0, // effective (indirimli)
-          'product_price': 100.0, // orijinal (geriye uyumluluk)
-          'quantity': 2,
-          'created_at': '2026-07-29T10:00:00.000Z',
-        };
-        final item = OrderItem.fromJson(jsonWithPrice);
-        expect(item.price, 75.0,
-            reason: '"price" kolonu öncelikli (effective price)');
-      });
+      test(
+        'OrderItem.price hem "price" hem "product_price" kolonunu destekler',
+        () {
+          // Dart tarafı OrderService.createOrder iki kolonu da yazıyor (geriye
+          // uyumluluk). fromJson önce 'price' sonra 'product_price' okur.
+          final jsonWithPrice = {
+            'id': 'i1',
+            'order_id': 'o1',
+            'product_id': 'p1',
+            'product_name': 'Test',
+            'price': 75.0, // effective (indirimli)
+            'product_price': 100.0, // orijinal (geriye uyumluluk)
+            'quantity': 2,
+            'created_at': '2026-07-29T10:00:00.000Z',
+          };
+          final item = OrderItem.fromJson(jsonWithPrice);
+          expect(
+            item.price,
+            75.0,
+            reason: '"price" kolonu öncelikli (effective price)',
+          );
+        },
+      );
 
       test('Sadece product_price varsa onu kullanır (eski veri uyumu)', () {
         final json = {
@@ -345,31 +404,34 @@ void main() {
         expect(item.subtotal, 225.0); // 75 * 3
       });
 
-      test('OrderItem.price farklı sayı tiplerini destekler (int ve double)', () {
-        final jsonInt = {
-          'id': 'i4',
-          'order_id': 'o4',
-          'product_id': 'p4',
-          'product_name': 'Test',
-          'price': 100, // int
-          'quantity': 1,
-          'created_at': '2026-07-29T10:00:00.000Z',
-        };
-        final itemInt = OrderItem.fromJson(jsonInt);
-        expect(itemInt.price, 100.0);
+      test(
+        'OrderItem.price farklı sayı tiplerini destekler (int ve double)',
+        () {
+          final jsonInt = {
+            'id': 'i4',
+            'order_id': 'o4',
+            'product_id': 'p4',
+            'product_name': 'Test',
+            'price': 100, // int
+            'quantity': 1,
+            'created_at': '2026-07-29T10:00:00.000Z',
+          };
+          final itemInt = OrderItem.fromJson(jsonInt);
+          expect(itemInt.price, 100.0);
 
-        final jsonDouble = {
-          'id': 'i5',
-          'order_id': 'o5',
-          'product_id': 'p5',
-          'product_name': 'Test',
-          'price': 99.99, // double
-          'quantity': 1,
-          'created_at': '2026-07-29T10:00:00.000Z',
-        };
-        final itemDouble = OrderItem.fromJson(jsonDouble);
-        expect(itemDouble.price, 99.99);
-      });
+          final jsonDouble = {
+            'id': 'i5',
+            'order_id': 'o5',
+            'product_id': 'p5',
+            'product_name': 'Test',
+            'price': 99.99, // double
+            'quantity': 1,
+            'created_at': '2026-07-29T10:00:00.000Z',
+          };
+          final itemDouble = OrderItem.fromJson(jsonDouble);
+          expect(itemDouble.price, 99.99);
+        },
+      );
     });
   });
 }

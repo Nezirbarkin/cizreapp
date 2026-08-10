@@ -153,9 +153,15 @@ void main() {
     test('Sadece izin verilen karakterler (harf, rakam, altçizgi)', () {
       expect(AuthValidators.isValidUsername('user-name'), isFalse); // tire yok
       expect(AuthValidators.isValidUsername('user.name'), isFalse); // nokta yok
-      expect(AuthValidators.isValidUsername('user name'), isFalse); // boşluk yok
+      expect(
+        AuthValidators.isValidUsername('user name'),
+        isFalse,
+      ); // boşluk yok
       expect(AuthValidators.isValidUsername('user@name'), isFalse); // @ yok
-      expect(AuthValidators.isValidUsername('user#name'), isFalse); // özel karakter yok
+      expect(
+        AuthValidators.isValidUsername('user#name'),
+        isFalse,
+      ); // özel karakter yok
     });
 
     test('Sınır değerler (3 ve 20 karakter)', () {
@@ -198,11 +204,17 @@ void main() {
 
     test('8+ karakter farklı tiplerde orta-güçlü (2-3)', () {
       expect(AuthValidators.passwordStrength('password1'), equals(2));
-      expect(AuthValidators.passwordStrength('Password1'), greaterThanOrEqualTo(2));
+      expect(
+        AuthValidators.passwordStrength('Password1'),
+        greaterThanOrEqualTo(2),
+      );
     });
 
     test('Büyük harf + küçük harf + rakam güçlü (3+)', () {
-      expect(AuthValidators.passwordStrength('MyP4ssword'), greaterThanOrEqualTo(3));
+      expect(
+        AuthValidators.passwordStrength('MyP4ssword'),
+        greaterThanOrEqualTo(3),
+      );
     });
 
     test('Tüm tipler + özel karakter çok güçlü (4)', () {

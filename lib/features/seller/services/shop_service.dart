@@ -90,20 +90,17 @@ class ShopService {
       if (deliveryFee != null) updateData['delivery_fee'] = deliveryFee;
       if (hasOwnCourier != null) updateData['has_own_courier'] = hasOwnCourier;
 
-      // Debug log: Güncellenecek veriyi yazdır
-      // ignore: avoid_print
-      print('🔧 SHOP SERVICE: Updating shop $shopId with data: $updateData');
+      // Debug log: Güncellenecek veriyi yazdır (debugPrint → release'de log sızıntısı yapmaz)
+      debugPrint('🔧 SHOP SERVICE: Updating shop $shopId with data: $updateData');
 
       await _supabase
           .from('shops')
           .update(updateData)
           .eq('id', shopId);
-      
-      // ignore: avoid_print
-      print('✅ SHOP SERVICE: Update successful');
+
+      debugPrint('✅ SHOP SERVICE: Update successful');
     } catch (e) {
-      // ignore: avoid_print
-      print('❌ SHOP SERVICE: Update failed: $e');
+      debugPrint('❌ SHOP SERVICE: Update failed: $e');
       throw Exception('Teslimat ayarları güncellenemedi: $e');
     }
   }
@@ -220,9 +217,10 @@ class ShopService {
           .from('shops')
           .select('seller_categories')
           .eq('id', shopId)
-          .single();
+          .maybeSingle();
 
-      if (response['seller_categories'] == null) {
+      // maybeSingle: satır yoksa (geçersiz/boş shopId) null döner → boş liste
+      if (response == null || response['seller_categories'] == null) {
         return [];
       }
 

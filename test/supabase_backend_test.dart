@@ -45,19 +45,19 @@ Future<void> _runTest(String name, Future<void> Function() testFn) async {
   try {
     await testFn();
     stopwatch.stop();
-    _results.add(TestResult(
-      name: name,
-      success: true,
-      duration: stopwatch.elapsed,
-    ));
+    _results.add(
+      TestResult(name: name, success: true, duration: stopwatch.elapsed),
+    );
   } catch (e) {
     stopwatch.stop();
-    _results.add(TestResult(
-      name: name,
-      success: false,
-      error: e.toString(),
-      duration: stopwatch.elapsed,
-    ));
+    _results.add(
+      TestResult(
+        name: name,
+        success: false,
+        error: e.toString(),
+        duration: stopwatch.elapsed,
+      ),
+    );
   }
 }
 
@@ -71,11 +71,17 @@ void main() {
       final key = AppConstants.supabaseAnonKey;
 
       expect(url.isNotEmpty, true, reason: 'Supabase URL tanımlı olmalı');
-      expect(url.startsWith('https://'), true,
-          reason: 'URL https:// ile başlamalı');
+      expect(
+        url.startsWith('https://'),
+        true,
+        reason: 'URL https:// ile başlamalı',
+      );
       expect(key.isNotEmpty, true, reason: 'Anon Key tanımlı olmalı');
-      expect(key.length > 100, true,
-          reason: 'Anon Key yeterli uzunlukta olmalı (JWT)');
+      expect(
+        key.length > 100,
+        true,
+        reason: 'Anon Key yeterli uzunlukta olmalı (JWT)',
+      );
     });
   });
 
@@ -120,10 +126,14 @@ void main() {
     });
 
     test('Public tablo okuma - categories', () async {
-      final url = '${AppConstants.supabaseUrl}/rest/v1/categories?select=id,name,icon&limit=5';
+      final url =
+          '${AppConstants.supabaseUrl}/rest/v1/categories?select=id,name,icon&limit=5';
       final request = await client.getUrl(Uri.parse(url));
       request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+      request.headers.set(
+        'Authorization',
+        'Bearer ${AppConstants.supabaseAnonKey}',
+      );
 
       final response = await request.close();
       final statusCode = response.statusCode;
@@ -139,16 +149,19 @@ void main() {
         final preview = body.length > 200 ? body.substring(0, 200) : body;
         print('   ⚠️ Yanıt: $preview');
         // 4xx kabul edilir (RLS/Tablo yok), 5xx sunucu hatası
-        expect(statusCode, lessThan(500),
-            reason: '5xx sunucu hatası var');
+        expect(statusCode, lessThan(500), reason: '5xx sunucu hatası var');
       }
     });
 
     test('Public tablo okuma - shops (active)', () async {
-      final url = '${AppConstants.supabaseUrl}/rest/v1/shops?select=id,name,is_active&is_active=eq.true&limit=5';
+      final url =
+          '${AppConstants.supabaseUrl}/rest/v1/shops?select=id,name,is_active&is_active=eq.true&limit=5';
       final request = await client.getUrl(Uri.parse(url));
       request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+      request.headers.set(
+        'Authorization',
+        'Bearer ${AppConstants.supabaseAnonKey}',
+      );
 
       final response = await request.close();
       final statusCode = response.statusCode;
@@ -168,10 +181,14 @@ void main() {
     });
 
     test('Public tablo okuma - products (active)', () async {
-      final url = '${AppConstants.supabaseUrl}/rest/v1/products?select=id,name,price&is_active=eq.true&limit=5';
+      final url =
+          '${AppConstants.supabaseUrl}/rest/v1/products?select=id,name,price&is_active=eq.true&limit=5';
       final request = await client.getUrl(Uri.parse(url));
       request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+      request.headers.set(
+        'Authorization',
+        'Bearer ${AppConstants.supabaseAnonKey}',
+      );
 
       final response = await request.close();
       final statusCode = response.statusCode;
@@ -194,7 +211,10 @@ void main() {
       final url = '${AppConstants.supabaseUrl}/storage/v1/bucket/avatars';
       final request = await client.getUrl(Uri.parse(url));
       request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+      request.headers.set(
+        'Authorization',
+        'Bearer ${AppConstants.supabaseAnonKey}',
+      );
 
       final response = await request.close();
       final statusCode = response.statusCode;
@@ -217,7 +237,9 @@ void main() {
     final successCount = _results.where((r) => r.success).length;
     final failCount = _results.where((r) => !r.success).length;
     final totalDuration = _results.fold<int>(
-        0, (sum, r) => sum + r.duration.inMilliseconds);
+      0,
+      (sum, r) => sum + r.duration.inMilliseconds,
+    );
 
     print('✅ Başarılı: $successCount');
     print('❌ Başarısız: $failCount');
@@ -229,9 +251,11 @@ void main() {
     }
 
     print('=' * 70);
-    print(failCount == 0
-        ? '🎉 TÜM BACKEND TESTLERİ BAŞARILI!'
-        : '⚠️ BAZI TESTLER BAŞARISIZ - Yukarıdaki hataları kontrol edin');
+    print(
+      failCount == 0
+          ? '🎉 TÜM BACKEND TESTLERİ BAŞARILI!'
+          : '⚠️ BAZI TESTLER BAŞARISIZ - Yukarıdaki hataları kontrol edin',
+    );
     print('=' * 70);
   });
 }

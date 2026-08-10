@@ -32,10 +32,7 @@ void main() {
       });
 
       test('handles missing fields with defaults', () {
-        final json = {
-          'id': 'city-2',
-          'name': 'Ankara',
-        };
+        final json = {'id': 'city-2', 'name': 'Ankara'};
 
         final city = SehiriciCity.fromJson(json);
 
@@ -174,12 +171,18 @@ void main() {
 
       test('fromString conversion works', () {
         expect(SehiriciVehicleType.fromString('bus'), SehiriciVehicleType.bus);
-        expect(SehiriciVehicleType.fromString('minibus'),
-            SehiriciVehicleType.minibus);
-        expect(SehiriciVehicleType.fromString('dolmus'),
-            SehiriciVehicleType.dolmus);
         expect(
-            SehiriciVehicleType.fromString('invalid'), SehiriciVehicleType.other);
+          SehiriciVehicleType.fromString('minibus'),
+          SehiriciVehicleType.minibus,
+        );
+        expect(
+          SehiriciVehicleType.fromString('dolmus'),
+          SehiriciVehicleType.dolmus,
+        );
+        expect(
+          SehiriciVehicleType.fromString('invalid'),
+          SehiriciVehicleType.other,
+        );
       });
 
       test('icons are assigned correctly', () {
@@ -203,12 +206,18 @@ void main() {
       });
 
       test('fromString conversion works', () {
-        expect(SehiriciTripStatus.fromString('active'),
-            SehiriciTripStatus.active);
-        expect(SehiriciTripStatus.fromString('completed'),
-            SehiriciTripStatus.completed);
         expect(
-            SehiriciTripStatus.fromString('invalid'), SehiriciTripStatus.planned);
+          SehiriciTripStatus.fromString('active'),
+          SehiriciTripStatus.active,
+        );
+        expect(
+          SehiriciTripStatus.fromString('completed'),
+          SehiriciTripStatus.completed,
+        );
+        expect(
+          SehiriciTripStatus.fromString('invalid'),
+          SehiriciTripStatus.planned,
+        );
       });
     });
 
@@ -337,10 +346,7 @@ void main() {
       });
 
       test('defaults notify_minutes_before to 5', () {
-        final json = {
-          'id': 'fav-2',
-          'stop_id': 'stop-2',
-        };
+        final json = {'id': 'fav-2', 'stop_id': 'stop-2'};
 
         final fav = SehiriciFavoriteStop.fromJson(json);
 

@@ -1,10 +1,11 @@
-﻿// ignore_for_file: unused_field, use_build_context_synchronously
+// ignore_for_file: unused_field, use_build_context_synchronously
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/models/news_model.dart';
 import '../services/news_service.dart';
 
@@ -21,7 +22,7 @@ class NewsDetailScreen extends StatefulWidget {
 class _NewsDetailScreenState extends State<NewsDetailScreen> {
   final NewsService _newsService = NewsService();
   final TextEditingController _commentController = TextEditingController();
-  
+
   List<NewsCommentModel> _comments = [];
   bool _isLoadingComments = true;
   bool _isLiked = false;
@@ -29,6 +30,8 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
   int _viewCount = 0;
   int _commentCount = 0;
   NewsModel? _updatedNews;
+  VideoPlayerController? _videoController;
+  bool _isLoadingNews = true;
 
   @override
   void initState() {
@@ -38,12 +41,35 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
     _commentCount = widget.news.commentCount;
     _isLiked = widget.news.isLikedByUser ?? false;
     _loadComments();
+    _loadNewsMedia();
     _recordView();
+  }
+
+  Future<void> _loadNewsMedia() async {
+    final news = await _newsService.getNewsById(widget.news.id);
+    if (!mounted) return;
+    if (news != null) {
+      _updatedNews = news;
+      if (news.videoUrl != null && news.videoUrl!.isNotEmpty) {
+        final controller = VideoPlayerController.networkUrl(
+          Uri.parse(news.videoUrl!),
+        );
+        try {
+          await controller.initialize();
+          await controller.setLooping(false);
+          if (mounted) _videoController = controller;
+        } catch (_) {
+          await controller.dispose();
+        }
+      }
+    }
+    if (mounted) setState(() => _isLoadingNews = false);
   }
 
   @override
   void dispose() {
     _commentController.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
 
@@ -101,29 +127,26 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
           _isLiked = wasPreviouslyLiked;
           _likeCount += wasPreviouslyLiked ? 1 : -1;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Hata: $e')));
       }
     }
   }
 
   Future<void> _shareNews() async {
-    final text = '${widget.news.title}\n\n${widget.news.summary ?? widget.news.content.substring(0, widget.news.content.length > 100 ? 100 : widget.news.content.length)}...';
-    await SharePlus.instance.share(
-      ShareParams(
-        text: text,
-      ),
-    );
+    final text =
+        '${widget.news.title}\n\n${widget.news.summary ?? widget.news.content.substring(0, widget.news.content.length > 100 ? 100 : widget.news.content.length)}...';
+    await SharePlus.instance.share(ShareParams(text: text));
   }
 
   Future<void> _copyLink() async {
     final url = 'https://cizreapp.com/haber/${widget.news.slug}';
     await Clipboard.setData(ClipboardData(text: url));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Link kopyalandı')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
     }
   }
 
@@ -154,7 +177,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final news = _updatedNews ?? widget.news;
-    
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -167,16 +190,14 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                   ? CachedNetworkImage(
                       imageUrl: news.thumbnailUrl!,
                       fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(color: Colors.grey[300]),
+                      placeholder: (_, __) =>
+                          Container(color: Colors.grey[300]),
                       errorWidget: (_, __, ___) => _buildPlaceholderImage(),
                     )
                   : _buildPlaceholderImage(),
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.share),
-                onPressed: _shareNews,
-              ),
+              IconButton(icon: const Icon(Icons.share), onPressed: _shareNews),
               PopupMenuButton<String>(
                 onSelected: (value) {
                   switch (value) {
@@ -189,8 +210,14 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(value: 'copy', child: Text('Linki Kopyala')),
-                  const PopupMenuItem(value: 'report', child: Text('Haberle İlgili Sorun Bildir')),
+                  const PopupMenuItem(
+                    value: 'copy',
+                    child: Text('Linki Kopyala'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'report',
+                    child: Text('Haberle İlgili Sorun Bildir'),
+                  ),
                 ],
               ),
             ],
@@ -214,11 +241,16 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                         _buildBadge('ÖNE ÇIKAN', Colors.purple, Icons.star),
                       if (news.categoryName != null)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.blue.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                            border: Border.all(
+                              color: Colors.blue.withValues(alpha: 0.3),
+                            ),
                           ),
                           child: Text(
                             news.categoryName!,
@@ -256,7 +288,10 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                         children: [
                           CircleAvatar(
                             backgroundColor: Colors.blue,
-                            child: const Icon(Icons.business, color: Colors.white),
+                            child: const Icon(
+                              Icons.business,
+                              color: Colors.white,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -267,18 +302,27 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                                   children: [
                                     Text(
                                       news.institutionName!,
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     if (news.institutionLogoUrl != null)
                                       const Padding(
                                         padding: EdgeInsets.only(left: 4),
-                                        child: Icon(Icons.verified, color: Colors.blue, size: 16),
+                                        child: Icon(
+                                          Icons.verified,
+                                          color: Colors.blue,
+                                          size: 16,
+                                        ),
                                       ),
                                   ],
                                 ),
                                 Text(
                                   'tarafından paylaşıldı',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
                                 ),
                               ],
                             ),
@@ -291,7 +335,11 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                   // Tarih ve yazar
                   Row(
                     children: [
-                      Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                      Icon(
+                        Icons.calendar_today,
+                        size: 16,
+                        color: Colors.grey[600],
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         news.publishedFormattedDate.isNotEmpty
@@ -323,7 +371,10 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                       ),
                       child: Text(
                         news.summary!,
-                        style: const TextStyle(fontSize: 16, fontStyle: FontStyle.italic),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
                     ),
                   const SizedBox(height: 16),
@@ -335,8 +386,10 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Galeri
-                  if (news.images.isNotEmpty) _buildGallery(news.images),
+                  if (_isLoadingNews)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_videoController != null || news.images.isNotEmpty)
+                    _buildMediaArea(news.images),
                   const SizedBox(height: 24),
 
                   // Etkileşim butonları
@@ -385,7 +438,10 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),
@@ -408,7 +464,11 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                         padding: const EdgeInsets.all(32),
                         child: Column(
                           children: [
-                            Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey[400]),
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 48,
+                              color: Colors.grey[400],
+                            ),
                             const SizedBox(height: 8),
                             Text(
                               'Henüz yorum yapılmamış',
@@ -445,7 +505,11 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
           const SizedBox(width: 4),
           Text(
             text,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
@@ -483,45 +547,139 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
     );
   }
 
-  Widget _buildGallery(List<NewsImageModel> images) {
+  Widget _buildMediaArea(List<NewsImageModel> images) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Galeri',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 150,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: images.length,
-            itemBuilder: (context, index) {
-              final image = images[index];
-              return GestureDetector(
-                onTap: () => _showFullScreenImage(image.imageUrl),
-                child: Container(
-                  width: 200,
-                  margin: const EdgeInsets.only(right: 8),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: image.imageUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(color: Colors.grey[300]),
-                      errorWidget: (_, __, ___) => Container(
-                        color: Colors.grey[300],
-                        child: const Icon(Icons.broken_image),
-                      ),
+        if (_videoController != null) _buildVideoPlayer(),
+        if (_videoController != null && images.isNotEmpty)
+          const SizedBox(height: 12),
+        if (images.isNotEmpty) _buildImageGrid(images),
+      ],
+    );
+  }
+
+  Widget _buildImageGrid(List<NewsImageModel> images) {
+    if (images.length == 1) {
+      return _buildImageTile(images.first, height: 260);
+    }
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: images.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 1.05,
+      ),
+      itemBuilder: (_, index) => _buildImageTile(images[index]),
+    );
+  }
+
+  Widget _buildImageTile(NewsImageModel image, {double? height}) {
+    return SizedBox(
+      height: height,
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _showFullScreenImage(image.imageUrl),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: image.imageUrl,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(Icons.broken_image_outlined, size: 36),
+                ),
+              ),
+              const Positioned(
+                right: 8,
+                bottom: 8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(7),
+                    child: Icon(
+                      Icons.open_in_full_rounded,
+                      color: Colors.white,
+                      size: 17,
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildVideoPlayer() {
+    final controller = _videoController!;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: ColoredBox(
+        color: Colors.black,
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio > 0
+              ? controller.value.aspectRatio
+              : 16 / 9,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(controller),
+              AnimatedBuilder(
+                animation: controller,
+                builder: (_, __) => AnimatedOpacity(
+                  opacity: controller.value.isPlaying ? 0 : 1,
+                  duration: const Duration(milliseconds: 180),
+                  child: IconButton.filled(
+                    iconSize: 44,
+                    onPressed: () {
+                      controller.value.isPlaying
+                          ? controller.pause()
+                          : controller.play();
+                      setState(() {});
+                    },
+                    icon: Icon(
+                      controller.value.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AnimatedBuilder(
+                  animation: controller,
+                  builder: (_, __) => VideoProgressIndicator(
+                    controller,
+                    allowScrubbing: true,
+                    colors: const VideoProgressColors(
+                      playedColor: Colors.white,
+                      bufferedColor: Colors.white38,
+                      backgroundColor: Colors.white24,
+                    ),
+                    padding: const EdgeInsets.only(top: 18),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -559,7 +717,10 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                           if (comment.isEdited)
                             Text(
                               ' (düzenlendi)',
-                              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[600],
+                              ),
                             ),
                         ],
                       ),
@@ -579,7 +740,9 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
               children: [
                 IconButton(
                   icon: Icon(
-                    comment.isLikedByUser == true ? Icons.favorite : Icons.favorite_border,
+                    comment.isLikedByUser == true
+                        ? Icons.favorite
+                        : Icons.favorite_border,
                     size: 18,
                   ),
                   onPressed: () async {
@@ -589,19 +752,22 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
 
                     if (commentIndex != -1) {
                       setState(() {
-                        _comments[commentIndex] = _comments[commentIndex].copyWith(
-                          isLikedByUser: !wasLiked,
-                          likeCount: wasLiked
-                            ? _comments[commentIndex].likeCount - 1
-                            : _comments[commentIndex].likeCount + 1,
-                        );
+                        _comments[commentIndex] = _comments[commentIndex]
+                            .copyWith(
+                              isLikedByUser: !wasLiked,
+                              likeCount: wasLiked
+                                  ? _comments[commentIndex].likeCount - 1
+                                  : _comments[commentIndex].likeCount + 1,
+                            );
                       });
                     }
 
                     // Database'e gönder
                     await _newsService.toggleCommentLike(comment.id);
                   },
-                  color: comment.isLikedByUser == true ? Colors.red : Colors.grey,
+                  color: comment.isLikedByUser == true
+                      ? Colors.red
+                      : Colors.grey,
                 ),
                 Text('${comment.likeCount}'),
               ],

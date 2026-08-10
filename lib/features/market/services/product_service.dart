@@ -304,38 +304,91 @@ class ProductService {
 
       final slug = _generateSlug(name);
 
-      final response = await supabase
-          .from('products')
-          .insert({
-            'shop_id': shopId,
-            'name': name,
-            'slug': slug,
-            'description': description,
-            'price': price,
-            'old_price': oldPrice,
-            'stock_quantity': stockQuantity,
-            'image_url': imageUrl,
-            'additional_images': additionalImages ?? [],
-            'category': category,
-            'is_available': true,
-            'product_type': productType,
-            'sizes': sizes ?? [],
-            'shoe_sizes': shoeSizes ?? [],
-            'colors': colors ?? [],
-            'smm_provider_id': smmProviderId,
-            'smm_service_id': smmServiceId,
-            'price_per_1000': pricePer1000,
-            'min_quantity': minQuantity,
-            'max_quantity': maxQuantity,
-            'max_orders_per_user': maxOrdersPerUser,
-            'campaign_type': campaignType,
-          })
-          .select()
-          .single();
+      // Session kontrolü
+      final currentUser = supabase.auth.currentUser;
+      final currentSession = supabase.auth.currentSession;
+      // ignore: avoid_print
+      print('addProduct SESSION currentUser=${currentUser?.id} '
+          'hasToken=${currentSession?.accessToken != null} '
+          'expiresAt=${currentSession?.expiresAt} '
+          'isExpired=${currentSession?.isExpired}');
 
-      return Product.fromJson(response);
-    } catch (e) {
-      throw Exception('Ürün eklenirken hata: $e');
+      // RPC ile ekle (RLS bypass + SECURITY DEFINER)
+      // Önce RPC'yi dene, yoksa eski yönteme düş
+      try {
+        final rpcResult = await supabase.rpc(
+          'add_product',
+          params: {
+            'p_shop_id': shopId,
+            'p_name': name,
+            'p_slug': slug,
+            'p_description': description,
+            'p_price': price,
+            'p_old_price': oldPrice,
+            'p_stock': stockQuantity,
+            'p_image_url': imageUrl,
+            'p_category': category,
+            'p_additional_images': additionalImages ?? [],
+            'p_product_type': productType,
+            'p_sizes': sizes ?? [],
+            'p_shoe_sizes': shoeSizes ?? [],
+            'p_colors': colors ?? [],
+          },
+        );
+
+        // ignore: avoid_print
+        print('RPC add_product BAŞARILI: $rpcResult');
+
+        // RPC'den dönen product_id ile mevcut ürünü çek
+        final productId = rpcResult as String;
+        final response = await supabase
+            .from('products')
+            .select()
+            .eq('id', productId)
+            .single();
+
+        return Product.fromJson(response);
+      } catch (rpcError) {
+        // ignore: avoid_print
+        print('RPC add_product başarısız, fallback deneniyor: $rpcError');
+
+        final response = await supabase
+            .from('products')
+            .insert({
+              'shop_id': shopId,
+              'name': name,
+              'slug': slug,
+              'description': description,
+              'price': price,
+              'old_price': oldPrice,
+              'stock_quantity': stockQuantity,
+              'image_url': imageUrl,
+              'additional_images': additionalImages ?? [],
+              'category': category,
+              'is_available': true,
+              'product_type': productType,
+              'sizes': sizes ?? [],
+              'shoe_sizes': shoeSizes ?? [],
+              'colors': colors ?? [],
+              'smm_provider_id': smmProviderId,
+              'smm_service_id': smmServiceId,
+              'price_per_1000': pricePer1000,
+              'min_quantity': minQuantity,
+              'max_quantity': maxQuantity,
+              'max_orders_per_user': maxOrdersPerUser,
+              'campaign_type': campaignType,
+            })
+            .select()
+            .single();
+
+        return Product.fromJson(response);
+      }
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('addProduct FULL ERROR: $e');
+      // ignore: avoid_print
+      print('STACK: $st');
+      rethrow;
     }
   }
 

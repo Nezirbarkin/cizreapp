@@ -485,16 +485,18 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           return;
       }
       
-      await _supabase.from('notifications').insert({
-        'user_id': order.userId,
-        'type': type,
-        'title': title,
-        'content': content,
-        'data': {'order_id': order.id, 'status': newStatus.name},
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
+      // 2026-08-09: Doğrudan notifications INSERT yerine add_notification RPC
+      // (SECURITY DEFINER). Satıcı, müşteri (order.userId != auth.uid()) adına
+      // satır yazamaz — notifications INSERT policy'si user_id=auth.uid() ister,
+      // bu yüzden eski doğrudan insert sessizce 42501 ile bloklanıyordu.
+      await _supabase.rpc('add_notification', params: {
+        'p_user_id': order.userId,
+        'p_type': type,
+        'p_title': title,
+        'p_content': content,
+        'p_entity_id': order.id,
       });
-      
+
       debugPrint('✅ Müşteriye bildirim gönderildi: $title');
     } catch (e) {
       debugPrint('⚠️ Müşteri bildirimi hatası: $e');
@@ -2391,133 +2393,28 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     );
   }
 
-  /// Kurye çağırma işlemi - siparişi otomatik olarak kuryeye atar
+  /// Kurye çağırma işlemi - siparişi sunucu-otoriteli olarak kuryeye atar.
+  ///
+  /// Eski akış istemcide profiles'tan kurye seçiyordu (phone/email PII → grant
+  /// dışı → 42501) ve courier_assignments'a doğrudan insert ediyordu (INSERT
+  /// policy yok → 42501). assign_order_to_courier RPC her ikisini de sunucu
+  /// tarafında çözer: en uygun kuryeyi seçer (online优先, en az teslimat),
+  /// atomik atar, fee yazar, müşteriye "yolda" + kuryeye "atandı" bildirimi
+  /// gönderir. İstemci PII (phone/email) çekmez; kurye adı RPC'den döner
+  /// (güvenli kolon). Kurye telefonu PII olduğu için "Kuryeyi Ara" özelliği
+  /// kaldırıldı (zaten grant dışı olduğu için çalışmıyordu).
   Future<void> _callCourierForOrder(Order order) async {
+    String courierName = 'Kurye';
     try {
-      final shopName = (await _supabase.from('shops').select('name').eq('id', order.shopId).maybeSingle())?['name'] ?? 'Dükkan';
+      final result = await _supabase.rpc(
+        'assign_order_to_courier',
+        params: {'p_order_id': order.id},
+      );
 
-      // 1. ÖNCE bu siparişin zaten atanmış olup olmadığını kontrol et.
-      // Bu kontrol kurye aramadan ÖNCE yapılmalı; aksi halde o an online
-      // kurye yoksa sipariş aslında atanmış olsa bile "kurye yok" mesajı
-      // gösteriliyordu (yanlış pozitif çelişki).
-      final existingAssignment = await _supabase
-          .from('courier_assignments')
-          .select('id, status')
-          .eq('order_id', order.id)
-          .maybeSingle();
-
-      if (existingAssignment != null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Bu sipariş zaten bir kuryeye atanmış'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          // Kurye bilgisi UI'da görünmüyor olabilir; listeyi yenileyerek
-          // atanmış kurye bilgisini karta yansıt.
-          await _loadOrders();
-        }
-        return;
-      }
-
-      // 2. Kurye bul. Önce online kuryeler tercih edilir; online kurye yoksa
-      // tüm kuryelere düşülür (otomatik atama mantığıyla tutarlı). Böylece
-      // sistemde kurye olduğu sürece "kurye yok" denmez.
-      var availableCouriers = await _supabase
-          .from('profiles')
-          .select('id, username, full_name, avatar_url, phone, email')
-          .eq('role', 'courier')
-          .eq('is_online', true)
-          .limit(10);
-
-      if (availableCouriers.isEmpty) {
-        availableCouriers = await _supabase
-            .from('profiles')
-            .select('id, username, full_name, avatar_url, phone, email')
-            .eq('role', 'courier')
-            .limit(10);
-      }
-
-      if (availableCouriers.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
-                children: [
-                  Icon(Icons.warning, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text('Sistemde kayıtlı kurye bulunamadı.'),
-                ],
-              ),
-              backgroundColor: Colors.orange.shade600,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
-
-      // İlk müsait kuryeyi seç (daha sonra round-robin veya başka bir yöntem eklenebilir)
-      final selectedCourier = availableCouriers.first;
-      final courierId = selectedCourier['id'] as String;
-      final courierName = selectedCourier['full_name'] ?? selectedCourier['username'] ?? 'Kurye';
-      final courierPhone = selectedCourier['phone'] as String?;
-
-      // 2. Kurye ücretini al
-      final settings = await _supabase
-          .from('courier_settings')
-          .select('fee_per_delivery')
-          .order('updated_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-      final fee = (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
-
-      debugPrint('📦 Sipariş atanıyor: ${order.id} → kurye: $courierId ($courierName), ücret: $fee');
-
-      // 4. Kurye ataması oluştur
-      // NOT: orders tablosunda courier_id kolonu olmadığı için sadece
-      // courier_assignments tablosuna ekleme yapıyoruz
-      await _supabase.from('courier_assignments').insert({
-        'order_id': order.id,
-        'courier_id': courierId,
-        'status': 'assigned',
-        'fee_amount': fee,
-        'assigned_at': DateTime.now().toIso8601String(),
-      });
-
-      // 5. Kuryeye özel bildirim gönder.
-      // ÖNEMLİ: Doğrudan INSERT yerine add_notification RPC kullanılıyor.
-      // RLS nedeniyle satıcı (auth.uid()) kendi adına değil kurye adına
-      // satır yazamıyordu (42501). RPC SECURITY DEFINER, RLS bypass.
-      await _supabase.rpc('add_notification', params: {
-        'p_user_id': courierId,
-        'p_type': 'courier_new_order',
-        'p_title': '📦 Yeni Sipariş Atandı!',
-        'p_content': '$shopName mağazasından ₺${order.totalAmount.toStringAsFixed(2)} tutarında sipariş sizin atandı. Hemen teslim alın!',
-        'p_entity_id': order.id,
-      });
-
-      // 6. Kuryeye email bildirimi gönder
-      try {
-        final courierEmail = selectedCourier['email'] as String?;
-        if (courierEmail != null && courierEmail.isNotEmpty) {
-          final emailService = EmailService();
-          await emailService.sendCourierNewOrderEmail(
-            courierEmail: courierEmail,
-            courierName: courierName,
-            shopName: shopName,
-            totalAmount: order.totalAmount,
-            deliveryAddress: order.addressDisplay ?? 'Belirtilmedi',
-            orderNumber: order.id.substring(0, 8),
-          );
-        }
-      } catch (e) {
-        debugPrint('⚠️ Kurye email gönderme hatası: $e');
-      }
-
-      // NOT: Müşteriye "Yolda" bildirimi kurye siparişi aldığında gönderilecek
-      // (Kurye panelinde _acceptDelivery metodunda)
+      final row = (result is List && result.isNotEmpty)
+          ? (result.first as Map)
+          : <String, dynamic>{};
+      courierName = (row['r_courier_name'] as String?) ?? 'Kurye';
 
       if (mounted) {
         _loadOrders(); // Sipariş listesini yenile
@@ -2558,65 +2455,26 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.teal.shade200),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.person, color: Colors.teal.shade700, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              courierName,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Colors.teal.shade800,
-                              ),
-                            ),
+                      Icon(Icons.person, color: Colors.teal.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          courierName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.teal.shade800,
                           ),
-                        ],
-                      ),
-                      if (courierPhone != null && courierPhone.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Icon(Icons.phone, color: Colors.teal.shade700, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                courierPhone,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.teal.shade800,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.call, color: Colors.green),
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                _callCustomer(courierPhone);
-                              },
-                              tooltip: 'Ara',
-                            ),
-                          ],
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
             actions: [
-              if (courierPhone != null && courierPhone.isNotEmpty)
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    _callCustomer(courierPhone);
-                  },
-                  child: const Text('Kuryeyi Ara'),
-                ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx),
                 style: ElevatedButton.styleFrom(
@@ -2631,13 +2489,26 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       }
     } catch (e) {
       debugPrint('❌ Kurye çağırma hatası: $e');
+      final msg = e.toString();
+      final alreadyAssigned = msg.contains('already_assigned');
+      final noCourier = msg.contains('no_courier_available');
+      final userMsg = alreadyAssigned
+          ? 'Bu sipariş zaten bir kuryeye atanmış'
+          : noCourier
+              ? 'Şu an müsait kurye bulunamadı. Lütfen sonra tekrar deneyin.'
+              : 'Kurye çağırma hatası: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Kurye çağırma hatası: $e'),
-            backgroundColor: Colors.red.shade400,
+            content: Text(userMsg),
+            backgroundColor: (alreadyAssigned || noCourier)
+                ? Colors.orange.shade400
+                : Colors.red.shade400,
           ),
         );
+        if (alreadyAssigned) {
+          await _loadOrders();
+        }
       }
     }
   }

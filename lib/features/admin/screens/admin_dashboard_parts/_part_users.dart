@@ -466,6 +466,7 @@ extension on _AdminDashboardScreenState {
   void _showEditUserDialog(Map<String, dynamic> user) {
     final nameController = TextEditingController(text: user['full_name']);
     final usernameController = TextEditingController(text: user['username']);
+    final userId = user['id'] as String;
 
     showDialog(
       context: context,
@@ -475,6 +476,26 @@ extension on _AdminDashboardScreenState {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Email alanı - read-only, admin_get_profile_email RPC'sinden çekiliyor
+              FutureBuilder<String>(
+                future: _fetchUserEmail(userId),
+                builder: (context, snapshot) {
+                  return TextField(
+                    controller: TextEditingController(
+                      text: snapshot.connectionState == ConnectionState.waiting
+                          ? 'Yükleniyor...'
+                          : (snapshot.data ?? '-'),
+                    ),
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'E-posta',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email, size: 18),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: nameController,
                 decoration: const InputDecoration(
@@ -534,6 +555,20 @@ extension on _AdminDashboardScreenState {
         ],
       ),
     );
+  }
+
+  // Kullanıcı email'ini admin_get_profile_email RPC ile çek
+  Future<String> _fetchUserEmail(String userId) async {
+    try {
+      final email = await Supabase.instance.client.rpc<String>(
+        'admin_get_profile_email',
+        params: {'p_user_id': userId},
+      );
+      return email ?? '-';
+    } catch (e) {
+      debugPrint('❌ Email çekilirken hata: $e');
+      return '-';
+    }
   }
 
   // --- _showChangeRoleDialog ---

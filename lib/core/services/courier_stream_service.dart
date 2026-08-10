@@ -18,6 +18,10 @@ class CourierInfo {
   final int deliveredCount;
   final double lat;
   final double lng;
+  /// Gidiş yönü, derece (0 = kuzey, saat yönünde artar). null/0 =
+  /// bilinmiyor/araç duruyor (GPS pusula verisi yok). Harita marker'ını
+  /// döndürmek için kullanılır.
+  final double? heading;
   final DateTime? updatedAt;
 
   const CourierInfo({
@@ -27,6 +31,7 @@ class CourierInfo {
     this.deliveredCount = 0,
     required this.lat,
     required this.lng,
+    this.heading,
     this.updatedAt,
   });
 
@@ -48,6 +53,7 @@ class CourierInfo {
       deliveredCount: (row['delivered_count'] as num?)?.toInt() ?? 0,
       lat: lat,
       lng: lng,
+      heading: (row['heading'] as num?)?.toDouble(),
       updatedAt: row['last_location_update'] != null
           ? DateTime.tryParse(row['last_location_update'] as String)
           : null,

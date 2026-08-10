@@ -8,33 +8,36 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'notification_service.dart';
 
 /// Android bildirim kanalı (Android 8+ için zorunlu)
-const AndroidNotificationChannel _highImportanceChannel = AndroidNotificationChannel(
-  'high_importance_channel', // ID
-  'Önemli Bildirimler', // İsim
-  description: 'Bu kanal önemli bildirimler için kullanılır.',
-  importance: Importance.high,
-  playSound: true,
-  enableVibration: true,
-  showBadge: true,
-);
+const AndroidNotificationChannel _highImportanceChannel =
+    AndroidNotificationChannel(
+      'high_importance_channel', // ID
+      'Önemli Bildirimler', // İsim
+      description: 'Bu kanal önemli bildirimler için kullanılır.',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
+    );
 
 class PushNotificationService {
-  static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  static final FirebaseMessaging _firebaseMessaging =
+      FirebaseMessaging.instance;
   static final NotificationService _notificationService = NotificationService();
-  static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
-  
+  static final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+
   /// Navigator key - push bildirimi tıklandığında yönlendirme için
   static GlobalKey<NavigatorState>? navigatorKey;
-  
+
   /// Bildirim geldiğinde çağrılacak callback
   static VoidCallback? onNewNotification;
-  
+
   /// Navigator key'i set et (main.dart'tan çağrılmalı)
   static void setNavigatorKey(GlobalKey<NavigatorState> key) {
     navigatorKey = key;
     debugPrint('✅ Push notification navigator key ayarlandı');
   }
-  
+
   /// Tüm push notification sistemini başlat
   static Future<void> initialize() async {
     try {
@@ -59,7 +62,9 @@ class PushNotificationService {
 
       // 4. Foreground message handler - Uygulama açıkken gelen bildirimler
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        debugPrint('📲 Foreground bildirim alındı: ${message.notification?.title}');
+        debugPrint(
+          '📲 Foreground bildirim alındı: ${message.notification?.title}',
+        );
         _showLocalNotification(message);
         // Callback çağır - bildirim sayısı güncellensin
         onNewNotification?.call();
@@ -67,22 +72,29 @@ class PushNotificationService {
 
       // 5. Background message opened handler - Bildirime tıklanınca
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        debugPrint('📲 Background bildirim açıldı: ${message.notification?.title}');
+        debugPrint(
+          '📲 Background bildirim açıldı: ${message.notification?.title}',
+        );
         _handleBackgroundMessageOpened(message);
       });
-      
+
       // 6. App terminated state - Uygulama kapalıyken gelen bildirimleri kontrol et
       final initialMessage = await _firebaseMessaging.getInitialMessage();
       if (initialMessage != null) {
-        debugPrint('📲 Uygulama kapalıyken bildirim alındı: ${initialMessage.notification?.title}');
+        debugPrint(
+          '📲 Uygulama kapalıyken bildirim alındı: ${initialMessage.notification?.title}',
+        );
         _handleBackgroundMessageOpened(initialMessage);
       }
 
       // 7. FCM token al ve kaydet (Web'de optional)
       if (!kIsWeb) {
         await _setupFCMToken();
-        // 8. Firebase Topics - Tüm kullanıcılar bildirim alsın (giriş yapmış/yapmamış fark etmez)
-        await _subscribeToTopics();
+        // 8. Eski toplu topic aboneliklerini temizle. Üretim kullanıcılarına
+        // yanlışlıkla toplu test bildirimi gitmemesi için istemci hiçbir genel
+        // topic'e abone olmaz; push yalnız kullanıcıya ait token/outbox yoluyla
+        // gönderilir.
+        await _removeLegacyTopicSubscriptions();
       } else {
         debugPrint('ℹ️ Web platformunda FCM token atlanıyor');
       }
@@ -114,8 +126,10 @@ class PushNotificationService {
   static Future<void> _initializeLocalNotifications() async {
     try {
       // Android ayarları
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+
       // iOS ayarları
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
@@ -138,8 +152,10 @@ class PushNotificationService {
 
       // Android bildirim kanalını oluştur
       if (!kIsWeb && Platform.isAndroid) {
-        final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+        final androidPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(_highImportanceChannel);
           debugPrint('✅ Android bildirim kanalı oluşturuldu');
@@ -156,32 +172,40 @@ class PushNotificationService {
   static Future<void> _requestPermissions() async {
     try {
       // Firebase messaging izni
-      NotificationSettings settings = await _firebaseMessaging.requestPermission(
-        alert: true,
-        announcement: false,
-        badge: true,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-        sound: true,
-      );
+      NotificationSettings settings = await _firebaseMessaging
+          .requestPermission(
+            alert: true,
+            announcement: false,
+            badge: true,
+            carPlay: false,
+            criticalAlert: false,
+            provisional: false,
+            sound: true,
+          );
 
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
         debugPrint('✅ Bildirim izni verildi');
-      } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      } else if (settings.authorizationStatus ==
+          AuthorizationStatus.provisional) {
         debugPrint('⚠️ Bildirim geçici izni verildi');
       } else {
-        debugPrint('❌ Bildirim izni reddedildi - PUSH NOTIFICATION ÇALIŞMAYACAK!');
+        debugPrint(
+          '❌ Bildirim izni reddedildi - PUSH NOTIFICATION ÇALIŞMAYACAK!',
+        );
         debugPrint('❌ Kullanıcıya ayarlardan izin vermesini hatırlatın.');
       }
 
       // Android 13+ (API 33+) için ek izin kontrolü
       if (Platform.isAndroid) {
-        final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+        final androidPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         if (androidPlugin != null) {
           final granted = await androidPlugin.requestNotificationsPermission();
-          debugPrint('🔔 Android POST_NOTIFICATIONS izni: ${granted == true ? "VERİLDİ" : "REDDEDİLDİ"}');
+          debugPrint(
+            '🔔 Android POST_NOTIFICATIONS izni: ${granted == true ? "VERİLDİ" : "REDDEDİLDİ"}',
+          );
         }
       }
     } catch (e) {
@@ -196,24 +220,28 @@ class PushNotificationService {
       String? token = await _firebaseMessaging.getToken();
 
       if (token != null && token.isNotEmpty) {
-        debugPrint('🔑 FCM Token BAŞARIYLA ALINDI: ${token.substring(0, 50)}...');
+        debugPrint('🔑 FCM token başarıyla alındı');
         await _saveFCMToken(token);
       } else {
-        debugPrint('❌ FCM TOKEN BOŞTUR! Firebase yapılandırması kontrol edilmeli.');
+        debugPrint(
+          '❌ FCM TOKEN BOŞTUR! Firebase yapılandırması kontrol edilmeli.',
+        );
         // Retry
         await Future.delayed(const Duration(seconds: 3));
         String? retryToken = await _firebaseMessaging.getToken();
         if (retryToken != null && retryToken.isNotEmpty) {
-          debugPrint('🔄 Retry başarılı: ${retryToken.substring(0, 50)}...');
+          debugPrint('🔄 FCM token retry başarılı');
           await _saveFCMToken(retryToken);
         } else {
-          debugPrint('❌ Retry de başarısız oldu! google-services.json doğru mu?');
+          debugPrint(
+            '❌ Retry de başarısız oldu! google-services.json doğru mu?',
+          );
         }
       }
 
       // Token yenileme dinle
       _firebaseMessaging.onTokenRefresh.listen((newToken) {
-        debugPrint('🔄 FCM Token yenilendi: ${newToken.substring(0, 50)}...');
+        debugPrint('🔄 FCM token yenilendi');
         _saveFCMToken(newToken);
       });
     } catch (e) {
@@ -221,24 +249,19 @@ class PushNotificationService {
     }
   }
 
-  /// Firebase Topics'e abone ol - Admin push bildirimleri için
-  /// Bu sayede giriş yapmamış kullanıcılar da bildirim alabilir
-  static Future<void> _subscribeToTopics() async {
+  /// Önceki sürümlerin genel topic aboneliklerini kaldır.
+  ///
+  /// `all_users` / `logged_in_users` topic'leri fiziksel test sırasında
+  /// üretim kullanıcılarına yanlışlıkla bildirim gönderilmesi riski taşır.
+  /// Yeni mimaride gönderim yalnızca kullanıcıya özel outbox kaydı ve token
+  /// üzerinden yapılır; genel topic aboneliği kesinlikle oluşturulmaz.
+  static Future<void> _removeLegacyTopicSubscriptions() async {
     try {
-      debugPrint('🔥 Firebase Topics\'e abone olunuyor...');
-      
-      // Tüm kullanıcıları "all_users" topic'ine abone et
-      await _firebaseMessaging.subscribeToTopic('all_users');
-      debugPrint('✅ "all_users" topic\'ine abone olundu');
-      
-      // Giriş yapmış kullanıcıları "logged_in_users" topic'ine abone et
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId != null) {
-        await _firebaseMessaging.subscribeToTopic('logged_in_users');
-        debugPrint('✅ "logged_in_users" topic\'ine abone olundu');
-      }
+      await _firebaseMessaging.unsubscribeFromTopic('all_users');
+      await _firebaseMessaging.unsubscribeFromTopic('logged_in_users');
+      debugPrint('✅ Eski genel FCM topic abonelikleri temizlendi');
     } catch (e) {
-      debugPrint('❌ Topic abonelik hatası: $e');
+      debugPrint('⚠️ Eski FCM topic abonelikleri temizlenemedi: $e');
     }
   }
 
@@ -256,7 +279,7 @@ class PushNotificationService {
       // icon_type'a göre özel ikon rengini al
       final iconType = message.data['icon_type'] as String?;
       final Color iconColor = _getIconColor(iconType);
-      
+
       // İkon tipine göre küçük renk göstergesi için badge rengi ayarla
       final androidDetails = AndroidNotificationDetails(
         'high_importance_channel',
@@ -286,8 +309,10 @@ class PushNotificationService {
       // Başlık ve içerik
       final String title = notification.title ?? 'Yeni Bildirim';
       final String body = notification.body ?? '';
-      
-      debugPrint('📱 Bildirim gösteriliyor - Başlık: $title, İkon: $iconType, Renk: $iconColor');
+
+      debugPrint(
+        '📱 Bildirim gösteriliyor - Başlık: $title, İkon: $iconType, Renk: $iconColor',
+      );
 
       await _localNotifications.show(
         notification.hashCode, // Unique ID
@@ -336,12 +361,15 @@ class PushNotificationService {
       debugPrint('Title: ${message.notification?.title}');
       debugPrint('Body: ${message.notification?.body}');
       debugPrint('Data: ${message.data}');
-      
+
       final notificationType = message.data['type'];
-      final entityId = message.data['entity_id'] ?? message.data['postId'] ?? message.data['post_id'];
-      
+      final entityId =
+          message.data['entity_id'] ??
+          message.data['postId'] ??
+          message.data['post_id'];
+
       debugPrint('📍 Yönlendirme: type=$notificationType, entityId=$entityId');
-      
+
       // Navigator key varsa yönlendirme yap
       if (navigatorKey?.currentState != null) {
         _navigateToNotificationPage(notificationType, entityId, message.data);
@@ -352,7 +380,7 @@ class PushNotificationService {
       debugPrint('❌ Background mesaj açma hatası: $e');
     }
   }
-  
+
   /// Bildirime tıklandığında ilgili sayfaya yönlendir
   static void _navigateToNotificationPage(
     String? type,
@@ -363,11 +391,11 @@ class PushNotificationService {
       debugPrint('⚠️ Navigator state yok, yönlendirme yapılamıyor');
       return;
     }
-    
+
     final context = navigatorKey!.currentState!.context;
-    
+
     debugPrint('🔄 Yönlendirme yapılıyor: type=$type, entityId=$entityId');
-    
+
     // Bildirim tipine göre yönlendirme
     switch (type) {
       case 'like':
@@ -385,7 +413,7 @@ class PushNotificationService {
           _navigateToMainScreen(context);
         }
         break;
-        
+
       case 'follow':
       case 'follower':
       case 'follow_request':
@@ -397,12 +425,12 @@ class PushNotificationService {
           _navigateToMainScreen(context);
         }
         break;
-        
+
       case 'chat':
       case 'message':
         _navigateToMainScreen(context);
         break;
-        
+
       case 'order':
       case 'order_update':
       case 'order_status':
@@ -411,7 +439,7 @@ class PushNotificationService {
       case 'delivered':
         _navigateToMainScreen(context);
         break;
-        
+
       case 'group_message':
         final groupId = data['group_id'] as String?;
         if (groupId != null) {
@@ -421,12 +449,12 @@ class PushNotificationService {
           _navigateToMainScreen(context);
         }
         break;
-        
+
       case 'group_join_request':
       case 'group_member_joined':
         _navigateToMainScreen(context);
         break;
-        
+
       case 'review_request':
       case 'review_pending':
         // entityId sipariş ID'sidir, doğrudan değerlendirme ekranına yönlendir
@@ -436,75 +464,74 @@ class PushNotificationService {
           _navigateToMainScreen(context);
         }
         break;
-        
+
       case 'admin_notification':
         _navigateToMainScreen(context);
         break;
-        
+
       default:
         // Varsayılan: MainScreen'e git
         _navigateToMainScreen(context);
         break;
     }
   }
-  
+
   /// MainScreen'e git (bildirimler sekmesi açık)
   static void _navigateToMainScreen(BuildContext context) {
     try {
       // Mevcut rotada olduğumuzu kontrol et
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/main',
-        (route) => false,
-      );
+      Navigator.of(context).pushNamedAndRemoveUntil('/main', (route) => false);
       debugPrint('✅ MainScreen\'e yönlendirildi');
     } catch (e) {
       debugPrint('❌ MainScreen\'e yönlendirme hatası: $e');
     }
   }
-  
+
   /// MainScreen'e git ve gönderiyi aç
-  static void _navigateToMainScreenWithPost(BuildContext context, String postId) {
+  static void _navigateToMainScreenWithPost(
+    BuildContext context,
+    String postId,
+  ) {
     try {
       // Post ID'yi sakla, MainScreen'de açılacak
       _pendingPostId = postId;
-      
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/main',
-        (route) => false,
+
+      Navigator.of(context).pushNamedAndRemoveUntil('/main', (route) => false);
+      debugPrint(
+        '✅ MainScreen\'e yönlendirildi, post detayı açılacak: $postId',
       );
-      debugPrint('✅ MainScreen\'e yönlendirildi, post detayı açılacak: $postId');
     } catch (e) {
       debugPrint('❌ Post detayına yönlendirme hatası: $e');
       _navigateToMainScreen(context);
     }
   }
-  
+
   /// MainScreen'e git ve profili aç
-  static void _navigateToMainScreenWithProfile(BuildContext context, String userId) {
+  static void _navigateToMainScreenWithProfile(
+    BuildContext context,
+    String userId,
+  ) {
     try {
       // User ID'yi sakla, MainScreen'de açılacak
       _pendingUserId = userId;
-      
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/main',
-        (route) => false,
-      );
+
+      Navigator.of(context).pushNamedAndRemoveUntil('/main', (route) => false);
       debugPrint('✅ MainScreen\'e yönlendirildi, profil açılacak: $userId');
     } catch (e) {
       debugPrint('❌ Profil açma hatası: $e');
       _navigateToMainScreen(context);
     }
   }
-  
+
   /// Bekleyen gönderi ID'si (bildirimden gelen)
   static String? _pendingPostId;
-  
+
   /// Bekleyen kullanıcı ID'si (bildirimden gelen)
   static String? _pendingUserId;
-  
+
   /// Bekleyen sipariş ID'si (değerlendirme bildiriminden gelen)
   static String? _pendingOrderId;
-  
+
   /// Bekleyen gönderi ID'sini al ve temizle
   static String? getAndClearPendingPostId() {
     final postId = _pendingPostId;
@@ -518,7 +545,7 @@ class PushNotificationService {
     _pendingOrderId = null;
     return orderId;
   }
-  
+
   /// Bekleyen kullanıcı ID'sini al ve temizle
   static String? getAndClearPendingUserId() {
     final userId = _pendingUserId;
@@ -526,7 +553,13 @@ class PushNotificationService {
     return userId;
   }
 
-  /// FCM token'ı Supabase'e kaydet
+  /// FCM token'ı Supabase'e kaydet.
+  ///
+  /// 20260803000006_secure_profiles_privileges_and_pii migration'ı sonrası
+  /// profiles tablosunda doğrudan UPDATE izni yok; `set_my_fcm_token`
+  /// SECURITY DEFINER RPC'si çağrılır. RPC yalnızca auth.uid() için
+  /// çalışır, kendi satırı dışına dokunmaz, fcm_token dışındaki
+  /// sütunlara yazmaz. NULL/empty token otomatik temizlenir.
   static Future<void> _saveFCMToken(String token) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -536,25 +569,12 @@ class PushNotificationService {
       }
 
       debugPrint('💾 FCM token Supabase\'e kaydediliyor... userId: $userId');
-      debugPrint('📱 Token (ilk 50 karakter): ${token.substring(0, 50)}...');
+      await Supabase.instance.client.rpc(
+        'set_my_fcm_token',
+        params: {'p_token': token},
+      );
 
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .update({'fcm_token': token})
-          .eq('id', userId)
-          .select('fcm_token')
-          .single();
-
-      final savedToken = response['fcm_token'] as String?;
       debugPrint('✅ FCM token Supabase\'e kaydedildi');
-      debugPrint('🔍 Kaydedilen token (ilk 50 karakter): ${savedToken?.substring(0, 50)}...');
-      
-      // Token doğrulama
-      if (savedToken == token) {
-        debugPrint('✅ Token doğrulama BAŞARILI');
-      } else {
-        debugPrint('⚠️ Token doğrulama BAŞARISIZ - Beklenen: ${token.substring(0, 20)}, Kaydedilen: ${savedToken?.substring(0, 20)}');
-      }
     } catch (e) {
       debugPrint('❌ FCM token kaydetme hatası: $e');
       debugPrint('❌ Hata detayı: ${e.toString()}');
@@ -564,15 +584,15 @@ class PushNotificationService {
   /// Kullanıcı giriş yaptıktan sonra FCM token'ı güncelle ve topic'lere abone et
   static Future<void> updateTokenAfterLogin() async {
     if (kIsWeb) return;
-    
+
     try {
       String? token = await _firebaseMessaging.getToken();
       if (token != null && token.isNotEmpty) {
         debugPrint('🔄 Login sonrası FCM token güncelleniyor...');
         await _saveFCMToken(token);
       }
-      // Giriş yapınca topic'lere tekrar abone ol
-      await _subscribeToTopics();
+      // Eski sürümden kalabilecek toplu abonelikleri tekrar temizle.
+      await _removeLegacyTopicSubscriptions();
     } catch (e) {
       debugPrint('❌ Login sonrası token güncelleme hatası: $e');
     }
@@ -592,21 +612,24 @@ class PushNotificationService {
   /// NOT: Bu metodu signOut() çağrısından ÖNCE çalıştırın!
   static Future<void> clearTokenOnLogout() async {
     if (kIsWeb) return;
-    
+
     try {
+      await _removeLegacyTopicSubscriptions();
+
       // Kullanıcı çıkış yaparken FCM token'ını veritabanından sil
       // Böylece bildirimler artık bu cihaza gönderilmez
+      // profiles tablosuna doğrudan UPDATE izni yok; SECURITY DEFINER
+      // `clear_my_fcm_token` RPC'si çağrılır.
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        debugPrint('⚠️ Kullanıcı zaten çıkış yapmış, token temizleme atlanıyor');
+        debugPrint(
+          '⚠️ Kullanıcı zaten çıkış yapmış, token temizleme atlanıyor',
+        );
         return;
       }
-      
-      await Supabase.instance.client
-          .from('profiles')
-          .update({'fcm_token': null})
-          .eq('id', userId);
-      
+
+      await Supabase.instance.client.rpc('clear_my_fcm_token');
+
       debugPrint('✅ Çıkışta FCM token temizlendi (userId: $userId)');
     } catch (e) {
       debugPrint('❌ Çıkışta FCM token temizleme hatası: $e');
@@ -616,6 +639,12 @@ class PushNotificationService {
   /// Test bildirimi gönder
   static Future<void> sendTestNotification(String userId) async {
     try {
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (currentUserId == null || currentUserId != userId) {
+        throw StateError(
+          'Test bildirimi yalnızca oturum açmış test kullanıcısının kendi cihazına gönderilebilir',
+        );
+      }
       await _notificationService.createNotification(
         userId: userId,
         type: 'like',
@@ -631,16 +660,18 @@ class PushNotificationService {
 
   /// MainScreen'e git ve sipariş değerlendirme ekranını aç
   /// review_pending/review_request bildirimleri için kullanılır
-  static void _navigateToMainScreenWithOrderReview(BuildContext context, String orderId) {
+  static void _navigateToMainScreenWithOrderReview(
+    BuildContext context,
+    String orderId,
+  ) {
     try {
       // Sipariş ID'yi sakla, MainScreen'de değerlendirme dialog'u açılacak
       _pendingOrderId = orderId;
-      
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/main',
-        (route) => false,
+
+      Navigator.of(context).pushNamedAndRemoveUntil('/main', (route) => false);
+      debugPrint(
+        '✅ MainScreen\'e yönlendirildi, sipariş değerlendirme açılacak: $orderId',
       );
-      debugPrint('✅ MainScreen\'e yönlendirildi, sipariş değerlendirme açılacak: $orderId');
     } catch (e) {
       debugPrint('❌ Sipariş değerlendirmeye yönlendirme hatası: $e');
       _navigateToMainScreen(context);

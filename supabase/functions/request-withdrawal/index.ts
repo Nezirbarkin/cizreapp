@@ -116,11 +116,33 @@ serve(async (req: Request) => {
 
     const withdrawableFromEarnings = earningsData?.reduce((sum, e) => sum + parseFloat(e.net_amount || "0"), 0) || 0;
 
-    // IBAN format kontrolü (basit)
+    // IBAN format kontrolü (basit) + mod-97 checksum doğrulaması
     const cleanIban = iban.replace(/\s/g, "").toUpperCase();
-    if (!cleanIban.startsWith("TR") || cleanIban.length < 26 || cleanIban.length > 34) {
+    if (!cleanIban.startsWith("TR") || cleanIban.length !== 26) {
       return new Response(JSON.stringify({
-        error: "Geçersiz IBAN formatı"
+        error: "Geçersiz IBAN formatı. Türk IBAN'ı TR ile başlamalı ve 26 karakter olmalıdır."
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // IBAN checksum (mod-97) doğrulaması - ISO 13616
+    // 1. İlk 4 karakteri sona taşı
+    // 2. Harfleri sayıya çevir (A=10, B=11, ..., Z=35)
+    // 3. Mod 97 == 1 olmalı
+    const rearranged = cleanIban.slice(4) + cleanIban.slice(0, 4);
+    const numericIban = rearranged.replace(/[A-Z]/g, (ch) =>
+      (ch.charCodeAt(0) - 55).toString()
+    );
+    // BigInt ile büyük sayı hesabı
+    let remainder = 0n;
+    for (const digit of numericIban) {
+      remainder = (remainder * 10n + BigInt(digit)) % 97n;
+    }
+    if (remainder !== 1n) {
+      return new Response(JSON.stringify({
+        error: "Geçersiz IBAN (checksum doğrulaması başarısız)"
       }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

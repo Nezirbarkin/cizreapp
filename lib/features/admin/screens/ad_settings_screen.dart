@@ -124,8 +124,12 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
             config.admobRewardedUnitIdIos ?? _rewardedUnitIosController.text;
         _loadingOverview = false;
       });
-    } catch (_) {
+    } catch (error) {
       // Rapor yüklenemezse form yine de kullanılabilir.
+      debugPrint(
+        '[AdminAdSettings] overview_load_failed '
+        'errorType=${error.runtimeType} error=$error',
+      );
       if (mounted) setState(() => _loadingOverview = false);
     }
   }

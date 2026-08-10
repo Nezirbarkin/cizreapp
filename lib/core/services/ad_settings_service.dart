@@ -153,9 +153,29 @@ class AdSettingsService {
           .select()
           .eq('id', 1)
           .maybeSingle();
-      return row == null ? null : AdSettings.fromJson(row);
+      if (row == null) {
+        debugPrint(
+          '[AdSettings] public_config_empty view=reward_points_public_config id=1',
+        );
+        return null;
+      }
+      final settings = AdSettings.fromJson(row);
+      debugPrint(
+        '[AdSettings] public_config_loaded '
+        'testMode=${settings.testMode} mode=${settings.rewardFeatureMode.name} '
+        'schemaReady=${settings.rewardPointsSchemaReady} '
+        'earnEnabled=${settings.rewardPointsEarnEnabled} '
+        'ssvRequired=${settings.rewardPointsSsvRequired} '
+        'ssvEnabled=${settings.rewardPointsSsvEnabled} '
+        'androidUnitPresent=${settings.admobRewardedUnitIdAndroid?.trim().isNotEmpty == true} '
+        'iosUnitPresent=${settings.admobRewardedUnitIdIos?.trim().isNotEmpty == true}',
+      );
+      return settings;
     } catch (error) {
-      debugPrint('Puan reklam public config okunamadı: $error');
+      debugPrint(
+        '[AdSettings] public_config_failed '
+        'errorType=${error.runtimeType} error=$error',
+      );
       return null;
     }
   }
@@ -167,24 +187,70 @@ class AdSettingsService {
     if (validationError != null) {
       throw ArgumentError(validationError);
     }
-    final data = await _supabase.rpc(
-      'admin_update_reward_points_config',
-      params: update.toRpcParams(),
+    final params = update.toRpcParams();
+    debugPrint(
+      '[AdSettings] update_rpc_start '
+      'rpc=admin_update_reward_points_config testMode=${update.testMode} '
+      'mode=${update.featureMode.name} earnEnabled=${update.earnEnabled} '
+      'ssvEnabled=${update.ssvEnabled} '
+      'androidAppPresent=${update.normalizedAppIdAndroid != null} '
+      'iosAppPresent=${update.normalizedAppIdIos != null} '
+      'androidUnitPresent=${update.normalizedRewardedUnitIdAndroid != null} '
+      'iosUnitPresent=${update.normalizedRewardedUnitIdIos != null} '
+      'paramCount=${params.length}',
     );
+    dynamic data;
+    try {
+      data = await _supabase.rpc(
+        'admin_update_reward_points_config',
+        params: params,
+      );
+    } catch (error) {
+      debugPrint(
+        '[AdSettings] update_rpc_failed '
+        'errorType=${error.runtimeType} error=$error',
+      );
+      rethrow;
+    }
     if (data is! Map) {
       throw StateError('Admin config RPC beklenmeyen yanıt döndürdü.');
     }
-    return AdSettings.fromJson(Map<String, dynamic>.from(data));
+    final settings = AdSettings.fromJson(Map<String, dynamic>.from(data));
+    debugPrint(
+      '[AdSettings] update_rpc_succeeded '
+      'policyVersion=${settings.rewardPolicyVersion} '
+      'mode=${settings.rewardFeatureMode.name}',
+    );
+    return settings;
   }
 
   /// Yalnız adminler çağırabilir; RPC iç kontrolle admin olmayanları reddeder.
   /// AdMob/SSV bağlantı durumu, bugünkü kazanımlar, son puan olayları ve en çok
   /// kazananlar tek yanıtta döner.
   Future<AdminRewardOverview> getAdminOverview() async {
-    final data = await _supabase.rpc('admin_reward_points_overview');
+    dynamic data;
+    try {
+      data = await _supabase.rpc('admin_reward_points_overview');
+    } catch (error) {
+      debugPrint(
+        '[AdSettings] overview_rpc_failed '
+        'errorType=${error.runtimeType} error=$error',
+      );
+      rethrow;
+    }
     if (data is! Map) {
       throw StateError('Admin overview RPC beklenmeyen yanıt döndürdü.');
     }
-    return AdminRewardOverview.fromJson(Map<String, dynamic>.from(data));
+    final overview = AdminRewardOverview.fromJson(
+      Map<String, dynamic>.from(data),
+    );
+    debugPrint(
+      '[AdSettings] overview_rpc_succeeded '
+      'androidAppPresent=${overview.config.admobAppIdAndroid?.trim().isNotEmpty == true} '
+      'iosAppPresent=${overview.config.admobAppIdIos?.trim().isNotEmpty == true} '
+      'androidUnitPresent=${overview.config.admobRewardedUnitIdAndroid?.trim().isNotEmpty == true} '
+      'iosUnitPresent=${overview.config.admobRewardedUnitIdIos?.trim().isNotEmpty == true}',
+    );
+    return overview;
   }
 }

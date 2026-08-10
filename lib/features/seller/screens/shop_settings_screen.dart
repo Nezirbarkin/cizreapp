@@ -179,8 +179,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
 
       // Upload logo if selected
       if (_logoFile != null) {
-        // ignore: avoid_print
-        print('DEBUG shop_settings - Logo yükleniyor');
+        debugPrint('DEBUG shop_settings - Logo yükleniyor');
         logoUrl = await _shopService.uploadLogo(_shopData!['id'], _logoFile!);
       }
 

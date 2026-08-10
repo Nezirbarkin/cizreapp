@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/storage_service.dart';
 import '../../../core/utils/image_compression_helper.dart';
 
 class StoryService {
@@ -19,6 +20,7 @@ class StoryService {
     }
   }
   final NotificationService _notificationService = NotificationService();
+  final StorageService _storageService = StorageService();
 
   // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder
   Future<List<Story>> getStories() async {
@@ -234,16 +236,14 @@ class StoryService {
       final fileName = 'story_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
       final filePath = 'stories/$fileName';
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        imageBytes,
-        fileOptions: FileOptions(
-          contentType: 'image/$fileExtension',
-          upsert: false,
-        ),
+      final imageUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: imageBytes,
+        metadata: {'Content-Type': 'image/$fileExtension'},
       );
-      
-      final imageUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
+
+      if (imageUrl == null) return null;
       debugPrint('✅ Story image yüklendi: $imageUrl');
       
       return imageUrl;
@@ -274,12 +274,14 @@ class StoryService {
       final fileName = 'thumbnail_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final filePath = 'stories/thumbnails/$fileName';
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        uint8list,
+      final thumbnailUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: uint8list,
+        metadata: const {'Content-Type': 'image/jpeg'},
       );
-      
-      final thumbnailUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
+
+      if (thumbnailUrl == null) return null;
       debugPrint('✅ Thumbnail yüklendi: $thumbnailUrl');
       
       return thumbnailUrl;
@@ -387,18 +389,15 @@ class StoryService {
       
       if (onProgress != null) onProgress(0.50);
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        videoBytes,
-        fileOptions: FileOptions(
-          contentType: 'video/$fileExtension',
-          upsert: false,
-        ),
+      final videoUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: videoBytes,
+        metadata: {'Content-Type': 'video/$fileExtension'},
       );
-      
+
+      if (videoUrl == null) return null;
       if (onProgress != null) onProgress(0.90);
-      
-      final videoUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
       debugPrint('✅ Video yüklendi: $videoUrl');
       
       if (onProgress != null) onProgress(1.0);

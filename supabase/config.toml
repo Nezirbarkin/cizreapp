@@ -2,8 +2,41 @@
 # iyzico callback fonksiyonları JWT gerektirmez (iyzico Bearer token göndermez).
 # Diğer fonksiyonlar mobil app'ten geçerli JWT ile çağrıldığı için varsayılan (true) korunur.
 
+# Canlı Auth ayarları burada açıkça tutulur; `supabase config push` varsayılan
+# localhost değerleriyle production yönlendirmelerini ezmemelidir.
+[auth]
+site_url = "https://www.cizreapp.com/auth-callback.html"
+additional_redirect_urls = ["https://cizreapp.com/**", "https://www.cizreapp.com/auth/callback", "cizreapp://login", "https://cizreapp.com/*", "https://cizreapp.com/recovery", "https://cizreapp.com/auth/callback", "https://cizreapp.com/verify", "https://www.cizreapp.com/recovery", "https://www.cizreapp.com/verify/", "https://cizreapp.com/verify/", "cizreapp://verify", "cizreapp://recovery", "cizreapp://reset", "cizreapp://reset-password", "https://www.cizreapp.com/auth-callback.html", "https://www.cizreapp.com", "https://cizreapp.com"]
+refresh_token_reuse_interval = 600
+
+[auth.rate_limit]
+anonymous_users = 30
+token_refresh = 150
+sign_in_sign_ups = 60
+token_verifications = 30
+email_sent = 2
+sms_sent = 30
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+# Şifre kurtarma dahil Supabase Auth e-posta OTP'leri uygulamadaki altı kutulu
+# girişle aynı uzunlukta olmalıdır.
+[auth.email]
+double_confirm_changes = false
+max_frequency = "1m"
+otp_length = 6
+otp_expiry = 3600
+
 [functions.confirm-balance-topup]
 verify_jwt = false
+
+# route-distance: JWT ile korunur. İstemci (authenticated) çağırır; Google
+# Directions ile gerçek yol mesafesini hesaplayıp road_distance_cache'e yazar
+# ve önizleme olarak döner. create_package_request RPC'si önbelleği okur.
+[functions.route-distance]
+verify_jwt = true
 
 [functions.iyzico-payment-callback]
 verify_jwt = false
@@ -24,6 +57,9 @@ verify_jwt = true
 # (cron, GitHub Actions, vb.) çağırır.
 [functions.process-notification-outbox]
 verify_jwt = false
+
+[functions.send-courier-package-email]
+verify_jwt = true
 
 # -----------------------------------------------------------------------------
 # Eski push endpoint'leri (2026-08-02 itibarıyla kullanımdan kaldırıldı)

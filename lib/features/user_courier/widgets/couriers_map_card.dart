@@ -4,12 +4,14 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/courier_stream_service.dart';
+import '../screens/couriers_map_full_screen.dart';
 
 class CouriersMapCard extends StatefulWidget {
   final double? pickupLat;
   final double? pickupLng;
   final double? deliveryLat;
   final double? deliveryLng;
+  final List<LatLng> routePoints;
 
   const CouriersMapCard({
     super.key,
@@ -17,6 +19,7 @@ class CouriersMapCard extends StatefulWidget {
     this.pickupLng,
     this.deliveryLat,
     this.deliveryLng,
+    this.routePoints = const [],
   });
 
   @override
@@ -26,6 +29,7 @@ class CouriersMapCard extends StatefulWidget {
 class _CouriersMapCardState extends State<CouriersMapCard> {
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
+  final Set<Polyline> _polylines = {};
   int _courierCount = 0;
   bool _isLoading = true;
   Position? _userLocation;
@@ -35,9 +39,9 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   // "kurye yok" mu yoksa "sorgu patladı mı" ayırt edilebilsin.
   String? _loadError;
 
-  // Tanılama: konumlu kurye 0 geldiğinde, sistemde hiç 'courier' rolünde
-  // kullanıcı olup olmadığını sayar (rol uyuşmazlığını ayırt etmek için).
-  int _diagTotalCouriers = -1; // -1 = henük bakılmadı
+  // "Kurye yok" mesajı bir kez gösterilsin (overlay yerine SnackBar). Her
+  // courier snapshot'ta tekrarlamaz.
+  bool _shownNoCourierNotice = false;
 
   // Ortak CourierStreamService'ten gelen güncel kurye cache'i. Realtime
   // akışı bu widget'ta değişmez; yalnızca dinler. Kurye konum paylaşmaya
@@ -71,6 +75,20 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
         _loadError = CourierStreamService().lastError;
       });
       _buildMarkers();
+      // "Kurye yok" mesajı yalnızca bir kez, SnackBar ile göster — overlay
+      // haritayı kaplamasın, her snapshot'ta tekrarlanmasın.
+      if (snap.isEmpty && !_shownNoCourierNotice) {
+        _shownNoCourierNotice = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_loadError ?? 'Henüz konum paylaşan kurye yok'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        });
+      }
     }
 
     _courierListener = onChange;
@@ -124,40 +142,42 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
     _courierIcon = await _createMotorcycleBitmap();
   }
 
-  /// Rengi daire + alt üçgenden oluşan, motor ikonlu bir pin marker üretir.
+  /// Yön oklu kırmızı disk + motor ikonu. rotation=0 → ok yukarı (kuzey).
+  /// flat:true ile haritaya yapışır; marker rotation=heading ile döner.
+  /// (şehiriçi `_createVehicleBitmap` deseniyle aynı.)
   Future<BitmapDescriptor> _createMotorcycleBitmap() async {
-    const double size = 90;
+    const double size = 56;
+    const center = Offset(size / 2, size / 2);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
 
-    final center = Offset(size / 2, size * 0.38);
-    final radius = size * 0.38;
-    const fill = Color(0xFFE53935); // kırmızı
-
-    // Pin gövdesi (daire)
-    canvas.drawCircle(center, radius, Paint()..color = fill);
+    // Yumuşak gölge
     canvas.drawCircle(
-      center,
-      radius,
+      center + const Offset(0, 3),
+      size / 2 - 5,
       Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4,
+        ..color = Colors.black.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
+    // Beyaz kart zemin
+    canvas.drawCircle(center, size / 2 - 3, Paint()..color = Colors.white);
+    // Kırmızı disk
+    const fill = Color(0xFFE53935);
+    canvas.drawCircle(center, size / 2 - 7, Paint()..color = fill);
 
-    // Alt üçgen (konumu işaret eden uç)
-    final triangle = Path()
-      ..moveTo(center.dx - radius * 0.55, center.dy + radius * 0.78)
-      ..lineTo(center.dx + radius * 0.55, center.dy + radius * 0.78)
-      ..lineTo(center.dx, size * 0.92)
+    // Yön oku: diskin üstü, dışa bakan üçgen (rotation=0 → kuzey).
+    final arrowPath = Path()
+      ..moveTo(center.dx, center.dy - (size / 2 - 5))
+      ..lineTo(center.dx - 5, center.dy - (size / 2 - 12))
+      ..lineTo(center.dx + 5, center.dy - (size / 2 - 12))
       ..close();
-    canvas.drawPath(triangle, Paint()..color = fill);
+    canvas.drawPath(arrowPath, Paint()..color = Colors.white);
     canvas.drawPath(
-      triangle,
+      arrowPath,
       Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4,
+        ..strokeWidth = 1.2,
     );
 
     // Motor ikonu
@@ -165,7 +185,7 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
       ..text = TextSpan(
         text: String.fromCharCode(Icons.two_wheeler.codePoint),
         style: TextStyle(
-          fontSize: radius,
+          fontSize: size * 0.36,
           fontFamily: Icons.two_wheeler.fontFamily,
           package: Icons.two_wheeler.fontPackage,
           color: Colors.white,
@@ -174,10 +194,7 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
       ..layout();
     iconPainter.paint(
       canvas,
-      Offset(
-        center.dx - iconPainter.width / 2,
-        center.dy - iconPainter.height / 2,
-      ),
+      center - Offset(iconPainter.width / 2, iconPainter.height / 2 + 1),
     );
 
     final picture = recorder.endRecording();
@@ -227,6 +244,11 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
               BitmapDescriptor.defaultMarkerWithHue(
                 BitmapDescriptor.hueRed,
               ),
+          // heading: 0 = kuzey yukarı. null/0 → rotation 0 (ok kuzeye).
+          // flat: true → disk haritaya yapışır, harita döndükçe kuzey sabit.
+          rotation: c.heading ?? 0,
+          flat: true,
+          anchor: const Offset(0.5, 0.5),
         ),
       );
       count++;
@@ -256,11 +278,29 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
       );
     }
 
+    final polylines = <Polyline>{};
+    if (widget.routePoints.length >= 2) {
+      polylines.add(
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: widget.routePoints,
+          color: const Color(0xFF1976D2),
+          width: 6,
+          jointType: JointType.round,
+          endCap: Cap.roundCap,
+          startCap: Cap.roundCap,
+        ),
+      );
+    }
+
     if (mounted) {
       setState(() {
         _markers
           ..clear()
           ..addAll(markers);
+        _polylines
+          ..clear()
+          ..addAll(polylines);
         _courierCount = count;
         _isLoading = false;
       });
@@ -472,28 +512,46 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   }
 
   LatLngBounds _getBounds() {
-    if (_markers.isEmpty) {
+    final points = <LatLng>[];
+
+    // Marker'lardan.
+    for (final marker in _markers) {
+      points.add(marker.position);
+    }
+    // Rota polyline noktalarından (varsa).
+    for (final p in widget.routePoints) {
+      points.add(p);
+    }
+    // En azından alım/teslim koordinatları.
+    if (widget.pickupLat != null && widget.pickupLng != null) {
+      points.add(LatLng(widget.pickupLat!, widget.pickupLng!));
+    }
+    if (widget.deliveryLat != null && widget.deliveryLng != null) {
+      points.add(LatLng(widget.deliveryLat!, widget.deliveryLng!));
+    }
+
+    if (points.isEmpty) {
       return LatLngBounds(
         southwest: const LatLng(37.0, 42.0),
         northeast: const LatLng(38.0, 43.0),
       );
     }
 
-    double minLat = _markers.first.position.latitude;
-    double maxLat = _markers.first.position.latitude;
-    double minLng = _markers.first.position.longitude;
-    double maxLng = _markers.first.position.longitude;
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
 
-    for (final marker in _markers) {
-      minLat = minLat > marker.position.latitude ? marker.position.latitude : minLat;
-      maxLat = maxLat < marker.position.latitude ? marker.position.latitude : maxLat;
-      minLng = minLng > marker.position.longitude ? marker.position.longitude : minLng;
-      maxLng = maxLng < marker.position.longitude ? marker.position.longitude : maxLng;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
     }
 
     return LatLngBounds(
-      southwest: LatLng(minLat - 0.01, minLng - 0.01),
-      northeast: LatLng(maxLat + 0.01, maxLng + 0.01),
+      southwest: LatLng(minLat - 0.005, minLng - 0.005),
+      northeast: LatLng(maxLat + 0.005, maxLng + 0.005),
     );
   }
 
@@ -517,132 +575,221 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
     );
   }
 
+  void _zoomIn() {
+    _mapController?.animateCamera(CameraUpdate.zoomBy(1));
+  }
+
+  void _zoomOut() {
+    _mapController?.animateCamera(CameraUpdate.zoomBy(-1));
+  }
+
+  Future<void> _openFullScreen() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CouriersMapFullScreen(
+          pickupLat: widget.pickupLat,
+          pickupLng: widget.pickupLng,
+          deliveryLat: widget.deliveryLat,
+          deliveryLng: widget.deliveryLng,
+          routePoints: widget.routePoints,
+        ),
+      ),
+    );
+  }
+
+  /// Yüzen modern kontrol butonu — beyaz arka plan, gölge, daire.
+  Widget _floatingMapButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shadowColor: Colors.black26,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: Tooltip(
+          message: tooltip,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(icon, color: Colors.black87, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void didUpdateWidget(CouriersMapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final routeChanged = oldWidget.routePoints != widget.routePoints;
     if (oldWidget.pickupLat != widget.pickupLat ||
         oldWidget.pickupLng != widget.pickupLng ||
         oldWidget.deliveryLat != widget.deliveryLat ||
-        oldWidget.deliveryLng != widget.deliveryLng) {
-      // Sadece koordinatlar değişti; kuryeleri tekrar sorgulama, marker'ları
+        oldWidget.deliveryLng != widget.deliveryLng ||
+        routeChanged) {
+      // Sadece koordinatlar/rota değişti; kuryeleri tekrar sorgulama, marker'ları
       // cache'lenen veriden yeniden çiz.
       _buildMarkers();
+      // Rota yeni geldiyse haritayı rota + marker'lara sığdır (bir sonraki
+      // frame'de, polylines state'e işlenmiş haliyle).
+      if (routeChanged && widget.routePoints.length >= 2) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fitBounds());
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark
+        ? Theme.of(context).colorScheme.surfaceContainerHigh
+        : Colors.white;
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 4,
+      color: cardBg,
+      shadowColor: Colors.black26,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
+          // Başlık satırı: yumuşak arka plan, yuvarlatılmış üst köşeler
+          Container(
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: 0.08),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
             child: Row(
               children: [
-                Icon(Icons.two_wheeler, color: primary, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Yakın Kuryeler ($_courierCount)',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: primary.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.two_wheeler, color: primary, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Yakın Kuryeler ($_courierCount)',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 if (!_isLoading)
                   IconButton(
                     tooltip: 'Konumuma git',
-                    icon: const Icon(Icons.my_location, size: 18),
+                    icon: const Icon(Icons.my_location, size: 20),
                     onPressed: _recenterOnUser,
-                    constraints: const BoxConstraints(),
-                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
                   ),
                 if (!_isLoading && _markers.isNotEmpty)
                   IconButton(
                     tooltip: 'Tümünü göster',
-                    icon: const Icon(Icons.zoom_out_map, size: 18),
+                    icon: const Icon(Icons.zoom_out_map, size: 20),
                     onPressed: _fitBounds,
-                    constraints: const BoxConstraints(),
-                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
                   ),
+                IconButton(
+                  tooltip: 'Tam ekran',
+                  icon: const Icon(Icons.fullscreen, size: 20),
+                  onPressed: _openFullScreen,
+                  visualDensity: VisualDensity.compact,
+                ),
               ],
             ),
           ),
-          SizedBox(
-            height: 200,
-            child: _isLoading || _userLocation == null
-                ? Center(
-                    child: CircularProgressIndicator(color: primary),
-                  )
-                : Stack(
-                    children: [
-                      GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: LatLng(
-                            _userLocation!.latitude,
-                            _userLocation!.longitude,
+          // Harita alanı
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(16),
+            ),
+            child: SizedBox(
+              height: 220,
+              child: _isLoading || _userLocation == null
+                  ? Center(
+                      child: CircularProgressIndicator(color: primary),
+                    )
+                  : Stack(
+                      children: [
+                        GoogleMap(
+                          initialCameraPosition: CameraPosition(
+                            target: LatLng(
+                              _userLocation!.latitude,
+                              _userLocation!.longitude,
+                            ),
+                            zoom: 14.5,
                           ),
-                          zoom: 14.5,
+                          onMapCreated: (controller) {
+                            _mapController = controller;
+                          },
+                          markers: _markers,
+                          polylines: _polylines,
+                          // Parmakla kaydırma + iki parmakla yakınlaştırma aktif
+                          scrollGesturesEnabled: true,
+                          zoomGesturesEnabled: true,
+                          tiltGesturesEnabled: true,
+                          rotateGesturesEnabled: true,
+                          zoomControlsEnabled: false,
+                          mapToolbarEnabled: false,
+                          myLocationButtonEnabled: false,
+                          compassEnabled: false,
                         ),
-                        onMapCreated: (controller) {
-                          _mapController = controller;
-                        },
-                        markers: _markers,
-                        // Parmakla kaydırma + iki parmakla yakınlaştırma
-                        scrollGesturesEnabled: true,
-                        zoomGesturesEnabled: true,
-                        tiltGesturesEnabled: true,
-                        rotateGesturesEnabled: true,
-                        zoomControlsEnabled: false,
-                        mapToolbarEnabled: false,
-                        myLocationButtonEnabled: false,
-                        compassEnabled: false,
-                      ),
-                      // Hiç konum paylaşan kurye yoksa teşhis amaçlı ipucu
-                      // göster — "ikon bozuk" mu yoksa "veri yok" mu belli olsun.
-                      // Sorgu patladıysa hatanın kendisini göster.
-                      if (_courierCount == 0)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.92),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  _loadError != null
-                                      ? 'Kurye sorgusu hatası:\n$_loadError'
-                                      : _diagTotalCouriers == 0
-                                          ? 'Sistemde kurye kullanıcısı yok '
-                                              '(role=courier bulunamadı)'
-                                          : _diagTotalCouriers > 0
-                                              ? 'Sistemde $_diagTotalCouriers kurye var '
-                                                  'ama henüz konum paylaşan yok'
-                                              : 'Henüz konum paylaşan kurye yok',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.black87,
-                                  ),
-                                ),
+                        // Zoom in / Zoom out — modern yüzen butonlar (sağ alt)
+                        Positioned(
+                          right: 10,
+                          bottom: 36,
+                          child: Column(
+                            children: [
+                              _floatingMapButton(
+                                icon: Icons.add,
+                                tooltip: 'Yakınlaştır',
+                                onPressed: _zoomIn,
+                              ),
+                              const SizedBox(height: 8),
+                              _floatingMapButton(
+                                icon: Icons.remove,
+                                tooltip: 'Uzaklaştır',
+                                onPressed: _zoomOut,
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Alt ipucu şeridi
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            color: Colors.black.withValues(alpha: 0.42),
+                            child: const Text(
+                              '💡 Kaydırın · İki parmakla yakınlaştırın',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
                               ),
                             ),
                           ),
                         ),
-                    ],
-                  ),
+                      ],
+                    ),
+            ),
           ),
         ],
       ),

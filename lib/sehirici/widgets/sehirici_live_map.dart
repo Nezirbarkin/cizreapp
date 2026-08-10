@@ -11,6 +11,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/sehirici_models.dart';
 import '../services/sehirici_trip_service.dart';
+import '../utils/sehirici_route_geometry.dart';
 import '../../core/services/courier_stream_service.dart';
 
 /// Şehir içi servis canlı harita widget'ı.
@@ -49,9 +50,23 @@ class SehiriciLiveMap extends StatefulWidget {
   final ValueChanged<LatLng>? onLongPress;
 
   /// Hat yol rotasını (duraklar arası çizgi / yol takip) göster/gizle.
-  /// Şoför paneli, şoför henüz gerçek rota çizmediği sürece false verir;
-  /// durak marker'ları yine görünür.
+  /// true ise: admin tarafından tanımlanmış hat polylines'ı (duraklar arası
+  /// veya roadPolyline alanındaki yol takip noktaları) çizilir.
+  /// false ise: durak marker'ları yine görünür, hat polylines'ı çizilmez.
   final bool showRoute;
+
+  /// Vurgulanacak hat ID'si. null = tüm hatlar eşit görünür.
+  /// Dolu ise: sadece bu hat tam opaklık + kalın; diğerleri %25 opaklık
+  /// + ince. Hat durakları ve aktif sefer marker'ları da bu hattınkiler
+  /// öne çıkar.
+  final String? highlightLineId;
+
+  /// Şoförün o an geçtiği canlı yol polyline'ını göster/gizle.
+  /// true (varsayılan): kullanıcı tarafında araç arkasında çizilir (şoför
+  /// dışındaki herkes için faydalı, yolculuğu gösterir).
+  /// false: şoför panelinde — şoförün kendi canlı rotası çizilmez, sadece
+  /// admin tarafından tanımlanmış hat rotası görünür.
+  final bool showLiveTripPath;
 
   /// Aktif kuryeleri (role='courier', konum paylaşan) haritada motor ikonuyla
   /// göster. Kuryeler sefer/hattından bağımsız, `profiles` tablosundan canlı
@@ -73,6 +88,8 @@ class SehiriciLiveMap extends StatefulWidget {
     this.updateIntervalSeconds = 30,
     this.onLongPress,
     this.showRoute = true,
+    this.highlightLineId,
+    this.showLiveTripPath = true,
     this.showCouriers = true,
   });
 
@@ -161,9 +178,13 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
 
     // Şoför konum güncellemelerini realtime dinle; yeni nokta geldiğinde
     // o seferin polyline'ına ekle (şoförün arkasında çizilen gerçek yol).
-    _tripService.watchTripPaths(
-      onPoint: _onTripPathPoint,
-    );
+    // showLiveTripPath=false ise (örn. şoförün kendi paneli) dinleme yapılmaz
+    // ve şoförün geçtiği canlı rota çizilmez.
+    if (widget.showLiveTripPath) {
+      _tripService.watchTripPaths(
+        onPoint: _onTripPathPoint,
+      );
+    }
 
     // Live update timer başlat
     if (widget.enableLiveUpdates) {
@@ -203,13 +224,68 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     _rebuildTripPathPolyline(trip);
   }
 
-  /// Harita açılışında konum otomatik istenmez. Banner da otomatik
-  /// gösterilmez — kullanıcı "Konumuma git" butonuna, haritanın boş
-  /// bir noktasına tıkladığında veya bir hatta/araca dokunduğunda
-  /// [_ensureUserLocation] üzerinden konum istenir; bu sırada servis
-  /// kapalıysa banner [_onMapTapped] tarafından gösterilir.
+  /// Harita açılışında konum otomatik İSTENMEZ (sistem diyaloğu açılmaz).
+  /// Ancak kullanıcı daha önce "Konumuma git" veya bir hat/araç tıklaması
+  /// ile zaten izin verdiyse, harita açılır açılmaz sessizce son bilinen
+  /// konumu çekip mavi "konumum" marker'ını gösterir. Bu, bilinçli
+  /// "kullanıcı etkileşimi sonrası izin iste" tasarımını bozmaz; sadece
+  /// daha önce izin vermiş kullanıcıların konumu haritada gözükür.
+  /// Banner da otomatik gösterilmez — servis kapalıysa [_onMapTapped]
+  /// tarafından kullanıcı etkileşiminden sonra gösterilir.
   Future<void> _initUserLocationOnEntry() async {
-    // Bilinçli olarak boş: hiçbir otomatik konum/servis kontrolü yok.
+    try {
+      // 1) Sistem konum servisi kapalıysa hiçbir şey yapma.
+      final serviceOn = await Geolocator.isLocationServiceEnabled();
+      if (!serviceOn) return;
+
+      // 2) Mevcut izin durumunu kontrol et. Sadece daha önce verilmiş
+      //    izinlerde otomatik konum al — denied ise sessizce geç (kullanıcı
+      //    zaten reddetmiş, tekrar sormak rahatsız eder).
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.unableToDetermine) {
+        return;
+      }
+
+      // 3) İzin var — önce hızlı yol: son bilinen konum. Çok hızlı döner
+      //    ve çoğu zaman günceldir; hemen marker'ı çizip ilk açılış
+      //    rahatsızlığını giderir.
+      Position? pos;
+      try {
+        pos = await Geolocator.getLastKnownPosition();
+      } catch (_) {
+        pos = null;
+      }
+
+      // 4) Son bilinen konum yoksa ya da çok eskiyse kısa zaman limitiyle
+      //    mevcut konumu dene (6 sn) — başarısız olursa sessizce geç.
+      pos ??= await _tryGetCurrentFast();
+
+      if (!mounted || pos == null) return;
+      setState(() => _userPosition = pos);
+      // Mavi "konumum" marker'ı seçili hat olmasa bile gösterilsin.
+      // _rebuildUserOverlay zaten _userPosition null kontrolünü yapıyor
+      // ve selectedLineId olmadığında polyline çizmeden marker ekliyor.
+      _rebuildUserOverlay();
+    } catch (_) {
+      // Herhangi bir hata — kullanıcıyı rahatsız etmeden sessizce geç.
+    }
+  }
+
+  /// 6 saniyelik kısa zaman limitiyle mevcut konumu almaya çalışır.
+  /// Başarısız olursa null döner (kullanıcıya diyalog gösterilmez).
+  Future<Position?> _tryGetCurrentFast() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 6),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Kullanıcı haritanın boş bir noktasına dokunduğunda çağrılır.
@@ -503,6 +579,23 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       }
     }
 
+    // Canlı yol polyline'ı değişikliği: runtime'da kapatılırsa realtime
+    // dinlemeyi durdur ve polyline'ı haritadan kaldır.
+    if (old.showLiveTripPath != widget.showLiveTripPath) {
+      if (!widget.showLiveTripPath) {
+        _tripService.stopWatching();
+        _tripPaths.clear();
+        setState(() {
+          _polylines = _polylines
+              .where((p) => !p.polylineId.value.startsWith('trip_path_'))
+              .toSet();
+        });
+      } else {
+        // tekrar açılırsa realtime dinlemeyi başlat
+        _tripService.watchTripPaths(onPoint: _onTripPathPoint);
+      }
+    }
+
     // Kurye gösterimi değişikliği: açılışta kapalıysa abonelik başlamamıştır;
     // runtime'da açılırsa başlat, kapanırsa aboneliği durdur ve marker'ları kaldır.
     if (old.showCouriers != widget.showCouriers) {
@@ -525,6 +618,66 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     if (old.lines != widget.lines) {
       _rebuild();
     }
+
+    // Vurgulu hat değiştiyse haritayı o hattın duraklarına sığdır.
+    if (old.highlightLineId != widget.highlightLineId &&
+        widget.highlightLineId != null &&
+        _mapController != null) {
+      _fitToHighlightedLine();
+    }
+  }
+
+  /// Vurgulanan hattın durak polyline'ına haritayı fit eder. Polyline yoksa
+  /// durak marker'larına fit eder. Marker henüz yoksa (ilk frame'den önce)
+  /// frame sonrasını bekler.
+  Future<void> _fitToHighlightedLine() async {
+    final lineId = widget.highlightLineId;
+    if (lineId == null) return;
+    final line = widget.lines.firstWhere(
+      (l) => l.id == lineId,
+      orElse: () => const SehiriciLine(id: '', code: '', name: ''),
+    );
+    if (line.id.isEmpty) return;
+    final path = _adminLinePath(line);
+    final ctl = _mapController;
+    if (ctl == null) return;
+    if (path.length >= 2) {
+      final bounds = _boundsFromLatLngList(path);
+      await ctl.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+    } else if (line.stops.isNotEmpty) {
+      double minLat = line.stops.first.lat, maxLat = minLat;
+      double minLng = line.stops.first.lng, maxLng = minLng;
+      for (final s in line.stops) {
+        if (s.lat < minLat) minLat = s.lat;
+        if (s.lat > maxLat) maxLat = s.lat;
+        if (s.lng < minLng) minLng = s.lng;
+        if (s.lng > maxLng) maxLng = s.lng;
+      }
+      await ctl.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          80,
+        ),
+      );
+    }
+  }
+
+  LatLngBounds _boundsFromLatLngList(List<LatLng> list) {
+    double minLat = list.first.latitude, maxLat = list.first.latitude;
+    double minLng = list.first.longitude, maxLng = list.first.longitude;
+    for (final p in list) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
   }
 
   void _handleTripChanges(List<SehiriciActiveTrip> oldTrips) {
@@ -591,8 +744,8 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     final markers = <Marker>{};
     final polylines = <Polyline>{};
 
-    // 1) Durak marker'ları. Hat polylines'ı (kuş uçuşu düz çizgi) artık
-    // çizilmiyor — sadece şoförün geçtiği gerçek yol polyline'ı görünür.
+    // 1) Durak marker'ları + admin tarafından tanımlanmış hat rotası.
+    // Öncelik: roadPolyline (yol takip eden) → yoksa durakları sırayla birleştir.
     for (final line in widget.lines) {
       // Durak marker'ları — tek duraklı hatlarda da gösterilmeli.
       for (final stop in line.stops) {
@@ -611,6 +764,33 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
           consumeTapEvents: true,
           onTap: () => _showStopSheet(line, stop),
         ));
+      }
+
+      // Admin rotası polyline'ı (showRoute=true ise).
+      // 1) Yol takip eden noktalar (roadPolyline) varsa onları kullan.
+      // 2) Yoksa durakları sırasıyla düz çizgiyle bağla.
+      if (widget.showRoute) {
+        final adminPath = _adminLinePath(line);
+        if (adminPath.length >= 2) {
+          final isHighlighted = widget.highlightLineId == line.id;
+          final hasHighlight = widget.highlightLineId != null;
+          // Vurguluysa kalın + tam opak; vurgulu olmayan başka hat
+          // varsa ince + soluk; vurgu yoksa normal görünüm.
+          final int width = isHighlighted
+              ? 7
+              : (hasHighlight ? 2 : 5);
+          final double alpha = isHighlighted
+              ? 0.95
+              : (hasHighlight ? 0.25 : 0.85);
+          polylines.add(Polyline(
+            polylineId: PolylineId('admin_route_${line.id}'),
+            points: adminPath,
+            color: line.color.withValues(alpha: alpha),
+            width: width,
+            zIndex: isHighlighted ? 2 : 0,
+            consumeTapEvents: false,
+          ));
+        }
       }
     }
 
@@ -672,6 +852,17 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       _loadStopIcons();
       _loadInitialTripPaths();
     });
+  }
+
+  /// Bir hattın admin tarafından tanımlanmış rota noktalarını döner.
+  /// Sadece [SehiriciLine.roadPolyline] (yol takip eden — kalemle/OSRM ile
+  /// çizilmiş) alanındaki noktaları kullanır. Eğer boşsa veya tek nokta
+  /// varsa boş liste döner → polyline çizilmez. Kuş uçuşu fallback YOKTUR
+  /// (admin rota çizmedikçe haritada yol görünmez).
+  List<LatLng> _adminLinePath(SehiriciLine line) {
+    final road = line.roadPolyline;
+    if (road == null || road.length < 2) return const [];
+    return road.map((p) => LatLng(p[0], p[1])).toList();
   }
 
   /// Aktif seferlerin şoförünün geçtiği yol noktalarını (konum geçmişi)
@@ -1112,7 +1303,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   }
   /// ortada araç simgesi. Çevresindeki pulse halkasıyla canlı görünür.
   Future<BitmapDescriptor> _createVehicleBitmap(IconData icon, Color color) async {
-    const double size = 72;
+    const double size = 84;
     const center = Offset(size / 2, size / 2);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
@@ -1130,11 +1321,32 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     // Renkli disk
     canvas.drawCircle(center, size / 2 - 9, Paint()..color = color);
 
+    // Yön oku: diskin üst kısmında, dışa doğru bakan üçgen.
+    // (rotation=0 → yukarı, yani kuzey yönü)
+    final arrowPath = Path()
+      ..moveTo(center.dx, center.dy - (size / 2 - 6))
+      ..lineTo(center.dx - 6, center.dy - (size / 2 - 14))
+      ..lineTo(center.dx + 6, center.dy - (size / 2 - 14))
+      ..close();
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
     final textPainter = TextPainter(textDirection: TextDirection.ltr)
       ..text = TextSpan(
         text: String.fromCharCode(icon.codePoint),
         style: TextStyle(
-          fontSize: size * 0.42,
+          fontSize: size * 0.38,
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
           color: Colors.white,
@@ -1143,7 +1355,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       ..layout();
     textPainter.paint(
       canvas,
-      center - Offset(textPainter.width / 2, textPainter.height / 2),
+      center - Offset(textPainter.width / 2, textPainter.height / 2 + 2),
     );
 
     final picture = recorder.endRecording();
@@ -1193,6 +1405,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
             children: [
               // Başlık: Hat bilgisi
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
                     width: 50,
@@ -1245,6 +1458,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
               _buildDetailRow('📍 Konum Durumu', _getLocationStatus(trip)),
               if (trip.currentSpeed != null && trip.currentSpeed! > 0)
                 _buildDetailRow('⚡ Hız', '${trip.currentSpeed!.toStringAsFixed(0)} km/s'),
+              _buildDetailRow('🧭 Yön', _formatHeading(trip.currentHeading)),
               if (trip.licensePlate != null)
                 _buildDetailRow('🏷️ Plaka', trip.licensePlate!),
               if (trip.workingHoursStart != null && trip.workingHoursEnd != null)
@@ -1276,15 +1490,18 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 120,
+          Flexible(
+            flex: 4,
             child: Text(
               label,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          Expanded(
+          const SizedBox(width: 8),
+          Flexible(
+            flex: 5,
             child: Text(
               value,
               style: TextStyle(color: Colors.grey.shade700),
@@ -1297,6 +1514,15 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
 
   String _getLocationStatus(SehiriciActiveTrip trip) {
     return trip.status == SehiriciTripStatus.active ? 'Yolda 🟢' : 'Mola 🟡';
+  }
+
+  /// Heading (0-360°) insan-okunur biçime çevirir.
+  /// null veya 0 ise "bilinmiyor" döner (cihazın pusula verisi yoksa veya
+  /// araç duruyorsa 0 gelir; bu durumda yön anlamsız olur).
+  String _formatHeading(double? heading) {
+    if (heading == null) return '— (GPS başlık yok)';
+    if (heading <= 0) return '— (araç duruyor)';
+    return '${heading.toStringAsFixed(0)}° (${bearingToCardinal(heading)})';
   }
 
   /// Kullanıcı bir araç ikonuna tıkladığında: o seferi hedef olarak kilitler

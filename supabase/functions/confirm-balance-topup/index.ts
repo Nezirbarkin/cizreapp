@@ -274,32 +274,29 @@ serve(async (req: Request) => {
       console.log("✅ Bakiye yüklendi (atomic + secure):", { userId, amount, balanceBefore, balanceAfter });
 
       // ────────── Bildirimler (sadece başarılı bakiye yüklemede) ──────────
-      // 1) Kullanıcıya push notification gönder
+      // 1) Kullanıcı bildirimini güvenli outbox hattına ekle. Doğrudan FCM
+      // token okunmaz ve emekliye ayrılmış push function çağrılmaz.
       try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name, fcm_token")
-          .eq("id", userId)
-          .single();
-
-        if (profile?.fcm_token) {
-          await supabase.functions.invoke("send-push-notification", {
-            body: {
-              fcm_token: profile.fcm_token,
-              title: "Bakiye Yüklendi ✅",
-              body: `${amount} TL bakiye hesabınıza yüklendi. Yeni bakiyeniz: ${balanceAfter.toFixed(2)} TL`,
-              data: {
-                type: "balance_topup_success",
-                transaction_id: txn.id,
-                amount: amount,
-                new_balance: balanceAfter,
-              },
+        const { error: userNotificationError } = await supabase
+          .from("notifications")
+          .insert({
+            user_id: userId,
+            type: "balance_topup_success",
+            title: "Bakiye Yüklendi ✅",
+            content: `${amount} TL bakiye hesabınıza yüklendi. Yeni bakiyeniz: ${balanceAfter.toFixed(2)} TL`,
+            entity_id: txn.id,
+            metadata: {
+              transaction_id: txn.id,
+              amount,
+              new_balance: balanceAfter,
             },
           });
-          console.log("📤 Kullanıcıya push gönderildi");
+        if (userNotificationError) {
+          throw userNotificationError;
         }
+        console.log("📤 Kullanıcı bildirimi outbox hattına eklendi");
       } catch (pushErr) {
-        console.error("⚠️ Kullanıcı push hatası (kritik değil):", pushErr);
+        console.error("⚠️ Kullanıcı bildirimi oluşturulamadı (kritik değil)");
       }
 
       // 2) Tüm admin'lere in-app bildirim gönder

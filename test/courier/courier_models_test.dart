@@ -22,20 +22,33 @@ void main() {
     });
 
     test('fromString geçerli değerleri eşler', () {
-      expect(CourierRequestStatus.fromString('pending'),
-          equals(CourierRequestStatus.pending));
-      expect(CourierRequestStatus.fromString('approved'),
-          equals(CourierRequestStatus.approved));
-      expect(CourierRequestStatus.fromString('rejected'),
-          equals(CourierRequestStatus.rejected));
+      expect(
+        CourierRequestStatus.fromString('pending'),
+        equals(CourierRequestStatus.pending),
+      );
+      expect(
+        CourierRequestStatus.fromString('approved'),
+        equals(CourierRequestStatus.approved),
+      );
+      expect(
+        CourierRequestStatus.fromString('rejected'),
+        equals(CourierRequestStatus.rejected),
+      );
     });
 
-    test('fromString geçersiz/null değerlerde pending döner ( güvenli default )', () {
-      expect(CourierRequestStatus.fromString('invalid'),
-          equals(CourierRequestStatus.pending));
-      expect(CourierRequestStatus.fromString(''),
-          equals(CourierRequestStatus.pending));
-    });
+    test(
+      'fromString geçersiz/null değerlerde pending döner ( güvenli default )',
+      () {
+        expect(
+          CourierRequestStatus.fromString('invalid'),
+          equals(CourierRequestStatus.pending),
+        );
+        expect(
+          CourierRequestStatus.fromString(''),
+          equals(CourierRequestStatus.pending),
+        );
+      },
+    );
   });
 
   // ===========================================================================
@@ -56,21 +69,33 @@ void main() {
     });
 
     test('fromString geçerli değerleri eşler', () {
-      expect(CourierAssignmentStatus.fromString('assigned'),
-          equals(CourierAssignmentStatus.assigned));
-      expect(CourierAssignmentStatus.fromString('pickedUp'),
-          equals(CourierAssignmentStatus.pickedUp));
-      expect(CourierAssignmentStatus.fromString('delivered'),
-          equals(CourierAssignmentStatus.delivered));
-      expect(CourierAssignmentStatus.fromString('cancelled'),
-          equals(CourierAssignmentStatus.cancelled));
+      expect(
+        CourierAssignmentStatus.fromString('assigned'),
+        equals(CourierAssignmentStatus.assigned),
+      );
+      expect(
+        CourierAssignmentStatus.fromString('pickedUp'),
+        equals(CourierAssignmentStatus.pickedUp),
+      );
+      expect(
+        CourierAssignmentStatus.fromString('delivered'),
+        equals(CourierAssignmentStatus.delivered),
+      );
+      expect(
+        CourierAssignmentStatus.fromString('cancelled'),
+        equals(CourierAssignmentStatus.cancelled),
+      );
     });
 
     test('fromString geçersiz değerde assigned döner ( güvenli default )', () {
-      expect(CourierAssignmentStatus.fromString('invalid'),
-          equals(CourierAssignmentStatus.assigned));
-      expect(CourierAssignmentStatus.fromString(''),
-          equals(CourierAssignmentStatus.assigned));
+      expect(
+        CourierAssignmentStatus.fromString('invalid'),
+        equals(CourierAssignmentStatus.assigned),
+      );
+      expect(
+        CourierAssignmentStatus.fromString(''),
+        equals(CourierAssignmentStatus.assigned),
+      );
     });
   });
 
@@ -111,19 +136,22 @@ void main() {
       expect(req.sellerEmail, equals('ahmet@x.com'));
     });
 
-    test('profiles full_name yoksa username, o da yoksa flat seller_name düşer', () {
-      final req = CourierRequest.fromJson({
-        'id': 'r',
-        'shop_id': 's',
-        'seller_id': 'u',
-        'status': 'pending',
-        'created_at': '2026-01-01T00:00:00.000Z',
-        'updated_at': '2026-01-01T00:00:00.000Z',
-        'profiles': {'username': 'veli'},
-        'seller_name': 'flat-name',
-      });
-      expect(req.sellerName, equals('veli'));
-    });
+    test(
+      'profiles full_name yoksa username, o da yoksa flat seller_name düşer',
+      () {
+        final req = CourierRequest.fromJson({
+          'id': 'r',
+          'shop_id': 's',
+          'seller_id': 'u',
+          'status': 'pending',
+          'created_at': '2026-01-01T00:00:00.000Z',
+          'updated_at': '2026-01-01T00:00:00.000Z',
+          'profiles': {'username': 'veli'},
+          'seller_name': 'flat-name',
+        });
+        expect(req.sellerName, equals('veli'));
+      },
+    );
 
     test('shops yoksa flat shop_name kullanılır', () {
       final req = CourierRequest.fromJson({
@@ -183,7 +211,10 @@ void main() {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
       );
-      final updated = req.copyWith(status: CourierRequestStatus.approved, adminNotes: 'n');
+      final updated = req.copyWith(
+        status: CourierRequestStatus.approved,
+        adminNotes: 'n',
+      );
       expect(updated.status, equals(CourierRequestStatus.approved));
       expect(updated.adminNotes, equals('n'));
       expect(updated.id, equals('r'));
@@ -196,22 +227,22 @@ void main() {
   // ===========================================================================
   group('CourierAssignment', () {
     Map<String, dynamic> fullJson() => {
-          'id': 'a1',
-          'order_id': 'o1',
-          'courier_id': 'c1',
-          'status': 'assigned',
-          'fee_amount': 15.5,
-          'assigned_at': '2026-01-01T00:00:00.000Z',
-          'picked_up_at': '2026-01-01T01:00:00.000Z',
-          'delivered_at': null,
-          'cancelled_at': null,
-          'cancellation_reason': null,
-          'created_at': '2026-01-01T00:00:00.000Z',
-          'updated_at': '2026-01-01T00:00:00.000Z',
-          'orders': {'id': 'o1', 'total_amount': 60},
-          'courier_name': 'Kurye1',
-          'courier_phone': '+90555',
-        };
+      'id': 'a1',
+      'order_id': 'o1',
+      'courier_id': 'c1',
+      'status': 'assigned',
+      'fee_amount': 15.5,
+      'assigned_at': '2026-01-01T00:00:00.000Z',
+      'picked_up_at': '2026-01-01T01:00:00.000Z',
+      'delivered_at': null,
+      'cancelled_at': null,
+      'cancellation_reason': null,
+      'created_at': '2026-01-01T00:00:00.000Z',
+      'updated_at': '2026-01-01T00:00:00.000Z',
+      'orders': {'id': 'o1', 'total_amount': 60},
+      'courier_name': 'Kurye1',
+      'courier_phone': '+90555',
+    };
 
     test('fromJson tüm alanları doğru eşler', () {
       final a = CourierAssignment.fromJson(fullJson());
@@ -242,21 +273,26 @@ void main() {
       expect(a.feeAmount, equals(20.0));
     });
 
-    test('orders bir List ( to-many join ) gelirse order null olur ( güvenli cast )', () {
-      // Eski kod `as Map<String, dynamic>?` cast'i ile TypeError fırlatırdı.
-      final a = CourierAssignment.fromJson({
-        'id': 'a',
-        'order_id': 'o',
-        'courier_id': 'c',
-        'status': 'assigned',
-        'fee_amount': 0,
-        'assigned_at': '2026-01-01T00:00:00.000Z',
-        'created_at': '2026-01-01T00:00:00.000Z',
-        'updated_at': '2026-01-01T00:00:00.000Z',
-        'orders': [{'id': 'o1'}],
-      });
-      expect(a.order, isNull);
-    });
+    test(
+      'orders bir List ( to-many join ) gelirse order null olur ( güvenli cast )',
+      () {
+        // Eski kod `as Map<String, dynamic>?` cast'i ile TypeError fırlatırdı.
+        final a = CourierAssignment.fromJson({
+          'id': 'a',
+          'order_id': 'o',
+          'courier_id': 'c',
+          'status': 'assigned',
+          'fee_amount': 0,
+          'assigned_at': '2026-01-01T00:00:00.000Z',
+          'created_at': '2026-01-01T00:00:00.000Z',
+          'updated_at': '2026-01-01T00:00:00.000Z',
+          'orders': [
+            {'id': 'o1'},
+          ],
+        });
+        expect(a.order, isNull);
+      },
+    );
 
     test('eksik id/order_id/courier_id boş stringe düşer ( crash değil )', () {
       final a = CourierAssignment.fromJson({
@@ -324,7 +360,11 @@ void main() {
         'address_display': 'Cadde Sokak',
         'shop_name': 'Marketim',
         'order_items': [
-          {'product_name': 'Ekmek', 'quantity': 2, 'product_image_url': 'http://x/a.jpg'},
+          {
+            'product_name': 'Ekmek',
+            'quantity': 2,
+            'product_image_url': 'http://x/a.jpg',
+          },
           {'product_name': 'Süt', 'quantity': 1},
         ],
         'created_at': '2026-01-01T00:00:00.000Z',
@@ -357,26 +397,29 @@ void main() {
       expect(o.orderNumber, equals('#abcdef12'));
     });
 
-    test('order_number yoksa ve id 8 karakterden KISA ise RangeError fırlatmaz ( regression )', () {
-      // Eski kod `id.toString().substring(0, 8)` ile RangeError veriyordu.
-      final o = CourierOrder.fromJson({
-        'id': 'o',
-        'status': 'pending',
-        'payment_method': 'cash',
-        'total_amount': 0,
-        'created_at': '2026-01-01T00:00:00.000Z',
-      });
-      expect(o.orderNumber, equals('#o'));
+    test(
+      'order_number yoksa ve id 8 karakterden KISA ise RangeError fırlatmaz ( regression )',
+      () {
+        // Eski kod `id.toString().substring(0, 8)` ile RangeError veriyordu.
+        final o = CourierOrder.fromJson({
+          'id': 'o',
+          'status': 'pending',
+          'payment_method': 'cash',
+          'total_amount': 0,
+          'created_at': '2026-01-01T00:00:00.000Z',
+        });
+        expect(o.orderNumber, equals('#o'));
 
-      // id tamamen yoksa '#' döner (crash değil).
-      final o2 = CourierOrder.fromJson({
-        'status': 'pending',
-        'payment_method': 'cash',
-        'total_amount': 0,
-        'created_at': '2026-01-01T00:00:00.000Z',
-      });
-      expect(o2.orderNumber, equals('#'));
-    });
+        // id tamamen yoksa '#' döner (crash değil).
+        final o2 = CourierOrder.fromJson({
+          'status': 'pending',
+          'payment_method': 'cash',
+          'total_amount': 0,
+          'created_at': '2026-01-01T00:00:00.000Z',
+        });
+        expect(o2.orderNumber, equals('#'));
+      },
+    );
 
     test('order_items eksikse boş liste döner ( crash değil )', () {
       final o = CourierOrder.fromJson({

@@ -45,39 +45,50 @@ Future<void> _runTest(
   try {
     final statusCode = await testFn();
     stopwatch.stop();
-    final success = statusCode == expectedStatus ||
-        (expectedStatus == 200 &&
-            (statusCode == 200 || statusCode == 201));
-    _results.add(DmTestResult(
-      name: name,
-      success: success,
-      statusCode: statusCode,
-      duration: stopwatch.elapsed,
-    ));
+    final success =
+        statusCode == expectedStatus ||
+        (expectedStatus == 200 && (statusCode == 200 || statusCode == 201));
+    _results.add(
+      DmTestResult(
+        name: name,
+        success: success,
+        statusCode: statusCode,
+        duration: stopwatch.elapsed,
+      ),
+    );
   } catch (e) {
     stopwatch.stop();
-    _results.add(DmTestResult(
-      name: name,
-      success: false,
-      error: e.toString(),
-      statusCode: 0,
-      duration: stopwatch.elapsed,
-    ));
+    _results.add(
+      DmTestResult(
+        name: name,
+        success: false,
+        error: e.toString(),
+        statusCode: 0,
+        duration: stopwatch.elapsed,
+      ),
+    );
   }
 }
 
 Future<int> _httpGet(String path) async {
   final client = HttpClient();
   client.connectionTimeout = const Duration(seconds: 10);
-  final request = await client.getUrl(Uri.parse('${AppConstants.supabaseUrl}$path'));
+  final request = await client.getUrl(
+    Uri.parse('${AppConstants.supabaseUrl}$path'),
+  );
   request.headers.set('apikey', AppConstants.supabaseAnonKey);
-  request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+  request.headers.set(
+    'Authorization',
+    'Bearer ${AppConstants.supabaseAnonKey}',
+  );
   final response = await request.close();
   final statusCode = response.statusCode;
   // Body'yi tüket (connection temizliği için)
   final body = await response.transform(utf8.decoder).join();
   client.close();
-  print('   📥 Yanıt (${body.length} bytes): ${body.length > 300 ? "${body.substring(0, 300)}..." : body}');
+  print(
+    '   📥 Yanıt (${body.length} bytes): ${body.length > 300 ? "${body.substring(0, 300)}..." : body}',
+  );
   return statusCode;
 }
 
@@ -86,75 +97,102 @@ void main() {
   // 1. MESSAGES TABLOSU ERİŞİMİ
   // ===========================================================================
   group('📨 Messages Tablosu Erişimi', () {
-    test('messages tablosundan SELECT yapılabiliyor mu?', () async {
-      // 5 mesaj çekmeyi dene
-      final status = await _httpGet('/rest/v1/messages?select=id,sender_id,content&limit=5');
-      print('   📊 Status: $status');
+    test(
+      'messages tablosundan SELECT yapılabiliyor mu?',
+      () async {
+        // 5 mesaj çekmeyi dene
+        final status = await _httpGet(
+          '/rest/v1/messages?select=id,sender_id,content&limit=5',
+        );
+        print('   📊 Status: $status');
 
-      if (status == 200) {
-        print('   ✅ Messages tablosuna erişim var');
-      } else if (status == 401) {
-        print('   🔒 401 Unauthorized - RLS engelliyor olabilir');
-      } else if (status == 403) {
-        print('   🚫 403 Forbidden - RLS politikası reddediyor');
-      } else {
-        print('   ⚠️ Beklenmeyen durum: $status');
-      }
-
-      // 200 veya 401 kabul edilir (401 = RLS var, anon'a kapalı)
-      expect(status, anyOf(200, 401));
-    }, timeout: const Timeout(Duration(seconds: 15)));
-
-    test('messages_insert_merged policy var mı?', () async {
-      // INSERT denemesi - yeni mesaj eklemek istiyoruz
-      // Geçersiz sender_id ile deneyelim (policy kontrolü için)
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 10);
-      final request = await client.postUrl(
-        Uri.parse('${AppConstants.supabaseUrl}/rest/v1/messages'),
-      );
-      request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
-      request.headers.set('Content-Type', 'application/json');
-      request.write(jsonEncode({
-        'sender_id': '00000000-0000-0000-0000-000000000000',
-        'content': 'test',
-      }));
-
-      try {
-        final response = await request.close();
-        final status = response.statusCode;
-        final body = await response.transform(utf8.decoder).join();
-        print('   📝 INSERT Status: $status');
-        print('   📝 Yanıt: ${body.length > 300 ? "${body.substring(0, 300)}..." : body}');
-
-        if (status == 401) {
-          print('   🔒 INSERT için authentication gerekiyor (normal)');
+        if (status == 200) {
+          print('   ✅ Messages tablosuna erişim var');
+        } else if (status == 401) {
+          print('   🔒 401 Unauthorized - RLS engelliyor olabilir');
         } else if (status == 403) {
-          print('   🚫 INSERT reddedildi - RLS policy mesaj yazmanı engelliyor');
-          print('   💡 Çözüm: messages_insert_merged policy kontrol edilmeli');
-        } else if (status == 400) {
-          print('   ⚠️ 400 Bad Request - foreign key veya schema hatası');
+          print('   🚫 403 Forbidden - RLS politikası reddediyor');
+        } else {
+          print('   ⚠️ Beklenmeyen durum: $status');
         }
-        client.close();
-      } on SocketException catch (e) {
-        print('   ❌ Network hatası: $e');
-        rethrow;
-      } finally {
-        client.close();
-      }
-    }, timeout: const Timeout(Duration(seconds: 15)));
+
+        // 200 veya 401 kabul edilir (401 = RLS var, anon'a kapalı)
+        expect(status, anyOf(200, 401));
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
+    );
+
+    test(
+      'messages_insert_merged policy var mı?',
+      () async {
+        // INSERT denemesi - yeni mesaj eklemek istiyoruz
+        // Geçersiz sender_id ile deneyelim (policy kontrolü için)
+        final client = HttpClient();
+        client.connectionTimeout = const Duration(seconds: 10);
+        final request = await client.postUrl(
+          Uri.parse('${AppConstants.supabaseUrl}/rest/v1/messages'),
+        );
+        request.headers.set('apikey', AppConstants.supabaseAnonKey);
+        request.headers.set(
+          'Authorization',
+          'Bearer ${AppConstants.supabaseAnonKey}',
+        );
+        request.headers.set('Content-Type', 'application/json');
+        request.write(
+          jsonEncode({
+            'sender_id': '00000000-0000-0000-0000-000000000000',
+            'content': 'test',
+          }),
+        );
+
+        try {
+          final response = await request.close();
+          final status = response.statusCode;
+          final body = await response.transform(utf8.decoder).join();
+          print('   📝 INSERT Status: $status');
+          print(
+            '   📝 Yanıt: ${body.length > 300 ? "${body.substring(0, 300)}..." : body}',
+          );
+
+          if (status == 401) {
+            print('   🔒 INSERT için authentication gerekiyor (normal)');
+          } else if (status == 403) {
+            print(
+              '   🚫 INSERT reddedildi - RLS policy mesaj yazmanı engelliyor',
+            );
+            print(
+              '   💡 Çözüm: messages_insert_merged policy kontrol edilmeli',
+            );
+          } else if (status == 400) {
+            print('   ⚠️ 400 Bad Request - foreign key veya schema hatası');
+          }
+          client.close();
+        } on SocketException catch (e) {
+          print('   ❌ Network hatası: $e');
+          rethrow;
+        } finally {
+          client.close();
+        }
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
+    );
   });
 
   // ===========================================================================
   // 2. CONVERSATIONS TABLOSU
   // ===========================================================================
   group('💬 Conversations Tablosu', () {
-    test('conversations tablosuna SELECT', () async {
-      final status = await _httpGet('/rest/v1/conversations?select=id,user_id,other_user_id&limit=5');
-      print('   💬 Status: $status');
-      expect(status, anyOf(200, 401));
-    }, timeout: const Timeout(Duration(seconds: 15)));
+    test(
+      'conversations tablosuna SELECT',
+      () async {
+        final status = await _httpGet(
+          '/rest/v1/conversations?select=id,user_id,other_user_id&limit=5',
+        );
+        print('   💬 Status: $status');
+        expect(status, anyOf(200, 401));
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
+    );
   });
 
   // ===========================================================================
@@ -180,12 +218,12 @@ void main() {
         Uri.parse('${AppConstants.supabaseUrl}/rest/v1/messages'),
       );
       request.headers.set('apikey', AppConstants.supabaseAnonKey);
-      request.headers.set('Authorization', 'Bearer ${AppConstants.supabaseAnonKey}');
+      request.headers.set(
+        'Authorization',
+        'Bearer ${AppConstants.supabaseAnonKey}',
+      );
       request.headers.set('Content-Type', 'application/json');
-      request.write(jsonEncode({
-        'sender_id': 'test',
-        'content': 'test',
-      }));
+      request.write(jsonEncode({'sender_id': 'test', 'content': 'test'}));
 
       final response = await request.close();
       final status = response.statusCode;
@@ -193,7 +231,9 @@ void main() {
       client.close();
 
       print('   🔑 Anon INSERT status: $status');
-      print('   📋 Yanıt: ${body.length > 200 ? "${body.substring(0, 200)}..." : body}');
+      print(
+        '   📋 Yanıt: ${body.length > 200 ? "${body.substring(0, 200)}..." : body}',
+      );
 
       // INSERT için 401 beklenir (anon authenticated değil)
       if (status == 401) {

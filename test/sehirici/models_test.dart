@@ -106,21 +106,13 @@ void main() {
 
   group('SehiriciLine Validation', () {
     test('line code is not empty', () {
-      final line = SehiriciLine(
-        id: 'line-1',
-        code: '1T',
-        name: 'Hat 1',
-      );
+      final line = SehiriciLine(id: 'line-1', code: '1T', name: 'Hat 1');
 
       expect(line.code, isNotEmpty);
     });
 
     test('line name is not empty', () {
-      final line = SehiriciLine(
-        id: 'line-1',
-        code: '1T',
-        name: 'Hat 1',
-      );
+      final line = SehiriciLine(id: 'line-1', code: '1T', name: 'Hat 1');
 
       expect(line.name, isNotEmpty);
     });
@@ -228,10 +220,7 @@ void main() {
         status: SehiriciTripStatus.active,
       );
 
-      final updated = original.copyWithLocation(
-        lat: 41.0100,
-        lng: 28.9800,
-      );
+      final updated = original.copyWithLocation(lat: 41.0100, lng: 28.9800);
 
       expect(updated.tripId, original.tripId);
       expect(updated.lineId, original.lineId);

@@ -282,10 +282,7 @@ void main() {
         isSending: true,
       );
 
-      final sent = original.copyWith(
-        isSending: false,
-        isFailed: false,
-      );
+      final sent = original.copyWith(isSending: false, isFailed: false);
 
       expect(sent.isSending, isFalse);
       expect(sent.isFailed, isFalse);
@@ -303,10 +300,7 @@ void main() {
         isSending: true,
       );
 
-      final failed = original.copyWith(
-        isSending: false,
-        isFailed: true,
-      );
+      final failed = original.copyWith(isSending: false, isFailed: true);
 
       expect(failed.messageStatus, equals('failed'));
     });

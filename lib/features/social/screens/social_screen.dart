@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/permission_service.dart';
+import '../../../core/services/storage_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../chat/services/chat_service.dart';
 import '../services/post_service.dart';
@@ -1579,12 +1580,17 @@ class _SocialScreenState extends State<SocialScreen> {
         final fileName = 'story_${userId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
         final filePath = 'stories/$fileName';
 
-        await Supabase.instance.client.storage.from('stories').uploadBinary(
-          filePath,
-          imageBytes,
-          fileOptions: FileOptions(contentType: 'image/$fileExt'),
+        final uploadedMediaUrl = await StorageService().uploadBytes(
+          bucket: 'stories',
+          path: filePath,
+          bytes: imageBytes,
+          metadata: {'Content-Type': 'image/$fileExt'},
         );
-        mediaUrl = Supabase.instance.client.storage.from('stories').getPublicUrl(filePath);
+
+        if (uploadedMediaUrl == null) {
+          throw Exception('Story fotoğrafı depolamaya yüklenemedi');
+        }
+        mediaUrl = uploadedMediaUrl;
         
         debugPrint('Story fotoğrafı yüklendi: $mediaUrl');
         

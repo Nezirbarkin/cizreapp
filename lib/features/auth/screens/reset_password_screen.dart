@@ -86,22 +86,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   /// Supabase'in built-in recovery OTP sistemi ile kod gönder.
   /// Kullanıcı var/yok bilgisi sızdırılmaz: her iki durumda da aynı
   /// genel mesaj gösterilir.
+  /// Hem e-posta hem kullanıcı adı kabul edilir: kullanıcı adı
+  /// AuthService üzerinden e-postaya çevrilir.
   Future<void> _sendOtp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final rawEmail = _emailController.text.trim().toLowerCase();
+    final rawIdentifier = _emailController.text.trim();
 
     setState(() => _isLoading = true);
 
     try {
-      await Supabase.instance.client.auth
-          .resetPasswordForEmail(rawEmail);
+      // AuthService içinde username → email dönüşümü de yapılır ve
+      // koda gönderilen e-posta adresi geri döner (kullanıcı adı
+      // girilmişse, ekranda göstermek için gerçek e-postayı alırız).
+      // Supabase'in "Reset Password" template'i `{{ .Token }}` içeriyorsa
+      // OTP kodlu mail gönderir; link istemiyorsak `{{ .ConfirmationURL }}`
+      // template'ten çıkarılmalıdır.
+      final sentTo = await _authService.requestPasswordReset(rawIdentifier);
 
       if (mounted) {
         setState(() {
           _currentStep = _ResetStep.otpInput;
           _resendCooldown = 60;
-          _verifiedEmail = rawEmail;
+          // Eğer identifier e-posta ise onu kullan; kullanıcı adı ise
+          // AuthService'in döndüğü e-postayı (sentTo) göster. Kullanıcı
+          // sızıntısını önlemek için sentTo null ise identifier'ı gösterme.
+          _verifiedEmail = sentTo ?? (rawIdentifier.contains('@') ? rawIdentifier : null);
         });
 
         _startResendTimer();
@@ -238,8 +248,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     try {
       _resendTimer?.cancel();
 
-      await Supabase.instance.client.auth
-          .resetPasswordForEmail(email);
+      // _verifiedEmail zaten e-posta formatında (AuthService tarafından
+      // username→email dönüşümü yapılmış halde). Aynı kanalı kullan.
+      await _authService.requestPasswordReset(email);
 
       if (mounted) {
         setState(() => _resendCooldown = 60);

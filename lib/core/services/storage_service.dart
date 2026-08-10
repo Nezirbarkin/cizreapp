@@ -61,6 +61,7 @@ class StorageService {
   }) async {
     if (!_isWebSupported) {
       debugPrint('⚠️ S3 web platformunda desteklenmez');
+      disableS3();
       return;
     }
     
@@ -159,6 +160,7 @@ class StorageService {
       s3Bucket,
       path,
       stream,
+      size: bytes.length,
       metadata: metadata ?? {},
     );
     
@@ -346,8 +348,14 @@ class StorageService {
         final client = _supabase;
         if (client == null) return false;
         
-        final response = await client.storage.from(bucket).list(path: path);
-        return response.any((item) => item.name == path.split('/').last);
+        final separatorIndex = path.lastIndexOf('/');
+        final directory = separatorIndex < 0 ? '' : path.substring(0, separatorIndex);
+        final fileName = separatorIndex < 0 ? path : path.substring(separatorIndex + 1);
+        final response = await client.storage.from(bucket).list(
+          path: directory,
+          searchOptions: SearchOptions(search: fileName, limit: 1),
+        );
+        return response.any((item) => item.name == fileName);
       }
     } catch (e) {
       return false;
@@ -376,7 +384,7 @@ class StorageService {
     try {
       final response = await client
           .from('api_settings')
-          .select()
+          .select('s3_enabled, s3_access_key, s3_secret_key, s3_bucket, s3_endpoint, s3_region, s3_public_url')
           .single();
       
       final s3Enabled = response['s3_enabled'] as bool? ?? false;
@@ -408,7 +416,7 @@ class StorageService {
         publicUrl: publicUrl,
       );
       
-      return true;
+      return isS3Enabled;
     } catch (e) {
       debugPrint('❌ S3 ayarları yüklenirken hata: $e');
       disableS3();

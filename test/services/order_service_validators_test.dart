@@ -72,7 +72,8 @@ class OrderValidators {
 
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
-      if (item['product_id'] == null || (item['product_id'] as String).isEmpty) {
+      if (item['product_id'] == null ||
+          (item['product_id'] as String).isEmpty) {
         return 'Ürün #${i + 1}: product_id eksik';
       }
       final qty = item['quantity'] as int? ?? 0;

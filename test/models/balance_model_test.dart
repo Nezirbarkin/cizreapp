@@ -143,19 +143,22 @@ void main() {
         expect(balance.isConsistent, isTrue);
       });
 
-      test('should return true for consistent balance with small floating point error', () {
-        // Küçük yuvarlama hataları tolere edilmeli (< 0.01 tolerans)
-        final balance = TestHelpers.createMockBalance(
-          balance: 100.005,
-          totalEarned: 200.0,
-          totalSpent: 80.0,
-          totalRefunds: 10.0,
-          totalWithdrawn: 30.0,
-        );
+      test(
+        'should return true for consistent balance with small floating point error',
+        () {
+          // Küçük yuvarlama hataları tolere edilmeli (< 0.01 tolerans)
+          final balance = TestHelpers.createMockBalance(
+            balance: 100.005,
+            totalEarned: 200.0,
+            totalSpent: 80.0,
+            totalRefunds: 10.0,
+            totalWithdrawn: 30.0,
+          );
 
-        // 100.005 - (200 - 80 + 10 - 30) = 100.005 - 100 = 0.005 < 0.01
-        expect(balance.isConsistent, isTrue);
-      });
+          // 100.005 - (200 - 80 + 10 - 30) = 100.005 - 100 = 0.005 < 0.01
+          expect(balance.isConsistent, isTrue);
+        },
+      );
 
       test('should return false for inconsistent balance', () {
         // 50 != 200 - 80 + 10 - 30 = 100
@@ -173,14 +176,9 @@ void main() {
 
     group('UserBalance.copyWith', () {
       test('should create copy with modified fields', () {
-        final balance = TestHelpers.createMockBalance(
-          balance: 100.0,
-        );
+        final balance = TestHelpers.createMockBalance(balance: 100.0);
 
-        final modified = balance.copyWith(
-          balance: 200.0,
-          lockedBalance: 50.0,
-        );
+        final modified = balance.copyWith(balance: 200.0, lockedBalance: 50.0);
 
         expect(modified.balance, equals(200.0));
         expect(modified.lockedBalance, equals(50.0));
@@ -288,7 +286,11 @@ void main() {
       test('should reject negative amount transactions', () {
         // Negatif tutarlar CHECK constraint tarafından reddedilmeli
         const negativeAmount = -50.0;
-        expect(negativeAmount >= 0, isFalse, reason: 'Negatif tutar reddedilmeli');
+        expect(
+          negativeAmount >= 0,
+          isFalse,
+          reason: 'Negatif tutar reddedilmeli',
+        );
       });
 
       test('availableBalance calculation with zero balance', () {

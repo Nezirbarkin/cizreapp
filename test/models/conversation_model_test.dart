@@ -30,8 +30,11 @@ void main() {
       expect(conv.id, equals('conv-123'));
       expect(conv.userId, equals('user-1'));
       expect(conv.otherUserId, equals('user-2'));
-      expect(conv.unreadCount, equals(0),
-          reason: 'Default unread count 0 olmalı');
+      expect(
+        conv.unreadCount,
+        equals(0),
+        reason: 'Default unread count 0 olmalı',
+      );
       expect(conv.lastMessage, isNull);
       expect(conv.lastMessageTime, isNull);
     });

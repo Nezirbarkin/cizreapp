@@ -28,6 +28,11 @@ class SehiriciProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
+  /// Kullanıcının haritada vurgulamak istediği hat (chip ile gösterilir).
+  /// null = tüm hatlar eşit. Kullanıcı "haritada göster" ikonuna tıkladığında
+  /// setlenir, chip'in [×] butonuyla veya başka hat seçildiğinde temizlenir.
+  String? _highlightedLineId;
+
   // Getters
   SehiriciSettings get settings => _settings;
   List<SehiriciCity> get cities => _cities;
@@ -45,6 +50,18 @@ class SehiriciProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get moduleEnabled => _settings.moduleEnabled;
+  String? get highlightedLineId => _highlightedLineId;
+
+  /// Haritada bir hattı vurgula (veya null ile temizle). Aynı hat zaten
+  /// seçiliyse ikinci çağrı temizler — toggle davranışı.
+  void highlightLine(String? lineId) {
+    if (_highlightedLineId == lineId) {
+      _highlightedLineId = null;
+    } else {
+      _highlightedLineId = lineId;
+    }
+    notifyListeners();
+  }
 
   /// Uygulama açılışında çağrılır. Ayarlar + şehirleri yükler.
   Future<void> initialize() async {

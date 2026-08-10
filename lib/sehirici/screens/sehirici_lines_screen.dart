@@ -81,7 +81,22 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
                               center: provider.selectedCity!,
                               zoomLevel: provider.selectedCity!.zoomLevel,
                               height: 260,
+                              highlightLineId: provider.highlightedLineId,
                             ),
+                          ),
+                        ),
+                      // Vurgulu hat chip'i (kapatılabilir)
+                      if (provider.highlightedLineId != null)
+                        SliverToBoxAdapter(
+                          child: _HighlightedLineChip(
+                            line: provider.lines.firstWhere(
+                              (l) => l.id == provider.highlightedLineId,
+                              orElse: () => provider.lines.isNotEmpty
+                                  ? provider.lines.first
+                                  : const SehiriciLine(
+                                      id: '', code: '', name: ''),
+                            ),
+                            onClose: () => provider.highlightLine(null),
                           ),
                         ),
                       // Aktif sefer özetleri
@@ -195,12 +210,98 @@ class _LineTile extends StatelessWidget {
           '${line.estimatedMinutes != null ? ' · ~${line.estimatedMinutes} dk' : ''}'
           '${line.fareAmount > 0 ? ' · ${line.fareAmount.toStringAsFixed(0)} TL' : ''}',
         ),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // "Haritada göster" — vurgulu değilse haritada vurgula, zaten
+            // vurguluysa temizle (toggle). Hat tıklanınca detay sayfası da
+            // açılır; ama bu ikon tıklaması onu tetiklemez — ikonu
+            // sarmalayan bir InkWell ile sadece _highlightLine çağrılır.
+            Builder(
+              builder: (ctx) {
+                final isHighlighted =
+                    ctx.watch<SehiriciProvider>().highlightedLineId == line.id;
+                return IconButton(
+                  tooltip: isHighlighted ? 'Vurguyu kaldır' : 'Haritada göster',
+                  icon: Icon(
+                    isHighlighted
+                        ? Icons.visibility
+                        : Icons.visibility_outlined,
+                    color: isHighlighted ? line.color : null,
+                  ),
+                  onPressed: () =>
+                      ctx.read<SehiriciProvider>().highlightLine(line.id),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              tooltip: 'Hat detayı',
+              onPressed: () {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => SehiriciLineDetailScreen(line: line),
+                ));
+              },
+            ),
+          ],
+        ),
         onTap: () {
           Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => SehiriciLineDetailScreen(line: line),
           ));
         },
+      ),
+    );
+  }
+}
+
+/// Vurgulanan hattı üst haritanın altında gösteren yatay chip. [×] ile
+/// vurgu kaldırılır; tıklamayla detay sayfasına gidilir.
+class _HighlightedLineChip extends StatelessWidget {
+  final SehiriciLine line;
+  final VoidCallback onClose;
+  const _HighlightedLineChip({required this.line, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Material(
+        color: line.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => SehiriciLineDetailScreen(line: line),
+            ));
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.visibility, color: line.color, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Seçili: ${line.code} — ${line.name}',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: onClose,
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.close, size: 18),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

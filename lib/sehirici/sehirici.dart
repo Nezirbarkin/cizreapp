@@ -15,6 +15,11 @@ export 'services/sehirici_location_tracker.dart';
 // Provider
 export 'providers/sehirici_provider.dart';
 
+// Util'ler
+export 'utils/sehirici_time_utils.dart';
+export 'utils/sehirici_route_geometry.dart';
+export 'services/sehirici_road_snap_service.dart';
+
 // Widget'lar
 export 'widgets/sehirici_live_map.dart';
 export 'widgets/sehirici_compact_card.dart';

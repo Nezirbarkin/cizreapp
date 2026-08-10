@@ -21,6 +21,11 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  buildFcmMessage,
+  classifyFcmFailure,
+  isPushEnabledForType,
+} from '../_shared/push_delivery_policy.ts'
 
 const FIREBASE_SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 
@@ -137,12 +142,16 @@ async function getAccessToken(serviceAccount: any): Promise<string> {
     }),
   })
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to get access token: ${error}`)
+    await response.text()
+    // OAuth yanıtı credential ayrıntısı içerebilir; log zincirine taşımıyoruz.
+    throw new Error(`Firebase OAuth request failed (${response.status})`)
   }
   const data = await response.json()
   cachedAccessToken = data.access_token
   tokenExpiry = Date.now() + (data.expires_in - 300) * 1000
+  if (!cachedAccessToken) {
+    throw new Error('Firebase OAuth response missing access token')
+  }
   return cachedAccessToken
 }
 
@@ -163,25 +172,7 @@ async function sendFcm(
   data: Record<string, string>,
 ): Promise<FcmResult> {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
-  const message = {
-    notification: { title, body },
-    data,
-    android: {
-      priority: 'high' as const,
-      notification: {
-        sound: 'default' as const,
-        channel_id: 'high_importance_channel' as const,
-      },
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: 'default' as const,
-          badge: 1,
-        },
-      },
-    },
-  }
+  const message = buildFcmMessage(token, title, body, data)
 
   const response = await fetch(url, {
     method: 'POST',
@@ -189,15 +180,19 @@ async function sendFcm(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message, token }),
+    // FCM HTTP v1 sözleşmesinde hedef token `message.token` içinde olmalıdır.
+    body: JSON.stringify({ message }),
   })
 
   if (!response.ok) {
     const errorText = await response.text()
-    const unregistered = errorText.includes('UNREGISTERED') ||
-      errorText.includes('NOT_FOUND') ||
-      errorText.includes('INVALID_ARGUMENT')
-    return { success: false, unregistered, error: errorText }
+    const failure = classifyFcmFailure(response.status, errorText)
+    return {
+      success: false,
+      unregistered: failure.unregistered,
+      // FCM yanıtının tamamı outbox/log'a yazılmaz.
+      error: failure.safeError,
+    }
   }
   return { success: true, unregistered: false }
 }
@@ -240,6 +235,21 @@ async function cleanupInvalidToken(supabase: any, token: string) {
     .eq('token', token)
 }
 
+async function getUserPushPreferences(
+  supabase: any,
+  userId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+  // Tablo/kolon geçişlerinde push'u tümden kesmemek için yalnız açıkça false
+  // olan tercihler engellenir; sorgu hatası fail-open ve içeriksizdir.
+  if (error) return null
+  return data as Record<string, unknown> | null
+}
+
 // -------- Main worker --------
 
 const WORKER_ID = `worker-${crypto.randomUUID()}`
@@ -277,11 +287,14 @@ serve(async (req: Request) => {
     )
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey)
-  const serviceAccount = JSON.parse(firebaseJson)
-  const projectId = serviceAccount.project_id
-
   try {
+    const supabase = createClient(supabaseUrl, serviceKey)
+    const serviceAccount = JSON.parse(firebaseJson)
+    const projectId = serviceAccount?.project_id
+    if (!projectId || !serviceAccount?.client_email || !serviceAccount?.private_key) {
+      throw new Error('Firebase service account is invalid')
+    }
+
     // 1) Eski processing kayıtlarını serbest bırak
     await supabase.rpc('release_stale_outbox', {
       p_max_age: '5 minutes',
@@ -313,8 +326,18 @@ serve(async (req: Request) => {
     let failed = 0
     let dead = 0
     let unregisteredCleaned = 0
+    let preferenceSkipped = 0
 
     for (const row of claims) {
+      // In-app notification kaydı korunur; kullanıcı bu türü kapattıysa yalnız
+      // cihaz push teslimatı atlanır.
+      const preferences = await getUserPushPreferences(supabase, row.user_id)
+      if (!isPushEnabledForType(preferences, row.type)) {
+        await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
+        preferenceSkipped++
+        continue
+      }
+
       // Token'ları al
       const tokens = await getUserTokens(supabase, row.user_id)
       if (tokens.length === 0) {
@@ -383,7 +406,7 @@ serve(async (req: Request) => {
         await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
         sent++
       } else {
-        const { data: failedRow } = await supabase.rpc('mark_outbox_failed', {
+        await supabase.rpc('mark_outbox_failed', {
           p_outbox_id: row.outbox_id,
           p_error: lastError ?? 'unknown',
           p_max_attempts: MAX_ATTEMPTS,
@@ -415,6 +438,7 @@ serve(async (req: Request) => {
         failed,
         dead,
         unregistered_cleaned: unregisteredCleaned,
+        preference_skipped: preferenceSkipped,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )
