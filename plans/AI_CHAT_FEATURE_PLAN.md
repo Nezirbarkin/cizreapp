@@ -50,7 +50,7 @@ flowchart TB
 
 ## 2. Veritabanı Şeması (Supabase SQL)
 
-**Dosya**: `supabase/migrations/20260101_ai_chat_system.sql`
+**Dosya**: `supabase/migrations/20260101000002_ai_chat_system.sql`
 
 ### 2.1 Tablolar
 
@@ -341,7 +341,7 @@ Stack(
 
 | # | Adım | Çıktı Dosyaları | Bağımlılık |
 |---|------|----------------|------------|
-| 1 | SQL migration: tablolar + RLS + seed + storage | `supabase/migrations/20260101_ai_chat_system.sql`, `supabase/AI_CHAT_VAULT_SETUP.md` | - |
+| 1 | SQL migration: tablolar + RLS + seed + storage | `supabase/migrations/20260101000002_ai_chat_system.sql`, `supabase/AI_CHAT_VAULT_SETUP.md` | - |
 | 2 | Vault'a API anahtarlarını ekleme rehberi + SQL | `supabase/AI_CHAT_VAULT_SETUP.md` | 1 |
 | 3 | Edge Function: `ai-chat-proxy` (Gemini+OpenAI) | `supabase/functions/ai-chat-proxy/index.ts` | 1, 2 |
 | 4 | Flutter modeller | `lib/core/models/ai_*_model.dart` | 1 |

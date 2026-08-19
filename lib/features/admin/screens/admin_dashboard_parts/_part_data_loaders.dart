@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -12,65 +24,27 @@ extension on _AdminDashboardScreenState {
           .limit(50);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Gönderiler yüklenirken hata: $e');
-      // Mock veriler döndür
-      return [
-        {
-          'id': '1',
-          'content': 'Harika bir gün! Bugün yeni projeme başladım.',
-          'likes_count': 42,
-          'comments_count': 8,
-          'created_at': DateTime.now().toIso8601String(),
-          'profiles': {
-            'username': 'ahmet',
-            'full_name': 'Ahmet Yılmaz',
-            'avatar_url': null,
-          },
-        },
-        {
-          'id': '2',
-          'content':
-              'Flutter öğrenmek çok eğlenceli. Her gün yeni bir şey keşfediyorum.',
-          'likes_count': 128,
-          'comments_count': 23,
-          'created_at': DateTime.now()
-              .subtract(const Duration(hours: 3))
-              .toIso8601String(),
-          'profiles': {
-            'username': 'ayse',
-            'full_name': 'Ayşe Demir',
-            'avatar_url': null,
-          },
-        },
-        {
-          'id': '3',
-          'content': 'Kahve mola zamanı ☕',
-          'likes_count': 67,
-          'comments_count': 12,
-          'created_at': DateTime.now()
-              .subtract(const Duration(hours: 5))
-              .toIso8601String(),
-          'profiles': {
-            'username': 'mehmet',
-            'full_name': 'Mehmet Kaya',
-            'avatar_url': null,
-          },
-        },
-        {
-          'id': '4',
-          'content': 'Bu hafta çok yoğundu ama bitirdik!',
-          'likes_count': 234,
-          'comments_count': 45,
-          'created_at': DateTime.now()
-              .subtract(const Duration(days: 1))
-              .toIso8601String(),
-          'profiles': {
-            'username': 'zeynep',
-            'full_name': 'Zeynep Aksoy',
-            'avatar_url': null,
-          },
-        },
-      ];
+      debugPrint('❌ Gönderiler yüklenirken hata: $e');
+      // Onceki surum burada SAHTE gonderiler donuyordu ('Ahmet Yılmaz',
+      // 'Kahve mola zamanı' vb. id'leri '1'..'4'). Sorgu RLS/ag hatasiyla
+      // dustugunde admin bunlari gercek gonderi sanip moderasyon yapmaya
+      // calisiyor, sabitleme/silme islemleri de "id=1" bulunamadigi icin
+      // sessizce basarisiz oluyordu. Ayrica panel, gonderi yokken bile dolu
+      // gorunerek gercek arizayi gizliyordu.
+      // _loadStories/_loadProducts ile ayni davranis: bos liste + gorunur hata.
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Gönderiler yüklenemedi: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        });
+      }
+      return [];
     }
   }
 
@@ -237,10 +211,13 @@ extension on _AdminDashboardScreenState {
             // SELECT policy'si yok; email/role sütunları revoke edildi.
             // Minimal profil bilgisi admin_profiles_minimal RPC üzerinden,
             // email ise admin_get_profile_email RPC üzerinden alınır.
-            final minimalResp = await Supabase.instance.client.rpc<List<dynamic>>(
-              'admin_profiles_minimal',
-              params: {'p_user_ids': [ownerId]},
-            );
+            final minimalResp = await Supabase.instance.client
+                .rpc<List<dynamic>>(
+                  'admin_profiles_minimal',
+                  params: {
+                    'p_user_ids': [ownerId],
+                  },
+                );
             final profile = minimalResp.isNotEmpty
                 ? Map<String, dynamic>.from(minimalResp.first)
                 : null;
@@ -971,46 +948,73 @@ extension on _AdminDashboardScreenState {
   // --- _loadLogsData ---
   Future<Map<String, dynamic>> _loadLogsData() async {
     final client = Supabase.instance.client;
-
-    // 20260803000006 ile profiles tablosunda authenticated SELECT
-    // policy'si kaldırıldı; doğrudan from('profiles').count(...) RLS
-    // deny→0 yüzünden hep 0 döner. SECURITY DEFINER admin_logs_counts
-    // RPC üzerinden tek atomik count çağrısı yapıyoruz.
-    final countsRows = await client.rpc<List<dynamic>>('admin_logs_counts');
-    final c = (countsRows.first as Map).cast<String, dynamic>();
-
-    // recent_users listesi de aynı RLS sebeple boş döner; yine RPC
-    // üzerinden alıyoruz. last_seen DESC sırasıyla last_seen,
-    // is_online, full_name, username döner; UI bu alanları kullanır.
-    final recentUsersResp = await client.rpc<List<dynamic>>(
-      'admin_recent_active_users',
-      params: {'p_limit': 20},
+    final raw = await client.rpc<dynamic>(
+      'admin_logs_data',
+      params: {
+        'p_recent_user_limit': 20,
+        'p_error_limit': 20,
+        'p_most_viewed_limit': 5,
+      },
     );
-    final recentUsers = recentUsersResp;
+    final data = Map<String, dynamic>.from(raw as Map);
 
-    final errors = _analyticsService.getErrors(limit: 20);
-    final errorTypeCounts = <String, int>{};
-    for (final e in errors) {
-      final type = e.metadata?['type']?.toString() ?? 'Bilinmeyen';
-      errorTypeCounts[type] = (errorTypeCounts[type] ?? 0) + 1;
-    }
+    int asInt(dynamic value) => value is num
+        ? value.toInt()
+        : int.tryParse(value?.toString() ?? '') ?? 0;
+
+    final errors = ((data['errors'] as List?) ?? const []).map((rawError) {
+      final error = Map<String, dynamic>.from(rawError as Map);
+      return AnalyticsEvent(
+        eventType: error['event_type']?.toString() ?? 'error',
+        entityId: error['entity_id']?.toString(),
+        timestamp: DateTime.parse(error['created_at'] as String),
+        metadata: error['metadata'] is Map
+            ? Map<String, dynamic>.from(error['metadata'] as Map)
+            : null,
+        duration: error['duration_ms'] == null
+            ? null
+            : asInt(error['duration_ms']),
+      );
+    }).toList();
+
+    final errorTypeCounts = <String, int>{
+      for (final entry in Map<String, dynamic>.from(
+        (data['errorTypeCounts'] as Map?) ?? const {},
+      ).entries)
+        entry.key: asInt(entry.value),
+    };
+    final hourlyDistribution = <int, int>{
+      for (final entry in Map<String, dynamic>.from(
+        (data['hourlyDistribution'] as Map?) ?? const {},
+      ).entries)
+        if (int.tryParse(entry.key) != null)
+          int.parse(entry.key): asInt(entry.value),
+    };
+    final mostViewedPosts = <String, int>{
+      for (final entry in Map<String, dynamic>.from(
+        (data['mostViewedPosts'] as Map?) ?? const {},
+      ).entries)
+        entry.key: asInt(entry.value),
+    };
 
     return {
-      'online': (c['online_count'] as num).toInt(),
-      'inactive': (c['inactive_count'] as num).toInt(),
+      'online': asInt(data['online']),
+      'inactive': asInt(data['inactive']),
       'errorTypeCounts': errorTypeCounts,
-      'hourlyDistribution': _analyticsService.getHourlyDistribution(),
-      'mostViewedPosts': _analyticsService.getMostViewedPosts(limit: 5),
-      'dau': (c['dau_count'] as num).toInt(),
-      'wau': (c['wau_count'] as num).toInt(),
-      'mau': (c['mau_count'] as num).toInt(),
-      'totalUsers': (c['total_users'] as num).toInt(),
-      'newToday': (c['new_today_count'] as num).toInt(),
-      'totalEvents': _analyticsService.eventCount,
-      'avgViewDuration': _analyticsService.getAveragePostViewDuration(),
-      'errorCount': errors.length,
+      'hourlyDistribution': hourlyDistribution,
+      'mostViewedPosts': mostViewedPosts,
+      'dau': asInt(data['dau']),
+      'wau': asInt(data['wau']),
+      'mau': asInt(data['mau']),
+      'totalUsers': asInt(data['totalUsers']),
+      'newToday': asInt(data['newToday']),
+      'totalEvents': asInt(data['totalEvents']),
+      'avgViewDuration': asInt(data['avgViewDuration']),
+      'errorCount': asInt(data['errorCount']),
       'errors': errors,
-      'recentUsers': List<Map<String, dynamic>>.from(recentUsers),
+      'recentUsers': ((data['recentUsers'] as List?) ?? const [])
+          .map((user) => Map<String, dynamic>.from(user as Map))
+          .toList(),
     };
   }
 

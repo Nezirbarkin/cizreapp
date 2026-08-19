@@ -1,5 +1,6 @@
 import 'package:hive/hive.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
 
 /// Analytics veri modeli - Basit sınıf (Hive annotation olmadan)
@@ -27,13 +28,21 @@ class AnalyticsEvent {
     'duration': duration,
   };
 
-  factory AnalyticsEvent.fromJson(Map<String, dynamic> json) => AnalyticsEvent(
-    eventType: json['eventType'] as String,
-    entityId: json['entityId'] as String?,
-    timestamp: DateTime.parse(json['timestamp'] as String),
-    metadata: json['metadata'] as Map<String, dynamic>?,
-    duration: json['duration'] as int?,
-  );
+  factory AnalyticsEvent.fromJson(Map<String, dynamic> json) {
+    // Hive'dan dönen metadata _Map<dynamic, dynamic> olabilir, güvenli çevir
+    Map<String, dynamic>? meta;
+    final rawMeta = json['metadata'];
+    if (rawMeta is Map) {
+      meta = rawMeta.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return AnalyticsEvent(
+      eventType: json['eventType'] as String,
+      entityId: json['entityId'] as String?,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+      metadata: meta,
+      duration: json['duration'] as int?,
+    );
+  }
 }
 
 /// Analytics servis - Kullanıcı davranışlarını takip eder
@@ -69,33 +78,57 @@ class AnalyticsService {
     Map<String, dynamic>? metadata,
     int? duration,
   }) async {
-    if (_box == null) return;
+    final event = AnalyticsEvent(
+      eventType: eventType,
+      entityId: entityId,
+      timestamp: DateTime.now(),
+      metadata: metadata,
+      duration: duration,
+    );
+
+    // Merkezi kayıt gerçek admin verisinin kaynağıdır. Yerel Hive yalnızca
+    // çevrimdışı/geriye dönük cihaz içi analitik için tutulur.
     try {
-      final event = AnalyticsEvent(
-        eventType: eventType,
-        entityId: entityId,
-        timestamp: DateTime.now(),
-        metadata: metadata,
-        duration: duration,
-      );
-      await _box!.add(event.toJson()); // JSON olarak kaydet
-      AppLogger.debug('📊 Event tracked: $eventType');
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId != null) {
+        await client.from('app_analytics_events').insert({
+          'user_id': userId,
+          'event_type': eventType,
+          'entity_id': entityId,
+          'metadata': metadata ?? <String, dynamic>{},
+          'duration_ms': duration,
+        });
+      }
     } catch (e) {
-      AppLogger.error('Track event error: $e');
+      AppLogger.error('Remote analytics event error: $e');
     }
+
+    if (_box != null) {
+      try {
+        await _box!.add(event.toJson());
+      } catch (e) {
+        AppLogger.error('Local analytics event error: $e');
+      }
+    }
+    AppLogger.debug('📊 Event tracked: $eventType');
   }
 
   /// Box'tan event'leri AnalyticsEvent'e dönüştür
   List<AnalyticsEvent> _getEvents() {
     if (_box == null) return [];
-    try {
-      return _box!.values
-          .map((e) => AnalyticsEvent.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    } catch (e) {
-      AppLogger.error('Get events error: $e');
-      return [];
+    final out = <AnalyticsEvent>[];
+    for (final raw in _box!.values) {
+      try {
+        // Hive generic Box döndürdüğü için dış map dynamic key olabilir
+        final m = Map<String, dynamic>.from(raw as Map);
+        out.add(AnalyticsEvent.fromJson(m));
+      } catch (e) {
+        // Tek bir bozuk kayıt tüm listeyi yutmasın
+        AppLogger.error('Skip malformed analytics event: $e');
+      }
     }
+    return out;
   }
 
   /// Post görüntülenme
@@ -115,11 +148,10 @@ class AnalyticsService {
       trackEvent(eventType: 'share', entityId: postId);
 
   /// Hata kaydet
-  Future<void> trackError(String errorType, {String? details}) =>
-      trackEvent(
-        eventType: 'error',
-        metadata: {'type': errorType, 'details': details},
-      );
+  Future<void> trackError(String errorType, {String? details}) => trackEvent(
+    eventType: 'error',
+    metadata: {'type': errorType, 'details': details},
+  );
 
   /// En çok görüntülenen postlar
   Map<String, int> getMostViewedPosts({int limit = 10}) {
@@ -137,9 +169,7 @@ class AnalyticsService {
       final sorted = counts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
 
-      return Map<String, int>.fromEntries(
-        sorted.take(limit),
-      );
+      return Map<String, int>.fromEntries(sorted.take(limit));
     } catch (e) {
       AppLogger.error('Get most viewed posts error: $e');
       return {};
@@ -213,8 +243,10 @@ class AnalyticsService {
 
       if (viewEvents.isEmpty) return 0;
 
-      final totalDuration =
-          viewEvents.fold<int>(0, (sum, e) => sum + (e.duration!));
+      final totalDuration = viewEvents.fold<int>(
+        0,
+        (sum, e) => sum + (e.duration!),
+      );
       return (totalDuration / viewEvents.length).round();
     } catch (e) {
       AppLogger.error('Get average post view duration error: $e');
@@ -226,11 +258,8 @@ class AnalyticsService {
   List<AnalyticsEvent> getLastSevenDaysEvents() {
     try {
       final events = _getEvents();
-      final sevenDaysAgo =
-          DateTime.now().subtract(const Duration(days: 7));
-      return events
-          .where((e) => e.timestamp.isAfter(sevenDaysAgo))
-          .toList()
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      return events.where((e) => e.timestamp.isAfter(sevenDaysAgo)).toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     } catch (e) {
       AppLogger.error('Get last 7 days events error: $e');
@@ -242,9 +271,7 @@ class AnalyticsService {
   List<AnalyticsEvent> getErrors({int limit = 50}) {
     try {
       final events = _getEvents();
-      final errors = events
-          .where((e) => e.eventType == 'error')
-          .toList()
+      final errors = events.where((e) => e.eventType == 'error').toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
       return errors.take(limit).toList();
@@ -258,8 +285,7 @@ class AnalyticsService {
   Future<void> clearOldEvents({int daysToKeep = 30}) async {
     if (_box == null) return;
     try {
-      final cutoffDate =
-          DateTime.now().subtract(Duration(days: daysToKeep));
+      final cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
       final keysToDelete = <int>[];
 
       for (var i = 0; i < _box!.length; i++) {
@@ -267,13 +293,16 @@ class AnalyticsService {
         if (event != null) {
           try {
             final analyticsEvent = AnalyticsEvent.fromJson(
-              Map<String, dynamic>.from(event as Map)
+              Map<String, dynamic>.from(event as Map),
             );
             if (analyticsEvent.timestamp.isBefore(cutoffDate)) {
               keysToDelete.add(i);
             }
           } catch (e) {
             // Geçersiz veri, sil
+            AppLogger.error(
+              'Skip malformed analytics event during cleanup: $e',
+            );
             keysToDelete.add(i);
           }
         }
@@ -283,8 +312,7 @@ class AnalyticsService {
         await _box!.deleteAt(key);
       }
 
-      AppLogger.debug(
-          '🧹 Cleared ${keysToDelete.length} old analytics events');
+      AppLogger.debug('🧹 Cleared ${keysToDelete.length} old analytics events');
     } catch (e) {
       AppLogger.error('Clear old events error: $e');
     }

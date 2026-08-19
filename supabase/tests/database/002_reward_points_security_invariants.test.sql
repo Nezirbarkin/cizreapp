@@ -1,7 +1,7 @@
 -- AdMob reward-point catalog, ACL, isolation and immutability invariants.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(47);
+select plan(48);
 
 select has_table('public', 'user_point_accounts', 'point account exists');
 select has_table('public', 'point_ledger_entries', 'point ledger exists');
@@ -116,6 +116,12 @@ select ok(
 
 select ok(not has_schema_privilege('reward_points_owner', 'public', 'CREATE'),
   'reward owner cannot create arbitrary public-schema objects');
+
+select ok(
+  has_schema_privilege('reward_points_owner', 'auth', 'USAGE')
+  and has_function_privilege('reward_points_owner', 'auth.uid()', 'EXECUTE'),
+  'reward owner can resolve auth.uid for SECURITY DEFINER admin gates'
+);
 
 select ok(not has_table_privilege('anon','public.user_point_accounts','SELECT'), 'anon cannot read accounts');
 select ok(not has_table_privilege('anon','public.point_ledger_entries','SELECT'), 'anon cannot read ledger');

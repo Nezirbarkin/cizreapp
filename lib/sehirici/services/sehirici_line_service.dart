@@ -203,6 +203,10 @@ class SehiriciLineService {
         'p_lat': lat,
         'p_lng': lng,
         'p_is_active': isActive,
+        // BUG FIX: `address` parametre olarak alınıyordu ama RPC'ye hiç
+        // gönderilmiyordu — admin panelindeki "Adres" alanı sessizce
+        // kayboluyordu. RPC'ye p_address 20260819000004 ile eklendi.
+        'p_address': address,
       });
       clearCache();
       return true;

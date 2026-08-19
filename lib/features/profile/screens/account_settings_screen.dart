@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/providers/theme_provider.dart';
-import '../../../core/services/push_notification_service.dart';
+import '../../../core/navigation/app_navigator.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -387,13 +387,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       // Başarılı
       if (mounted) {
         _showMessage('Hesabınız başarıyla silindi');
-        
-        // FCM token'ı temizle ve oturumu kapat
-        await PushNotificationService.clearTokenOnLogout();
-        await Supabase.instance.client.auth.signOut();
-        if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-        }
+
+        // Root navigator key ile güvenli çıkış + misafir ana ekrana dönüş.
+        await AppNavigator.signOutAndReset('/');
       }
     } catch (e) {
       if (mounted) {

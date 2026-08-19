@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   const migrationPath =
-      'supabase/migrations/20260810000001_restore_admin_admob_runtime_contract.sql';
+      'supabase/migrations/20260810000002_restore_admin_admob_runtime_contract.sql';
 
   late String migration;
 

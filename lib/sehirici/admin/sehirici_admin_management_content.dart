@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:geolocator/geolocator.dart';
@@ -12,6 +13,7 @@ import '../services/sehirici_driver_service.dart';
 import 'sehirici_route_viewer_dialog.dart';
 import 'sehirici_line_stops_editor_dialog.dart';
 import 'sehirici_line_route_draw_dialog.dart';
+import 'sehirici_location_picker_dialog.dart';
 
 /// Admin paneli: Şehiriçi Yönetimi içerik widget'ı.
 /// Tabs: Şehirler, Hatlar, Duraklar, Şoförler, Ayarlar.
@@ -742,16 +744,98 @@ class _StopsTabState extends State<_StopsTab> {
         Positioned(
           bottom: 16,
           right: 16,
-          child: FloatingActionButton.extended(
-            heroTag: 'sehirici_add_stop',
-            onPressed: widget.cityId == null
-                ? null
-                : () => _showStopDialog(),
-            icon: const Icon(Icons.add),
-            label: const Text('Yeni Durak'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              FloatingActionButton.extended(
+                heroTag: 'sehirici_add_stops_map',
+                backgroundColor: Theme.of(context).colorScheme.secondary,
+                foregroundColor: Theme.of(context).colorScheme.onSecondary,
+                onPressed:
+                    widget.cityId == null ? null : _showMultiStopPicker,
+                icon: const Icon(Icons.add_location_alt),
+                label: const Text('Haritadan Çoklu'),
+              ),
+              const SizedBox(height: 10),
+              FloatingActionButton.extended(
+                heroTag: 'sehirici_add_stop',
+                onPressed: widget.cityId == null
+                    ? null
+                    : () => _showStopDialog(),
+                icon: const Icon(Icons.add),
+                label: const Text('Yeni Durak'),
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  /// Haritaya sırayla dokunarak birden çok durağı tek seferde oluşturur.
+  /// Durakları tek tek form doldurarak girmek yerine güzergâh üzerinde
+  /// dizmek için — hat kurulumundaki en yavaş adım buydu.
+  Future<void> _showMultiStopPicker() async {
+    final cityId = widget.cityId;
+    if (cityId == null) return;
+
+    SehiriciCity? city;
+    for (final c in context.read<SehiriciProvider>().cities) {
+      if (c.id == cityId) {
+        city = c;
+        break;
+      }
+    }
+    // Şehir merkezi yoksa mevcut ilk durağa, o da yoksa güvenli varsayılana.
+    final startLat = city?.centerLat ??
+        (_stops.isNotEmpty ? _stops.first.lat : 41.0082);
+    final startLng = city?.centerLng ??
+        (_stops.isNotEmpty ? _stops.first.lng : 28.9784);
+
+    final picked = await SehiriciLocationPickerDialog.pickMultiple(
+      context,
+      initialLat: startLat,
+      initialLng: startLng,
+      initialZoom: (city?.zoomLevel ?? 14).toDouble(),
+      existingStops: _stops,
+    );
+    if (!mounted || picked == null || picked.isEmpty) return;
+
+    setState(() => _loading = true);
+    var saved = 0;
+    final failed = <String>[];
+    for (final stop in picked) {
+      final ok = await _service.upsertStop(
+        cityId: cityId,
+        name: stop.name.trim(),
+        lat: stop.position.latitude,
+        lng: stop.position.longitude,
+      );
+      if (ok) {
+        saved++;
+      } else {
+        failed.add(stop.name.trim());
+      }
+    }
+
+    await _load();
+    if (!mounted) return;
+    context.read<SehiriciProvider>().invalidateAllCaches();
+
+    // Kısmi başarı sessiz kalmasın: hangi durakların yazılamadığı söylenmeli,
+    // yoksa admin listede eksik olanı fark etmeden hattı kurmaya geçer.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed.isEmpty
+              ? '$saved durak eklendi'
+              : '$saved durak eklendi, ${failed.length} tanesi '
+                  'eklenemedi: ${failed.join(", ")}',
+        ),
+        backgroundColor: failed.isEmpty ? Colors.green : Colors.orange,
+        duration: Duration(seconds: failed.isEmpty ? 3 : 6),
+      ),
     );
   }
 
@@ -818,6 +902,40 @@ class _StopsTabState extends State<_StopsTab> {
                             )
                           : const Icon(Icons.my_location),
                       label: const Text('Konumumu Al'),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        SehiriciCity? city;
+                        for (final c in ctx.read<SehiriciProvider>().cities) {
+                          if (c.id == widget.cityId) {
+                            city = c;
+                            break;
+                          }
+                        }
+                        final startLat =
+                            double.tryParse(latCtrl.text) ?? city?.centerLat ?? 41.0082;
+                        final startLng =
+                            double.tryParse(lngCtrl.text) ?? city?.centerLng ?? 28.9784;
+                        final picked =
+                            await SehiriciLocationPickerDialog.pickSingle(
+                          ctx,
+                          initialLat: startLat,
+                          initialLng: startLng,
+                          initialZoom: (city?.zoomLevel ?? 14).toDouble(),
+                          existingStops: _stops,
+                        );
+                        if (picked != null) {
+                          setDialogState(() {
+                            latCtrl.text = picked.latitude.toString();
+                            lngCtrl.text = picked.longitude.toString();
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.map),
+                      label: const Text('Haritadan Seç'),
                     ),
                   ),
                   TextField(

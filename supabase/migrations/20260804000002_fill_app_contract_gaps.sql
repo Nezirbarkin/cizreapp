@@ -1739,7 +1739,7 @@ ALTER FUNCTION public.admin_reward_points_overview() OWNER TO reward_points_owne
 REVOKE CREATE ON SCHEMA public FROM reward_points_owner;
 
 -- =============================================================================
--- KAYNAK 3/9: 20260802000005_server_authoritative_checkout_schema.sql (verbatim)
+-- KAYNAK 3/9: 20260802000006_server_authoritative_checkout_schema.sql (verbatim)
 -- CERRAHI DÜZELTME #3: "GRANT ALL ON private.server_checkout_session_items ..."
 --   satırı KALDIRILDI — bu tablo bu migration'da oluşturulmuyor (items items_snapshot
 --   JSONB kolonunda saklanıyor), bu yüzden GRANT "relation does not exist" hatası verirdi.
@@ -2097,7 +2097,7 @@ BEGIN
 END $$;
 
 -- =============================================================================
--- KAYNAK 4/9: 20260802000006_prepare_checkout_session_rpc.sql
+-- KAYNAK 4/9: 20260802000007_prepare_checkout_session_rpc.sql
 -- CERRAHI DUZELTME #1: private.prepare_checkout_session -> public.prepare_checkout_session
 --   PostgREST yalniz `public` semasini expose eder. CREATE/REVOKE/GRANT/COMMENT
 --   satirlarinin tamaminda fonksiyon `public` semasinda olusturuldu. Fonksiyon
@@ -2744,7 +2744,7 @@ BEGIN
 END $$;
 
 -- =============================================================================
--- KAYNAK 5/9: 20260802000007_commit_cod_and_balance_orders.sql
+-- KAYNAK 5/9: 20260802000008_commit_cod_and_balance_orders.sql
 -- CERRAHI DUZELTME #1: private.commit_cod_order / commit_balance_order -> public.*
 -- CERRAHI DUZELTME #4: nextval('order_number_seq') -> nextval('public.order_number_seq')
 --   (SET search_path='' altinda niteliksiz nextval cozunmezdi).

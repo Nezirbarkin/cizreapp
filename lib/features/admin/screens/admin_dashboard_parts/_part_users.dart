@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -5,11 +17,24 @@ extension on _AdminDashboardScreenState {
   // Kullanicilar sekmesi + dialoglar
   // ==========================================================================
 
+  // Kullanici listesini GERCEKTEN yeniden yukler.
+  //
+  // Bu ekran, diger admin sekmelerinden farkli olarak future'i build icinde
+  // degil state alaninda (`_usersFuture`) tutuyor. Bu yuzden ciplak
+  // `setState(() {})` cagrisi FutureBuilder'a AYNI tamamlanmis future'i
+  // verir: rol degistirme / kullanici duzenleme / pull-to-refresh basarili
+  // gorunur ama liste eski veriyi gostermeye devam eder. Yenileme, future'in
+  // kendisinin degistirilmesini gerektirir.
+  void _refreshUsers() {
+    if (!mounted) return;
+    setState(() {
+      _usersFuture = _loadUsers();
+    });
+  }
+
   // --- _buildUsersContent ---
   Widget _buildUsersContent() {
-    if (_usersFuture == null) {
-      _usersFuture = _loadUsers();
-    }
+    _usersFuture ??= _loadUsers();
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _usersFuture,
       builder: (context, snapshot) {
@@ -55,11 +80,14 @@ extension on _AdminDashboardScreenState {
             .where((u) => u['role'] == 'courier')
             .length;
         final driverCount = allUsers.where((u) => u['role'] == 'driver').length;
-        final bannedCount = 0; // is_banned kolonu veritabanında mevcut değil
+        final newsCount = allUsers.where((u) => u['role'] == 'news').length;
+        // NOT: "Yasakli" karti yok - profiles tablosunda is_banned kolonu
+        // bulunmuyor. Eklenirse burada sayilip bir _buildStatCard eklenmeli.
 
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {});
+            _refreshUsers();
+            await _usersFuture;
           },
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -173,6 +201,20 @@ extension on _AdminDashboardScreenState {
                         onTap: () => setState(() => _roleFilter = 'driver'),
                       ),
                     ),
+                    SizedBox(
+                      width: (MediaQuery.of(context).size.width - 80) / 4,
+                      child: _buildStatCard(
+                        icon: Icons.newspaper,
+                        title: 'Haberci',
+                        value: '$newsCount',
+                        color: Colors.blueGrey,
+                        gradient: [
+                          Colors.blueGrey.shade400,
+                          Colors.blueGrey.shade600,
+                        ],
+                        onTap: () => setState(() => _roleFilter = 'news'),
+                      ),
+                    ),
                   ],
                 ),
                 if (_roleFilter != null)
@@ -181,7 +223,7 @@ extension on _AdminDashboardScreenState {
                     child: Row(
                       children: [
                         Chip(
-                          label: Text('Filtre: ${_roleFilter}'),
+                          label: Text('Filtre: $_roleFilter'),
                           onDeleted: () => setState(() => _roleFilter = null),
                         ),
                       ],
@@ -242,6 +284,38 @@ extension on _AdminDashboardScreenState {
                     itemBuilder: (context, index) {
                       final user = users[index];
 
+                      // --- Kart verisini güvenli şekilde çıkar ---
+                      // Eski admin_list_users (fallback) veya yeni
+                      // admin_user_list_with_stats'tan gelse de null-safe.
+                      final email = (user['email'] as String?) ?? '';
+                      final phone = (user['phone'] as String?) ?? '';
+                      final username = (user['username'] as String?) ?? '';
+                      final role = user['role'] as String?;
+                      final fullName = (user['full_name'] as String?) ?? '';
+                      final displayName = fullName.trim().isNotEmpty
+                          ? fullName
+                          : (username.trim().isNotEmpty ? username : '-');
+                      final postsCount =
+                          (user['posts_count'] as num?)?.toInt() ?? 0;
+                      final followersCount =
+                          (user['followers_count'] as num?)?.toInt() ?? 0;
+                      final followingCount =
+                          (user['following_count'] as num?)?.toInt() ?? 0;
+                      final deliveredCount =
+                          (user['delivered_count'] as num?)?.toInt() ?? 0;
+                      final isOnline = (user['is_online'] as bool?) ?? false;
+                      final isSuspicious =
+                          (user['is_suspicious'] as bool?) ?? false;
+                      final now = DateTime.now();
+                      final lastSeen = _parseDateTime(user['last_seen']);
+                      final createdAt = _parseDateTime(user['created_at']);
+                      final lastSeenLabel = AdminUserHelpers.formatLastSeen(
+                        lastSeen,
+                        now: now,
+                      );
+                      final isNew =
+                          AdminUserHelpers.isNewMember(createdAt, now: now);
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         elevation: 1,
@@ -251,143 +325,195 @@ extension on _AdminDashboardScreenState {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => _showEditUserDialog(user),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(12),
-                            leading: CircleAvatar(
-                              radius: 24,
-                              backgroundImage:
-                                  _isValidImageUrl(user['avatar_url'])
-                                  ? NetworkImage(user['avatar_url'])
-                                  : null,
-                              child: !_isValidImageUrl(user['avatar_url'])
-                                  ? Text(
-                                      (user['username'] as String?)
-                                              ?.substring(0, 1)
-                                              .toUpperCase() ??
-                                          '?',
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                            title: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    user['full_name'] ??
-                                        user['username'] ??
-                                        '-',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                _buildRoleBadge(user['role']),
-                              ],
-                            ),
-                            subtitle: Column(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.email,
-                                      size: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        user['email'] ?? '-',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600,
+                                // Avatar + online göstergesi
+                                _buildUserAvatar(
+                                  user,
+                                  online: isOnline,
+                                ),
+                                const SizedBox(width: 12),
+                                // İçerik
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // İsim + rozetler
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
+                                        children: [
+                                          Text(
+                                            displayName,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                          _buildRoleBadge(role),
+                                          if (isSuspicious)
+                                            _buildMiniBadge(
+                                              'Şüpheli',
+                                              Icons.warning_amber_rounded,
+                                              Colors.red,
+                                            ),
+                                          if (isNew)
+                                            _buildMiniBadge(
+                                              'Yeni',
+                                              Icons.fiber_new,
+                                              Colors.green,
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      // E-posta (mail ikonu yanında)
+                                      _infoRow(
+                                        Icons.email_outlined,
+                                        email.isNotEmpty
+                                            ? email
+                                            : 'E-posta yok',
+                                        dim: email.isEmpty,
+                                      ),
+                                      // Telefon (varsa)
+                                      if (phone.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        _infoRow(
+                                          Icons.phone_outlined,
+                                          phone,
                                         ),
+                                      ],
+                                      const SizedBox(height: 2),
+                                      _infoRow(
+                                        Icons.alternate_email,
+                                        '@${username.isEmpty ? '-' : username}',
+                                      ),
+                                      // Sosyal istatistikler
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _statChip(
+                                            Icons.article_outlined,
+                                            AdminUserHelpers.formatStatCount(
+                                              postsCount,
+                                            ),
+                                            'Gönderi',
+                                            color: Colors.blue,
+                                          ),
+                                          _statChip(
+                                            Icons.people_alt_outlined,
+                                            AdminUserHelpers.formatStatCount(
+                                              followersCount,
+                                            ),
+                                            'Takipçi',
+                                            color: Colors.purple,
+                                          ),
+                                          _statChip(
+                                            Icons.person_add_alt_outlined,
+                                            AdminUserHelpers.formatStatCount(
+                                              followingCount,
+                                            ),
+                                            'Takip',
+                                            color: Colors.teal,
+                                          ),
+                                          if (role == 'courier' &&
+                                              deliveredCount > 0)
+                                            _statChip(
+                                              Icons.local_shipping_outlined,
+                                              AdminUserHelpers.formatStatCount(
+                                                deliveredCount,
+                                              ),
+                                              'Teslim',
+                                              color: Colors.orange,
+                                            ),
+                                        ],
+                                      ),
+                                      // Son görülme
+                                      if (lastSeenLabel != '-') ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Son görülme: $lastSeenLabel',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                // Aksiyon menüsü
+                                PopupMenuButton<String>(
+                                  icon: Icon(
+                                    Icons.more_vert,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                  onSelected: (value) {
+                                    switch (value) {
+                                      case 'edit':
+                                        _showEditUserDialog(user);
+                                        break;
+                                      case 'change_role':
+                                        _showChangeRoleDialog(user);
+                                        break;
+                                      case 'delete':
+                                        _showDeleteUserDialog(user);
+                                        break;
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.edit, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Düzenle'),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'change_role',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.admin_panel_settings,
+                                            size: 18,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text('Rol Değiştir'),
+                                        ],
+                                      ),
+                                    ),
+                                    // Bu eylem hesabi silmez, "supheli"
+                                    // isaretler (bkz. _showDeleteUserDialog).
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.gpp_bad,
+                                            size: 18,
+                                            color: Colors.orange,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Şüpheli İşaretle',
+                                            style: TextStyle(
+                                              color: Colors.orange,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
-                                ),
-                                const SizedBox(height: 2),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.person,
-                                      size: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '@${user['username'] ?? '-'}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            trailing: PopupMenuButton<String>(
-                              icon: Icon(
-                                Icons.more_vert,
-                                color: Colors.grey.shade700,
-                              ),
-                              onSelected: (value) {
-                                switch (value) {
-                                  case 'edit':
-                                    _showEditUserDialog(user);
-                                    break;
-                                  case 'change_role':
-                                    _showChangeRoleDialog(user);
-                                    break;
-                                  case 'delete':
-                                    _showDeleteUserDialog(user);
-                                    break;
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.edit, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Düzenle'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'change_role',
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.admin_panel_settings,
-                                        size: 18,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text('Rol Değiştir'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'delete',
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.delete,
-                                        size: 18,
-                                        color: Colors.red,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'Sil',
-                                        style: TextStyle(color: Colors.red),
-                                      ),
-                                    ],
-                                  ),
                                 ),
                               ],
                             ),
@@ -431,6 +557,11 @@ extension on _AdminDashboardScreenState {
         icon = Icons.directions_bus;
         label = 'Şoför';
         break;
+      case 'news':
+        color = Colors.blueGrey;
+        icon = Icons.newspaper;
+        label = 'Haberci';
+        break;
       default:
         color = Colors.blue;
         icon = Icons.person;
@@ -460,6 +591,173 @@ extension on _AdminDashboardScreenState {
         ],
       ),
     );
+  }
+
+  // --- _buildUserAvatar ---
+  // CircleAvatar + online göstergesi. Ham NetworkImage yerine
+  // CachedNetworkImage kullanılır: önbellek + yükleme yer tutucusu + hata
+  // durumunda baş harfe düşüş. Böylece "geçerli URL ama yüklenemedi" (404,
+  // imzalı-URL süresi dolmuş, ağ kesiği) durumunda kart boş kalmaz; baş harf
+  // gösterilir. Bu, "güncel görsel çekilmiyor" şikâyetini (ham NetworkImage
+  // sessizce başarısız olup boş daire bırakması) giderir.
+  Widget _buildUserAvatar(Map<String, dynamic> user, {bool online = false}) {
+    final url = user['avatar_url'] as String?;
+    final initial = AdminUserHelpers.initialOf(
+      user['username'] as String?,
+      user['full_name'] as String?,
+    );
+    final valid = AdminUserHelpers.isValidAvatarUrl(url);
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        CircleAvatar(
+          radius: 24,
+          backgroundColor: Colors.grey.shade300,
+          child: valid
+              ? CachedNetworkImage(
+                  imageUrl: url!,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                  placeholder: (context, _) => const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  errorWidget: (context, _, __) => Text(
+                    initial,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                )
+              : Text(
+                  initial,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+        ),
+        if (online)
+          Positioned(
+            right: -1,
+            bottom: -1,
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // --- _infoRow ---
+  // Küçük ikon + tek satırlık gri bilgi (e-posta / telefon / @kullanıcı).
+  Widget _infoRow(IconData icon, String text, {bool dim = false}) {
+    final isEmpty = text.trim().isEmpty;
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: Colors.grey.shade500),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: dim || isEmpty
+                  ? Colors.grey.shade400
+                  : Colors.grey.shade700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- _statChip ---
+  // Kompakt istatistik etiketi (ör. "1.5B Gönderi").
+  Widget _statChip(
+    IconData icon,
+    String value,
+    String label, {
+    Color color = Colors.blue,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _buildMiniBadge ---
+  // İsim satırında "Şüpheli" / "Yeni" gibi küçük rozet.
+  Widget _buildMiniBadge(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _parseDateTime ---
+  // RPC'den gelen ISO8601 dizesini güvenli şekilde DateTime'e çevirir.
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
   }
 
   // --- _showEditUserDialog ---
@@ -537,7 +835,7 @@ extension on _AdminDashboardScreenState {
 
                 if (mounted) {
                   Navigator.pop(context);
-                  setState(() {});
+                  _refreshUsers();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Kullanıcı güncellendi')),
                   );
@@ -560,11 +858,15 @@ extension on _AdminDashboardScreenState {
   // Kullanıcı email'ini admin_get_profile_email RPC ile çek
   Future<String> _fetchUserEmail(String userId) async {
     try {
-      final email = await Supabase.instance.client.rpc<String>(
+      // rpc<String> (nullable olmayan) kullanilirsa `?? '-'` olu koda doner ve
+      // e-postasi olmayan kullanicida SQL NULL -> String cast'i TypeError
+      // firlatip catch'e duserdi. Dogru sozlesme rpc<String?>'dir
+      // (bkz. _part_data_loaders.dart icindeki ayni cagri).
+      final email = await Supabase.instance.client.rpc<String?>(
         'admin_get_profile_email',
         params: {'p_user_id': userId},
       );
-      return email ?? '-';
+      return (email == null || email.isEmpty) ? '-' : email;
     } catch (e) {
       debugPrint('❌ Email çekilirken hata: $e');
       return '-';
@@ -709,7 +1011,7 @@ extension on _AdminDashboardScreenState {
                   if (mounted) {
                     Navigator.pop(context);
                     // Kullanıcı listesini yeniden yükle
-                    setState(() {});
+                    _refreshUsers();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Rol güncellendi: $newRole'),
@@ -741,13 +1043,32 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _showDeleteUserDialog ---
+  //
+  // ONEMLI: Bu akis kullaniciyi SILMEZ.
+  // Veritabaninda `admin_delete_user` diye bir RPC yok (yalniz
+  // admin_delete_post / admin_delete_story / admin_delete_group /
+  // admin_delete_order var) ve profiles uzerinde dogrudan DELETE
+  // 20260803000006 ile kapatildi. Cagrilan tek sey
+  // admin_set_user_suspicious(flagged: true), yani hesabi "supheli" olarak
+  // isaretlemek.
+  //
+  // Onceki surumde baslik "Kullaniciyi Sil", metin "Bu islem geri alinamaz ve
+  // kullanicinin tum verileri silinecektir", sonuc bildirimi de "silme talebi
+  // islendi" diyordu; admin geri donusu olmayan bir silme yaptigini sanip
+  // hesabin durmaya devam ettigini gorunce panele guvenmiyordu. Metin, kodun
+  // gercekte yaptigi ise esitlendi.
   void _showDeleteUserDialog(Map<String, dynamic> user) {
+    final userLabel = user['full_name'] ?? user['username'] ?? 'Kullanıcı';
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Kullanıcıyı Sil'),
+        title: const Text('Hesabı Şüpheli İşaretle'),
         content: Text(
-          '${user['full_name'] ?? user['username']} kullanıcısını silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz ve kullanıcının tüm verileri silinecektir.',
+          '$userLabel şüpheli olarak işaretlenecek ve "Şüpheli Kullanıcılar" '
+          'listesine düşecek.\n\n'
+          'Bu işlem hesabı SİLMEZ; gönderileri, siparişleri ve oturumu '
+          'durmaya devam eder. İşaret "Şüpheli Kullanıcılar" ekranından geri '
+          'alınabilir.',
         ),
         actions: [
           TextButton(
@@ -756,47 +1077,39 @@ extension on _AdminDashboardScreenState {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
               try {
-                // Doğrudan profiles DELETE yasaklandı. Hesap silme akışı
-                // için Edge Function veya admin RPC kullanılmalıdır. Burada
-                // RPC SECURITY DEFINER admin_delete_user çağrılır; bu RPC
-                // çağıranın gerçek admin olduğunu doğrular, son admin'i
-                // silmeyi engeller, audit'e yazar.
-                // Not: auth.users'tan DELETE RLS ile yapılamaz; tam
-                // silme Supabase auth admin API ile olur. RPC şimdilik
-                // profil satırını siler veya "deleted" olarak işaretler.
                 await Supabase.instance.client.rpc(
                   'admin_set_user_suspicious',
                   params: {
                     'target_user_id': user['id'],
                     'flagged': true,
-                    'reason': 'admin_delete_marked',
+                    'reason': 'admin_dashboard_flag',
                   },
                 );
 
                 if (mounted) {
                   Navigator.pop(context);
-                  setState(() {});
+                  _refreshUsers();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Kullanıcı silme talebi işlendi'),
-                      backgroundColor: Colors.green,
+                      content: Text('Kullanıcı şüpheli olarak işaretlendi'),
+                      backgroundColor: Colors.orange,
                       duration: Duration(seconds: 3),
                     ),
                   );
                 }
               } catch (e, stackTrace) {
-                debugPrint('❌ Kullanıcı silinirken hata: $e');
+                debugPrint('❌ Kullanıcı işaretlenirken hata: $e');
                 debugPrint('📍 Stack trace: $stackTrace');
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Kullanıcı silinirken hata: $e'),
+                      content: Text('İşaretleme başarısız: $e'),
                       backgroundColor: Colors.red,
                       duration: const Duration(seconds: 5),
                     ),
@@ -804,7 +1117,7 @@ extension on _AdminDashboardScreenState {
                 }
               }
             },
-            child: const Text('Sil'),
+            child: const Text('Şüpheli İşaretle'),
           ),
         ],
       ),
@@ -868,22 +1181,36 @@ extension on _AdminDashboardScreenState {
   // Kullanıcıları yükle
   // Not: profiles tablosundan SELECT grant'i REVOKE edildiği için
   // doğrudan select('*') ile PII yüklemesi yapılamaz. Bunun yerine
-  // SECURITY DEFINER admin_list_users() RPC'si kullanılır; sayfalı,
-  // dar sütunlu (id, username, full_name, avatar_url, role, is_suspicious,
-  // is_online, created_at, last_seen). E-posta/telefon/fatura PII
-  // sızdırmaz.
+  // SECURITY DEFINER admin_user_list_with_stats() RPC'si kullanılır; o hem
+  // dar güvenli sütunları hem de e-posta/telefon (PII, yalnız admin'e) ve
+  // sosyal istatistikleri (gönderi/takipçi/takip/teslim) tek sorguda döner.
+  // Migration henüz uygulanmadıysa RPC yok olabilir; o durumda eski
+  // admin_list_users()'a düşeriz (email/istatistik yok ama kart yine çalışır).
   Future<List<Map<String, dynamic>>> _loadUsers() async {
     try {
-      debugPrint('🔍 Kullanıcılar yükleniyor (admin_list_users RPC)');
+      debugPrint('🔍 Kullanıcılar yükleniyor (admin_user_list_with_stats RPC)');
 
-      final response = await Supabase.instance.client.rpc<List<dynamic>>(
-        'admin_list_users',
-        params: {'p_limit': 100},
-      );
+      List<dynamic> response;
+      try {
+        response = await Supabase.instance.client.rpc<List<dynamic>>(
+          'admin_user_list_with_stats',
+          params: {'p_limit': 100},
+        );
+        debugPrint('✅ ${response.length} kullanıcı yüklendi (istatistikli)');
+      } catch (e) {
+        // Zengin RPC yok (migration uygulanmamış) — eski sözleşmeye düş.
+        debugPrint(
+          '⚠️ admin_user_list_with_stats kullanılamıyor, admin_list_users\'a düşülüyor: $e',
+        );
+        response = await Supabase.instance.client.rpc<List<dynamic>>(
+          'admin_list_users',
+          params: {'p_limit': 100},
+        );
+        debugPrint('✅ ${response.length} kullanıcı yüklendi (sade)');
+      }
 
       // PII debugPrint KALDIRILDI: tüm kullanıcı listesi log'a yazılmaz.
       final users = List<Map<String, dynamic>>.from(response);
-      debugPrint('✅ ${users.length} kullanıcı yüklendi');
 
       return users;
     } catch (e, stackTrace) {
@@ -903,9 +1230,10 @@ extension on _AdminDashboardScreenState {
               action: SnackBarAction(
                 label: 'Yeniden Dene',
                 textColor: Colors.white,
-                onPressed: () {
-                  setState(() {});
-                },
+                // setState(() {}) burada hicbir sey yapmiyordu: FutureBuilder
+                // ayni (hatayla tamamlanmis) future'i tekrar kullanip yine bos
+                // liste gosteriyordu. Future'in kendisi yenilenmeli.
+                onPressed: _refreshUsers,
               ),
             ),
           );

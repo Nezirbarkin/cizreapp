@@ -13,11 +13,13 @@ analyzer:
     duplicate_ignore: ignore
     unused_element: ignore
     unnecessary_underscores: ignore
-  exclude:
-    # Part dosyalari - part of direktifi ile ana dosyaya bagli olduklari icin
-    # analyzer bunlari bagimsiz analiz ederken false positive uretiyor.
-    # Ana dosyadan (admin_dashboard_screen.dart) analiz edildiginde 0 hata var.
-    - lib/features/admin/screens/admin_dashboard_parts/**
+  # NOT: admin_dashboard_parts/** burada EXCLUDE EDILMEZ.
+  # Daha once bu dizin exclude listesindeydi; gerekce "extension on State
+  # deseni false positive uretiyor" idi. Ancak exclude, dosyayi analizden
+  # TAMAMEN cikarir: ~18.000 satirlik admin paneli hicbir statik kontrolden
+  # gecmiyordu (dead_code, unused_local_variable, tip hatalari dahil).
+  # Tek gercek false positive olan invalid_use_of_protected_member, ilgili
+  # part dosyalarinda dosya basi `ignore_for_file` ile susturulur.
 
 linter:
   # The lint rules applied to this project can be customized in the

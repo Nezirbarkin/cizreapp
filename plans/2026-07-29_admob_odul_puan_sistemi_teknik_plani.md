@@ -26,14 +26,14 @@ Bu plan kullanıcı talebindeki belirsizliği güvenli biçimde şu şekilde ç�
 - İlk şema, reklam ödülünü TL cinsinden tanımlıyor; ayarlarda ödül tutarı ve günlük TL bütçesi, izleme kaydında TL ödülü ve bakiye işlemine bağ bulunmaktadır: [`20260715000006_ad_reward_system.sql`](../supabase/migrations/20260715000006_ad_reward_system.sql:9).
 - Rastgele min/max TL aralığı sonradan eklenmiştir: [`20260715000007_ad_reward_random_range.sql`](../supabase/migrations/20260715000007_ad_reward_random_range.sql:9).
 - Kart açıklaması admin tarafından değiştirilebilir durumdadır: [`20260715000008_ad_settings_card_description.sql`](../supabase/migrations/20260715000008_ad_settings_card_description.sql:1).
-- Mevcut atomik ödül RPC’si kullanıcı bazlı advisory lock alıyor, limitleri değerlendiriyor, TL bakiyeyi artırıyor, bakiye işlem kaydı ve reklam izleme kaydı oluşturuyor: [`grant_ad_reward()`](../supabase/migrations/20260720000003_grant_ad_reward_atomic_rpc.sql:10).
-- RPC yalnız servis rolüne açık olacak şekilde sınırlandırılmıştır: [`grant_ad_reward()`](../supabase/migrations/20260720000003_grant_ad_reward_atomic_rpc.sql:142).
+- Mevcut atomik ödül RPC’si kullanıcı bazlı advisory lock alıyor, limitleri değerlendiriyor, TL bakiyeyi artırıyor, bakiye işlem kaydı ve reklam izleme kaydı oluşturuyor: [`grant_ad_reward()`](../supabase/migrations/20260720000004_grant_ad_reward_atomic_rpc.sql:10).
+- RPC yalnız servis rolüne açık olacak şekilde sınırlandırılmıştır: [`grant_ad_reward()`](../supabase/migrations/20260720000004_grant_ad_reward_atomic_rpc.sql:142).
 - Edge Function JWT ile kullanıcıyı doğruluyor fakat istemcinin bildirdiği izlenme süresini ve SDK callback’ini temel alıyor; gerçek SSV doğrulaması yoktur: [`grant-ad-reward`](../supabase/functions/grant-ad-reward/index.ts:21).
 - Başarı yanıtı hâlen ödül tutarı ve yeni TL bakiye döndürüyor: [`grant-ad-reward`](../supabase/functions/grant-ad-reward/index.ts:72).
 
 ### 2.2 TL bakiye ve çekim yüzeyi
 
-- TL cüzdanı; kullanıcı bakiyesi, toplam kazanılan/harcanan/iade/çekilen alanları ve para işlem defteri üzerinden yürür: [`20260621_CREATE_BALANCE_SYSTEM.sql`](../supabase/migrations/20260621_CREATE_BALANCE_SYSTEM.sql:10).
+- TL cüzdanı; kullanıcı bakiyesi, toplam kazanılan/harcanan/iade/çekilen alanları ve para işlem defteri üzerinden yürür: [`20260621000007_CREATE_BALANCE_SYSTEM.sql`](../supabase/migrations/20260621000007_CREATE_BALANCE_SYSTEM.sql:10).
 - Bakiye düşme işlemi atomik RPC ile yapılmaktadır; son izin sertleştirmesi istemci kullanımını belirli bağlama sınırlar: [`deduct_from_balance()`](../supabase/migrations/20260727000008_harden_balance_rpc_permissions.sql:42).
 - Bakiye tablolarına istemci yazma politikaları sonradan servis rolüne daraltılmıştır: [`20260715000001_restrict_balance_rls_to_service_role.sql`](../supabase/migrations/20260715000001_restrict_balance_rls_to_service_role.sql:7).
 - Kullanıcı çekim ekranı TL tutarı ve IBAN alır: [`withdrawal_request_screen.dart`](../lib/features/wallet/screens/withdrawal_request_screen.dart:85).
@@ -562,7 +562,7 @@ Periyodik mutabakat işi ledger toplamını account projection ile, ödeme snaps
 |---|---|---:|---|
 | Yeni SQL migration, [`supabase/migrations`](../supabase/migrations/) | Puan tabloları, enum/check, index, RLS, GRANT, RPC, flag, dijital sipariş snapshot’ı | 1 | Additive ve rollback-safe |
 | [`20260715000006_ad_reward_system.sql`](../supabase/migrations/20260715000006_ad_reward_system.sql:9) | Geçmiş referans; değiştirilmez | — | Applied migration editlenmez |
-| [`20260720000003_grant_ad_reward_atomic_rpc.sql`](../supabase/migrations/20260720000003_grant_ad_reward_atomic_rpc.sql:10) | Geçmiş referans; yeni migration ile eski imza revoke edilir | 1 | Yeni TL kredi yolu kapalı |
+| [`20260720000004_grant_ad_reward_atomic_rpc.sql`](../supabase/migrations/20260720000004_grant_ad_reward_atomic_rpc.sql:10) | Geçmiş referans; yeni migration ile eski imza revoke edilir | 1 | Yeni TL kredi yolu kapalı |
 | [`grant-ad-reward`](../supabase/functions/grant-ad-reward/index.ts) | Session/SSV tabanlı sözleşmeye geçiş veya session endpoint olarak ayrıştırma | 2 | İstemci callback’i kredi veremez |
 | Yeni SSV Edge Function, [`supabase/functions`](../supabase/functions/) | Google callback, imza/key/replay doğrulama | 2 | Fail-closed, duplicate-safe |
 | [`smm-order-create`](../supabase/functions/smm-order-create/index.ts) | Karma ödeme RPC sözleşmesi ve idempotent kaynak iadesi | 3 | Puan puana, TL TL’ye iade |

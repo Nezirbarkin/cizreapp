@@ -5,6 +5,7 @@ import '../../../core/providers/favorites_provider.dart';
 // ignore: unused_import
 import '../../../core/models/favorite_models.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../core/models/post_model.dart' show Post;
 import '../../market/screens/product_detail_screen.dart';
 import '../../market/screens/my_price_alerts_screen.dart';
@@ -55,9 +56,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const LiveSessionsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const LiveSessionsScreen()),
               );
             },
           ),
@@ -67,9 +66,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const MyPriceAlertsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const MyPriceAlertsScreen()),
               );
             },
           ),
@@ -127,10 +124,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _ProductFavoritesTab(),
-                _PostFavoritesTab(),
-              ],
+              children: const [_ProductFavoritesTab(), _PostFavoritesTab()],
             ),
           ),
         ],
@@ -197,16 +191,13 @@ class _ProductFavoritesTab extends StatelessWidget {
           children: [
             Icon(icon, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey[600],
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
           ],
@@ -268,16 +259,13 @@ class _PostFavoritesTab extends StatelessWidget {
           children: [
             Icon(icon, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey[600],
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
           ],
@@ -306,9 +294,7 @@ class _ProductCard extends StatelessWidget {
         color: Colors.white,
         clipBehavior: Clip.antiAlias,
         elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -321,6 +307,7 @@ class _ProductCard extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: product.imageUrl!,
                           fit: BoxFit.cover,
+                          memCacheWidth: 400,
                           errorWidget: (context, url, error) {
                             return Container(
                               color: Colors.grey[200],
@@ -367,6 +354,13 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // Satıcı rozetleri + ücretsiz kargo
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    right: 8,
+                    child: ProductCardTagStrip(product: product),
+                  ),
                 ],
               ),
             ),
@@ -386,9 +380,9 @@ class _ProductCard extends StatelessWidget {
                   if (product.category != null)
                     Text(
                       product.category!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey[600],
-                          ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
                     ),
                   const SizedBox(height: 8),
                   // Fiyat (flaş indirim bilinçli)
@@ -425,9 +419,7 @@ class _PostCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (context) => PostDetailScreen(post: post),
-        ),
+        MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
       ),
       child: Card(
         color: Colors.white,
@@ -444,6 +436,7 @@ class _PostCard extends StatelessWidget {
                   imageUrl: post.images.first,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  memCacheWidth: 600,
                   errorWidget: (context, url, error) {
                     return Container(
                       color: Colors.grey[200],
@@ -484,9 +477,8 @@ class _PostCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             post.location!,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: Colors.grey[600]),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -507,8 +499,8 @@ class _PostCard extends StatelessWidget {
                       Text(
                         '${post.likesCount}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                            ),
+                          color: Colors.grey[600],
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Icon(
@@ -520,8 +512,8 @@ class _PostCard extends StatelessWidget {
                       Text(
                         '${post.commentsCount}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                            ),
+                          color: Colors.grey[600],
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Icon(
@@ -533,8 +525,8 @@ class _PostCard extends StatelessWidget {
                       Text(
                         '${post.sharesCount}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                            ),
+                          color: Colors.grey[600],
+                        ),
                       ),
                     ],
                   ),
@@ -551,9 +543,8 @@ class _PostCard extends StatelessWidget {
                         const SizedBox(width: 4),
                         Text(
                           _formatDate(post.createdAt),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[500],
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: Colors.grey[500]),
                         ),
                       ],
                     ),
@@ -572,19 +563,33 @@ class _PostCard extends StatelessWidget {
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
     final dateOnly = DateTime(date.year, date.month, date.day);
-    
+
     String dateStr;
     if (dateOnly == today) {
       dateStr = 'Bugün';
     } else if (dateOnly == yesterday) {
       dateStr = 'Dün';
     } else if (date.year == now.year) {
-      const aylar = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+      const aylar = [
+        'Oca',
+        'Şub',
+        'Mar',
+        'Nis',
+        'May',
+        'Haz',
+        'Tem',
+        'Ağu',
+        'Eyl',
+        'Eki',
+        'Kas',
+        'Ara',
+      ];
       dateStr = '${date.day} ${aylar[date.month - 1]}';
     } else {
-      dateStr = '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+      dateStr =
+          '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
     }
-    
+
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
     return '$dateStr $hour:$minute';

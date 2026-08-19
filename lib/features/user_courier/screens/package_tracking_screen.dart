@@ -24,7 +24,6 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   final Set<Polyline> _polylines = {};
   bool _isLoading = true;
   bool _loadFailed = false;
-  bool _isConfirmingDelivery = false;
 
   Position? _userLocation;
   Map<String, dynamic>? _courierLocation;
@@ -195,64 +194,6 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
             _pollCourierLocation();
           }
         });
-  }
-
-  /// 2026-08-03: Gönderici kendi paketinin teslimatını onaylar. Sunucu
-  /// (confirm_package_delivery RPC) atomik olarak status='delivered' yapar,
-  /// courier_earnings + delivered_count artırır, kuryeye bildirim gönderir.
-  Future<void> _confirmDelivery() async {
-    if (_isConfirmingDelivery) return;
-    if (_packageData?['id'] == null) return;
-    if (!mounted) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Teslimat Onayı'),
-        content: const Text(
-          'Paketin alıcısına ulaştığını onaylıyor musunuz? Bu işlem geri alınamaz.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Vazgeç'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Onayla'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    setState(() => _isConfirmingDelivery = true);
-    try {
-      await Supabase.instance.client.rpc(
-        'confirm_package_delivery',
-        params: {'p_request_id': _packageData!['id']},
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Teslimat onaylandı'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      // Yerel state'i de güncelle ki status göstergesi doğru olsun
-      setState(() {
-        _packageData = {..._packageData!, 'status': 'delivered'};
-      });
-    } catch (e) {
-      debugPrint('Teslimat onaylama hatası: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      if (mounted) setState(() => _isConfirmingDelivery = false);
-    }
   }
 
   void _startUserLocationTimer() {
@@ -630,7 +571,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Kurye yola çıktı, konum bekleniyor...',
+                                    'Kurye yola çıktı, paketinizi alıyor...',
                                     style: TextStyle(
                                       color: Colors.blue.shade700,
                                       fontSize: 13,
@@ -639,47 +580,23 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            // 2026-08-03: Gönderici, kurye onay isteği gelmeden
-                            // de teslimatı doğrulayabilir (accepted durumunda).
-                            // Sunucu tarafında courier_id ve status kontrol edilir.
+                          ] else if (_packageData?['status'] == 'delivered') ...[
                             Center(
-                              child: ElevatedButton.icon(
-                                onPressed: _isConfirmingDelivery
-                                    ? null
-                                    : _confirmDelivery,
-                                icon: const Icon(Icons.check_circle_outline),
-                                label: const Text('Teslimatı Onayla'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green.shade600,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ] else if (_packageData?['status'] ==
-                              'delivery_pending_confirmation') ...[
-                            Center(
-                              child: Column(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    'Kurye teslimat onayı istiyor',
-                                    style: TextStyle(
-                                      color: Colors.indigo,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                  Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green.shade700,
+                                    size: 20,
                                   ),
-                                  const SizedBox(height: 8),
-                                  ElevatedButton.icon(
-                                    onPressed: _isConfirmingDelivery
-                                        ? null
-                                        : _confirmDelivery,
-                                    icon: const Icon(Icons.check_circle),
-                                    label: const Text(
-                                      'Teslim Edildi olarak işaretle',
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green.shade700,
-                                      foregroundColor: Colors.white,
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Paketiniz teslim edildi',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],

@@ -5,10 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'shop_detail_admin_screen.dart';
 
 /// Admin - Dükkan Yönetim Ekranı
-/// 
-/// Renk Kodlaması:
-/// - YEŞİL: Satıcıdan admin'e ödeme gelecek (pozitif bakiye)
-/// - KIRMIZI: Admin'den satıcıya ödeme yapılacak (komisyon borcu var)
+///
+/// Renk Kodlaması (bkz. _getShopStatusColor — admin_credit teslim edilen
+/// siparişlerde admin'in satıcıya BORÇLANDIĞI tutar, commission_debt ise
+/// satıcının admin'e borçlandığı komisyon tutarıdır):
+/// - YEŞİL: Admin'den satıcıya ödeme yapılacak (admin_credit > commission_debt)
+/// - KIRMIZI: Satıcıdan admin'e (komisyon) borç var (commission_debt > admin_credit)
 /// - GRİ: Bakiye dengede (ödeme yok)
 class ShopsManagementScreen extends StatefulWidget {
   const ShopsManagementScreen({super.key});
@@ -120,13 +122,15 @@ class _ShopsManagementScreenState extends State<ShopsManagementScreen> {
       );
 
       debugPrint('✅ [SHOPS] Tüm istatistikler yüklendi');
-      setState(() {
-        _shops = shopsWithStats;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _shops = shopsWithStats;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Dükkanlar yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -432,7 +436,7 @@ class _ShopsManagementScreenState extends State<ShopsManagementScreen> {
                       color: Colors.grey.shade200,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: statusColor.withOpacity(0.5), width: 2),
-                      image: shop['logo_url'] != null
+                      image: (shop['logo_url'] as String?)?.isNotEmpty == true
                           ? DecorationImage(
                               image: NetworkImage(shop['logo_url']),
                               fit: BoxFit.cover,

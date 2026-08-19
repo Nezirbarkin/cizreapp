@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -5,10 +17,23 @@ extension on _AdminDashboardScreenState {
   // Loglar
   // ==========================================================================
 
+  // --- _refreshLogsData ---
+  // Future'i state alaninda (`_logsDataFuture`) tutuyoruz — build() icinde
+  // dogrudan _loadLogsData() cagirmak, arama kutusundaki her tus vurusunda
+  // (setState(_logsSearchQuery) -> rebuild) YENI bir future olusturup
+  // FutureBuilder'i "waiting" durumuna dusuruyordu: liste + arama kutusunun
+  // kendisi her karakterde yukleniyor spinner'ina donusuyor, odak kayboluyor
+  // ve arka planda gereksiz sorgular tekrar tekrar atiliyordu.
+  void _refreshLogsData() {
+    if (!mounted) return;
+    setState(() => _logsDataFuture = _loadLogsData());
+  }
+
   // --- _buildLogsContent ---
   Widget _buildLogsContent() {
+    _logsDataFuture ??= _loadLogsData();
     return FutureBuilder<Map<String, dynamic>>(
-      future: _loadLogsData(),
+      future: _logsDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -27,9 +52,22 @@ extension on _AdminDashboardScreenState {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Kullanıcı Aktivitesi',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Kullanıcı Aktivitesi',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    tooltip: 'Yenile',
+                    onPressed: _refreshLogsData,
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               LayoutBuilder(

@@ -1,7 +1,5 @@
 // ignore_for_file: deprecated_member_use, unnecessary_underscores
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -50,7 +48,6 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   Map<String, Map<String, dynamic>> _courierInfoMap = {};
 
   late TabController _tabController;
-  Timer? _refreshTimer;
 
   final List<OrderStatus?> _statusFilters = [
     null, // Tümü
@@ -75,18 +72,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       }
     });
     _loadShopAndOrders();
-    
-    // Her 10 saniyede bir siparişleri otomatik yenile
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted && _shopId != null) {
-        _loadOrders();
-      }
-    });
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     _tabController.dispose();
     // Realtime channel'ı kapat
     if (_ordersChannel != null) {

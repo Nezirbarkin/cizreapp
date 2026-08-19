@@ -10,7 +10,6 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/maps_api_key_service.dart';
-import '../../../core/services/notification_service.dart';
 import '../../market/screens/address_picker_screen.dart';
 import 'package_history_screen.dart';
 import '../widgets/couriers_map_card.dart';
@@ -446,23 +445,21 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
     return result;
   }
 
-  Future<void> _notifyCouriers() async {
+  /// Paket oluşturulduktan sonra en uygun online kuryeye bildirim atar
+  /// (otomatik yönlendirme). Eski istemci-taraflı toplu bildirim RLS altında
+  /// sessizce bloklanıyordu (profiles.role grant dışı + çapraz-kullanıcı
+  /// notifications insert user_id=auth.uid() kuralına takılıyordu) ve ayrıca
+  /// TÜM kuryelere yayın yapıyordu. Artık sunucu-otoriteli route_new_package_request
+  /// RPC: en uygun (online优先, en az teslimatlı) kuryeyi seçer ve yalnız ona
+  /// bildirir; paket havuzda kalır, kurye kabul eder. Hata akışı bozmaz.
+  Future<void> _notifyCouriers(String requestId) async {
     try {
-      final couriers = await Supabase.instance.client
-          .from('profiles')
-          .select('id')
-          .eq('role', 'courier');
-      for (final courier in List<Map<String, dynamic>>.from(couriers)) {
-        NotificationService().createNotification(
-          userId: courier['id'] as String,
-          type: 'new_package_request',
-          title: 'Yeni Paket Talebi',
-          content:
-              'Alım: ${_pickupAddress?.addressLine1 ?? '-'} → Teslim: ${_deliveryAddress?.addressLine1 ?? '-'}',
-        );
-      }
+      await Supabase.instance.client.rpc(
+        'route_new_package_request',
+        params: {'p_request_id': requestId},
+      );
     } catch (e) {
-      debugPrint('Kurye bildirimi gönderilemedi: $e');
+      debugPrint('Kurye yönlendirme bildirimi gönderilemedi: $e');
     }
   }
 
@@ -549,7 +546,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         setState(() => _lastServerTotalFee = serverTotalFee);
       }
 
-      _notifyCouriers();
+      _notifyCouriers(insertedRequest['r_id'] as String);
 
       if (mounted) {
         final fee = _lastServerTotalFee;

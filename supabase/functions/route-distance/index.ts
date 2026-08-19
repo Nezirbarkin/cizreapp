@@ -10,7 +10,12 @@
 // GCP: Google API key'in Directions API yetkisi açık olmalı.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import { getAdminClient } from "../_shared/client.ts";
+
+// Harici yön/mesafe API'leri için üst sınır. Sağlayıcı yavaşlarsa veya yanıt
+// vermezse worker'ın platform wall-clock sınırına kadar takılı kalmasını önler;
+// abort olunca OSRM yedeğine / no_route dönüşüne düşer.
+const ROUTE_FETCH_TIMEOUT_MS = 8_000;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +42,7 @@ async function fetchOsmRoute(
       "https://router.project-osrm.org/route/v1/driving/" +
       `${pickupLng},${pickupLat};${deliveryLng},${deliveryLat}` +
       "?overview=full&geometries=polyline";
-    const resp = await fetch(url, { method: "GET" });
+    const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(ROUTE_FETCH_TIMEOUT_MS) });
     if (!resp.ok) return null;
     const data = await resp.json();
     if (data?.code !== "Ok" || !Array.isArray(data.routes) || data.routes.length === 0) {
@@ -69,9 +74,7 @@ serve(async (req: Request) => {
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getAdminClient();
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(
       authHeader.replace("Bearer ", "")
@@ -145,7 +148,7 @@ serve(async (req: Request) => {
         `?origin=${pickupLat},${pickupLng}` +
         `&destination=${deliveryLat},${deliveryLng}` +
         `&mode=driving&key=${apiKey}`;
-      const gResp = await fetch(url, { method: "GET" });
+      const gResp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(ROUTE_FETCH_TIMEOUT_MS) });
       if (gResp.ok) {
         const gData = await gResp.json();
         const routes = gData?.routes;

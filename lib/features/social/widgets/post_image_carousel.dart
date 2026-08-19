@@ -63,6 +63,11 @@ class PostImageCarouselState extends State<PostImageCarousel> {
                     width: double.infinity,
                     height: 200,
                     fit: BoxFit.cover,
+                    // Feed görseli tam genişlikte ~200px yüksekliğinde gösterilir;
+                    // kaynak çözünürlüğünde (~1080px) decode etmek her görsel için
+                    // ~8MB bitmap demek. 750px sınırı, kayan feed'de OOM riskini
+                    // düşürürken görünür kaliteyi korur.
+                    memCacheWidth: 750,
                     errorWidget: (context, url, error) {
                       // Görsel yüklenemezse gri placeholder
                       return Container(

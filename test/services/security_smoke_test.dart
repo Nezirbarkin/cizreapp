@@ -45,25 +45,10 @@ void main() {
       },
     );
 
-    test('shop/checkout_screen.dart: displayedCode kDebugMode koşulunda', () {
-      final source = File(
-        'lib/features/shop/screens/checkout_screen.dart',
-      ).readAsStringSync();
-      final hasGuarded = RegExp(
-        r'kDebugMode\s*&&\s*displayedCode\s*!=\s*null\s*&&\s*displayedCode!\.isNotEmpty',
-      ).hasMatch(source);
-      expect(
-        hasGuarded,
-        isTrue,
-        reason: 'displayedCode kDebugMode korumalı olmalı (shop checkout)',
-      );
-    });
-
-    test('Tüm 3 dosyada kDebugMode import edildi', () {
+    test('Her iki dosyada kDebugMode import edildi', () {
       for (final path in [
         'lib/features/market/screens/checkout_screen.dart',
         'lib/features/market/screens/multi_shop_checkout_screen.dart',
-        'lib/features/shop/screens/checkout_screen.dart',
       ]) {
         final source = File(path).readAsStringSync();
         expect(

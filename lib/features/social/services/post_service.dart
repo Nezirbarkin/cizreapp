@@ -8,6 +8,7 @@ import '../../../core/services/mention_service.dart';
 import '../../../core/services/cache_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
 import '../../../core/services/analytics_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/app_logger.dart';
 
 class PostService {
@@ -85,7 +86,11 @@ class PostService {
     } catch (e) {
       AppLogger.error('❌ Feed loading error: $e');
       await _analyticsService.trackError('feed_load_error', details: e.toString());
-      throw Exception('Feed yüklenirken hata: $e');
+      // Hataları merkezi işleyiciden geçir: ağ hatası ("Failed host lookup" /
+      // SocketException) → "İnternet bağlantınızı kontrol edin", izin hatası →
+      // "yetkiniz bulunmuyor" gibi kullanıcı dostu mesaj. FriendlyException'ın
+      // toString() sadece temiz mesajı döndürür; UI'da Tekrar Dene ile gösterilir.
+      throw FriendlyException.from(e);
     }
   }
 

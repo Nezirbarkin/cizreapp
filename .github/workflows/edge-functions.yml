@@ -38,6 +38,12 @@ jobs:
       - name: Show Deno version
         run: deno --version
 
+      # supabase-js .rpc() şema nitelikli ad kabul etmez ve private şeması
+      # PostgREST'e expose edilmemiştir. Bu kalıplar derlenir, lint'ten geçer
+      # ve yalnızca çalışma zamanında kırılır — bu yüzden ayrı denetim.
+      - name: RPC/şema sözleşmesi denetimi
+        run: bash scripts/check_edge_function_rpc_contract.sh supabase/functions
+
       - name: Type-check all edge functions
         run: |
           cd supabase/functions

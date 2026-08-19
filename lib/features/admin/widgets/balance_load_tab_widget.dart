@@ -126,17 +126,19 @@ class _BalanceLoadTabWidgetState extends State<BalanceLoadTabWidget> {
       }
 
       // Temizle
-      setState(() {
-        _selectedUser = null;
-        _amountController.clear();
-        _descriptionController.clear();
-        _bankNameController.clear();
-        _bankIbanController.clear();
-        _bankAccountNameController.clear();
-        _searchController.clear();
-        _searchResults = [];
-        _showBankFields = false;
-      });
+      if (mounted) {
+        setState(() {
+          _selectedUser = null;
+          _amountController.clear();
+          _descriptionController.clear();
+          _bankNameController.clear();
+          _bankIbanController.clear();
+          _bankAccountNameController.clear();
+          _searchController.clear();
+          _searchResults = [];
+          _showBankFields = false;
+        });
+      }
     } catch (e) {
       _isSuccess = false;
       _message = 'Hata: $e';

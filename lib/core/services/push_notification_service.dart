@@ -440,6 +440,15 @@ class PushNotificationService {
         _navigateToMainScreen(context);
         break;
 
+      case 'courier_order_assigned':
+      case 'new_package_request':
+      case 'package_route':
+        // Atama/devir bildirimi doğrudan kurye sipariş panelini açmalı.
+        // MainScreen'e yönlendirmek, yeni atanan kuryenin siparişi ancak
+        // paneli elle bulup açtıktan sonra görmesine neden oluyordu.
+        _navigateToCourierPanel(context);
+        break;
+
       case 'group_message':
         final groupId = data['group_id'] as String?;
         if (groupId != null) {
@@ -484,6 +493,21 @@ class PushNotificationService {
       debugPrint('✅ MainScreen\'e yönlendirildi');
     } catch (e) {
       debugPrint('❌ MainScreen\'e yönlendirme hatası: $e');
+    }
+  }
+
+  /// Kurye atama ve Paket+ bildirimlerinde doğrudan kurye panelini açar.
+  static void _navigateToCourierPanel(BuildContext context) {
+    try {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/courier',
+        (route) => false,
+        arguments: const {'tab': 1},
+      );
+      debugPrint('✅ Kurye paneline yönlendirildi');
+    } catch (e) {
+      debugPrint('❌ Kurye paneline yönlendirme hatası: $e');
+      _navigateToMainScreen(context);
     }
   }
 

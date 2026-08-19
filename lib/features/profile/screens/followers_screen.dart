@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'user_profile_screen.dart';
 
 /// Takipçi, Takip Edilen ve Arkadaş listesi ekranı
 enum FollowListType { followers, following, friends }
@@ -300,12 +301,16 @@ class _FollowListScreenState extends State<FollowListScreen> {
   }
 
   void _navigateToProfile(String userId) {
-    Navigator.pop(context);
-    // Profil ekranına yönlendir
-    Navigator.pushNamed(
+    // Profil ekranına yönlendir. '/profile' adında kayıtlı bir route olmadığı
+    // için doğrudan UserProfileScreen widget'ını push ediyoruz (uygulamadaki
+    // tüm diğer profil yönlendirmeleriyle aynı pattern).
+    // pushReplacement: listeyi profil ekranıyla değiştirir, böylece Geri tuşu
+    // doğrudan bu listeyi açan profil ekranına döner.
+    Navigator.pushReplacement(
       context,
-      '/profile',
-      arguments: {'userId': userId},
+      MaterialPageRoute(
+        builder: (context) => UserProfileScreen(userId: userId),
+      ),
     );
   }
 
@@ -576,7 +581,7 @@ class _UserListItemState extends State<_UserListItem> {
                           splashColor: Colors.white.withValues(alpha: 0.3),
                           child: Center(
                               child: Text(
-                                _isFollowing ? 'Takip' : 'Takip Et',
+                                _isFollowing ? 'Takipten Çık' : 'Takip Et',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,

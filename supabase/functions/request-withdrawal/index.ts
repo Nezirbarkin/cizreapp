@@ -116,6 +116,21 @@ serve(async (req: Request) => {
 
     const withdrawableFromEarnings = earningsData?.reduce((sum, e) => sum + parseFloat(e.net_amount || "0"), 0) || 0;
 
+    // Bu kontrol daha once HESAPLANIP KULLANILMIYORDU: satici, kullanilabilir
+    // kazanci 0 olsa bile istedigi tutarda pending cekim talebi olusturabiliyor
+    // ve admin onayinda process-withdrawal bunu isleme aliyordu.
+    if (amountNum > withdrawableFromEarnings) {
+      return new Response(JSON.stringify({
+        error:
+          `Çekilebilir bakiyeniz ${withdrawableFromEarnings.toFixed(2)} TL. ` +
+          `Bu tutardan fazlasını talep edemezsiniz.`,
+        withdrawable: withdrawableFromEarnings,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // IBAN format kontrolü (basit) + mod-97 checksum doğrulaması
     const cleanIban = iban.replace(/\s/g, "").toUpperCase();
     if (!cleanIban.startsWith("TR") || cleanIban.length !== 26) {
@@ -169,6 +184,36 @@ serve(async (req: Request) => {
 
     if (withdrawalError) {
       throw withdrawalError;
+    }
+
+    // Kazanclari bu cekime baglayip 'withdrawn' isaretle.
+    //
+    // Bu adim eksikti: process-withdrawal reddetme durumunda
+    // .eq("withdrawal_id", withdrawal_id).eq("status", "withdrawn") ile geri
+    // aliyor, ama hicbir yer bu iki alani YAZMIYORDU. Sonuc: ayni kazanclar
+    // sinirsiz kez cekilebiliyordu.
+    const { error: markError } = await supabase
+      .from("seller_earnings")
+      .update({
+        status: "withdrawn",
+        withdrawal_id: withdrawal.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("seller_id", user.id)
+      .eq("status", "available");
+
+    if (markError) {
+      // Kazanclar isaretlenemediyse cekim talebini birakmak cift harcamaya
+      // acik kapi birakir. Talebi geri al ve hata don.
+      console.error("Kazanclar isaretlenemedi, cekim geri aliniyor:", markError.message);
+      await supabase.from("seller_withdrawals").delete().eq("id", withdrawal.id);
+
+      return new Response(JSON.stringify({
+        error: "Çekim talebi oluşturulamadı. Lütfen tekrar deneyin.",
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     console.log("✅ Çekim talebi oluşturuldu:", {

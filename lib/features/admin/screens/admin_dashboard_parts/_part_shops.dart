@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -122,7 +134,7 @@ extension on _AdminDashboardScreenState {
     final isApproved = shop['is_approved'] as bool? ?? false;
     final isActive = shop['is_active'] as bool? ?? true;
     final isShopPinned = shop['is_pinned'] as bool? ?? false;
-    final hasOwnCourier = shop['has_own_courier'] as bool? ?? true;
+    final hasOwnCourier = shop['has_own_courier'] as bool? ?? false;
     final deliveryFee = (shop['delivery_fee'] as num?)?.toDouble() ?? 0.0;
 
     return Card(
@@ -991,7 +1003,7 @@ extension on _AdminDashboardScreenState {
           .eq('id', shop['id']);
 
       if (mounted) {
-        setState(() {});
+        setState(() => shop['is_verified'] = newStatus);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1023,7 +1035,7 @@ extension on _AdminDashboardScreenState {
           .eq('id', shop['id']);
 
       if (mounted) {
-        setState(() {});
+        setState(() => shop['is_approved'] = newStatus);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1057,7 +1069,7 @@ extension on _AdminDashboardScreenState {
           .eq('id', shop['id']);
 
       if (mounted) {
-        setState(() {});
+        setState(() => shop['is_active'] = newStatus);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1984,17 +1996,18 @@ extension on _AdminDashboardScreenState {
                                   content: Text('Alacak/verecek kapatıldı'),
                                 ),
                               );
-                              // Dükkan kartlarındaki tüm istatistikleri sıfırla
+                              // Yalnızca DB'de gerçekten sıfırlanan bakiye
+                              // alanlarını yerelde güncelle — sipariş/kazanç
+                              // geçmişi bu aksiyondan etkilenmez, o yüzden
+                              // burada uydurma sıfırlar yazılmaz. Kalan tüm
+                              // alanlar _loadAndSetShops() ile sunucudan
+                              // tazelenir.
                               setState(() {
-                                shop['total_earnings'] = 0.0;
-                                shop['weekly_earnings'] = 0.0;
-                                shop['monthly_earnings'] = 0.0;
-                                shop['net_earnings'] = 0.0;
-                                shop['admin_commission_total'] = 0.0;
-                                shop['total_orders'] = 0;
-                                shop['delivered_orders'] = 0;
-                                shop['pending_orders'] = 0;
-                                shop['cancelled_orders'] = 0;
+                                shop['admin_credit'] = 0.0;
+                                shop['commission_debt'] = 0.0;
+                                shop['cash_payment_revenue'] = 0.0;
+                                shop['online_payment_revenue'] = 0.0;
+                                shop['total_collected_cash'] = 0.0;
                               });
                               _loadAndSetShops();
                             }

@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -6,7 +18,57 @@ extension on _AdminDashboardScreenState {
   // ==========================================================================
 
   // --- _buildPaymentsContent ---
+  // "Ödemeler" tek sayfada toplanmış hub: satıcı payout'ları, satıcı bakiye
+  // çekim talepleri, komisyon raporu, kurye kazançları, ödül/reklam
+  // kazançları ve detaylı kazanç dökümü aynı canlı verilerle (paylaşılan
+  // widget'lar üzerinden) burada sekmeler halinde gösterilir.
   Widget _buildPaymentsContent() {
+    return DefaultTabController(
+      length: 6,
+      child: Column(
+        children: [
+          Material(
+            color: Colors.white,
+            child: TabBar(
+              isScrollable: true,
+              labelColor: Colors.deepPurple,
+              unselectedLabelColor: Colors.grey.shade600,
+              indicatorColor: Colors.deepPurple,
+              tabs: const [
+                Tab(text: 'Satıcı Ödemeleri'),
+                Tab(text: 'Bakiye Çekim Talepleri'),
+                Tab(text: 'Komisyon Raporu'),
+                Tab(text: 'Kurye Kazançları'),
+                Tab(text: 'Ödül/Reklam Kazançları'),
+                Tab(text: 'Detaylı Kazanç Dökümü'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildSellerPayoutsTab(),
+                const AdminWithdrawalScreen(embedded: true),
+                const CommissionDashboardScreen(embedded: true),
+                const SingleChildScrollView(
+                  padding: EdgeInsets.all(16),
+                  child: CourierPayoutRequestsSection(),
+                ),
+                const SingleChildScrollView(
+                  padding: EdgeInsets.all(16),
+                  child: RewardPointsOverviewSection(),
+                ),
+                const UsersWithBalanceTabWidget(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _buildSellerPayoutsTab ---
+  Widget _buildSellerPayoutsTab() {
     return FutureBuilder<Map<String, dynamic>>(
       future: _loadPaymentData(),
       builder: (context, snapshot) {
@@ -18,8 +80,14 @@ extension on _AdminDashboardScreenState {
         }
 
         final data = snapshot.data ?? {};
-        final payments = data['payments'] as List<Map<String, dynamic>>? ?? [];
+        final allPayments =
+            data['payments'] as List<Map<String, dynamic>>? ?? [];
         final stats = data['stats'] as Map<String, dynamic>? ?? {};
+        final payments = _paymentsStatusFilter == 'all'
+            ? allPayments
+            : allPayments
+                  .where((p) => p['status'] == _paymentsStatusFilter)
+                  .toList();
 
         return RefreshIndicator(
           onRefresh: () async {
@@ -113,12 +181,35 @@ extension on _AdminDashboardScreenState {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: () {
-                        // Tümünü göster
-                      },
-                      icon: const Icon(Icons.filter_list),
-                      label: const Text('Filtrele'),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _paymentsStatusFilter,
+                        icon: const Icon(Icons.filter_list),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('Tümü')),
+                          DropdownMenuItem(
+                            value: 'pending',
+                            child: Text('Bekleyen'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'approved',
+                            child: Text('Onaylanan'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'paid',
+                            child: Text('Ödenen'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'rejected',
+                            child: Text('Reddedilen'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _paymentsStatusFilter = value);
+                          }
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -137,7 +228,9 @@ extension on _AdminDashboardScreenState {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Henüz ödeme yok',
+                            allPayments.isEmpty
+                                ? 'Henüz ödeme yok'
+                                : 'Bu filtreye uygun ödeme yok',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.grey.shade600,
@@ -346,11 +439,15 @@ extension on _AdminDashboardScreenState {
         final payoutId = payment['id'] as String;
         final shopId = payment['shop_id'] as String?;
 
+        if (shopId == null) {
+          throw Exception('Ödeme isteğinde dükkan bilgisi bulunamadı');
+        }
+
         // Shop bilgilerini al
         final shop = await Supabase.instance.client
             .from('shops')
             .select('owner_id, name')
-            .eq('id', shopId!)
+            .eq('id', shopId)
             .single();
 
         // Ödeme durumunu 'paid' olarak güncelle
@@ -499,6 +596,26 @@ extension on _AdminDashboardScreenState {
                 _formatDate(payment['created_at']),
                 Colors.grey.shade700,
               ),
+              if ((payment['delivery_fee_deducted'] as num?) != null &&
+                  (payment['delivery_fee_deducted'] as num) > 0) ...[
+                _buildInfoRow(
+                  'Teslimat Ücreti Kesintisi',
+                  '₺${(payment['delivery_fee_deducted'] as num).toStringAsFixed(2)}',
+                  Colors.orange.shade700,
+                ),
+                if (payment['deduction_detail'] != null &&
+                    (payment['deduction_detail'] as String).isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    payment['deduction_detail'] as String,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
 
               const SizedBox(height: 16),
 
@@ -640,21 +757,31 @@ extension on _AdminDashboardScreenState {
           })
           .eq('id', payoutId);
 
-      // Satıcıya bildirim gönder
+      // Satıcıya bildirim gönder.
+      // NOT: payout_requests.status güncellemesi yukarıda zaten commit
+      // edildi — bildirim insert'i burada ayrı bir try/catch içinde,
+      // çünkü başarısız olursa asıl onay/red işlemi geri alınmıyor ve
+      // kullanıcıya "İşlem başarısız" demek yanıltıcı olur.
       final notificationMessage = newStatus == 'approved'
           ? '$shopName mağazanız için ${amount.toStringAsFixed(2)} TL tutarındaki ödeme isteğiniz onaylandı. Ödeme kısa süre içinde hesabınıza aktarılacaktır.'
           : '$shopName mağazanız için ${amount.toStringAsFixed(2)} TL tutarındaki ödeme isteğiniz reddedildi. Daha fazla bilgi için destek ekibiyle iletişime geçebilirsiniz.';
 
-      await Supabase.instance.client.from('notifications').insert({
-        'user_id': sellerId,
-        'type': 'shop', // Mevcut enum değerlerinden biri
-        'title': newStatus == 'approved'
-            ? 'Ödeme Onaylandı'
-            : 'Ödeme Reddedildi',
-        'content': notificationMessage,
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      if (sellerId != null) {
+        try {
+          await Supabase.instance.client.from('notifications').insert({
+            'user_id': sellerId,
+            'type': 'shop', // Mevcut enum değerlerinden biri
+            'title': newStatus == 'approved'
+                ? 'Ödeme Onaylandı'
+                : 'Ödeme Reddedildi',
+            'content': notificationMessage,
+            'is_read': false,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (e) {
+          debugPrint('⚠️ PAYOUT: Bildirim gönderilemedi (işlem yine de tamamlandı): $e');
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

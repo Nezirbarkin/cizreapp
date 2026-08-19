@@ -11,7 +11,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(54);
+select plan(55);
 
 -- -----------------------------------------------------------------------------
 -- Yardımcılar
@@ -274,6 +274,17 @@ select ok(
 select ok(
   not pg_temp.function_executable_by('public', 'admin_set_user_role', 'public'),
   'admin_set_user_role public EXECUTE yok'
+);
+select ok(
+  position(
+    'v_old_role = ''admin'' AND p_new_role <> ''admin'''
+    in pg_get_functiondef('public.admin_set_user_role(uuid,text,text,text)'::regprocedure)
+  ) > 0
+  and position(
+    'v_old_role = ''admin''::public.user_role'
+    in pg_get_functiondef('public.admin_set_user_role(uuid,text,text,text)'::regprocedure)
+  ) = 0,
+  'admin_set_user_role text ile enum tiplerini karsilastirmiyor'
 );
 select ok(
   pg_temp.function_executable_by('public', 'admin_list_users', 'authenticated'),

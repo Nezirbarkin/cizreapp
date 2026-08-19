@@ -45,12 +45,21 @@ serve(async (req: Request) => {
     if (userId) query = query.eq("user_id", userId);
     const { data: orders, error } = await query;
     if (error) throw new Error("ORDER_FETCH_FAILED");
+    // Sağlayıcıları tek toplu sorguda çek (sipariş başına ayrı sorgu yerine).
+    const providerIds = [...new Set(
+      (orders ?? []).map((o: any) => o.provider_id).filter(Boolean),
+    )];
+    const providerMap = new Map<string, any>();
+    if (providerIds.length > 0) {
+      const { data: providerRows } = await supabase.from("smm_providers").select(
+        "id,api_url,api_key,is_active",
+      ).in("id", providerIds);
+      for (const p of providerRows ?? []) providerMap.set(p.id, p);
+    }
     let checked = 0, updated = 0, refunded = 0, reconciliationPending = 0;
     for (const order of orders ?? []) {
       if (!order.external_order_id) continue;
-      const { data: provider } = await supabase.from("smm_providers").select(
-        "api_url,api_key,is_active",
-      ).eq("id", order.provider_id).single();
+      const provider = providerMap.get(order.provider_id);
       if (!provider?.is_active) {
         await setReconciliation(supabase, order.id, "reconciliation_pending");
         reconciliationPending++;

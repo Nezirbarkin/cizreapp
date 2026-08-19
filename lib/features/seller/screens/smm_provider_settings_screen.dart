@@ -73,7 +73,7 @@ class _SmmProviderSettingsScreenState extends State<SmmProviderSettingsScreen> {
 
   Future<void> _showAddProviderDialog() async {
     final nameController = TextEditingController();
-    final apiUrlController = TextEditingController(text: 'https://smmget.com/api/v2');
+    final apiUrlController = TextEditingController();
     final apiKeyController = TextEditingController();
 
     final result = await showDialog<bool>(
@@ -106,7 +106,7 @@ class _SmmProviderSettingsScreenState extends State<SmmProviderSettingsScreen> {
     );
 
     if (result == true && _shopId != null) {
-      if (nameController.text.trim().isEmpty || apiKeyController.text.trim().isEmpty) return;
+      if (nameController.text.trim().isEmpty || apiUrlController.text.trim().isEmpty || apiKeyController.text.trim().isEmpty) return;
       try {
         await _smmService.createProvider(
           name: nameController.text.trim(),

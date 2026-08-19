@@ -43,19 +43,54 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
   // Timer ve çalışma saatleri
   Timer? _tripTimer;
   Timer? _autoRouteTimer;
+  bool _autoRouteBusy = false;
+  bool _autoRouteSavedOnce = false;
+
+  /// Otomatik rotanın en son kaydedildiği andaki iz uzunluğu (metre).
+  double _autoRouteLastSavedMeters = 0;
+
+  /// Otomatik rotanın yeniden hesaplanması için izin bu kadar uzaması gerekir.
+  static const double _kAutoRouteGrowthMeters = 250;
   Duration _tripDuration = Duration.zero;
   LatLng? _droppedLocation;
+
+  /// Tracker'ın DB'ye yazdığı konumlar. Panel kendi seferinin realtime
+  /// kanalını dinlemediği için, bu olmadan haritadaki kendi aracı `_load()`
+  /// anındaki konumda donuk kalıyordu.
+  StreamSubscription<Position>? _trackerSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _trackerSub = _tracker.positions.listen(_onOwnPosition);
     _load();
+  }
+
+  /// Kendi aracımızın haritadaki marker'ını canlı tut.
+  void _onOwnPosition(Position pos) {
+    if (!mounted) return;
+    final trip = _activeTrip;
+    if (trip == null) return;
+    // Molada tracker (otomatik sefer modunda) çalışmaya devam eder ama sunucu
+    // konumu yazmaz. Panel "Konum paylaşımı duraklatıldı" derken marker'ın
+    // kaymaya devam etmesi yanıltıcı olur — kullanıcıya gösterileni sunucudaki
+    // gerçekle hizala.
+    if (trip.status != SehiriciTripStatus.active) return;
+    setState(() {
+      _activeTrip = trip.copyWithLocation(
+        lat: pos.latitude,
+        lng: pos.longitude,
+        heading: pos.heading,
+        speed: pos.speed,
+      );
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _trackerSub?.cancel();
     _tripTimer?.cancel();
     _workingHoursTimer?.cancel();
     _autoRouteTimer?.cancel();
@@ -257,7 +292,24 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
         }
       }
 
-      final pos = await Geolocator.getCurrentPosition();
+      // Soğuk GPS'te zaman sınırsız getCurrentPosition "Başlat" butonunu
+      // dakikalarca askıda bırakabiliyordu. Zaman sınırı koy, olmazsa son
+      // bilinen konumla başla (tracker ilk taze fix'i zaten hemen yazacak).
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+      if (pos == null) {
+        _showError('Konum alınamadı. GPS açık mı kontrol edin.');
+        return;
+      }
       final tripId = await _tripService.startTrip(
         driverId: _driverProfile!['id'] as String,
         lineId: line.id,
@@ -440,8 +492,9 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
 
   /// Şoför "Rotamı gittiğim yerlerden oluştur" ayarını açtıysa ve hat için
   /// henüz rota_polyline yoksa, sefer boyunca her 30 saniyede bir GPS
-  /// noktalarını kontrol eder. En az 10 nokta ve ~1 km biriktiğinde GPS izini
-  /// gerçek yol ağına map-match edip cacheRoutePolyline ile kaydeder.
+  /// noktalarını kontrol eder. ~50 m iz birikince ilk kaydı hemen yapar ve
+  /// sefer boyunca iz uzadıkça rotayı güncellemeye devam eder (GPS izi gerçek
+  /// yol ağına map-match edip cacheRoutePolyline ile kaydedilir).
   Future<void> _maybeStartAutoRouteWatcher({
     required SehiriciLine line,
     required String tripId,
@@ -454,6 +507,8 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
       if (line.stops.length < 2) return;
 
       _autoRouteTimer?.cancel();
+      _autoRouteSavedOnce = false;
+      _autoRouteLastSavedMeters = 0;
       _autoRouteTimer = Timer.periodic(
         const Duration(seconds: 30),
         (_) => _checkAutoRoute(tripId: tripId, line: line),
@@ -467,26 +522,33 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     required String tripId,
     required SehiriciLine line,
   }) async {
-    if (!mounted) return;
+    if (!mounted || _autoRouteBusy) return;
+    _autoRouteBusy = true;
     try {
       final path = await _tripService.getTripPath(tripId);
-      if (path.length < 10) return;
+      // İlk kayıt ~50 m'de yapılır (1 km beklenmez). Konumlar ~10 sn'de bir
+      // yazıldığından 3 nokta ≈ 20-30 sn sürüş demek.
+      if (path.length < 3) return;
       final coords = path
           .map((p) => LatLng(p.lat, p.lng))
           .toList(growable: false);
       final totalMeters = pathLengthMeters(coords);
-      if (totalMeters < 1000) return;
+      if (totalMeters < 50) return;
+
+      // İz kayda değer biçimde uzamadıysa yeniden eşleme/kaydetme yapma.
+      // Bu kontrol olmadan, 30 sn'de bir tüm iz OSRM'ye gönderilip hattın
+      // rotası baştan yazılıyordu: araç durakta beklerken bile aynı iz
+      // tekrar tekrar işleniyor, her yazım öncekini eziyordu.
+      if (totalMeters - _autoRouteLastSavedMeters < _kAutoRouteGrowthMeters) {
+        return;
+      }
 
       // GPS noktalarını doğrudan sadeleştirip birleştirmek keskin virajlarda
       // binaların üzerinden kiriş oluşturuyordu. Önce gerçek yol ağına oturt,
-      // ardından yalnızca çok düşük toleransla gereksiz noktaları azalt.
+      // ardından nokta sayısını makul bir tavanla sınırla.
       final roadMatched = await _roadSnapService.matchDrivenPath(coords);
       if (!mounted || roadMatched.length < 2) return;
-      const toleranceMeters = 1.5;
-      final simplified = simplifyPath(
-        roadMatched,
-        toleranceMeters: toleranceMeters,
-      );
+      final simplified = simplifyToMaxPoints(roadMatched, maxPoints: 1500);
       if (simplified.length < 2) return;
 
       final polylinePoints = simplified
@@ -500,19 +562,28 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
         source: 'auto_traveled_road_matched',
       );
       if (ok) {
-        _autoRouteTimer?.cancel();
-        _autoRouteTimer = null;
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Otomatik rota oluşturuldu ve kaydedildi'),
-              backgroundColor: Colors.green,
-            ),
-          );
+        _autoRouteLastSavedMeters = totalMeters;
+        // Zamanlayıcı bilerek durdurulmuyor: ~50 m'lik ilk taslak kayıttan
+        // sonra sefer boyunca iz uzadıkça rota güncellenir. Bildirim yalnızca
+        // ilk kayıtta gösterilir.
+        if (!_autoRouteSavedOnce) {
+          _autoRouteSavedOnce = true;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Otomatik rota kaydedildi; sefer boyunca güncelleniyor',
+                ),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         }
       }
     } catch (e) {
       debugPrint('_checkAutoRoute hata: $e');
+    } finally {
+      _autoRouteBusy = false;
     }
   }
 
@@ -703,8 +774,9 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
                   SwitchListTile(
                     title: const Text('Rotamı gittiğim yerlerden oluştur'),
                     subtitle: const Text(
-                      'Hat için henüz rota yoksa, sefer başlangıcından '
-                      '~1 km sonra GPS noktalarım otomatik rota olarak kaydedilir',
+                      'Hat için henüz rota yoksa, ~50 m gittikten sonra GPS '
+                      'noktalarım otomatik rota olarak kaydedilir ve sefer '
+                      'boyunca güncellenir',
                     ),
                     value: autoRt,
                     onChanged: saving

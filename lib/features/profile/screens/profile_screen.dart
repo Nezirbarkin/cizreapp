@@ -25,6 +25,10 @@ import '../../chat/services/chat_service.dart';
 import '../../chat/screens/chat_detail_screen.dart';
 import 'followers_screen.dart';
 import '../widgets/profile_shared_widgets.dart';
+import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
+import '../../../kullaniciozellikler/widgets/cover_effect_frame.dart';
+import '../../../kullaniciozellikler/screens/my_profile_features_screen.dart';
+import '../../../ilanlar/screens/my_ilanlar_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String? userId;
@@ -659,484 +663,321 @@ class _ProfileScreenState extends State<ProfileScreen>
     final targetUserId = widget.userId ?? currentUserId;
     final isOwnProfile = targetUserId == currentUserId;
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      body: RefreshIndicator(
-        onRefresh: _refreshAll,
-        displacement: 60,
-        child: CustomScrollView(
-          slivers: [
-            // ===== SLIVER APP BAR - KAPAK FOTOĞRAFI =====
-            SliverAppBar(
-              expandedHeight: 280,
-              floating: false,
-              pinned: true,
-              backgroundColor: Colors.white,
-              surfaceTintColor: Colors.transparent,
-              title: Text(
-                '@$username',
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
+    return ProfilePrivilegesOverlay(
+      userId: targetUserId!,
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        body: RefreshIndicator(
+          onRefresh: _refreshAll,
+          displacement: 60,
+          child: CustomScrollView(
+            slivers: [
+              // ===== SLIVER APP BAR - KAPAK FOTOĞRAFI =====
+              SliverAppBar(
+                expandedHeight: 400,
+                floating: false,
+                pinned: true,
+                backgroundColor: const Color(0xFF17232D),
+                surfaceTintColor: Colors.transparent,
+                title: Text(
+                  '@$username',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              leading: !isOwnProfile
-                  ? IconButton(
+                leading: !isOwnProfile
+                    ? IconButton(
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                      )
+                    : null,
+                actions: [
+                  if (isOwnProfile)
+                    IconButton(
                       icon: const Icon(
-                        Icons.arrow_back,
-                        color: Colors.black,
-                        size: 20,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                    )
-                  : null,
-              actions: [
-                if (isOwnProfile)
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.4),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
                         Icons.add_box_outlined,
                         color: Colors.white,
-                        size: 20,
+                        size: 22,
                       ),
+                      onPressed: _createPost,
+                      tooltip: 'Gönderi Oluştur',
                     ),
-                    onPressed: _createPost,
-                    tooltip: 'Gönderi Oluştur',
-                  ),
-                // Paylaşım butonu (hem kendi profili hem başkasının profili için)
-                IconButton(
-                  icon: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
+                  // Paylaşım butonu (hem kendi profili hem başkasının profili için)
+                  IconButton(
+                    icon: const Icon(
                       Icons.share_outlined,
                       color: Colors.white,
-                      size: 20,
+                      size: 22,
                     ),
+                    onPressed: () {
+                      final username = _profileData?['username'] ?? '';
+                      if (username.isNotEmpty) {
+                        final profileUrl = 'https://cizreapp.com/u/@$username';
+                        Clipboard.setData(ClipboardData(text: profileUrl));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Profil linki kopyalandı: $profileUrl',
+                            ),
+                            behavior: SnackBarBehavior.floating,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                    tooltip: 'Profili Paylaş',
                   ),
-                  onPressed: () {
-                    final username = _profileData?['username'] ?? '';
-                    if (username.isNotEmpty) {
-                      final profileUrl = 'https://cizreapp.com/u/@$username';
-                      Clipboard.setData(ClipboardData(text: profileUrl));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Profil linki kopyalandı: $profileUrl'),
-                          behavior: SnackBarBehavior.floating,
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  },
-                  tooltip: 'Profili Paylaş',
-                ),
-                IconButton(
-                  icon: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
+                  IconButton(
+                    icon: const Icon(
                       Icons.more_vert,
                       color: Colors.white,
-                      size: 20,
+                      size: 23,
+                    ),
+                    onPressed: isOwnProfile ? _showSettingsMenu : null,
+                  ),
+                ],
+                flexibleSpace: FlexibleSpaceBar(
+                  background: CoverEffectFrame(
+                    userId: targetUserId,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Kapak fotoğrafı
+                        if (coverUrl != null && coverUrl.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => showFullScreenImage(context, coverUrl),
+                            child: CachedNetworkImage(
+                              imageUrl: coverUrl,
+                              fit: BoxFit.cover,
+                              errorWidget: (context, url, error) {
+                                return _buildDefaultCover(context);
+                              },
+                            ),
+                          )
+                        else
+                          _buildDefaultCover(context),
+                        // Gradient overlay - alt kısım
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          height: 120,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withOpacity(0.6),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: ProfileHeroHeader(
+                            userId: targetUserId,
+                            username: username,
+                            avatarUrl: avatarUrl,
+                            hasStories: _userStories.isNotEmpty,
+                            postsCount: _userPosts.length,
+                            followersCount: _followersCount,
+                            followingCount: _followingCount,
+                            friendsCount: _friendsCount,
+                            onAvatarTap: _userStories.isNotEmpty
+                                ? _openStories
+                                : () => showFullScreenImage(context, avatarUrl),
+                            onFollowersTap: () =>
+                                _navigateToFollowList(FollowListType.followers),
+                            onFollowingTap: () =>
+                                _navigateToFollowList(FollowListType.following),
+                            onFriendsTap: () =>
+                                _navigateToFollowList(FollowListType.friends),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onPressed: isOwnProfile ? _showSettingsMenu : null,
                 ),
-              ],
-              flexibleSpace: FlexibleSpaceBar(
-                background: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // Kapak fotoğrafı
-                    if (coverUrl != null && coverUrl.isNotEmpty)
-                      GestureDetector(
-                        onTap: () => showFullScreenImage(context, coverUrl),
-                        child: CachedNetworkImage(
-                          imageUrl: coverUrl,
-                          fit: BoxFit.cover,
-                          errorWidget: (context, url, error) {
-                            return _buildDefaultCover(context);
+              ),
+
+              // ===== PROFİL BİLGİLERİ =====
+              SliverToBoxAdapter(
+                child: Container(
+                  color: Colors.white,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ProfileIdentityHeader(
+                        userId: targetUserId,
+                        username: username,
+                        fullName: fullName,
+                        avatarUrl: avatarUrl,
+                        bio: bio,
+                        hasStories: _userStories.isNotEmpty,
+                        postsCount: _userPosts.length,
+                        followersCount: _followersCount,
+                        followingCount: _followingCount,
+                        friendsCount: _friendsCount,
+                        onAvatarTap: _userStories.isNotEmpty
+                            ? _openStories
+                            : () => showFullScreenImage(context, avatarUrl),
+                        onFollowersTap: () =>
+                            _navigateToFollowList(FollowListType.followers),
+                        onFollowingTap: () =>
+                            _navigateToFollowList(FollowListType.following),
+                        onFriendsTap: () =>
+                            _navigateToFollowList(FollowListType.friends),
+                        website: _buildWebsiteChip(),
+                        statusBadge: ProfilePrivilegeBadges(
+                          userId: targetUserId,
+                        ),
+                        showHero: false,
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // ===== BUTONLAR =====
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildActionButtons(isOwnProfile),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // ===== ANALİTİK BÖLÜMÜ =====
+                      if (isOwnProfile &&
+                          !_isLoadingAnalytics &&
+                          (_profileViewStats != null || _postViewStats != null))
+                        ProfileStatsSection(
+                          animation: _statsAnimation,
+                          profileStats: _profileViewStats,
+                          postStats: _postViewStats,
+                          onToggle: () {
+                            setState(() {
+                              _statsExpanded = !_statsExpanded;
+                              if (_statsExpanded) {
+                                _statsAnimationController.forward();
+                              } else {
+                                _statsAnimationController.reverse();
+                              }
+                            });
                           },
                         ),
-                      )
-                    else
-                      _buildDefaultCover(context),
-                    // Gradient overlay - alt kısım
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      height: 120,
-                      child: Container(
+
+                      // ===== TAB BAR =====
+                      Container(
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.6),
-                            ],
+                          border: Border(
+                            bottom: BorderSide(color: Colors.grey.shade200),
                           ),
                         ),
-                      ),
-                    ),
-                    // Username overlay
-                    Positioned(
-                      bottom: 16,
-                      left: 20,
-                      child: Text(
-                        '@$username',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 8),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // ===== PROFİL BİLGİLERİ =====
-            SliverToBoxAdapter(
-              child: Container(
-                color: Colors.white,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Profil resmi + İstatistikler satırı
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Row(
-                        children: [
-                          // Profil Resmi - Story çemberi ile
-                          GestureDetector(
-                            onTap: _userStories.isNotEmpty
-                                ? () => _openStories()
-                                : () => showFullScreenImage(context, avatarUrl),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: _userStories.isNotEmpty
-                                    ? const LinearGradient(
-                                        colors: [
-                                          Color(0xFF833AB4),
-                                          Color(0xFFE1306C),
-                                          Color(0xFFF77737),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : null,
-                                color: _userStories.isEmpty
-                                    ? Colors.grey.shade200
-                                    : null,
-                                boxShadow: _userStories.isNotEmpty
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.pink.withOpacity(0.3),
-                                          blurRadius: 12,
-                                          spreadRadius: 2,
-                                        ),
-                                      ]
-                                    : [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
-                                          blurRadius: 8,
-                                          spreadRadius: 1,
-                                        ),
-                                      ],
-                              ),
-                              padding: const EdgeInsets.all(3),
-                              child: CircleAvatar(
-                                radius: 44,
-                                backgroundColor: Colors.white,
-                                child: CircleAvatar(
-                                  radius: 42,
-                                  backgroundImage: avatarUrl != null
-                                      ? NetworkImage(avatarUrl)
-                                      : null,
-                                  backgroundColor: Colors.grey.shade100,
-                                  child: avatarUrl == null
-                                      ? Text(
-                                          username.isNotEmpty
-                                              ? username
-                                                    .substring(0, 1)
-                                                    .toUpperCase()
-                                              : '?',
-                                          style: TextStyle(
-                                            fontSize: 36,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 24),
-                          // İstatistikler
-                          Expanded(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                buildStatItem(
-                                  '${_userPosts.length}',
-                                  'Gönderi',
-                                  null,
-                                ),
-                                buildStatItem(
-                                  '$_followersCount',
-                                  'Takipçi',
-                                  () => _navigateToFollowList(
-                                    FollowListType.followers,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _showGrid = true),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
                                   ),
-                                ),
-                                buildStatItem(
-                                  '$_followingCount',
-                                  'Takip',
-                                  () => _navigateToFollowList(
-                                    FollowListType.following,
-                                  ),
-                                ),
-                                buildStatItem(
-                                  '$_friendsCount',
-                                  'Arkadaş',
-                                  () => _navigateToFollowList(
-                                    FollowListType.friends,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // İsim ve bio
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            fullName,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          if (bio != null && bio.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              bio,
-                              style: TextStyle(
-                                fontSize: 14,
-                                height: 1.5,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                          if (_profileData!['website'] != null &&
-                              _profileData!['website']
-                                  .toString()
-                                  .isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            InkWell(
-                              onTap: () => _launchUrl(
-                                _profileData!['website'].toString(),
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE3F2FD),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.link_rounded,
-                                      size: 16,
-                                      color: Colors.blue.shade700,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        _profileData!['website'],
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.blue.shade700,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: _showGrid
+                                            ? Colors.black
+                                            : Colors.transparent,
+                                        width: 2,
                                       ),
                                     ),
-                                  ],
+                                  ),
+                                  child: Icon(
+                                    Icons.grid_on_rounded,
+                                    color: _showGrid
+                                        ? Colors.black
+                                        : Colors.grey.shade400,
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _showGrid = false),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: !_showGrid
+                                            ? Colors.black
+                                            : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.view_agenda_outlined,
+                                    color: !_showGrid
+                                        ? Colors.black
+                                        : Colors.grey.shade400,
+                                    size: 24,
+                                  ),
                                 ),
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ===== BUTONLAR =====
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _buildActionButtons(isOwnProfile),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ===== ANALİTİK BÖLÜMÜ =====
-                    if (isOwnProfile &&
-                        !_isLoadingAnalytics &&
-                        (_profileViewStats != null || _postViewStats != null))
-                      ProfileStatsSection(
-                        animation: _statsAnimation,
-                        profileStats: _profileViewStats,
-                        postStats: _postViewStats,
-                        onToggle: () {
-                          setState(() {
-                            _statsExpanded = !_statsExpanded;
-                            if (_statsExpanded) {
-                              _statsAnimationController.forward();
-                            } else {
-                              _statsAnimationController.reverse();
-                            }
-                          });
-                        },
-                      ),
-
-                    // ===== TAB BAR =====
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Colors.grey.shade200),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => setState(() => _showGrid = true),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: _showGrid
-                                          ? Colors.black
-                                          : Colors.transparent,
-                                      width: 2,
-                                    ),
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.grid_on_rounded,
-                                  color: _showGrid
-                                      ? Colors.black
-                                      : Colors.grey.shade400,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => setState(() => _showGrid = false),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: !_showGrid
-                                          ? Colors.black
-                                          : Colors.transparent,
-                                      width: 2,
-                                    ),
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.view_agenda_outlined,
-                                  color: !_showGrid
-                                      ? Colors.black
-                                      : Colors.grey.shade400,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-            // ===== GÖNDERİLER =====
-            // Gizli profil ve takip edilmiyorsa gizli profil mesajı göster
-            if (!isOwnProfile && _isProfilePrivate && !_isFollowing)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: _buildPrivateProfileMessage(),
-                ),
-              )
-            else if (_isLoadingPosts)
-              const SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 200,
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (_userPosts.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: _buildEmptyState(isOwnProfile),
-                ),
-              )
-            else if (_showGrid)
-              _buildGridView()
-            else
-              _buildListView(isOwnProfile),
+              // ===== GÖNDERİLER =====
+              // Gizli profil ve takip edilmiyorsa gizli profil mesajı göster
+              if (!isOwnProfile && _isProfilePrivate && !_isFollowing)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: _buildPrivateProfileMessage(),
+                  ),
+                )
+              else if (_isLoadingPosts)
+                const SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                )
+              else if (_userPosts.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: _buildEmptyState(isOwnProfile),
+                  ),
+                )
+              else if (_showGrid)
+                _buildGridView()
+              else
+                _buildListView(isOwnProfile),
 
-            // Alt boşluk
-            const SliverToBoxAdapter(child: SizedBox(height: 100)),
-          ],
+              // Alt boşluk
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+            ],
+          ),
         ),
       ),
     );
@@ -1160,6 +1001,51 @@ class _ProfileScreenState extends State<ProfileScreen>
           Icons.photo_camera_outlined,
           size: 48,
           color: Colors.white.withOpacity(0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildWebsiteChip() {
+    final website = _profileData?['website']?.toString().trim() ?? '';
+    if (website.isEmpty) return null;
+
+    return InkWell(
+      onTap: () => _launchUrl(website),
+      borderRadius: BorderRadius.circular(11),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 270),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x18000000),
+              blurRadius: 7,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.link_rounded, size: 17, color: Color(0xFF374151)),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                website,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1195,7 +1081,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           !_isFollowing &&
           _followRequestStatus == 'pending';
       final String followText = _isFollowing
-          ? 'Takip Ediliyor'
+          ? 'Takipten Çık'
           : (isPending
                 ? 'İstek Gönderildi'
                 : (_isProfilePrivate ? 'Takip İsteği Gönder' : 'Takip Et'));
@@ -1204,81 +1090,34 @@ class _ProfileScreenState extends State<ProfileScreen>
       return Row(
         children: [
           Expanded(
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                gradient: showGradient
-                    ? LinearGradient(
-                        colors: [
-                          Theme.of(context).colorScheme.primary,
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withOpacity(0.8),
-                        ],
-                      )
-                    : null,
-                color: !showGradient ? Colors.grey.shade100 : null,
-                borderRadius: BorderRadius.circular(12),
-                border: !showGradient
-                    ? Border.all(color: Colors.grey.shade300)
-                    : null,
-                boxShadow: showGradient
-                    ? [
-                        BoxShadow(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _toggleFollow,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Center(
-                    child: Text(
-                      followText,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: showGradient ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            child: ProfileActionButton(
+              label: followText,
+              icon: _isFollowing
+                  ? Icons.person_remove_outlined
+                  : (isPending
+                        ? Icons.schedule_rounded
+                        : Icons.person_add_alt_1_outlined),
+              onTap: _toggleFollow,
+              gradientColors: showGradient
+                  ? const [Color(0xFF087DB4), Color(0xFF126796)]
+                  : null,
+              backgroundColor: const Color(0xFFF3F4F6),
+              foregroundColor: showGradient
+                  ? Colors.white
+                  : const Color(0xFF374151),
+              borderColor: showGradient ? null : const Color(0xFFD1D5DB),
+              shadowColor: showGradient
+                  ? const Color(0x40087DB4)
+                  : const Color(0x18000000),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 14),
           Expanded(
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _startChat,
-                  borderRadius: BorderRadius.circular(12),
-                  child: const Center(
-                    child: Text(
-                      'Mesaj',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            child: ProfileActionButton(
+              label: 'Mesaj',
+              icon: Icons.chat_bubble_outline_rounded,
+              onTap: _startChat,
+              gradientColors: const [Color(0xFF737B84), Color(0xFF59616A)],
             ),
           ),
         ],
@@ -1288,60 +1127,28 @@ class _ProfileScreenState extends State<ProfileScreen>
     return Row(
       children: [
         Expanded(
-          child: Container(
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _editProfile,
-                borderRadius: BorderRadius.circular(12),
-                child: const Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.edit_outlined,
-                        size: 18,
-                        color: Colors.black87,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'Profili Düzenle',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          child: ProfileActionButton(
+            label: 'Profili Düzenle',
+            icon: Icons.edit_outlined,
+            onTap: _editProfile,
+            gradientColors: const [Color(0xFF087DB4), Color(0xFF126796)],
+            shadowColor: const Color(0x40087DB4),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Container(
-          height: 44,
-          width: 44,
+          height: 40,
+          width: 40,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Theme.of(context).colorScheme.primary,
-                Theme.of(context).colorScheme.primary.withOpacity(0.8),
-              ],
+            gradient: const LinearGradient(
+              colors: [Color(0xFF737B84), Color(0xFF59616A)],
             ),
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [
+            boxShadow: const [
               BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
+                color: Color(0x30000000),
+                blurRadius: 9,
+                offset: Offset(0, 4),
               ),
             ],
           ),
@@ -1350,28 +1157,32 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: InkWell(
               onTap: _createPost,
               borderRadius: BorderRadius.circular(12),
-              child: const Icon(Icons.add, color: Colors.white, size: 22),
+              child: const Icon(
+                Icons.add_rounded,
+                color: Colors.white,
+                size: 23,
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Container(
-          height: 44,
-          width: 44,
+          height: 40,
+          width: 40,
           decoration: BoxDecoration(
-            color: Colors.grey.shade100,
+            color: const Color(0xFFF3F4F6),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: const Color(0xFFD1D5DB)),
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: _showSettingsMenu,
               borderRadius: BorderRadius.circular(12),
-              child: Icon(
+              child: const Icon(
                 Icons.settings_outlined,
-                color: Colors.grey.shade700,
-                size: 22,
+                color: Color(0xFF4B5563),
+                size: 21,
               ),
             ),
           ),
@@ -2332,6 +2143,35 @@ class _ProfileScreenState extends State<ProfileScreen>
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
+                  color: Colors.deepPurple.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.deepPurple.shade400,
+                  size: 20,
+                ),
+              ),
+              title: const Text(
+                'Profil Özelliklerim',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: const Text('Efektlerini ve ikonlarını aç veya kapat'),
+              trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MyProfileFeaturesScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -2376,6 +2216,34 @@ class _ProfileScreenState extends State<ProfileScreen>
                   context,
                   MaterialPageRoute(
                     builder: (context) => const MyReportsScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.campaign_outlined,
+                  color: Colors.teal.shade400,
+                  size: 20,
+                ),
+              ),
+              title: const Text(
+                'İlanlarım',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MyIlanlarScreen(),
                   ),
                 );
               },

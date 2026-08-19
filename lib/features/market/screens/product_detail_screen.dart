@@ -14,6 +14,7 @@ import '../../../core/providers/favorites_provider.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../services/product_service.dart';
 import '../services/shop_service.dart';
@@ -254,8 +255,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _globalOrdersEnabled = globalEnabled;
         _isLoading = false;
         if (product.isDigital) {
-          _digitalQuantity = 0;
-          _digitalQuantityController.text = '';
+          // Sağlayıcıdan senkronize edilen alt sınır varsayılan miktar olarak gelir;
+          // müşteri geçersiz bir değerle başlamaz.
+          final minQ = product.minQuantity ?? 0;
+          _digitalQuantity = minQ;
+          _digitalQuantityController.text = minQ > 0 ? minQ.toString() : '';
+        } else {
+          // Satıcı minimum sipariş adedi koyduysa seçici oradan başlasın;
+          // aksi halde müşteri sepete geçersiz bir adetle giderdi.
+          _quantity = product.minOrderQty;
         }
       });
 
@@ -725,6 +733,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         product.name,
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
+
+                      // Satıcı rozetleri (yoksa hiç yer kaplamaz)
+                      if (product.badgeDetails.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        ProductBadgesWrap(product: product, large: true),
+                      ],
+
                       const SizedBox(height: 8),
 
                       // Rating (Tıklanabilir - yorumlara kaydır)
@@ -896,6 +911,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           ),
                           backgroundColor: Colors.red,
                         ),
+
+                      // Kargo / hazırlık süresi / adet limiti bilgileri
+                      if (product.hasCustomShipping ||
+                          product.prepTimeLabel != null) ...[
+                        const SizedBox(height: 12),
+                        ProductLogisticsWrap(
+                          product: product,
+                          large: true,
+                          showShipping: !product.isDigital,
+                        ),
+                      ],
 
                       const SizedBox(height: 16),
 
@@ -1115,6 +1141,39 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            // Sağlayıcıdan senkronize edilen miktar aralığı müşteriye açıkça gösterilir.
+            if (maxQ > 0) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.indigo.shade100),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.swap_vert,
+                      size: 18,
+                      color: Colors.indigo.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Sipariş miktarı: en az $minQ, en fazla $maxQ adet',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: _digitalQuantityController,
               keyboardType: TextInputType.number,
@@ -1122,15 +1181,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 labelText: 'Miktar',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.numbers),
-                // Max aşılırsa uyarı göster
+                helperText: maxQ > 0 ? 'Min $minQ - Max $maxQ' : null,
+                // Aralık dışına çıkılırsa uyarı göster
                 errorText: !isQuantityValid && _digitalQuantity > 0
                     ? 'Miktar $minQ - $maxQ aralığında olmalıdır'
                     : null,
               ),
               onChanged: (value) {
                 final newQty = int.tryParse(value) ?? 0;
-                // Max aşılırsa otomatik max'e düzelt
-                if (newQty > maxQ) {
+                // Max aşılırsa otomatik max'e düzelt (max bilinmiyorsa düzeltme yapılmaz)
+                if (maxQ > 0 && newQty > maxQ) {
                   _digitalQuantityController.text = maxQ.toString();
                   _digitalQuantity = maxQ;
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1518,56 +1578,93 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Widget _buildQuantitySelector(Product product) {
-    final maxQuantity = product.hasVariants && _selectedColor != null
+    final stockLimit = product.hasVariants && _selectedColor != null
         ? _selectedColor!.stock
         : (product.isDigital ? 999 : product.stockQuantity);
 
-    return Row(
+    // Satıcının koyduğu adet limiti stok limitiyle birlikte uygulanır:
+    // üst sınır ikisinin küçüğü, alt sınır satıcının minimumu.
+    final sellerMax = product.maxOrderQty;
+    final maxQuantity = sellerMax == null
+        ? stockLimit
+        : (sellerMax < stockLimit ? sellerMax : stockLimit);
+    final minQuantity = product.minOrderQty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Miktar:', style: Theme.of(context).textTheme.bodyLarge),
-        const SizedBox(width: 12),
-        Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove),
-                onPressed: _quantity > 1
-                    ? () {
-                        setState(() => _quantity--);
-                      }
-                    : null,
+        Row(
+          children: [
+            Text('Miktar:', style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(width: 12),
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
               ),
-              SizedBox(
-                width: 40,
-                child: Text(
-                  _quantity.toString(),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove),
+                    onPressed: _quantity > minQuantity
+                        ? () {
+                            setState(() => _quantity--);
+                          }
+                        : null,
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      _quantity.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: _quantity < maxQuantity
+                        ? () {
+                            setState(() => _quantity++);
+                          }
+                        : null,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (product.hasVariants && _selectedColor != null)
+              Text(
+                'Stok: $stockLimit',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+          ],
+        ),
+        // Satıcı adet sınırı koyduysa nedenini açıkla
+        if (product.orderQuantityLabel != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: Colors.grey.shade600,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    product.orderQuantityLabel!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: _quantity < maxQuantity
-                    ? () {
-                        setState(() => _quantity++);
-                      }
-                    : null,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        if (product.hasVariants && _selectedColor != null)
-          Text(
-            'Stok: $maxQuantity',
-            style: TextStyle(color: Colors.grey.shade600),
+              ],
+            ),
           ),
       ],
     );

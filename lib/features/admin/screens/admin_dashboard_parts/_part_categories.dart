@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -281,7 +293,7 @@ extension on _AdminDashboardScreenState {
     final sortOrderController = TextEditingController(text: '0');
     bool isActive = true;
     XFile? selectedImage;
-    String? previewUrl;
+    Uint8List? previewBytes;
     bool isUploading = false;
 
     showDialog(
@@ -306,9 +318,10 @@ extension on _AdminDashboardScreenState {
                         imageQuality: 85,
                       );
                       if (picked != null) {
+                        final bytes = await picked.readAsBytes();
                         setDialogState(() {
                           selectedImage = picked;
-                          previewUrl = picked.path;
+                          previewBytes = bytes;
                         });
                       }
                     },
@@ -324,11 +337,9 @@ extension on _AdminDashboardScreenState {
                               : Colors.grey.shade300,
                           width: selectedImage != null ? 2 : 1,
                         ),
-                        image: previewUrl != null
+                        image: previewBytes != null
                             ? DecorationImage(
-                                image: previewUrl!.startsWith('http')
-                                    ? NetworkImage(previewUrl!) as ImageProvider
-                                    : AssetImage(previewUrl!),
+                                image: MemoryImage(previewBytes!),
                                 fit: BoxFit.cover,
                               )
                             : null,
@@ -365,8 +376,8 @@ extension on _AdminDashboardScreenState {
                                 Positioned.fill(
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(11),
-                                    child: Image.asset(
-                                      previewUrl!,
+                                    child: Image.memory(
+                                      previewBytes!,
                                       fit: BoxFit.cover,
                                       // ignore: unnecessary_underscores
                                       errorBuilder: (_, __, ___) =>
@@ -388,7 +399,7 @@ extension on _AdminDashboardScreenState {
                                     onTap: () {
                                       setDialogState(() {
                                         selectedImage = null;
-                                        previewUrl = null;
+                                        previewBytes = null;
                                       });
                                     },
                                     child: Container(
@@ -568,6 +579,7 @@ extension on _AdminDashboardScreenState {
     );
     bool isActive = category['is_active'] ?? true;
     XFile? selectedImage;
+    Uint8List? selectedImageBytes;
     String? previewUrl = category['image_url'];
     bool isUploading = false;
 
@@ -625,8 +637,10 @@ extension on _AdminDashboardScreenState {
                             );
 
                             if (image != null) {
+                              final bytes = await image.readAsBytes();
                               setDialogState(() {
                                 selectedImage = image;
+                                selectedImageBytes = bytes;
                                 previewUrl = null; // Eski URL'yi temizle
                               });
                             }
@@ -638,14 +652,14 @@ extension on _AdminDashboardScreenState {
                         borderRadius: BorderRadius.circular(8),
                         color: Colors.grey[100],
                       ),
-                      child: selectedImage != null
+                      child: selectedImageBytes != null
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: CachedNetworkImage(
-                                imageUrl: selectedImage!.path,
+                              child: Image.memory(
+                                selectedImageBytes!,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
-                                errorWidget: (context, url, error) {
+                                errorBuilder: (context, error, stackTrace) {
                                   return const Center(
                                     child: Icon(
                                       Icons.error,

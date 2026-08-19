@@ -109,9 +109,17 @@ serve(async (req: Request) => {
     console.error("admob_ssv_rejected", { code });
     const transient = code === "KEY_FETCH_FAILED" ||
       code === "GRANT_RPC_FAILED" || code.startsWith("MISSING_CONFIG:");
+    // Kalıcı ret (imza/ad-unit/replay/parse) 200 döner: karar verilmiştir,
+    // tekrar denemenin faydası yoktur ve AdMob non-2xx yanıtı "endpoint
+    // bozuk" sayıp hem konsolda URL kaydını reddeder hem de callback'i
+    // tekrar tekrar gönderir. Güvenlik imza doğrulamasındadır, HTTP
+    // kodunda değil — bu yolda hiçbir koşulda kredi yazılmaz.
+    // Geçici hata 503 kalır: Google'ın tekrar denemesini İSTERİZ, aksi
+    // halde bizim tarafımızdaki anlık arıza meşru bir ödülü yok eder.
     return json({
+      status: "rejected",
       error_code: transient ? "TEMPORARY_VERIFICATION_FAILURE" : "SSV_REJECTED",
-    }, transient ? 503 : 400);
+    }, transient ? 503 : 200, { "Cache-Control": "no-store" });
   }
 });
 

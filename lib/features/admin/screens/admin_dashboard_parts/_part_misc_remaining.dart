@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -11,6 +23,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'user_reports',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('🆕 Yeni şikayet eklendi: ${payload.newRecord}');
             // Badge sayısını güncelle
             setState(() {
@@ -23,6 +36,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'user_reports',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('✏️ Şikayet güncellendi: ${payload.newRecord}');
             // Status değişikliğini kontrol et ve badge'i güncelle
             final oldStatus = payload.oldRecord['status'] as String?;
@@ -55,6 +69,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'support_tickets',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('🎫 Yeni destek talebi eklendi: ${payload.newRecord}');
             // Badge sayısını güncelle
             setState(() {
@@ -67,6 +82,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'support_tickets',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('✏️ Destek talebi güncellendi: ${payload.newRecord}');
             // Status değişikliğini kontrol et ve badge'i güncelle
             final oldStatus = payload.oldRecord['status'] as String?;
@@ -97,6 +113,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'posts',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Gönderiler') {
               setState(() => _newPostsCount++);
             }
@@ -107,6 +124,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'products',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Ürünler') {
               setState(() => _newProductsCount++);
             }
@@ -117,6 +135,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'orders',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Siparişler') {
               setState(() => _newOrdersCount++);
             }
@@ -127,6 +146,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'groups',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Gruplar') {
               setState(() => _newGroupsCount++);
             }
@@ -137,6 +157,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'profiles',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Kullanıcılar') {
               setState(() => _newUsersCount++);
             }
@@ -215,8 +236,12 @@ extension on _AdminDashboardScreenState {
         return _buildDashboardContent();
       case 'Kullanıcılar':
         return _buildUsersContent();
+      case 'Kullanıcı Özellikleri':
+        return const UserFeaturesAdminContent();
       case 'Gönderiler':
         return _buildPostsContent();
+      case 'İlanlar & Kategoriler':
+        return const IlanAdminContent();
       case 'Haberler':
         return const NewsManagementContent();
       case 'Ürünler':
@@ -258,10 +283,12 @@ extension on _AdminDashboardScreenState {
         return const GroupsManagementContent();
       case 'Bildirimler':
         return const NotificationsContentV2();
+      // NOT: 'Gönderi Şikayetleri' case'i kaldirildi. _selectedMenu bu degeri
+      // hicbir yerde almiyordu (drawer'da karsiligi yok), yani case olu koddu.
+      // Gonderi sikayetleri zaten Sikayetler sayfasinin alt bolumunde
+      // listeleniyor (_part_reports.dart).
       case 'Şikayetler':
         return _buildReportsContent();
-      case 'Gönderi Şikayetleri':
-        return _buildPostReportsContent();
       case 'Destek Talepleri':
         return _buildSupportTicketsContent();
       case 'Ödemeler':

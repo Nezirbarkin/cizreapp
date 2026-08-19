@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -733,128 +745,10 @@ extension on _AdminDashboardScreenState {
     );
   }
 
-  // --- _showSendNotificationDialog ---
-  void _showSendNotificationDialog() {
-    final titleController = TextEditingController();
-    final bodyController = TextEditingController();
-    String targetAudience = 'all';
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Bildirim Gönder'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Başlık',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: bodyController,
-                  decoration: const InputDecoration(
-                    labelText: 'Mesaj',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: targetAudience,
-                  decoration: const InputDecoration(
-                    labelText: 'Hedef Kitle',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'all',
-                      child: Text('Tüm Kullanıcılar'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'customers',
-                      child: Text('Müşteriler'),
-                    ),
-                    DropdownMenuItem(value: 'admins', child: Text('Adminler')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => targetAudience = value);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (titleController.text.isEmpty ||
-                    bodyController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Tüm alanları doldurun')),
-                  );
-                  return;
-                }
-
-                try {
-                  // Bulk notification için tüm kullanıcılara gönder.
-                  // 20260803000006 sonrasında profiles üzerinde
-                  // authenticated SELECT policy'si yok; SECURITY DEFINER
-                  // admin_profiles_minimal RPC üzerinden alıyoruz.
-                  final usersResponse = await Supabase.instance.client
-                      .rpc<List<dynamic>>('admin_profiles_minimal', params: {
-                    'p_user_ids': null,
-                  });
-
-                  if (usersResponse.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Kullanıcı bulunamadı')),
-                    );
-                    return;
-                  }
-
-                  for (var user in usersResponse) {
-                    await Supabase.instance.client.from('notifications').insert(
-                      {
-                        'user_id': user['id'],
-                        'type': 'shop', // Admin notification type
-                        'title': titleController.text.trim(),
-                        'content': bodyController.text.trim(),
-                        'is_read': false,
-                      },
-                    );
-                  }
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Bildirim gönderildi')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Hata: $e')));
-                  }
-                }
-              },
-              child: const Text('Gönder'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // NOT: Buradaki eski _showSendNotificationDialog (hedef kitle filtresini
+  // uygulamayan, doğrudan notifications tablosuna yazan) kaldırıldı —
+  // hiçbir buton bu metodu çağırmıyordu (ölü kod) ve zaten doğru/güncel
+  // uygulaması NotificationsContentV2._showSendNotificationDialog'da
+  // (admin_broadcast_notification / admin_send_personal_notification RPC'leri
+  // ile, hedef kitleyi sunucu tarafında uygulayan) mevcut.
 }

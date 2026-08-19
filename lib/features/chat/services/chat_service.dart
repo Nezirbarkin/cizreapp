@@ -56,7 +56,9 @@ class ChatService {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return null;
 
-    AppLogger.debug('getOrCreateConversation: currentUserId=$currentUserId, otherUserId=$otherUserId');
+    AppLogger.debug(
+      'getOrCreateConversation: currentUserId=$currentUserId, otherUserId=$otherUserId',
+    );
 
     try {
       // public_profiles_chat SECURITY DEFINER; messages_enabled sütununu
@@ -67,14 +69,17 @@ class ChatService {
           .eq('id', otherUserId)
           .maybeSingle();
 
-      if (otherUserProfile != null && otherUserProfile['messages_enabled'] == false) {
+      if (otherUserProfile != null &&
+          otherUserProfile['messages_enabled'] == false) {
         AppLogger.debug('Other user has messages disabled');
         return null;
       }
 
       final existingConv = await _supabase
           .from('conversations')
-          .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id')
+          .select(
+            'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
+          )
           .eq('user_id', currentUserId)
           .eq('other_user_id', otherUserId)
           .maybeSingle();
@@ -89,7 +94,9 @@ class ChatService {
 
         final otherUserProfileData = await _getOtherUserProfile(otherUserId);
 
-        Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(existingConv);
+        Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(
+          existingConv,
+        );
         convWithProfile['other_user'] = otherUserProfileData;
 
         return Conversation.fromMap(convWithProfile);
@@ -99,11 +106,10 @@ class ChatService {
 
       final newConv = await _supabase
           .from('conversations')
-          .insert({
-            'user_id': currentUserId,
-            'other_user_id': otherUserId,
-          })
-          .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at')
+          .insert({'user_id': currentUserId, 'other_user_id': otherUserId})
+          .select(
+            'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at',
+          )
           .single();
 
       final newOtherUserProfileData = await _getOtherUserProfile(otherUserId);
@@ -116,17 +122,21 @@ class ChatService {
       AppLogger.error('Error getting/creating conversation: $e');
       AppLogger.error('Stack trace: $stackTrace');
 
-      if (e.toString().contains('duplicate key') || e.toString().contains('23505')) {
+      if (e.toString().contains('duplicate key') ||
+          e.toString().contains('23505')) {
         try {
           final existingConv = await _supabase
               .from('conversations')
-              .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id')
+              .select(
+                'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
+              )
               .eq('user_id', currentUserId)
               .eq('other_user_id', otherUserId)
               .maybeSingle();
 
           if (existingConv != null) {
-            if ((existingConv['deleted_for_user_id'] as String?) == currentUserId) {
+            if ((existingConv['deleted_for_user_id'] as String?) ==
+                currentUserId) {
               await _supabase
                   .from('conversations')
                   .update({'deleted_for_user_id': null})
@@ -134,7 +144,9 @@ class ChatService {
             }
 
             final existingUserProfile = await _getOtherUserProfile(otherUserId);
-            Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(existingConv);
+            Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(
+              existingConv,
+            );
             convWithProfile['other_user'] = existingUserProfile;
             return Conversation.fromMap(convWithProfile);
           }
@@ -172,19 +184,25 @@ class ChatService {
 
       final myConvs = await _supabase
           .from('conversations')
-          .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id')
+          .select(
+            'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
+          )
           .eq('user_id', currentUserId)
           .or(_softDeleteFilter(currentUserId))
           .order('updated_at', ascending: false);
 
       final reverseConvs = await _supabase
           .from('conversations')
-          .select('id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id')
+          .select(
+            'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
+          )
           .eq('other_user_id', currentUserId)
           .or(_softDeleteFilter(currentUserId))
           .order('updated_at', ascending: false);
 
-      AppLogger.debug('getConversations: myConvs=${myConvs.length}, reverseConvs=${reverseConvs.length}');
+      AppLogger.debug(
+        'getConversations: myConvs=${myConvs.length}, reverseConvs=${reverseConvs.length}',
+      );
 
       if (myConvs.isEmpty && reverseConvs.isEmpty) return [];
 
@@ -209,7 +227,10 @@ class ChatService {
 
       final userConvs = partnerToConv.values.toList();
 
-      final otherUserIds = userConvs.map((c) => c['other_user_id'] as String).toSet().toList();
+      final otherUserIds = userConvs
+          .map((c) => c['other_user_id'] as String)
+          .toSet()
+          .toList();
       // public_profiles_chat: SECURITY DEFINER view; is_online ve last_seen
       // sütunlarını da içerir (profiles tablosu RLS yüzünden başkalarını
       // döndürmez).
@@ -229,7 +250,8 @@ class ChatService {
       // partner conv'unu mutasyonlu other_user_id (=partnerId) uzerinden bulur.
       final reverseConvIdByPartner = <String, String>{};
       for (var rc in reverseConvs) {
-        reverseConvIdByPartner[rc['other_user_id'] as String] = rc['id'] as String;
+        reverseConvIdByPartner[rc['other_user_id'] as String] =
+            rc['id'] as String;
       }
 
       final allConvIds = <String>[
@@ -240,12 +262,16 @@ class ChatService {
       // Son mesajlari çek: ID'ye göre tekilestirme
       final lastMessages = await _supabase
           .from('messages')
-          .select('id, conversation_id, sender_id, is_read, created_at, content')
+          .select(
+            'id, conversation_id, sender_id, is_read, created_at, content',
+          )
           .inFilter('conversation_id', allConvIds)
           .or(_softDeleteFilter(currentUserId))
           .order('created_at', ascending: false);
 
-      AppLogger.debug('getConversations: Toplam ${lastMessages.length} mesaj çekildi');
+      AppLogger.debug(
+        'getConversations: Toplam ${lastMessages.length} mesaj çekildi',
+      );
 
       // ID'ye göre tekilestirme (ayni mesaj iki conversation'da ise 1 kez)
       final uniqueById = <String, Map<String, dynamic>>{};
@@ -265,16 +291,20 @@ class ChatService {
         final partnerConvId = reverseConvIdByPartner[otherUserId] ?? '';
 
         // Bu partner için tüm conversation_id'lerden mesaj topla
-        final partnerConvIds = <String>{
-          myConvId,
-          partnerConvId,
-        }..removeWhere((e) => e.isEmpty);
+        final partnerConvIds = <String>{myConvId, partnerConvId}
+          ..removeWhere((e) => e.isEmpty);
 
-        final partnerMessages = uniqueById.values.where((m) => partnerConvIds.contains(m['conversation_id'])).toList();
+        final partnerMessages = uniqueById.values
+            .where((m) => partnerConvIds.contains(m['conversation_id']))
+            .toList();
 
         if (partnerMessages.isNotEmpty) {
           // En yeni mesaj
-          partnerMessages.sort((a, b) => DateTime.parse(b['created_at'] as String).compareTo(DateTime.parse(a['created_at'] as String)));
+          partnerMessages.sort(
+            (a, b) => DateTime.parse(
+              b['created_at'] as String,
+            ).compareTo(DateTime.parse(a['created_at'] as String)),
+          );
           final newest = Map<String, dynamic>.from(partnerMessages.first);
 
           // ÖNEMLI: Son mesaj BENIM ise "okundu" bilgisi SADECE partner
@@ -319,7 +349,9 @@ class ChatService {
           convWithProfile['last_message'] = lastMsgData['content'];
           convWithProfile['last_message_time'] = lastMsgData['created_at'];
 
-          AppLogger.debug('  $key: sender=${isMe ? "ME" : "OTHER"} is_read=$isRead');
+          AppLogger.debug(
+            '  $key: sender=${isMe ? "ME" : "OTHER"} is_read=$isRead',
+          );
         } else {
           convWithProfile['last_message_by_me'] = false;
           convWithProfile['last_message_read'] = false;
@@ -332,7 +364,11 @@ class ChatService {
 
       return allConversations;
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting conversations: $e', error: e, stackTrace: stackTrace);
+      AppLogger.error(
+        'Error getting conversations: $e',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -388,7 +424,9 @@ class ChatService {
           .or(softFilter)
           .order('created_at', ascending: true);
 
-      AppLogger.debug('getMessages: Fetched ${response.length} messages from ${convIds.length} conversations');
+      AppLogger.debug(
+        'getMessages: Fetched ${response.length} messages from ${convIds.length} conversations',
+      );
 
       // KOMPOZIT-ANAHTAR TEKILLESTIRME (Bug B fix):
       // Mailbox modelinde her mantıksal mesaj İKİ satır olarak durur:
@@ -403,7 +441,8 @@ class ChatService {
       final grouped = <String, List<Map<String, dynamic>>>{};
       final keyOrder = <String>[];
       for (var msg in response) {
-        final key = '${msg['sender_id']}|${msg['content']}|${msg['created_at']}';
+        final key =
+            '${msg['sender_id']}|${msg['content']}|${msg['created_at']}';
         final list = grouped.putIfAbsent(key, () {
           keyOrder.add(key);
           return <Map<String, dynamic>>[];
@@ -425,7 +464,9 @@ class ChatService {
         }
         // Görünüm tutarlılığı için kendi conv kopyamızı temel al (id sabit kalır,
         // realtime INSERT ile eşleşir). Yoksa eldeki tek kopyayı kullan.
-        final base = Map<String, dynamic>.from(myCopy ?? partnerCopy ?? copies.first);
+        final base = Map<String, dynamic>.from(
+          myCopy ?? partnerCopy ?? copies.first,
+        );
         final isMine = base['sender_id'] == currentUserId;
         if (isMine) {
           // Kendi mesajım için "okundu" SADECE partner kopyasından gelir
@@ -434,27 +475,37 @@ class ChatService {
           base['is_read'] = (partnerCopy?['is_read'] as bool?) ?? false;
         } else {
           // Gelen mesaj: ben okudum mu → kendi conv kopyam
-          base['is_read'] = (myCopy?['is_read'] as bool?) ??
-              (base['is_read'] as bool?) ?? false;
+          base['is_read'] =
+              (myCopy?['is_read'] as bool?) ??
+              (base['is_read'] as bool?) ??
+              false;
         }
         uniqueMessages.add(base);
       }
 
-      AppLogger.debug('getMessages: ${uniqueMessages.length} unique messages after dedup');
+      AppLogger.debug(
+        'getMessages: ${uniqueMessages.length} unique messages after dedup',
+      );
 
       for (var msg in uniqueMessages) {
         final isMe = msg['sender_id'] == currentUserId;
         final isRead = msg['is_read'] ?? false;
         final contentStr = (msg['content'] as String?) ?? '';
-        final contentPreview = contentStr.length > 30 ? contentStr.substring(0, 30) : contentStr;
-        AppLogger.debug('  msg_id=${msg['id']?.toString().substring(0, 8)}... sender=${isMe ? "ME" : "OTHER"} is_read=$isRead content=$contentPreview');
+        final contentPreview = contentStr.length > 30
+            ? contentStr.substring(0, 30)
+            : contentStr;
+        AppLogger.debug(
+          '  msg_id=${msg['id']?.toString().substring(0, 8)}... sender=${isMe ? "ME" : "OTHER"} is_read=$isRead content=$contentPreview',
+        );
       }
 
-      return uniqueMessages
-          .map((json) => Message.fromMap(json))
-          .toList();
+      return uniqueMessages.map((json) => Message.fromMap(json)).toList();
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting messages: $e', error: e, stackTrace: stackTrace);
+      AppLogger.error(
+        'Error getting messages: $e',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -565,12 +616,30 @@ class ChatService {
     }
   }
 
+  /// İlan detayından sohbete güvenli, tıklanabilir ilan kartı gönderir.
+  /// Mesaj normal gönderim RPC'sinden geçtiği için iki tarafın konuşmasında da
+  /// görünür ve mevcut bildirim/okundu altyapısını kullanır.
+  Future<Message?> sendSharedIlan({
+    required String conversationId,
+    required String ilanId,
+    required String title,
+    required String priceText,
+    required String locationText,
+    String? imageUrl,
+  }) {
+    final content =
+        'SHARED_ILAN:${json.encode({'ilanId': ilanId, 'title': title, 'priceText': priceText, 'locationText': locationText, 'imageUrl': imageUrl ?? ''})}';
+    return sendMessage(conversationId: conversationId, content: content);
+  }
+
   /// Kaldırıldı (2026-07-02): markSenderMessagesAsRead artık gerekli değil.
   /// Okundu bilgisi sadece mesajı ALAN kişi tarafından işaretlenmeli.
   /// Gönderen kişi, mesajın okundu bilgisini görmek için:
   /// 1. Realtime UPDATE event'ini dinlemeli (is_read değişikliği)
   /// 2. Karşı taraf sohbeti açtığında otomatik güncellenir
-  @Deprecated('Artık gerekli değil. Okundu bilgisi sadece alıcı tarafından işaretlenir.')
+  @Deprecated(
+    'Artık gerekli değil. Okundu bilgisi sadece alıcı tarafından işaretlenir.',
+  )
   Future<void> markSenderMessagesAsRead(String conversationId) async {
     // Bu metod artık bir şey yapmıyor.
     // Okundu bilgisi markMessagesAsRead() tarafından yönetiliyor.
@@ -584,12 +653,15 @@ class ChatService {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
 
-    AppLogger.debug('markMessagesAsRead START: conv=$conversationId userId=$currentUserId');
+    AppLogger.debug(
+      'markMessagesAsRead START: conv=$conversationId userId=$currentUserId',
+    );
 
     try {
-      await _supabase.rpc('mark_messages_as_read', params: {
-        'p_conversation_id': conversationId,
-      });
+      await _supabase.rpc(
+        'mark_messages_as_read',
+        params: {'p_conversation_id': conversationId},
+      );
       AppLogger.debug('markMessagesAsRead: RPC success');
     } catch (e) {
       AppLogger.error('markMessagesAsRead RPC failed, trying direct: $e');
@@ -606,13 +678,18 @@ class ChatService {
         final convUserId = convData['user_id'] as String?;
         final otherUserId = convData['other_user_id'] as String?;
 
-        if (convUserId != currentUserId) return; // Sadece conversation sahibi işaretlesin
+        if (convUserId != currentUserId) {
+          return; // Sadece conversation sahibi işaretlesin
+        }
         if (otherUserId == null) return; // Partner yoksa çık
 
         // Karşı tarafın mesajlarını okundu yap
         await _supabase
             .from('messages')
-            .update({'is_read': true, 'updated_at': DateTime.now().toIso8601String()})
+            .update({
+              'is_read': true,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
             .eq('conversation_id', conversationId)
             .eq('sender_id', otherUserId)
             .eq('is_read', false);
@@ -620,7 +697,10 @@ class ChatService {
         // Unread count'u sıfırla
         await _supabase
             .from('conversations')
-            .update({'unread_count': 0, 'updated_at': DateTime.now().toIso8601String()})
+            .update({
+              'unread_count': 0,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
             .eq('id', conversationId);
 
         AppLogger.debug('markMessagesAsRead: Direct update success');
@@ -647,7 +727,9 @@ class ChatService {
     }
   }
 
-  RealtimeChannel subscribeToConversations(Function(List<Conversation>) onUpdate) {
+  RealtimeChannel subscribeToConversations(
+    Function(List<Conversation>) onUpdate,
+  ) {
     return _supabase
         .channel('conversations_channel')
         .onPostgresChanges(
@@ -666,10 +748,11 @@ class ChatService {
   /// Konuşma bazlı presence dinlemesi. ChatDetailScreen initState'inde kullanılır.
   /// presenceService.joinConversationPresence() ayrıca çağrılmalı.
   ///
-  /// ÖNEMLI DÜZELTME (2026-07-02):
-  /// Eski kod sadece tek conversation_id'yi dinliyordu. İki yönlü sistemde
-  /// mesaj hem gönderenin hem alıcının conversation'ına ekleniyor (trigger ile).
-  /// Bu yüzden TÜM mesajları dinleyip client tarafında filtreleme yapıyoruz.
+  /// PERFORMANS: Her mesaj, ait olduğu conversation'ın conversation_id'sini
+  /// taşır (iki-yönlü mailbox modelinde bile her konuşmanın kendi satırı/kimliği
+  /// vardır). Bu yüzden sunucu tarafında .eq('conversation_id') ile yalnızca bu
+  /// konuşmanın mesajları yayınlanır; tüm mesaj trafiğini alıp client'ta
+  /// elemek (DB CPU + bant) gerekmez.
   RealtimeChannel subscribeToMessagesChannel({
     required String conversationId,
     required String currentUserId,
@@ -677,17 +760,24 @@ class ChatService {
   }) {
     final channel = _supabase.channel('messages:$conversationId');
 
-    // INSERT: TÜM mesajları dinle, client tarafında conversationId kontrolü yap
+    // INSERT: yalnızca bu konuşmaya ait mesajları sunucudan al
     channel.onPostgresChanges(
       event: PostgresChangeEvent.insert,
       schema: 'public',
       table: 'messages',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'conversation_id',
+        value: conversationId,
+      ),
       callback: (payload) {
-        AppLogger.debug('Realtime INSERT: ${payload.eventType} conv=${payload.newRecord['conversation_id']}');
+        AppLogger.debug(
+          'Realtime INSERT: ${payload.eventType} conv=${payload.newRecord['conversation_id']}',
+        );
         try {
           final msg = Message.fromMap(payload.newRecord);
-          // Sadece bu conversation'a ait mesajları al
-          if (msg.conversationId == conversationId || msg.senderId != currentUserId) {
+          if (msg.conversationId == conversationId ||
+              msg.senderId != currentUserId) {
             onEvent(InsertMessageEvent(msg));
           }
         } catch (e, st) {
@@ -696,16 +786,22 @@ class ChatService {
       },
     );
 
-    // UPDATE: TÜM güncellemeleri dinle (okundu bilgisi için gerekli)
+    // UPDATE: yalnızca bu konuşmaya ait güncellemeler (okundu bilgisi)
     channel.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'messages',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'conversation_id',
+        value: conversationId,
+      ),
       callback: (payload) {
-        AppLogger.debug('Realtime UPDATE: ${payload.eventType} conv=${payload.newRecord['conversation_id']}');
+        AppLogger.debug(
+          'Realtime UPDATE: ${payload.eventType} conv=${payload.newRecord['conversation_id']}',
+        );
         try {
           final msg = Message.fromMap(payload.newRecord);
-          // Sadece bu conversation'a ait mesajları al
           if (msg.conversationId == conversationId) {
             onEvent(UpdateMessageEvent(msg));
           }
@@ -715,16 +811,20 @@ class ChatService {
       },
     );
 
-    // DELETE: TÜM silme işlemlerini dinle
+    // DELETE: yalnızca bu konuşmaya ait silmeler
     channel.onPostgresChanges(
       event: PostgresChangeEvent.delete,
       schema: 'public',
       table: 'messages',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'conversation_id',
+        value: conversationId,
+      ),
       callback: (payload) {
         AppLogger.debug('Realtime DELETE: ${payload.eventType}');
         final id = payload.oldRecord['id'] as String?;
         final convId = payload.oldRecord['conversation_id'] as String?;
-        // Sadece bu conversation'a ait mesajları al
         if (id != null && convId == conversationId) {
           onEvent(DeleteMessageEvent(id));
         }
@@ -766,6 +866,11 @@ class ChatService {
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'conversation_id',
+            value: conversationId,
+          ),
           callback: (payload) {
             try {
               final msg = Message.fromMap(payload.newRecord);
@@ -798,6 +903,11 @@ class ChatService {
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'conversation_id',
+            value: conversationId,
+          ),
           callback: (payload) {
             try {
               final msg = Message.fromMap(payload.newRecord);
@@ -830,6 +940,11 @@ class ChatService {
           event: PostgresChangeEvent.delete,
           schema: 'public',
           table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'conversation_id',
+            value: conversationId,
+          ),
           callback: (payload) {
             final id = payload.oldRecord['id'] as String?;
             final convId = payload.oldRecord['conversation_id'] as String?;

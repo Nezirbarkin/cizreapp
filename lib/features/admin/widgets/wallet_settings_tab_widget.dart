@@ -30,12 +30,52 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
   int _homeCategoryLimit = 4;
   // 2026-07-27: Anasayfa haber kartı sayısı limiti (admin panelinden ayarlanabilir)
   int _homeNewsLimit = 3;
+  // 2026-08-18: Anasayfa dükkan sayısı limiti (admin panelinden ayarlanabilir)
+  int _homeShopLimit = 8;
   bool _isSaving = false;
+
+  // Sayısal alanların TextEditingController'ları kalıcı State alanları olmalı.
+  // Eskiden build() içinde her seferinde `TextEditingController(text: ...)`
+  // ile yeniden yaratılıyorlardı; onChanged -> setState -> build tetiklendiğinde
+  // her tuş vuruşunda YENİ bir controller (ve imleç sıfırlanmış, "güncel"
+  // değerden yeniden okunmuş text) oluşuyordu — bu da çok haneli sayı
+  // yazmayı fiilen imkansız hale getiriyordu (rakamlar karışık/ters sırada
+  // görünüyordu). Kalıcı controller kullanılınca setState artık text'i
+  // sıfırlamıyor.
+  late final _minTopupController = TextEditingController(
+    text: _minTopupAmount.toStringAsFixed(0),
+  );
+  late final _maxTopupController = TextEditingController(
+    text: _maxTopupAmount.toStringAsFixed(0),
+  );
+  late final _minWithdrawalController = TextEditingController(
+    text: _minWithdrawalAmount.toStringAsFixed(0),
+  );
+  late final _homeCategoryController = TextEditingController(
+    text: _homeCategoryLimit.toString(),
+  );
+  late final _homeNewsController = TextEditingController(
+    text: _homeNewsLimit.toString(),
+  );
+  late final _homeShopController = TextEditingController(
+    text: _homeShopLimit.toString(),
+  );
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _minTopupController.dispose();
+    _maxTopupController.dispose();
+    _minWithdrawalController.dispose();
+    _homeCategoryController.dispose();
+    _homeNewsController.dispose();
+    _homeShopController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -52,7 +92,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
             'max_topup_amount, withdrawal_fee_percent, min_withdrawal_amount, '
             'online_payment_enabled, '
             'order_cod_enabled, order_card_on_delivery_enabled, order_balance_enabled, '
-            'home_category_limit, home_news_limit',
+            'home_category_limit, home_news_limit, home_shop_limit',
           )
           .maybeSingle();
 
@@ -80,7 +120,17 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
           _homeCategoryLimit = response['home_category_limit'] as int? ?? 4;
           // Anasayfa haber kartı sayısı limiti (yeni kolon — migration yoksa varsayılan 3)
           _homeNewsLimit = response['home_news_limit'] as int? ?? 3;
+          // Anasayfa dükkan sayısı limiti (yeni kolon — migration yoksa varsayılan 8)
+          _homeShopLimit = response['home_shop_limit'] as int? ?? 8;
           _isLoading = false;
+
+          _minTopupController.text = _minTopupAmount.toStringAsFixed(0);
+          _maxTopupController.text = _maxTopupAmount.toStringAsFixed(0);
+          _minWithdrawalController.text =
+              _minWithdrawalAmount.toStringAsFixed(0);
+          _homeCategoryController.text = _homeCategoryLimit.toString();
+          _homeNewsController.text = _homeNewsLimit.toString();
+          _homeShopController.text = _homeShopLimit.toString();
         });
       } else {
         setState(() => _isLoading = false);
@@ -129,6 +179,8 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
             'home_category_limit': _homeCategoryLimit,
             // 2026-07-27: Anasayfa haber kartı sayısı limiti
             'home_news_limit': _homeNewsLimit,
+            // 2026-08-18: Anasayfa dükkan sayısı limiti
+            'home_shop_limit': _homeShopLimit,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', existing['id']);
@@ -298,9 +350,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                         border: OutlineInputBorder(),
                         suffixText: 'TL',
                       ),
-                      controller: TextEditingController(
-                        text: _minTopupAmount.toStringAsFixed(0),
-                      ),
+                      controller: _minTopupController,
                       onChanged: (value) {
                         final parsed = double.tryParse(value);
                         if (parsed != null) {
@@ -327,9 +377,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                         border: OutlineInputBorder(),
                         suffixText: 'TL',
                       ),
-                      controller: TextEditingController(
-                        text: _maxTopupAmount.toStringAsFixed(0),
-                      ),
+                      controller: _maxTopupController,
                       onChanged: (value) {
                         final parsed = double.tryParse(value);
                         if (parsed != null) {
@@ -356,9 +404,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                         border: OutlineInputBorder(),
                         suffixText: 'TL',
                       ),
-                      controller: TextEditingController(
-                        text: _minWithdrawalAmount.toStringAsFixed(0),
-                      ),
+                      controller: _minWithdrawalController,
                       onChanged: (value) {
                         final parsed = double.tryParse(value);
                         if (parsed != null) {
@@ -494,7 +540,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Anasayfadaki kategori kartı sayısını belirleyin.',
+                  'Anasayfadaki kategori kartı, haber kartı ve dükkan sayısını belirleyin.',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 12),
@@ -517,9 +563,7 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                         ),
                         border: OutlineInputBorder(),
                       ),
-                      controller: TextEditingController(
-                        text: _homeCategoryLimit.toString(),
-                      ),
+                      controller: _homeCategoryController,
                       onChanged: (value) {
                         final parsed = int.tryParse(value);
                         if (parsed != null && parsed >= 1 && parsed <= 20) {
@@ -549,13 +593,41 @@ class _WalletSettingsTabWidgetState extends State<WalletSettingsTabWidget> {
                         ),
                         border: OutlineInputBorder(),
                       ),
-                      controller: TextEditingController(
-                        text: _homeNewsLimit.toString(),
-                      ),
+                      controller: _homeNewsController,
                       onChanged: (value) {
                         final parsed = int.tryParse(value);
                         if (parsed != null && parsed >= 1 && parsed <= 10) {
                           setState(() => _homeNewsLimit = parsed);
+                        }
+                      },
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                ListTile(
+                  title: const Text('Dükkan Sayısı'),
+                  subtitle: Text(
+                    '1-50 arası değer girilebilir. Varsayılan: 8',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                  trailing: SizedBox(
+                    width: 80,
+                    child: TextField(
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                      controller: _homeShopController,
+                      onChanged: (value) {
+                        final parsed = int.tryParse(value);
+                        if (parsed != null && parsed >= 1 && parsed <= 50) {
+                          setState(() => _homeShopLimit = parsed);
                         }
                       },
                     ),

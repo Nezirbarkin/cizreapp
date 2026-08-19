@@ -190,6 +190,33 @@ void main() {
       expect(updated.lineCode, '1A');
       expect(updated.lineName, 'Hat 1');
     });
+
+    test('copyWithLine realtime INSERT ile boş gelen hat bilgisini doldurur', () {
+      final trip = SehiriciActiveTrip.fromJson({
+        'trip_id': 't1',
+        'line_id': 'l1',
+        'current_lat': 38.0,
+        'current_lng': 43.0,
+      });
+      expect(trip.lineCode, '');
+      expect(trip.lineName, '');
+
+      const line = SehiriciLine(
+        id: 'l1',
+        code: '1A',
+        name: 'Cumhuriyet Meydanı Hattı',
+        colorHex: '#FF5722',
+      );
+      final enriched = trip.copyWithLine(line);
+
+      expect(enriched.lineCode, '1A');
+      expect(enriched.lineName, 'Cumhuriyet Meydanı Hattı');
+      expect(enriched.lineColor, '#FF5722');
+      // Konum/kimlik bilgisi korunmalı
+      expect(enriched.tripId, 't1');
+      expect(enriched.currentLat, 38.0);
+      expect(enriched.currentLng, 43.0);
+    });
   });
 
   group('SehiriciSettings.fromSettingsMap', () {

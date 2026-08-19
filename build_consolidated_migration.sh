@@ -28,9 +28,9 @@ NEWOBJ_PART="supabase/migrations/_part_consolidated_new_objects.sql"
 # --- Verbatim kaynak migration'lar (dependency sirasiyla) ---
 SRC_REWARD="supabase/migrations/20260730000002_admob_reward_points_system.sql"
 SRC_OVERVIEW="supabase/migrations/20260801000001_admin_reward_points_overview.sql"
-SRC_CHECKOUT_SCHEMA="supabase/migrations/20260802000005_server_authoritative_checkout_schema.sql"
-SRC_PREPARE="supabase/migrations/20260802000006_prepare_checkout_session_rpc.sql"
-SRC_COMMIT="supabase/migrations/20260802000007_commit_cod_and_balance_orders.sql"
+SRC_CHECKOUT_SCHEMA="supabase/migrations/20260802000006_server_authoritative_checkout_schema.sql"
+SRC_PREPARE="supabase/migrations/20260802000007_prepare_checkout_session_rpc.sql"
+SRC_COMMIT="supabase/migrations/20260802000008_commit_cod_and_balance_orders.sql"
 SRC_ORDER_SM="supabase/migrations/20260802000010_order_state_machine_rpc.sql"
 
 for f in "$COMMISSION_PART" "$PROFILE_PART" "$NEWOBJ_PART" \

@@ -704,6 +704,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
 
       if (order != null) {
+        // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
+        try {
+          await Supabase.instance.client.rpc('apply_campaign_rewards_for_order', params: {
+            'p_order_id': order.id,
+          });
+        } catch (campaignError) {
+          debugPrint('⚠️ Kampanya ödülü uygulanamadı: $campaignError');
+        }
+
         // Bakiyeden düş - BAŞARISIZSA siparişi iptal et
         bool balanceDeducted = false;
         try {
@@ -1022,6 +1031,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         couponId: appliedCoupon?.id,
         couponDiscount: couponDiscount,
       );
+
+      // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
+      if (order != null) {
+        try {
+          await Supabase.instance.client.rpc('apply_campaign_rewards_for_order', params: {
+            'p_order_id': order.id,
+          });
+        } catch (campaignError) {
+          debugPrint('⚠️ Kampanya ödülü uygulanamadı: $campaignError');
+        }
+      }
 
       // use_coupon RPC çağrısı — kuponu "kullanıldı" olarak işaretle.
       // Eskiden appliedCoupon hep null olduğundan bu çağrı ölü koddu.

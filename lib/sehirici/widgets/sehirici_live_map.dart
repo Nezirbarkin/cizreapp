@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/sehirici_models.dart';
+import '../services/sehirici_line_service.dart';
 import '../services/sehirici_trip_service.dart';
 import '../utils/sehirici_route_geometry.dart';
 import '../../core/services/courier_stream_service.dart';
@@ -100,6 +101,11 @@ class SehiriciLiveMap extends StatefulWidget {
 class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderStateMixin {
   static final Map<String, BitmapDescriptor> _iconCache = {};
 
+  /// Araç marker'ını taşımak için gereken en küçük yer değiştirme (metre).
+  /// Sabit araçta GPS zıplamasını süzecek kadar büyük, gerçek hareketi
+  /// anında gösterecek kadar küçük.
+  static const double _kMinMoveMeters = 5.0;
+
   // Animasyon durumları
   final Map<String, LatLng> _previousPositions = {};
   final Map<String, LatLng> _targetPositions = {};
@@ -133,6 +139,14 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   final Set<String> _tripPathsLoading = {};
 
   final SehiriciTripService _tripService = SehiriciTripService();
+  final SehiriciLineService _lineService = SehiriciLineService();
+
+  // Şehirdeki TÜM duraklar (henüz hiçbir hatta bağlanmamış olanlar dahil).
+  // widget.lines yalnızca hatta bağlı durakları taşır; bir hatta bağlanmamış
+  // duraklar da haritada görünsün diye ayrıca şehir bazlı yüklenir — aktif
+  // sefer olup olmamasından bağımsızdır.
+  List<SehiriciStop> _standaloneStops = const [];
+
   GoogleMapController? _mapController;
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
@@ -175,6 +189,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     _initializeTripData();
     _rebuild();
     _initUserLocationOnEntry();
+    _loadStandaloneStops();
 
     // Şoför konum güncellemelerini realtime dinle; yeni nokta geldiğinde
     // o seferin polyline'ına ekle (şoförün arkasında çizilen gerçek yol).
@@ -194,6 +209,23 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     // Kuryeleri (role='courier') canlı izle ve haritada göster.
     if (widget.showCouriers) {
       _startCourierTracking();
+    }
+  }
+
+  /// Şehirdeki tüm durakları (bir hatta bağlı olsun olmasın) yükler.
+  /// widget.lines sadece hatta bağlı durakları taşıdığından, henüz hiçbir
+  /// hatta eklenmemiş duraklar bu olmadan haritada hiç görünmezdi. Aktif
+  /// sefer olup olmamasından bağımsız çalışır.
+  Future<void> _loadStandaloneStops() async {
+    final cityId = widget.center.id;
+    if (cityId.isEmpty) return;
+    try {
+      final stops = await _lineService.getStopsByCity(cityId);
+      if (!mounted || widget.center.id != cityId) return;
+      _standaloneStops = stops;
+      _rebuildStopMarkersOnly();
+    } catch (_) {
+      // Sessizce geç — durak marker'ları olmadan da harita çalışmaya devam eder.
     }
   }
 
@@ -409,6 +441,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     if (!mounted || widget.activeTrips.isEmpty) return;
 
     bool needsRedraw = false;
+    bool headingChanged = false;
 
     // Yeni trip verilerini al ve animasyonları başlat (pozisyon değiştiğinde)
     for (final trip in widget.activeTrips) {
@@ -418,16 +451,30 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       final tripId = trip.tripId;
       final currentTarget = _targetPositions[tripId];
 
-      // Sadece pozisyon 50+ metre değişmişse animasyon başlat
-      if (currentTarget == null || calculateDistance(currentTarget, newPosition) > 50) {
+      // GPS gürültüsünün üstünde her hareket anında yansıtılır. Eski 50 m'lik
+      // eşik, şehir içi trafikte duran/yavaş ilerleyen aracın haritada
+      // saatlerce donuk kalmasına yol açıyordu.
+      if (currentTarget == null ||
+          calculateDistance(currentTarget, newPosition) > _kMinMoveMeters) {
         _previousPositions[tripId] = currentTarget ?? newPosition;
         _targetPositions[tripId] = newPosition;
         _animateVehicleToPosition(tripId, newPosition);
         needsRedraw = true;
       }
 
+      // Araç yerinde dönüyor olabilir (yön değişimi konum değişimi olmadan):
+      // marker rotasyonu da güncellenmeli.
+      final previousHeading = _currentTripData[tripId]?.currentHeading;
+      if (previousHeading != trip.currentHeading) headingChanged = true;
+
       // Trip verisini güncelle
       _currentTripData[tripId] = trip;
+    }
+
+    // Konum animasyonu marker'ı zaten taşıyor; yalnızca yön/ETA değiştiyse
+    // marker'ları bir kez yeniden kur.
+    if (headingChanged && !needsRedraw) {
+      _rebuildTripMarkersOnly();
     }
 
     // Eski trip'leri temizle
@@ -560,9 +607,20 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   void didUpdateWidget(covariant SehiriciLiveMap old) {
     super.didUpdateWidget(old);
 
-    // Trip değişikliklerini kontrol et
-    if (old.activeTrips != widget.activeTrips) {
+    // Trip değişikliklerini kontrol et.
+    // KRİTİK: eklenen/çıkan seferleri işlemek YETMEZ — realtime'dan gelen
+    // konum güncellemeleri de burada yansıtılmalı. Aksi hâlde araç yalnızca
+    // `_liveUpdateTimer` tetiklendiğinde (yedek yol, 30 sn'de bir) hareket
+    // ediyordu; canlı konum ~10 sn'de bir gelmesine rağmen harita geç
+    // güncelleniyordu.
+    if (!identical(old.activeTrips, widget.activeTrips)) {
       _handleTripChanges(old.activeTrips);
+      // _refreshTripPositions setState çağırabilen yardımcılara giriyor;
+      // didUpdateWidget build fazının içinde çalıştığı için bir frame
+      // sonrasına bırakıyoruz (30 sn yerine ~16 ms gecikme).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshTripPositions();
+      });
     }
 
     // Tilt değişikliği
@@ -617,6 +675,11 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     // Sadece hat değiştiğinde _rebuild çağır (trip değişiklikleri _handleTripChanges tarafından işlenecek)
     if (old.lines != widget.lines) {
       _rebuild();
+    }
+
+    // Şehir değiştiyse hatta bağlı olmayan durakları yeniden yükle.
+    if (old.center.id != widget.center.id) {
+      _loadStandaloneStops();
     }
 
     // Vurgulu hat değiştiyse haritayı o hattın duraklarına sığdır.
@@ -744,28 +807,10 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     final markers = <Marker>{};
     final polylines = <Polyline>{};
 
-    // 1) Durak marker'ları + admin tarafından tanımlanmış hat rotası.
-    // Öncelik: roadPolyline (yol takip eden) → yoksa durakları sırayla birleştir.
+    // 1) Durak marker'ları (hatta bağlı + henüz hiçbir hatta bağlanmamış
+    // duraklar) + admin tarafından tanımlanmış hat rotası.
+    markers.addAll(_buildStopMarkers());
     for (final line in widget.lines) {
-      // Durak marker'ları — tek duraklı hatlarda da gösterilmeli.
-      for (final stop in line.stops) {
-        final isSelected = widget.selectedStopId == stop.stopId;
-        final stopKey = isSelected ? 'stop_sel' : 'stop_default';
-        markers.add(Marker(
-          markerId: MarkerId('stop_${stop.stopId}'),
-          position: LatLng(stop.lat, stop.lng),
-          icon: _iconCache[stopKey] ??
-              BitmapDescriptor.defaultMarkerWithHue(
-                isSelected
-                    ? BitmapDescriptor.hueOrange
-                    : BitmapDescriptor.hueViolet,
-              ),
-          anchor: const Offset(0.5, 0.5),
-          consumeTapEvents: true,
-          onTap: () => _showStopSheet(line, stop),
-        ));
-      }
-
       // Admin rotası polyline'ı (showRoute=true ise).
       // 1) Yol takip eden noktalar (roadPolyline) varsa onları kullan.
       // 2) Yoksa durakları sırasıyla düz çizgiyle bağla.
@@ -936,9 +981,21 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   void _rebuildStopMarkersOnly() {
     final markers = {
       ..._markers.where((m) => !m.markerId.value.startsWith('stop_')),
+      ..._buildStopMarkers(),
     };
+    setState(() => _markers = markers);
+  }
+
+  /// Durak marker'larını üretir: önce hatlara bağlı duraklar (tıklanınca hat
+  /// bilgisiyle birlikte gösterilir), sonra henüz hiçbir hatta bağlanmamış
+  /// duraklar (_standaloneStops — aynı durak zaten bir hatta bağlıysa
+  /// tekrar eklenmez).
+  Set<Marker> _buildStopMarkers() {
+    final markers = <Marker>{};
+    final linkedStopIds = <String>{};
     for (final line in widget.lines) {
       for (final stop in line.stops) {
+        linkedStopIds.add(stop.stopId);
         final isSelected = widget.selectedStopId == stop.stopId;
         final stopKey = isSelected ? 'stop_sel' : 'stop_default';
         markers.add(Marker(
@@ -956,7 +1013,63 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
         ));
       }
     }
-    setState(() => _markers = markers);
+    for (final stop in _standaloneStops) {
+      if (linkedStopIds.contains(stop.id)) continue;
+      markers.add(Marker(
+        markerId: MarkerId('stop_${stop.id}'),
+        position: LatLng(stop.lat, stop.lng),
+        icon: _iconCache['stop_default'] ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+        anchor: const Offset(0.5, 0.5),
+        consumeTapEvents: true,
+        onTap: () => _showUnlinkedStopSheet(stop),
+      ));
+    }
+    return markers;
+  }
+
+  /// Henüz hiçbir hatta bağlanmamış bir durağa tıklandığında bilgi kartı gösterir.
+  void _showUnlinkedStopSheet(SehiriciStop stop) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const CircleAvatar(
+                  backgroundColor: Colors.deepPurple,
+                  child: Icon(Icons.location_on, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(stop.name,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const Text('Henüz bir hatta bağlı değil'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (stop.address != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                stop.address!,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   /// Modern "durak" ikonu: yumuşak gölgeli, kalın beyaz halkalı renkli nokta.

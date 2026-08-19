@@ -4,6 +4,8 @@
 
 library;
 
+import 'dart:typed_data';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,10 +15,9 @@ import '../../../core/services/cache_service.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/push_notification_service.dart';
+import '../../../core/navigation/app_navigator.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../market/services/category_service.dart';
-import '../widgets/admin_drawer.dart';
 import '../widgets/reports_content.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
@@ -37,6 +38,14 @@ import '../../../sehirici/admin/sehirici_admin_management_content.dart';
 import '../../news/widgets/news_management_content.dart';
 import '../widgets/admin_package_requests_tab.dart';
 import '../widgets/wallet_management_content.dart';
+import '../widgets/courier_payout_requests_section.dart';
+import '../widgets/reward_points_overview_section.dart';
+import '../widgets/users_with_balance_tab_widget.dart';
+import 'commission_dashboard_screen.dart';
+import '../../wallet/screens/admin_withdrawal_screen.dart';
+import '../utils/admin_user_helpers.dart';
+import '../../../kullaniciozellikler/admin/user_features_admin_content.dart';
+import '../../../ilanlar/admin/ilan_admin_content.dart';
 
 part 'admin_dashboard_parts/_part_helpers.dart';
 part 'admin_dashboard_parts/_part_data_loaders.dart';
@@ -105,7 +114,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _roleFilter; // Kullanıcı listesi rol filtresi (kart tıklayınca)
   final TextEditingController _userSearchController = TextEditingController();
   Future<List<Map<String, dynamic>>>? _usersFuture;
+  Future<Map<String, dynamic>>? _logsDataFuture;
   String? _selectedShopFilter; // Sipariş yönetiminde dükkan filtresi
+  String _paymentsStatusFilter = 'all'; // Ödemeler sekmesinde durum filtresi
 
   // Dükkan listesi - state değişkeni olarak saklanıyor
   List<Map<String, dynamic>> _shopsDetailed = [];

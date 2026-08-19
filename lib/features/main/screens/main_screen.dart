@@ -1,4 +1,4 @@
-  // ignore_for_file: unused_field
+// ignore_for_file: unused_field
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -19,6 +19,7 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/services/privacy_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../core/widgets/product_extras_widgets.dart';
 import '../../market/services/shop_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 import '../../../core/services/balance_service.dart';
@@ -48,7 +49,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final NotificationService _notificationService = NotificationService();
   final PrivacyService _privacyService = PrivacyService();
   int _unreadNotificationCount = 0;
-  
+
   // ⚡ iOS PERFORMANCE: Sadece aktif sekmeyi oluştur, diğerlerini lazy yükle
   final Map<int, Widget> _cachedScreens = {};
   DateTime? _lastNotificationLoad; // Debounce bildirim yüklemesi
@@ -56,12 +57,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _getScreen(int index) {
     return _cachedScreens.putIfAbsent(index, () {
       switch (index) {
-        case 0: return const MarketScreen();
-        case 1: return const ProductsScreen();
-        case 2: return const CartScreen(isMainTab: true);
-        case 3: return const SocialScreen();
-        case 4: return const ProfileScreen();
-        default: return const MarketScreen();
+        case 0:
+          return const MarketScreen();
+        case 1:
+          return const ProductsScreen();
+        case 2:
+          return const CartScreen(isMainTab: true);
+        case 3:
+          return const SocialScreen();
+        case 4:
+          return const ProfileScreen();
+        default:
+          return const MarketScreen();
       }
     });
   }
@@ -116,36 +123,46 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Future<void> _checkStartupAnnouncement() async {
     try {
-      final settings = await Supabase.instance.client
-          .from('app_about_settings')
-          .select()
-          .limit(1)
-          .maybeSingle();
+      // ⚡ AÇILIŞ OPTİMİZASYONU (2026-08-14): Aynı ayarları MarketScreen de
+      // çekiyor; AppAboutService'in bellek cache'i sayesinde burada ek bir ağ
+      // isteği atılmaz (cache boşsa tek istek düşer, davranış aynı).
+      final settings = await AppAboutService().getAboutSettings();
 
       if (settings == null || !mounted) return;
 
-      final announcementEnabled = settings['startup_announcement_enabled'] as bool? ?? false;
+      final announcementEnabled = settings.startupAnnouncementEnabled;
       if (!announcementEnabled) return;
 
-      final title = settings['startup_announcement_title'] as String?;
-      final message = settings['startup_announcement_message'] as String?;
-      if (title == null || message == null || title.isEmpty || message.isEmpty) return;
+      final title = settings.startupAnnouncementTitle;
+      final message = settings.startupAnnouncementMessage;
+      if (title == null || message == null || title.isEmpty || message.isEmpty) {
+        return;
+      }
 
-      final type = settings['startup_announcement_type'] as String? ?? 'info';
-      final buttonText = settings['startup_announcement_button_text'] as String? ?? 'Tamam';
-      final updatedAt = settings['startup_announcement_updated_at'] as String?;
+      final type = settings.startupAnnouncementType;
+      final buttonText = settings.startupAnnouncementButtonText;
+      final updatedAt = settings.startupAnnouncementUpdatedAt;
 
       // SharedPreferences'ta son gösterilen duyuruyu kontrol et
       if (updatedAt != null) {
         final prefs = await SharedPreferences.getInstance();
         final lastShownKey = 'last_shown_announcement';
         final lastShown = prefs.getString(lastShownKey);
-        
-        // Eğer duyuru güncellenmediyse tekrar gösterme
-        if (lastShown == updatedAt) return;
-        
+
+        // Eğer duyuru güncellenmediyse tekrar gösterme. Eski sürümler ham DB
+        // string'ini kaydediyordu; karşılaştırmayı tarih olarak yap ki biçim
+        // farkı yüzünden duyuru tekrar gösterilmesin.
+        bool alreadyShown = lastShown == updatedAt.toIso8601String();
+        if (!alreadyShown && lastShown != null) {
+          final lastShownDate = DateTime.tryParse(lastShown);
+          alreadyShown =
+              lastShownDate != null &&
+              lastShownDate.isAtSameMomentAs(updatedAt);
+        }
+        if (alreadyShown) return;
+
         // Göster ve kaydet
-        await prefs.setString(lastShownKey, updatedAt);
+        await prefs.setString(lastShownKey, updatedAt.toIso8601String());
       }
 
       if (!mounted) return;
@@ -157,12 +174,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         builder: (context) => AlertDialog(
           title: Row(
             children: [
-              Icon(_getAnnouncementIcon(type), color: _getAnnouncementColor(type), size: 28),
+              Icon(
+                _getAnnouncementIcon(type),
+                color: _getAnnouncementColor(type),
+                size: 28,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -173,7 +197,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               onPressed: () => Navigator.pop(context),
               style: TextButton.styleFrom(
                 foregroundColor: _getAnnouncementColor(type),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
               child: Text(
                 buttonText,
@@ -219,7 +246,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.didChangeDependencies();
     // PERFORMANCE: Bildirim sayısını güncelle - debounce ile gereksiz yüklemeleri önle
     final now = DateTime.now();
-    if (_lastNotificationLoad == null || now.difference(_lastNotificationLoad!).inSeconds >= 5) {
+    if (_lastNotificationLoad == null ||
+        now.difference(_lastNotificationLoad!).inSeconds >= 5) {
       _lastNotificationLoad = now;
       _loadNotificationCount();
     }
@@ -243,18 +271,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     // Tüm platformlarda Supabase'den kullanıcı ID'sini al
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
-    
+
     // CartProvider'ı tüm ekranlara sağla
     return ChangeNotifierProvider(
       create: (_) => CartProvider(userId),
       child: Builder(
         builder: (context) {
-          final cartProvider = context.watch<CartProvider>();
-          
+          // Sadece itemCount değiştiğinde yeniden inşa et. watch olsaydı her
+          // cart notify (yükleme/durum değişimi) tüm Scaffold body'yi rebuild ederdi.
+          final cartCount = context.select<CartProvider, int>(
+            (c) => c.itemCount,
+          );
+
           // PERFORMANCE: _screens önceden oluşturuldu, her build'de yeniden oluşturma
           final theme = Theme.of(context);
           final primaryColor = theme.colorScheme.primary;
-          final cartCount = cartProvider.itemCount;
 
           return Scaffold(
             extendBody: true,
@@ -287,10 +318,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       decoration: BoxDecoration(
                         color: const Color(0xFFFF3D00),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                       constraints: const BoxConstraints(
                         minWidth: 20,
@@ -309,7 +337,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
               ],
             ),
-            floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerDocked,
             bottomNavigationBar: BottomAppBar(
               shape: const CircularNotchedRectangle(),
               notchMargin: 8.0,
@@ -369,7 +398,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     int notificationCount = 0,
   }) {
     final isSelected = _selectedIndex == index;
-    
+
     return InkWell(
       onTap: () {
         // Misafir kontrolü - Keşfet ve Profil için
@@ -380,8 +409,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             SnackBar(
               content: Text(
                 index == 3
-                  ? 'Keşfet özelliklerini kullanmak için giriş yapmalısınız'
-                  : 'Profil özelliklerini kullanmak için giriş yapmalısınız',
+                    ? 'Keşfet özelliklerini kullanmak için giriş yapmalısınız'
+                    : 'Profil özelliklerini kullanmak için giriş yapmalısınız',
               ),
               action: SnackBarAction(
                 label: 'Giriş Yap',
@@ -434,10 +463,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   color: Colors.red,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                constraints: const BoxConstraints(
-                  minWidth: 18,
-                  minHeight: 18,
-                ),
+                constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
                 child: Text(
                   notificationCount > 9 ? '9+' : '$notificationCount',
                   style: const TextStyle(
@@ -513,7 +539,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
           _appSlogan = appAbout.appSlogan;
           _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
           _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
-          _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+          _animationTransitionDurationMs =
+              appAbout.animationTransitionDurationMs;
         });
       }
     } catch (e) {
@@ -528,22 +555,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
   // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
-  Future<void> _loadShopAcceptingOrdersForProducts(List<Product> products) async {
+  Future<void> _loadShopAcceptingOrdersForProducts(
+    List<Product> products,
+  ) async {
     final shopIds = products
         .map((p) => p.shopId)
         .where((id) => !_shopAcceptingOrders.containsKey(id))
         .toSet();
     if (shopIds.isEmpty) return;
 
-    await Future.wait(shopIds.map((shopId) async {
-      try {
-        final shop = await _shopService.getShopById(shopId);
-        final accepting = shop?.isAcceptingOrders ?? true;
-        if (mounted) setState(() => _shopAcceptingOrders[shopId] = accepting);
-      } catch (_) {
-        if (mounted) setState(() => _shopAcceptingOrders[shopId] = true);
-      }
-    }));
+    await Future.wait(
+      shopIds.map((shopId) async {
+        try {
+          final shop = await _shopService.getShopById(shopId);
+          final accepting = shop?.isAcceptingOrders ?? true;
+          if (mounted) setState(() => _shopAcceptingOrders[shopId] = accepting);
+        } catch (_) {
+          if (mounted) setState(() => _shopAcceptingOrders[shopId] = true);
+        }
+      }),
+    );
   }
 
   // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
@@ -568,11 +599,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
           .where((p) => p.category == _selectedCategory)
           .toList();
     }
-    
+
     // Sponsor ve sponsor olmayan ürünleri ayır
     final pinnedProducts = _filteredProducts.where((p) => p.isPinned).toList();
-    final nonPinnedProducts = _filteredProducts.where((p) => !p.isPinned).toList();
-    
+    final nonPinnedProducts = _filteredProducts
+        .where((p) => !p.isPinned)
+        .toList();
+
     // Sıralama (sadece sponsor olmayanlara uygulanır)
     switch (_sortBy) {
       case 'price_asc':
@@ -586,15 +619,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
         // Sponsor olmayanlar zaten shuffle edilmiş durumda kalacak
         break;
     }
-    
+
     // Sponsorlar + sıralanmış sponsor olmayanlar
     _filteredProducts = [...pinnedProducts, ...nonPinnedProducts];
-    
+
     setState(() {});
   }
 
   List<String> _getAvailableCategories() {
-    final categories = _products.map((p) => p.category).where((c) => c != null).cast<String>().toSet().toList();
+    final categories = _products
+        .map((p) => p.category)
+        .where((c) => c != null)
+        .cast<String>()
+        .toSet()
+        .toList();
     categories.sort();
     return categories;
   }
@@ -642,8 +680,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     try {
       final cartProvider = context.read<CartProvider>();
       // Aktif flaş sale var mı? Varsa claim edip flash fiyatıyla ekle
-      final flashSale =
-          await _flashSaleService.getActiveFlashSaleForProduct(product.id);
+      final flashSale = await _flashSaleService.getActiveFlashSaleForProduct(
+        product.id,
+      );
       if (flashSale != null) {
         final claim = await _flashSaleService.claimFlashSale(
           saleId: flashSale.id,
@@ -687,9 +726,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _addingToCart.remove(product.id));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sepete eklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sepete eklenirken hata: $e')));
       }
     }
   }
@@ -705,7 +744,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         (item) => item.productId == product.id,
         orElse: () => throw Exception('Ürün sepette bulunamadı'),
       );
-      
+
       if (newQuantity <= 0) {
         await cartProvider.removeFromCart(cartItem.id);
       } else {
@@ -713,9 +752,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
       }
     }
   }
@@ -737,9 +776,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ürünler yüklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ürünler yüklenirken hata: $e')));
       }
     }
   }
@@ -747,7 +786,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     final cartProvider = context.watch<CartProvider>();
-    
+
     return Scaffold(
       body: Column(
         children: [
@@ -793,11 +832,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   width: 30,
                   height: 30,
                   child: IconButton(
-                    icon: const Icon(Icons.search, color: Colors.white, size: 20),
+                    icon: const Icon(
+                      Icons.search,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const SearchScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const SearchScreen(),
+                        ),
                       );
                     },
                     padding: EdgeInsets.zero,
@@ -810,11 +855,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   width: 30,
                   height: 30,
                   child: IconButton(
-                    icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 20),
+                    icon: const Icon(
+                      Icons.notifications_outlined,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const NotificationsScreen(),
+                        ),
                       );
                     },
                     padding: EdgeInsets.zero,
@@ -827,7 +878,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   width: 30,
                   height: 30,
                   child: IconButton(
-                    icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 20),
+                    icon: const Icon(
+                      Icons.settings_outlined,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                     onPressed: () => showSettingsSidebar(context),
                     padding: EdgeInsets.zero,
                     splashRadius: 18,
@@ -838,9 +893,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
             ),
           ),
           // Ürünler listesi
-          Expanded(
-            child: _buildProductsList(cartProvider),
-          ),
+          Expanded(child: _buildProductsList(cartProvider)),
         ],
       ),
     );
@@ -849,169 +902,206 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget _buildProductsList(CartProvider cartProvider) {
     return CustomScrollView(
       slivers: [
-          // Ürünler listesi
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Column(
-                children: [
-                  // Filtre ve Sıralama Butonları
-                  Row(
-                    children: [
-                      // Filtre butonu
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => _showFilterBottomSheet(context),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: _selectedCategory != null ? Colors.blue.shade50 : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _selectedCategory != null ? Colors.blue.shade300 : Colors.grey.shade300,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.tune, size: 16, color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    _selectedCategory ?? 'Filtrele',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _selectedCategory != null ? Colors.blue.shade700 : Colors.grey.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Dijital ürünler filtresi
-                      GestureDetector(
-                        onTap: () {
-                          setState(() { _showDigitalOnly = !_showDigitalOnly; });
-                          _applyFilters();
-                        },
+        // Ürünler listesi
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: Column(
+              children: [
+                // Filtre ve Sıralama Butonları
+                Row(
+                  children: [
+                    // Filtre butonu
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showFilterBottomSheet(context),
                         child: Container(
-                          width: 132,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
-                            color: _showDigitalOnly ? Colors.purple.shade50 : Colors.grey.shade100,
+                            color: _selectedCategory != null
+                                ? Colors.blue.shade50
+                                : Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: _showDigitalOnly ? Colors.purple.shade300 : Colors.grey.shade300,
+                              color: _selectedCategory != null
+                                  ? Colors.blue.shade300
+                                  : Colors.grey.shade300,
                             ),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(_showDigitalOnly ? Icons.inventory_2 : Icons.bolt, size: 16, color: _showDigitalOnly ? Colors.purple.shade700 : Colors.grey.shade700),
+                              Icon(
+                                Icons.tune,
+                                size: 16,
+                                color: _selectedCategory != null
+                                    ? Colors.blue.shade700
+                                    : Colors.grey.shade700,
+                              ),
                               const SizedBox(width: 4),
-                              Text(
-                                _showDigitalOnly ? 'Fiziksel Ürünler' : 'Dijital Ürünler',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: _showDigitalOnly ? Colors.purple.shade700 : Colors.grey.shade700,
-                                  fontWeight: FontWeight.w500,
+                              Flexible(
+                                child: Text(
+                                  _selectedCategory ?? 'Filtrele',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _selectedCategory != null
+                                        ? Colors.blue.shade700
+                                        : Colors.grey.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      // Sıralama Butonları
-                      _SortChip(
-                        label: 'Yeni',
-                        isSelected: _sortBy == 'newest',
-                        onTap: () {
-                          setState(() { _sortBy = 'newest'; });
-                          _applyFilters();
-                        },
+                    ),
+                    const SizedBox(width: 8),
+                    // Dijital ürünler filtresi
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _showDigitalOnly = !_showDigitalOnly;
+                        });
+                        _applyFilters();
+                      },
+                      child: Container(
+                        width: 132,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _showDigitalOnly
+                              ? Colors.purple.shade50
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _showDigitalOnly
+                                ? Colors.purple.shade300
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _showDigitalOnly ? Icons.inventory_2 : Icons.bolt,
+                              size: 16,
+                              color: _showDigitalOnly
+                                  ? Colors.purple.shade700
+                                  : Colors.grey.shade700,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _showDigitalOnly
+                                  ? 'Fiziksel Ürünler'
+                                  : 'Dijital Ürünler',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _showDigitalOnly
+                                    ? Colors.purple.shade700
+                                    : Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      _SortChip(
-                        label: '₺↗',
-                        isSelected: _sortBy == 'price_asc',
-                        onTap: () {
-                          setState(() { _sortBy = 'price_asc'; });
-                          _applyFilters();
-                        },
-                      ),
-                      const SizedBox(width: 4),
-                      _SortChip(
-                        label: '₺↘',
-                        isSelected: _sortBy == 'price_desc',
-                        onTap: () {
-                          setState(() { _sortBy = 'price_desc'; });
-                          _applyFilters();
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Sıralama Butonları
+                    _SortChip(
+                      label: 'Yeni',
+                      isSelected: _sortBy == 'newest',
+                      onTap: () {
+                        setState(() {
+                          _sortBy = 'newest';
+                        });
+                        _applyFilters();
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                    _SortChip(
+                      label: '₺↗',
+                      isSelected: _sortBy == 'price_asc',
+                      onTap: () {
+                        setState(() {
+                          _sortBy = 'price_asc';
+                        });
+                        _applyFilters();
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                    _SortChip(
+                      label: '₺↘',
+                      isSelected: _sortBy == 'price_desc',
+                      onTap: () {
+                        setState(() {
+                          _sortBy = 'price_desc';
+                        });
+                        _applyFilters();
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
-            sliver: _isLoading
-                ? SliverFillRemaining(
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                : _products.isEmpty
-                    ? SliverFillRemaining(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.shopping_bag_outlined,
-                                size: 48,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                _searchQuery.isEmpty
-                                    ? 'Henüz ürün yok'
-                                    : 'Ürün bulunamadı',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
+          sliver: _isLoading
+              ? SliverFillRemaining(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : _products.isEmpty
+              ? SliverFillRemaining(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.shopping_bag_outlined,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          _searchQuery.isEmpty
+                              ? 'Henüz ürün yok'
+                              : 'Ürün bulunamadı',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
                           ),
                         ),
-                      )
-                    : SliverGrid(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
-                          childAspectRatio: 0.68,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            final product = _filteredProducts[index];
-                            return _buildProductCard(product, cartProvider);
-                          },
-                          childCount: _filteredProducts.length,
-                        ),
-                      ),
-          ),
-        ],
-              );
-            }
+                      ],
+                    ),
+                  ),
+                )
+              : SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: MediaQuery.of(context).size.width > 600
+                        ? 4
+                        : 3,
+                    childAspectRatio: 0.68,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final product = _filteredProducts[index];
+                    return _buildProductCard(product, cartProvider);
+                  }, childCount: _filteredProducts.length),
+                ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildProductCard(Product product, CartProvider cartProvider) {
     final theme = Theme.of(context);
@@ -1069,17 +1159,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 child: SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               ),
                               errorWidget: (context, url, error) {
                                 return const Center(
-                                  child: Icon(Icons.image_not_supported, size: 24),
+                                  child: Icon(
+                                    Icons.image_not_supported,
+                                    size: 24,
+                                  ),
                                 );
                               },
                             )
                           : const Center(
-                              child: Icon(Icons.shopping_bag, size: 24, color: Colors.grey),
+                              child: Icon(
+                                Icons.shopping_bag,
+                                size: 24,
+                                color: Colors.grey,
+                              ),
                             ),
                     ),
                   ),
@@ -1087,9 +1186,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   Positioned(
                     top: 4,
                     left: 4,
-                    child: FlashAwareDiscountBadge(
-                      product: product,
-                    ),
+                    child: FlashAwareDiscountBadge(product: product),
                   ),
                   // Sponsor badge
                   if (product.isPinned)
@@ -1097,7 +1194,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       top: 4,
                       left: product.hasDiscount ? 52 : 4,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.amber.shade700,
                           borderRadius: BorderRadius.circular(4),
@@ -1114,11 +1214,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: closedBadge,
-                    ),
+                    Positioned(top: 4, right: 4, child: closedBadge),
+                  // Satıcı rozetleri + ücretsiz kargo - alt sol
+                  Positioned(
+                    bottom: 4,
+                    left: 4,
+                    right: 4,
+                    child: ProductCardTagStrip(product: product),
+                  ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -1140,7 +1243,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 ],
               ),
             ),
-            
+
             // Ürün bilgileri
             Padding(
               padding: const EdgeInsets.only(left: 4, right: 4, top: 4),
@@ -1162,9 +1265,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 2),
-                  
+
                   // Fiyat (flaş indirim öncelikli)
                   SizedBox(
                     height: 14,
@@ -1178,9 +1281,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       oldPriceColor: Colors.grey.shade400,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 4),
-                  
+
                   // Buton - tam genişlik
                   SizedBox(
                     width: double.infinity,
@@ -1191,15 +1294,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               if (!isOrderable)
                                 Expanded(
                                   child: Text(
-                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                    _globalOrdersEnabled
+                                        ? 'Geçici Kapalı'
+                                        : 'Kapalı',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
                                 )
                               else
                                 const Spacer(),
                               AddToCartFab(
                                 isLoading: isAdding,
-                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                onPressed:
+                                    (isAdding || !isInStock || !isOrderable)
                                     ? null
                                     : () => _addToCart(product),
                               ),
@@ -1215,7 +1324,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 // Azalt butonu
                                 InkWell(
                                   onTap: isInStock
-                                      ? () => _updateQuantity(product, cartQuantity - 1)
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity - 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -1243,8 +1355,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: (isInStock && isOrderable && (product.isDigital || cartQuantity < product.stockQuantity))
-                                      ? () => _updateQuantity(product, cartQuantity + 1)
+                                  onTap:
+                                      (isInStock &&
+                                          isOrderable &&
+                                          (product.isDigital ||
+                                              cartQuantity <
+                                                  product.stockQuantity))
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity + 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -1252,7 +1372,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: (isInStock && (product.isDigital || cartQuantity < product.stockQuantity))
+                                      color:
+                                          (isInStock &&
+                                              (product.isDigital ||
+                                                  cartQuantity <
+                                                      product.stockQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),
@@ -1289,132 +1413,153 @@ class _ProductsScreenState extends State<ProductsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Filtrele & Sırala',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      setModalState(() {
-                        _sortBy = 'newest';
-                        _selectedCategory = null;
-                      });
-                      setState(() {
-                        _sortBy = 'newest';
-                        _selectedCategory = null;
-                        _applyFilters();
-                      });
-                    },
-                    child: const Text('Temizle'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              
-              // Sıralama
-              const Text(
-                'Sıralama',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _buildFilterChip(
-                    label: 'En Yeni',
-                    value: 'newest',
-                    groupValue: _sortBy,
-                    onSelected: (value) {
-                      setModalState(() => _sortBy = value);
-                      setState(() {
-                        _sortBy = value;
-                        _applyFilters();
-                      });
-                    },
-                  ),
-                  _buildFilterChip(
-                    label: 'Fiyat Artan',
-                    value: 'price_asc',
-                    groupValue: _sortBy,
-                    onSelected: (value) {
-                      setModalState(() => _sortBy = value);
-                      setState(() {
-                        _sortBy = value;
-                        _applyFilters();
-                      });
-                    },
-                  ),
-                  _buildFilterChip(
-                    label: 'Fiyat Azalan',
-                    value: 'price_desc',
-                    groupValue: _sortBy,
-                    onSelected: (value) {
-                      setModalState(() => _sortBy = value);
-                      setState(() {
-                        _sortBy = value;
-                        _applyFilters();
-                      });
-                    },
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Kategori
-              const Text(
-                'Kategori',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _buildFilterChip(
-                    label: 'Tümü',
-                    value: null,
-                    groupValue: _selectedCategory,
-                    onSelected: (value) {
-                      setModalState(() => _selectedCategory = value);
-                      setState(() {
-                        _selectedCategory = value;
-                        _applyFilters();
-                      });
-                    },
-                  ),
-                  ..._getAvailableCategories().map((cat) => _buildFilterChip(
-                    label: cat,
-                    value: cat,
-                    groupValue: _selectedCategory,
-                    onSelected: (value) {
-                      setModalState(() => _selectedCategory = value);
-                      setState(() {
-                        _selectedCategory = value;
-                        _applyFilters();
-                      });
-                    },
-                  )),
-                ],
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Uygula butonu
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Tamam', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Filtrele & Sırala',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setModalState(() {
+                          _sortBy = 'newest';
+                          _selectedCategory = null;
+                        });
+                        setState(() {
+                          _sortBy = 'newest';
+                          _selectedCategory = null;
+                          _applyFilters();
+                        });
+                      },
+                      child: const Text('Temizle'),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 16),
+
+                // Sıralama
+                const Text(
+                  'Sıralama',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    _buildFilterChip(
+                      label: 'En Yeni',
+                      value: 'newest',
+                      groupValue: _sortBy,
+                      onSelected: (value) {
+                        setModalState(() => _sortBy = value);
+                        setState(() {
+                          _sortBy = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                    _buildFilterChip(
+                      label: 'Fiyat Artan',
+                      value: 'price_asc',
+                      groupValue: _sortBy,
+                      onSelected: (value) {
+                        setModalState(() => _sortBy = value);
+                        setState(() {
+                          _sortBy = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                    _buildFilterChip(
+                      label: 'Fiyat Azalan',
+                      value: 'price_desc',
+                      groupValue: _sortBy,
+                      onSelected: (value) {
+                        setModalState(() => _sortBy = value);
+                        setState(() {
+                          _sortBy = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Kategori
+                const Text(
+                  'Kategori',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildFilterChip(
+                      label: 'Tümü',
+                      value: null,
+                      groupValue: _selectedCategory,
+                      onSelected: (value) {
+                        setModalState(() => _selectedCategory = value);
+                        setState(() {
+                          _selectedCategory = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                    ..._getAvailableCategories().map(
+                      (cat) => _buildFilterChip(
+                        label: cat,
+                        value: cat,
+                        groupValue: _selectedCategory,
+                        onSelected: (value) {
+                          setModalState(() => _selectedCategory = value);
+                          setState(() {
+                            _selectedCategory = value;
+                            _applyFilters();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Uygula butonu
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Tamam',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1557,17 +1702,23 @@ class _SortChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.grey.shade100,
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+              : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+            color: isSelected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.shade300,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 11,
-            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade700,
+            color: isSelected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.shade700,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),

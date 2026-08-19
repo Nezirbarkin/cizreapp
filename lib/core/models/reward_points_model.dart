@@ -14,6 +14,7 @@ enum PointLedgerEntryType {
   adminCorrectionCredit('admin_correction_credit'),
   adminCorrectionDebit('admin_correction_debit'),
   expiryDebit('expiry_debit'),
+  profileFeatureDebit('profile_feature_debit'),
   unknown('unknown');
 
   final String dbValue;
@@ -32,6 +33,7 @@ enum PointLedgerEntryType {
     PointLedgerEntryType.adminCorrectionCredit => 'Puan düzeltmesi',
     PointLedgerEntryType.adminCorrectionDebit => 'Puan düzeltmesi',
     PointLedgerEntryType.expiryDebit => 'Süresi dolan puan',
+    PointLedgerEntryType.profileFeatureDebit => 'Profil özelliği satın alımı',
     PointLedgerEntryType.unknown => 'Puan işlemi',
   };
 }

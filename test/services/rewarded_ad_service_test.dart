@@ -33,18 +33,15 @@ class _Gateway implements RewardPointsGateway {
 
 class _RecordingLoader implements RewardedAdLoader {
   final List<String> requestedUnitIds = [];
-  final RewardedAdHandle? result;
-
-  _RecordingLoader({this.result});
 
   @override
   Future<RewardedAdHandle?> load(String adUnitId) async {
     requestedUnitIds.add(adUnitId);
-    return result;
+    return null;
   }
 }
 
-RewardedAdService buildService({
+RewardedAdService _buildService({
   required AdSettings settings,
   required _RecordingLoader loader,
 }) {
@@ -78,7 +75,7 @@ const productionSettings = AdSettings(
 void main() {
   test('üretimde mevcut platformun public config unit ID değerini seçer', () {
     final loader = _RecordingLoader();
-    final service = buildService(settings: productionSettings, loader: loader);
+    final service = _buildService(settings: productionSettings, loader: loader);
 
     final unitId = service.resolveUnitId(productionSettings);
 
@@ -93,7 +90,7 @@ void main() {
 
   test('test modunda gerçek birimleri yok sayıp resmi test birimini seçer', () {
     final loader = _RecordingLoader();
-    final service = buildService(
+    final service = _buildService(
       settings: productionSettings.copyWith(testMode: true),
       loader: loader,
     );
@@ -113,7 +110,7 @@ void main() {
 
   test('public config unit ID varsa preload bunu loadera aktarır', () async {
     final loader = _RecordingLoader();
-    final service = buildService(settings: productionSettings, loader: loader);
+    final service = _buildService(settings: productionSettings, loader: loader);
 
     expect(await service.loadSettings(), isNotNull);
     expect(await service.preload(), isFalse);
@@ -129,7 +126,7 @@ void main() {
 
   test('ekonomik feature kapalıyken loader çağrılmaz', () async {
     final loader = _RecordingLoader();
-    final service = buildService(
+    final service = _buildService(
       settings: productionSettings.copyWith(
         rewardFeatureMode: RewardFeatureMode.disabled,
       ),

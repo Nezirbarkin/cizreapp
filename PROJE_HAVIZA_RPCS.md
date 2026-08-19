@@ -1,6 +1,6 @@
 # PROJE_HAVIZA_RPCS
 
-Son güncelleme: 2026-07-30
+Son güncelleme: 2026-08-18
 Project Ref: `xsbukxkgtmdyickknqzf`
 
 > Bu dosya, **Flutter istemcisinin** Supabase'e yaptığı tüm `.rpc(...)` çağrılarının
@@ -37,8 +37,8 @@ Project Ref: `xsbukxkgtmdyickknqzf`
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 1 | `add_to_balance` | ✅ | `admin_package_requests_tab.dart:170` | 🟣 Admin | `20260621_CREATE_BALANCE_SYSTEM.sql` → `20260709000005_BALANCE_REFUND_FIX.sql` → `20260727000008_harden_balance_rpc_permissions.sql` | SD | **service_role only** (anon/authenticated REVOKE) | Atomik bakiye ekleme (topup, refund, commission, adjustment). Client'tan çağrılmaz; service_role/admin trigger üzerinden çalışır. `20260727`'den sonra istemciden doğrudan çağrılamaz. |
-| 2 | `deduct_from_balance` | ✅ | `send_package_screen.dart:216` (kullanıcı) + `admin_package_requests_tab.dart:170` (admin paket iade, add_to_balance olarak) | 🔵 Auth | `20260621_CREATE_BALANCE_SYSTEM.sql` → `20260628_enrich_deduct_from_balance_rpc.sql` → `20260707_DEDUCT_FROM_BALANCE_ENRICHED.sql` → [`20260727000008_harden_balance_rpc_permissions.sql`](supabase/migrations/20260727000008_harden_balance_rpc_permissions.sql:157) | SD | `authenticated`, `service_role`; PUBLIC/anon REVOKE | FOR UPDATE kilidi ile atomik düşme. Yetersiz bakiyede exception. Client → sadece kurye ödemesi. |
+| 1 | `add_to_balance` | ✅ | `admin_package_requests_tab.dart:170` | 🟣 Admin | `20260621000007_CREATE_BALANCE_SYSTEM.sql` → `20260709000005_BALANCE_REFUND_FIX.sql` → `20260727000008_harden_balance_rpc_permissions.sql` | SD | **service_role only** (anon/authenticated REVOKE) | Atomik bakiye ekleme (topup, refund, commission, adjustment). Client'tan çağrılmaz; service_role/admin trigger üzerinden çalışır. `20260727`'den sonra istemciden doğrudan çağrılamaz. |
+| 2 | `deduct_from_balance` | ✅ | `send_package_screen.dart:216` (kullanıcı) + `admin_package_requests_tab.dart:170` (admin paket iade, add_to_balance olarak) | 🔵 Auth | `20260621000007_CREATE_BALANCE_SYSTEM.sql` → `20260628000000_enrich_deduct_from_balance_rpc.sql` → `20260707000000_DEDUCT_FROM_BALANCE_ENRICHED.sql` → [`20260727000008_harden_balance_rpc_permissions.sql`](supabase/migrations/20260727000008_harden_balance_rpc_permissions.sql:157) | SD | `authenticated`, `service_role`; PUBLIC/anon REVOKE | FOR UPDATE kilidi ile atomik düşme. Yetersiz bakiyede exception. Client → sadece kurye ödemesi. |
 
 ### 1.1 Puan Ayarı — Flutter'dan Çağrılan Yeni RPC
 
@@ -59,11 +59,35 @@ Bu bölüm ana Flutter envanterinin sayımına dahil değildir. İstemci bu RPC'
 | [`refund_digital_order_payment(uuid,numeric,text,text,boolean) -> jsonb`](supabase/migrations/20260730000002_admob_reward_points_system.sql:697) | Ortak [`refundComposition()`](supabase/functions/_shared/digital_orders.ts:27) | `service_role` only | Sipariş + event key için idempotent; artan kümülatif brüt hedef zorunlu. Hedefin puan bileşenini puan ledger'a, TL bileşenini balance transaction'a döndürür; `reconciliation_pending` siparişi reddeder ve asıl kaynak üst sınırlarını aşmaz. |
 | [`set_digital_order_reconciliation(uuid,text) -> void`](supabase/migrations/20260730000002_admob_reward_points_system.sql:798) | Üç güncel `smm-order-*` function'ı | `service_role` only | Yalnız `pending_provider`, `reconciliation_pending`, `settled` durumlarını kabul eder. Belirsiz provider sonucunu yanlışlıkla iade saymamak için kullanılır. |
 | [`purge_expired_reward_fraud_hashes(integer) -> integer`](supabase/migrations/20260730000002_admob_reward_points_system.sql:865) | Planlı service job | `service_role` only | Retention süresi dolan `provider_user_id_hash`, `device_pseudonym_hash`, `network_pseudonym_hash` alanlarını batch halinde NULL yapar. Provider transaction HMAC/ledger satırını silmez. |
+| [`purchase_my_profile_feature_with_points(uuid,uuid,text,text) -> jsonb`](supabase/migrations/20260818000006_profile_feature_points_purchase.sql:114) | [`purchase-profile-feature`](supabase/functions/purchase-profile-feature/index.ts:59) | `service_role` only | Katalogdan aylık/yıllık puan fiyatını çeker, `reward_points_spend_enabled`/`reward_feature_mode='enabled'` kapalıysa reddeder, `reward_points_apply_entry`'yi `'profile_feature_debit'` ile çağırır (idempotent replay güvenli), `user_profile_features`'ı günceller. TL `user_balances`'a hiç dokunmaz — mağaza-uyum düzeltmesinin çekirdeği. **2026-08-19: sahiplik `reward_points_owner` → `postgres`'e geri alındı, bkz. altındaki kutu.** |
+
+> **⚠️ 2026-08-19 — puanla satın alma 20260818000006'dan beri HİÇ çalışmıyordu**
+> ([`20260819000003`](supabase/migrations/20260819000003_fix_profile_feature_purchase_permissions.sql) ile düzeltildi):
+> `20260818000006`, `purchase_my_profile_feature_with_points`'in sahipliğini
+> `reward_points_owner`'a devretmişti; gerekçe "`reward_points_apply_entry`
+> yalnız o rolün sahip olduğu fonksiyonlarca çağrılabiliyor" idi — ancak bu
+> **yanlıştı**: `service_role` ve `postgres` zaten EXECUTE yetkisine sahip.
+> Devrin yan etkisi ölümcül oldu: `reward_points_owner`'ın
+> `profile_feature_catalog` ve `user_profile_features` üzerinde hiçbir tablo
+> yetkisi yok ve her iki tabloda RLS açık. SECURITY DEFINER fonksiyon o rolün
+> kimliğiyle çalıştığı için her satın alma
+> `42501: permission denied for table profile_feature_catalog` ile düşüyordu.
+> Kimsenin puanı olmadığı için üretimde fark edilmemişti. Sahiplik `postgres`'e
+> geri alındı; `service_role` guard'ı ve GRANT yüzeyi aynen korundu.
+>
+> Aynı gün ikinci bir muhasebe hatası da düzeltildi
+> ([`20260819000001`](supabase/migrations/20260819000001_profile_feature_unified_unlock.sql)):
+> `reward_points_apply_entry` `lifetime_spent_points` toplamına
+> `'profile_feature_debit'` entry_type'ını eklemiyordu (20260818000006 yeni tipi
+> CHECK listelerine ekledi ama bu toplamı atladı) — bakiye doğru düşüyor, ömür
+> boyu harcama sayacı hiç artmıyordu. Geçmiş kayıtlar için telafi UPDATE'i de
+> aynı migration'da yer alıyor.
 
 Kapatılan imzalar:
 
 - [`grant_ad_reward(uuid,text,text,integer)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:964) yalnız `{status:410,error_code:'LEGACY_AD_TL_GRANT_DISABLED'}` üretir ve hiçbir role açık değildir.
 - [`create_digital_order(uuid,uuid,text,integer)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:973) tüm rollerden REVOKE edilmiştir; puansız eski checkout cutover sonrasında çağrılamaz.
+- [`purchase_my_profile_feature(uuid,text)`](supabase/migrations/20260817000028_profile_feature_purchase_rpc.sql) ve [`admin_set_profile_feature_pricing(uuid,numeric,numeric)`](supabase/migrations/20260817000028_profile_feature_purchase_rpc.sql), TL bazlı satın almayı puana taşıyan [`20260818000006_profile_feature_points_purchase.sql`](supabase/migrations/20260818000006_profile_feature_points_purchase.sql) ile `DROP FUNCTION` edildi.
 
 ---
 
@@ -90,8 +114,8 @@ Kapatılan imzalar:
 | 12 | `verify_registration_otp` | ✅ | `verification_service.dart:135` | 🟢 Anon | `20260319000000_registration_otp_system.sql` | SD | anon + authenticated | Kayıt OTP doğrulama. |
 | 13 | `verify_password_reset_otp` | ✅ | `verification_service.dart:275` | 🟢 Anon | `20260319000000_registration_otp_system.sql` | SD | anon + authenticated | Şifre sıfırlama OTP doğrulama. |
 | 14 | `verify_code` | ✅ | `verification_service.dart:428` | 🔵 Auth | `20260227000000_verification_codes.sql` | SD | authenticated | Giriş sonrası ek doğrulama kodu (2FA benzeri). |
-| 15 | `request_account_deletion` | ✅ | `account_settings_screen.dart:242` | 🔵 Auth | `20260126_account_deletion_rpc.sql` → `20260727000002_fix_advisor_security_performance.sql` (REVOKE/GRANT harden) | SD | authenticated (anon REVOKE) | Hesap silme onay kodu üretir + email gönderir. |
-| 16 | `delete_account_with_code` | ✅ | `account_settings_screen.dart:382` | 🔵 Auth | `20260126_account_deletion_rpc.sql` → `20260724000000_fix_linter_warnings.sql` (REVOKE/GRANT) | SD | authenticated (anon REVOKE) | Onay kodunu doğrular ve tüm kullanıcı verisini siler. |
+| 15 | `request_account_deletion` | ✅ | `account_settings_screen.dart:242` | 🔵 Auth | `20260126000000_account_deletion_rpc.sql` → `20260727000002_fix_advisor_security_performance.sql` (REVOKE/GRANT harden) | SD | authenticated (anon REVOKE) | Hesap silme onay kodu üretir + email gönderir. |
+| 16 | `delete_account_with_code` | ✅ | `account_settings_screen.dart:382` | 🔵 Auth | `20260126000000_account_deletion_rpc.sql` → `20260724000000_fix_linter_warnings.sql` (REVOKE/GRANT) | SD | authenticated (anon REVOKE) | Onay kodunu doğrular ve tüm kullanıcı verisini siler. |
 
 ---
 
@@ -99,7 +123,7 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 17 | `add_notification` | ✅ | `notification_service.dart:219` + `courier_notification_service.dart:130` + `seller_orders_screen.dart:2493` (3 ayrı çağrı) | 🔵 Auth | `20260707_NOTIFICATIONS_AND_BALANCE_FIX.sql` | SD | authenticated (anon REVOKE) | Başka bir kullanıcıya bildirim yazmak için SECURITY DEFINER RPC (RLS 42501 sorunu çözümü). |
+| 17 | `add_notification` | ✅ | `notification_service.dart:219` + `courier_notification_service.dart:130` + `seller_orders_screen.dart:2493` (3 ayrı çağrı) | 🔵 Auth | `20260707000002_NOTIFICATIONS_AND_BALANCE_FIX.sql` | SD | authenticated (anon REVOKE) | Başka bir kullanıcıya bildirim yazmak için SECURITY DEFINER RPC (RLS 42501 sorunu çözümü). |
 
 ---
 
@@ -107,8 +131,8 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 18 | `approve_transfer_confirmation` | ✅ | `transfer_service.dart:115` | 🟣 Admin | `20260621_CREATE_BALANCE_SYSTEM.sql` → `20260709000006_TRANSFER_RPC_REVOKE_PUBLIC.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Admin onayı → atomik bakiye ekleme + kullanıcıya notification. |
-| 19 | `reject_transfer_confirmation` | ✅ | `transfer_service.dart:149` | 🟣 Admin | `20260621_CREATE_BALANCE_SYSTEM.sql` → `20260709000006_TRANSFER_RPC_REVOKE_PUBLIC.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Admin red → bakiye eklenmez, kullanıcıya notification. |
+| 18 | `approve_transfer_confirmation` | ✅ | `transfer_service.dart:115` | 🟣 Admin | `20260621000007_CREATE_BALANCE_SYSTEM.sql` → `20260709000007_TRANSFER_RPC_REVOKE_PUBLIC.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Admin onayı → atomik bakiye ekleme + kullanıcıya notification. |
+| 19 | `reject_transfer_confirmation` | ✅ | `transfer_service.dart:149` | 🟣 Admin | `20260621000007_CREATE_BALANCE_SYSTEM.sql` → `20260709000007_TRANSFER_RPC_REVOKE_PUBLIC.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Admin red → bakiye eklenmez, kullanıcıya notification. |
 
 ---
 
@@ -162,7 +186,7 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 38 | `increment_story_likes` | ✅ | `story_service.dart:583` | 🔵 Auth | `20240124000012_create_story_likes.sql` → `20260529000000_fix_story_likes_security.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Story beğeni sayacı (trigger destekli). |
+| 38 | `increment_story_likes` | ✅ | `story_service.dart:583` | 🔵 Auth | `20240124000012_create_story_likes.sql` → `20260529000001_fix_story_likes_security.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Story beğeni sayacı (trigger destekli). |
 | 39 | `add_user_xp` | ✅ | `achievement_service.dart:221` | 🔵 Auth | `20260727000002_fix_advisor_security_performance.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Başarım XP ekleme. |
 | 40 | `toggle_post_favorite` | ✅ | `profile_screen.dart:2537` + `user_profile_screen.dart:2951` (2 kez) | 🔵 Auth | `20240124000011_create_post_favorites.sql` → `20260727000002_fix_advisor_security_performance.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Gönderiyi kaydet/kaldır. |
 
@@ -173,6 +197,61 @@ Kapatılan imzalar:
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
 | 41 | `upsert_follow_request` | ✅ | `follow_request_service.dart:31` + `followers_screen.dart:212` + `profile_screen.dart:387` (3 kez) | 🔵 Auth | `20260208000010_all_chat_fixes.sql` (veya önceki) → `20260727000002_fix_advisor_security_performance.sql` (anon REVOKE) | SD | authenticated (anon REVOKE) | Gizli hesap için takip isteği (duplicate önleme). |
+
+---
+
+## 11a) Profil Özellikleri (Kozmetik — Avatar/Kapak Efektleri, İkonlar, Rozetler)
+
+`profile_feature_catalog` + `user_profile_features` (2026-08-17'de eklendi, `20260817000005_user_profile_privileges.sql` ve devamı — bu bölüm daha önce hiç belgelenmemişti, 2026-08-18'de geriye dönük eklendi). Katalog dört yolla kullanıcıya atanır: (1) admin manuel atama, (2) admin "self-claimable" işaretler → kullanıcı ücretsiz talep eder, (3) bakiye ile satın alma, (4) **sipariş tamamlama milestone'u** (bkz. altta, `20260818000001`).
+
+> **2026-08-19 birleşik kilit modeli** ([`20260819000001`](supabase/migrations/20260819000001_profile_feature_unified_unlock.sql)):
+> Ücretsiz özellik sayısı 88'den **2**'ye indirildi ve bu 2 satır süresiz yapıldı.
+> Kalan **456 aktif non-badge satırın tamamı** hem bir sipariş eşiğine
+> (`unlock_after_orders`) hem bir puan fiyatına bağlandı — aynı öğeye iki
+> alternatif yol. Sipariş kilidi artık `badge` dışındaki **tüm** kind'lerde
+> geçerli (önceden yalnız `avatar_effect`/`cover_effect`). Ekran, kategori
+> başına tek çağrı yapan `get_my_profile_feature_catalog` + tek özet çağrısı
+> `get_my_profile_feature_summary` üzerine taşındı; eski üç ayrı kullanıcı
+> RPC'si (#101, #103, #110) ve #115 artık `lib/` içinden çağrılmıyor.
+
+| # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
+|---|-----|----------|-------------------|------|-----------|-----|-------|---------|
+| 97 | `get_user_profile_features` | ✅ | `profile_feature_service.dart:40` | ⚪ Karma (anon+auth) | `20260817000005_user_profile_privileges.sql` | SD | anon, authenticated, service_role | Bir kullanıcının aktif/etkin profil özelliklerini public döner (granted_by gizli). |
+| 98 | `admin_profile_feature_users` | ✅ | `profile_feature_service.dart:52` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated (admin kontrolü içeride) | Admin panelinde kullanıcı arama. |
+| 99 | `admin_profile_feature_catalog` | ✅ | `profile_feature_service.dart:67` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` (kolonlar sonradan `unlock_after_orders` ile genişledi, `20260818000001`) | SD | authenticated | Katalog listesi (`select c.*`, tüm kolonlar). |
+| 100 | `admin_profile_feature_assignments` | ✅ | `profile_feature_service.dart:77` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated | Bir kullanıcıya atanmış özellikler. |
+| 101 | `get_my_profile_feature_assignments` | ⚠️ (2026-08-19'da #116 ile değiştirildi; RPC duruyor) | — | 🔵 Auth | `20260817000008_user_manage_own_profile_features.sql` | SD | authenticated | Kendi yönetebileceğim (badge hariç) atamalar. |
+| 102 | `set_my_profile_feature_enabled` | ✅ | `profile_feature_service.dart:97` | 🔵 Auth | `20260817000008_user_manage_own_profile_features.sql` → `20260817000037_fix_set_my_profile_feature_enabled_cover_effect.sql` (cover_effect kind eklendi) | SD | authenticated | Kendi atamamı aç/kapat. |
+| 103 | `get_my_claimable_profile_features` | ⚠️ (2026-08-19'da #116 ile değiştirildi; RPC duruyor) | — | 🔵 Auth | `20260817000013_distinct_self_claimable_profile_features.sql` | SD | authenticated | Ücretsiz talep edilebilir katalog. |
+| 104 | `claim_my_profile_feature` | ✅ | `profile_feature_service.dart:100` | 🔵 Auth | `20260817000013_distinct_self_claimable_profile_features.sql` → `20260819000001_profile_feature_unified_unlock.sql` | SD | authenticated | Ücretsiz özellik talep et. **2026-08-19'dan beri** sipariş eşiğini (`unlock_after_orders`) karşılayan öğeler de talep edilebilir — trigger hataları yuttuğu için bu, hak edilen öğeyi almanın garantili ikinci yolu. Eşik karşılanmıyorsa `ORDER_THRESHOLD_NOT_MET`. |
+| 105 | `release_my_claimed_profile_feature` | ✅ | `profile_feature_service.dart:122` | 🔵 Auth | `20260817000013_distinct_self_claimable_profile_features.sql` | SD | authenticated | Kendi talep ettiğimi kaldır (adminin verdiğini kaldıramam). |
+| 106 | `admin_assign_profile_feature` | ✅ | `profile_feature_service.dart:135` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated | Admin manuel atama. |
+| 107 | `admin_set_profile_feature_enabled` | ✅ | `profile_feature_service.dart:152` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated | Admin bir atamayı aç/kapat. |
+| 108 | `admin_revoke_profile_feature` | ✅ | `profile_feature_service.dart:167` | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated | Admin atamayı sil. |
+| 109 | `admin_set_profile_feature_claimable` | ✅ | `profile_feature_service.dart:166` | 🟣 Admin | `20260817000013_distinct_self_claimable_profile_features.sql` → `20260819000002_cap_free_profile_features_at_two.sql` | SD | authenticated | Katalog satırını ücretsiz-talep edilebilir yap/kaldır. **2026-08-19'dan beri en fazla 2 ücretsiz satır** olabilir; 3.'yü açma girişimi `23514` ile reddedilir. Ücretsiz yapılan satırın sipariş eşiği ve puan fiyatı sıfırlanır; süre verilmezse süresiz olur. |
+| 110 | `get_my_purchasable_profile_features` | ⚠️ (2026-08-19'da #116 ile değiştirildi; RPC duruyor) | — | 🔵 Auth | `20260818000006_profile_feature_points_purchase.sql` | SD | authenticated | Puan ile satın alınabilir katalog (2026-08-18 öncesi TL bakiyesiyleydi — bkz. altındaki not). |
+| 112 | `admin_set_profile_feature_points_pricing` | ✅ | `profile_feature_service.dart:243` | 🟣 Admin | `20260818000006_profile_feature_points_purchase.sql` | SD | authenticated | Katalog satırının aylık/yıllık PUAN fiyatını belirler (eski `admin_set_profile_feature_pricing`'in TL yerine puan kullanan karşılığı). |
+| 113 | `admin_set_profile_feature_catalog_active` | ⚠️ (servis sarmalayıcısı yok, doğrudan RPC olarak mevcut) | — | 🟣 Admin | `20260817000005_user_profile_privileges.sql` | SD | authenticated | Katalog satırını aktif/pasif yapar. |
+| 114 | `admin_set_profile_feature_order_unlock` | ✅ | `profile_feature_service.dart:214` | 🟣 Admin | `20260818000001_order_completion_profile_feature_unlocks.sql` → `20260819000001_profile_feature_unified_unlock.sql` | SD | authenticated | Bir katalog satırının kaçıncı tamamlanmış (delivered) siparişte otomatik açılacağını (`unlock_after_orders`) ayarlar. **2026-08-19'dan beri `badge` dışındaki tüm kind'lerde** geçerli (önceden yalnız `avatar_effect`/`cover_effect`). |
+| 115 | `get_my_order_unlock_progress` | ⚠️ (2026-08-19'da #117 ile değiştirildi; RPC duruyor, artık 4 kind döner) | — | 🔵 Auth | `20260818000001_order_completion_profile_feature_unlocks.sql` → `20260819000001_profile_feature_unified_unlock.sql` | SD | authenticated | Kullanıcının tamamlanmış sipariş sayısını, sıradaki kilitli öğeyi ve kalan sipariş sayısını döner. |
+| 116 | `get_my_profile_feature_catalog(text,int,int)` | ✅ | `profile_feature_service.dart:231` | 🔵 Auth | `20260819000001_profile_feature_unified_unlock.sql` | SD | authenticated, service_role | **YENİ.** Tek kategorinin TAMAMINI (sahip olunan + kilitli) tek çağrıda döner: `is_owned`, `is_free`, `is_admin_granted`, `order_unlock_met`, `unlock_after_orders`, puan fiyatları. Eski #101/#103/#110 üçlüsünün yerini alır. `badge` yalnız kullanıcıya verilmişse listelenir. Sıralama: ücretsizler → sahip olunanlar → en yakın sipariş eşiği. |
+| 117 | `get_my_profile_feature_summary()` | ✅ | `profile_feature_service.dart:241` | 🔵 Auth | `20260819000001_profile_feature_unified_unlock.sql` | SD | authenticated, service_role | **YENİ.** `jsonb` döner: `completed_orders`, `balance_points`, `points_earn_enabled`, `points_spend_enabled` ve kind başına `{total, owned, next_unlock_at, next_unlock_name}`. Ekran başlığı ve sekme sayaçları tek çağrıdan beslenir. |
+
+> **2026-08-18 mağaza-uyum düzeltmesi (eski #111 `purchase_my_profile_feature` kaldırıldı):**
+> Profil özelliklerinin iyzico ile yüklenen gerçek TL bakiyesinden satın
+> alınması, Apple 3.1.1 / Google Play Faturalandırma politikasına aykırı bir
+> risk olarak işaretlendi (dijital özellik + harici ödeme). `purchase_my_profile_feature(uuid,text)`
+> ve eski `admin_set_profile_feature_pricing(uuid,numeric,numeric)`,
+> [`20260818000006_profile_feature_points_purchase.sql`](supabase/migrations/20260818000006_profile_feature_points_purchase.sql)
+> ile `DROP FUNCTION` edildi (`authenticated`'a artık hiçbir şekilde açık
+> değil). Yerine gelen `purchase_my_profile_feature_with_points` doğrudan
+> `lib/`'den çağrılmaz — service_role-only, yalnızca
+> [`purchase-profile-feature`](supabase/functions/purchase-profile-feature/index.ts)
+> Edge Function'ından çağrılır; envanteri §1.2'de.
+
+**Sipariş-tamamlama tetikleyicisi (RPC değil, trigger):** `public.unlock_order_milestone_profile_features()` — `orders` tablosunda `AFTER UPDATE OF status`, `NEW.status = 'delivered' AND OLD.status IS DISTINCT FROM 'delivered'` olduğunda çalışır. `trigger_create_seller_earnings` (`20260708000000_FIX_SELLER_EARNINGS_TRIGGER.sql:105`) ile aynı savunmacı desen: `SECURITY DEFINER`, sabit `search_path`, `EXCEPTION WHEN OTHERS` ile hatayı yutar (asla sipariş güncellemesini engellemez). Kullanıcının o ana kadar hak ettiği (`unlock_after_orders <= tamamlanmış_sipariş_sayısı`) ama henüz `user_profile_features`'a eklenmemiş `avatar_effect`/`cover_effect` satırlarını `is_enabled=false` olarak ekler (kullanıcı "Profil Özelliklerim" ekranından kendi açar). `ON CONFLICT (user_id, feature_id) DO NOTHING` ile idempotent.
+
+30 profil resmi + 23 kapak fotoğrafı özelliğinin `unlock_after_orders` ataması ve tam liste için bkz. `supabase/migrations/20260818000001_order_completion_profile_feature_unlocks.sql`.
 
 ---
 
@@ -229,8 +308,8 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 70 | `admin_list_suspicious_users` | ✅ | `suspicious_users_content.dart:32` | 🟣 Admin | `20260720000005_suspicious_users.sql` | SD | authenticated | Şüpheli hesapları listele. |
-| 71 | `admin_set_user_suspicious` | ✅ | `suspicious_users_content.dart:46, 95` (2 kez) | 🟣 Admin | `20260720000005_suspicious_users.sql` | SD | authenticated | Şüpheli işaretle/kaldır. |
+| 70 | `admin_list_suspicious_users` | ✅ | `suspicious_users_content.dart:32` | 🟣 Admin | `20260720000006_suspicious_users.sql` | SD | authenticated | Şüpheli hesapları listele. |
+| 71 | `admin_set_user_suspicious` | ✅ | `suspicious_users_content.dart:46, 95` (2 kez) | 🟣 Admin | `20260720000006_suspicious_users.sql` | SD | authenticated | Şüpheli işaretle/kaldır. |
 
 ---
 
@@ -273,12 +352,12 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 86 | `admin_pin_post` | ✅ | `_part_reports.dart:968` (dinamik) | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` → `20260209000004_security_fixes.sql` | SD | authenticated (anon REVOKE) | Gönderi sabitle. |
+| 86 | `admin_pin_post` | ✅ | `_part_reports.dart:968` (dinamik) | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` → `20260209000005_security_fixes.sql` | SD | authenticated (anon REVOKE) | Gönderi sabitle. |
 | 87 | `admin_pin_story` | ✅ | `_part_reports.dart:968` (dinamik) | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Hikaye sabitle. |
 | 88 | `admin_pin_product` | ✅ | `_part_reports.dart:968` (dinamik) | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Ürün sabitle. |
 | 89 | `admin_pin_shop` | ✅ | `_part_reports.dart:968` (dinamik) | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Mağaza sabitle. |
 | 90 | `admin_delete_post` | ✅ | `_part_posts.dart:772` | 🟣 Admin | `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Gönderi sil (ilişkili likes/views/comments/favorites/reports dahil). |
-| 91 | `admin_delete_story` | ✅ | `_part_posts.dart:903` | 🟣 Admin | `20260209000004_security_fixes.sql` → `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Hikaye sil. |
+| 91 | `admin_delete_story` | ✅ | `_part_posts.dart:903` | 🟣 Admin | `20260209000005_security_fixes.sql` → `20260724000000_fix_linter_warnings.sql` | SD | authenticated (anon REVOKE) | Hikaye sil. |
 
 ---
 
@@ -307,7 +386,7 @@ Kapatılan imzalar:
 
 | # | RPC | Kullanım | Çağrı yeri (lib) | Auth | Migration | SEC | GRANT | Açıklama |
 |---|-----|----------|-------------------|------|-----------|-----|-------|---------|
-| 99 | `get_news_engagement_details` | ✅ | `news_service.dart:506` | 🔵 Auth (yazar/admin) | `20260729000004_news_engagement_notifications_and_analytics.sql` | SD | authenticated (PUBLIC REVOKE) | Haber etkileşim detayları (viewers/likes/comments). |
+| 99 | `get_news_engagement_details` | ✅ | `news_service.dart:506` | 🔵 Auth (yazar/admin) | `20260729000005_news_engagement_notifications_and_analytics.sql` | SD | authenticated (PUBLIC REVOKE) | Haber etkileşim detayları (viewers/likes/comments). |
 
 ---
 
@@ -360,29 +439,29 @@ Mevcut istemci envanterindeki bilinen sınırlar:
 |-------|-----------|---------|
 | 2024-01-24 | `20240124000011_create_post_favorites.sql` | `toggle_post_favorite` |
 | 2024-01-24 | `20240124000012_create_story_likes.sql` | `increment_story_likes` (orijinal) |
-| 2026-01-26 | `20260126_account_deletion_rpc.sql` | `request_account_deletion`, `delete_account_with_code` |
+| 2026-01-26 | `20260126000000_account_deletion_rpc.sql` | `request_account_deletion`, `delete_account_with_code` |
 | 2026-01-31 | `20260131000002_commission_system.sql` | `get_admin_commission_report`, `get_seller_commission_summary` |
 | 2026-02-05 | `20260205000005_order_review_system.sql` | `get_pending_reviews`, `can_review_order` |
 | 2026-02-06 | `20260206000003_shop_analytics_tables.sql` | `get_shop_total_views`, `get_shop_today_views`, `get_top_viewed_products`, `get_top_customers` |
 | 2026-02-07 | `20260207000007_create_chat_system.sql` | `send_message_with_recipient`, `get_user_groups`, `search_groups`, `join_open_group` (orijinaller) |
 | 2026-02-08 | `20260208000009_fix_mark_as_read_function.sql` | `mark_messages_as_read` |
 | 2026-02-08 | `20260208000010_all_chat_fixes.sql` | Tüm chat RPC'lerinin final halleri + grup admin RPC'leri |
-| 2026-02-09 | `20260209000004_security_fixes.sql` | `admin_delete_story` |
+| 2026-02-09 | `20260209000005_security_fixes.sql` | `admin_delete_story` |
 | 2026-02-10 | `20260210000007_create_analytics_functions.sql` | 7 profil/post analytics RPC'si |
 | 2026-02-27 | `20260227000000_verification_codes.sql` | `verify_code` |
 | 2026-02-28 | `20260228000001_force_update_system.sql` | `check_app_version` |
 | 2026-03-19 | `20260319000000_registration_otp_system.sql` | `verify_registration_otp`, `verify_password_reset_otp` |
-| 2026-05-29 | `20260529000000_fix_story_likes_security.sql` | `increment_story_likes` (anon REVOKE) |
-| 2026-06-21 | `20260621_CREATE_BALANCE_SYSTEM.sql` | `add_to_balance`, `deduct_from_balance`, `approve_transfer_confirmation`, `reject_transfer_confirmation` (orijinaller) |
-| 2026-06-28 | `20260628_enrich_deduct_from_balance_rpc.sql` | `deduct_from_balance` (zenginleştirme) |
-| 2026-07-07 | `20260707_DEDUCT_FROM_BALANCE_ENRICHED.sql` | `deduct_from_balance` (final GRANT) |
-| 2026-07-07 | `20260707_NOTIFICATIONS_AND_BALANCE_FIX.sql` | `add_notification` |
+| 2026-05-29 | `20260529000001_fix_story_likes_security.sql` | `increment_story_likes` (anon REVOKE) |
+| 2026-06-21 | `20260621000007_CREATE_BALANCE_SYSTEM.sql` | `add_to_balance`, `deduct_from_balance`, `approve_transfer_confirmation`, `reject_transfer_confirmation` (orijinaller) |
+| 2026-06-28 | `20260628000000_enrich_deduct_from_balance_rpc.sql` | `deduct_from_balance` (zenginleştirme) |
+| 2026-07-07 | `20260707000000_DEDUCT_FROM_BALANCE_ENRICHED.sql` | `deduct_from_balance` (final GRANT) |
+| 2026-07-07 | `20260707000002_NOTIFICATIONS_AND_BALANCE_FIX.sql` | `add_notification` |
 | 2026-07-09 | `20260709000002_CANCELLATION_RPCS.sql` | 3 cancellation RPC'si |
 | 2026-07-09 | `20260709000004_ADMIN_CANCEL_WITH_REFUND_RPC.sql` | `admin_cancel_with_refund` |
 | 2026-07-09 | `20260709000005_BALANCE_REFUND_FIX.sql` | `add_to_balance` (refund fix) |
-| 2026-07-09 | `20260709000006_TRANSFER_RPC_REVOKE_PUBLIC.sql` | transfer RPC'lerinden anon REVOKE |
+| 2026-07-09 | `20260709000007_TRANSFER_RPC_REVOKE_PUBLIC.sql` | transfer RPC'lerinden anon REVOKE |
 | 2026-07-19 | `20260719000002_task_earning_rls_rpc.sql` | 7 task RPC'si |
-| 2026-07-20 | `20260720000005_suspicious_users.sql` | `admin_list_suspicious_users`, `admin_set_user_suspicious` |
+| 2026-07-20 | `20260720000006_suspicious_users.sql` | `admin_list_suspicious_users`, `admin_set_user_suspicious` |
 | 2026-07-22 | `20260722000001_review_reminder_dismiss_db.sql` | `dismiss_review_reminder` |
 | 2026-07-22 | `20260722000003_fix_coupon_validation.sql` | `validate_coupon`, `use_coupon` |
 | 2026-07-22 | `20260722000004_buy2_get1_balance_campaign.sql` | `apply_campaign_rewards_for_order` |
@@ -395,7 +474,7 @@ Mevcut istemci envanterindeki bilinen sınırlar:
 | 2026-07-27 | `20260727000008_harden_balance_rpc_permissions.sql` | `add_to_balance` → service_role only, `deduct_from_balance` authenticated only |
 | 2026-07-29 | `20260729000003_get_sehirici_trip_path.sql` | `get_sehirici_trip_path` |
 | 2026-07-29 | `20260729000004_fraud_detection_system.sql` | 3 fraud RPC |
-| 2026-07-29 | `20260729000004_news_engagement_notifications_and_analytics.sql` | `get_news_engagement_details` |
+| 2026-07-29 | `20260729000005_news_engagement_notifications_and_analytics.sql` | `get_news_engagement_details` |
 | 2026-07-30 | [`20260730000002_admob_reward_points_system.sql`](supabase/migrations/20260730000002_admob_reward_points_system.sql:1) | [`admin_update_reward_points_config(...)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:816) istemci-admin RPC'si; §1.2'deki service-only SSV/puan/composition/iade RPC'leri; legacy reklam ve checkout imzalarının kapatılması |
 
 ---
@@ -438,3 +517,5 @@ ORDER BY proname;
 
 - `2026-07-29` · v1 · İlk oluşturulma. 96 farklı RPC, ~110 çağrı yeri. Tüm `.rpc(...)` çağrıları `lib/` altında tarandı, migration dosyalarıyla çapraz doğrulandı.
 - `2026-07-30` · v2 · Tam-dosya taraması 108 literal çağrı/96 ad olarak yeniden sayıldı; [`admin_update_reward_points_config(...)`](supabase/migrations/20260730000002_admob_reward_points_system.sql:816) istemci RPC'si ve backend-only SSV/puan/composition/iade imzaları gerçek GRANT/REVOKE sözleşmeleriyle eklendi; legacy TL grant ve eski checkout kapatması belgelendi.
+- `2026-08-18` · v3 · Yeni **11a) Profil Özellikleri (Kozmetik)** bölümü eklendi: 2026-08-17'de kurulup hiç belgelenmemiş ~16 RPC (`profile_feature_catalog`/`user_profile_features` — admin atama, self-claim, bakiye ile satın alma) geriye dönük belgelendi; sipariş tamamlama ile otomatik kilit açan yeni `admin_set_profile_feature_order_unlock` / `get_my_order_unlock_progress` RPC'leri ve `unlock_order_milestone_profile_features()` trigger'ı (`20260818000001_order_completion_profile_feature_unlocks.sql`) eklendi.
+- `2026-08-18` · v3.1 · `get_my_order_unlock_progress` bigint/integer tip uyuşmazlığı düzeltildi (`count(*)` bigint döner, fonksiyon integer bekliyordu — her çağrıda hata veriyordu, `20260818000002_fix_order_unlock_progress_bigint_cast.sql`); ayrıca migration history desync'i nedeniyle önceden `purchase_avatar_photo_flame_overlay_b` satırında başıboş kalmış bir `unlock_after_orders=1` değeri temizlendi (`20260818000003_clear_stray_order_unlock_value.sql`), avatar_effect kilitli liste artık tam 30.

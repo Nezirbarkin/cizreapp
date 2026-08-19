@@ -5,7 +5,11 @@ import '../services/commission_service.dart';
 
 /// Admin Komisyon Dashboard Ekranı
 class CommissionDashboardScreen extends StatefulWidget {
-  const CommissionDashboardScreen({super.key});
+  /// true ise kendi Scaffold/AppBar'ını çizmez, sadece içeriği döner
+  /// (ör. "Ödemeler" hub'ında bir sekme olarak gömülü kullanım için).
+  final bool embedded;
+
+  const CommissionDashboardScreen({super.key, this.embedded = false});
 
   @override
   State<CommissionDashboardScreen> createState() => _CommissionDashboardScreenState();
@@ -50,14 +54,16 @@ class _CommissionDashboardScreenState extends State<CommissionDashboardScreen> {
         endDate: _endDate,
       );
       
-      setState(() {
-        _report = report;
-        _sellerList = sellers;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() {
+          _report = report;
+          _sellerList = sellers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Veriler yüklenemedi: $e')),
         );
@@ -67,49 +73,64 @@ class _CommissionDashboardScreenState extends State<CommissionDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Komisyon Raporları'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CommissionSettingsScreen(),
-                ),
-              ).then((_) => _loadData());
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-          ),
-        ],
+    final actions = [
+      IconButton(
+        icon: const Icon(Icons.settings),
+        tooltip: 'Komisyon Ayarları',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CommissionSettingsScreen(),
+            ),
+          ).then((_) => _loadData());
+        },
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildPeriodSelector(),
+      IconButton(
+        icon: const Icon(Icons.refresh),
+        tooltip: 'Yenile',
+        onPressed: _loadData,
+      ),
+    ];
+
+    final body = _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: _loadData,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildPeriodSelector(),
+                  const SizedBox(height: 16),
+                  if (_report != null) ...[
+                    _buildTotalRevenueCard(),
                     const SizedBox(height: 16),
-                    if (_report != null) ...[
-                      _buildTotalRevenueCard(),
-                      const SizedBox(height: 16),
-                      _buildCommissionBreakdown(),
-                      const SizedBox(height: 24),
-                      _buildSellerList(),
-                    ],
+                    _buildCommissionBreakdown(),
+                    const SizedBox(height: 24),
+                    _buildSellerList(),
                   ],
-                ),
+                ],
               ),
             ),
+          );
+
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: actions,
+          ),
+          Expanded(child: body),
+        ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Komisyon Raporları'), actions: actions),
+      body: body,
     );
   }
 
@@ -487,40 +508,41 @@ class _CommissionSettingsScreenState extends State<CommissionSettingsScreen> {
     try {
       final rate = await _commissionService.getAdminCommissionRate();
       final fee = await _commissionService.getDefaultDeliveryFee();
-      
-      setState(() {
-        _commissionRateController.text = rate.toStringAsFixed(0);
-        _deliveryFeeController.text = fee.toStringAsFixed(0);
-        _isLoading = false;
-      });
+
+      if (mounted) {
+        setState(() {
+          _commissionRateController.text = rate.toStringAsFixed(0);
+          _deliveryFeeController.text = fee.toStringAsFixed(0);
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
-    
+
     try {
       final newRate = double.tryParse(_commissionRateController.text) ?? 10.0;
       final newFee = double.tryParse(_deliveryFeeController.text) ?? 30.0;
-      
+
       await _commissionService.updateAdminCommissionRate(newRate);
       await _commissionService.updateDefaultDeliveryFee(newFee);
-      
-      setState(() {
-        _isSaving = false;
-      });
-      
+
       if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Ayarlar kaydedildi')),
         );
         Navigator.pop(context);
       }
     } catch (e) {
-      setState(() => _isSaving = false);
       if (mounted) {
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Kaydetme başarısız: $e')),
         );
@@ -631,13 +653,18 @@ class _CommissionSettingsScreenState extends State<CommissionSettingsScreen> {
               ),
             ),
             Slider(
-              value: double.tryParse(controller.text) ?? 0,
+              value: (double.tryParse(controller.text) ?? min).clamp(
+                min,
+                max,
+              ),
               min: min,
               max: max,
               divisions: (max - min).toInt(),
               label: '${controller.text}$suffix',
               onChanged: (value) {
-                controller.text = value.round().toString();
+                setState(() {
+                  controller.text = value.round().toString();
+                });
               },
             ),
           ],

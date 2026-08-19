@@ -553,10 +553,15 @@ class _NewsManagementContentState extends State<NewsManagementContent> {
                           Icons.chat_bubble_outline_rounded,
                           news.commentCount,
                         ),
-                        const Spacer(),
-                        Text(
-                          news.formattedDate,
-                          style: TextStyle(color: colors.outline, fontSize: 10),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            news.formattedDate,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(color: colors.outline, fontSize: 10),
+                          ),
                         ),
                       ],
                     ),

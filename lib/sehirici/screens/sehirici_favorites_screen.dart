@@ -37,7 +37,10 @@ class _SehiriciFavoritesScreenState extends State<SehiriciFavoritesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<SehiriciProvider>();
+    // Provider yalnızca toggleFavorite eylemi için kullanılır; reaktif alan
+    // (activeTrips vb.) okunmaz. watch yerine read — her sefer konum güncellemesi
+    // (10 sn'de bir) bu ekranı gereksiz yeniden inşa etmesin.
+    final provider = context.read<SehiriciProvider>();
     return Scaffold(
       appBar: AppBar(title: const Text('Favori Duraklarım')),
       body: _loading

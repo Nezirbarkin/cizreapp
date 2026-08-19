@@ -1,58 +1,56 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/models/product_model.dart';
-import '../../market/services/product_service.dart';
-import '../services/cart_service.dart';
-import 'checkout_screen.dart';
+import '../../../core/models/cart_model.dart';
+import '../../market/providers/cart_provider.dart';
+import '../../market/screens/checkout_screen.dart';
 
+/// Mağaza içi (tek mağaza) sepet ekranı.
+///
+/// Ortak `CartProvider`/`cart` tablosunun yalnızca [shopId]'ye ait
+/// satırlarını gösteren bir görünümdür — başka mağazaların ürünleri
+/// burada ASLA görünmez. Veri kaynağı, "Sepetim" sekmesiyle (bkz.
+/// `market/screens/cart_screen.dart`) aynıdır; bu sayede bir mağazadan
+/// eklenen ürün ana sepette de, buradan eklenen ürün de her iki yerde
+/// tutarlı görünür.
 class CartScreen extends StatefulWidget {
-  const CartScreen({super.key});
+  final String shopId;
+  final String? shopName;
+
+  const CartScreen({super.key, required this.shopId, this.shopName});
 
   @override
   State<CartScreen> createState() => _CartScreenState();
 }
 
-class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
-  final CartService _cartService = CartService();
-  final ProductService _productService = ProductService();
-  
-  List<CartItemWithProduct> _cartItems = [];
-  bool _isLoading = true;
-  double _subtotal = 0;
-  double _deliveryFee = 15.0; // Dinamik olarak yüklenecek
-  double _baseDeliveryFee = 15.0; // Dükkanın standart teslimat ücreti
-  double _freeDeliveryMinAmount = 0.0; // Ücretsiz teslimat alt sınırı
-  double _total = 0;
-  double _discountAmount = 0;
-  String? _appliedCoupon;
-  Map<String, dynamic>? _appliedCouponData; // Tam kupon verisi
-  final TextEditingController _couponController = TextEditingController();
-  String? _currentShopId; // Sepetteki dükkan ID'si
-  bool _isFreeDelivery = false; // Ücretsiz teslimat durumu
-
+class _CartScreenState extends State<CartScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _slideController;
   late Animation<Offset> _slideAnimation;
+
+  final TextEditingController _couponController = TextEditingController();
+  bool _isApplyingCoupon = false;
 
   @override
   void initState() {
     super.initState();
-    
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutCubic,
-    ));
-    
-    _loadCart();
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
+          CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+        );
     _slideController.forward();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<CartProvider>().loadShopInfo();
+    });
   }
 
   @override
@@ -62,268 +60,28 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Future<void> _loadCart() async {
-    setState(() => _isLoading = true);
-
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) {
-      debugPrint('🛒 CART: Kullanıcı giriş yapmamış');
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    try {
-      debugPrint('🛒 CART: Sepet yükleniyor... userId: $userId');
-      
-      // CartService kullan - ShopDetailScreen ile aynı
-      final items = await _cartService.getCartItems(userId);
-      debugPrint('🛒 CART: ${items.length} adet sepet öğesi bulundu');
-
-      final List<CartItemWithProduct> cartWithProducts = [];
-      for (var item in items) {
-        debugPrint('🛒 CART: Ürün yükleniyor - productId: ${item.productId}, quantity: ${item.quantity}');
-        final product = await _productService.getProductById(item.productId);
-        // ignore: unnecessary_null_comparison
-        if (product != null) {
-          cartWithProducts.add(CartItemWithProduct(
-            cartItem: item,
-            product: product,
-          ));
-          debugPrint('🛒 CART: Ürün yüklendi - ${product.name}');
-        // ignore: dead_code
-        } else {
-          debugPrint('⚠️ CART: Ürün bulunamadı - productId: ${item.productId}');
-        }
-      }
-
-      debugPrint('🛒 CART: Toplam ${cartWithProducts.length} ürün sepete eklendi');
-
-      // Dükkan teslimat bilgilerini al
-      if (cartWithProducts.isNotEmpty) {
-        _currentShopId = cartWithProducts.first.product.shopId;
-        final deliveryInfo = await _cartService.getShopDeliveryInfo(_currentShopId!);
-        _baseDeliveryFee = deliveryInfo['delivery_fee'] ?? 15.0;
-        _freeDeliveryMinAmount = deliveryInfo['free_delivery_min_amount'] ?? 0.0;
-        debugPrint('🛒 CART: Dükkan teslimat ücreti: ₺$_baseDeliveryFee, Ücretsiz teslimat limiti: ₺$_freeDeliveryMinAmount');
-        
-        setState(() {
-          _cartItems = cartWithProducts;
-          _calculateTotals(); // Bu metod _deliveryFee'i hesaplayacak
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _cartItems = cartWithProducts;
-          _calculateTotals();
-          _isLoading = false;
-        });
-      }
-      
-      debugPrint('🛒 CART: Sepet yükleme tamamlandı - Ara toplam: ₺$_subtotal, Teslimat: ₺$_deliveryFee');
-    } catch (e) {
-      debugPrint('❌ CART: Sepet yüklenirken hata: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sepet yüklenirken hata: $e')),
-        );
-      }
-    }
-  }
-
-  void _calculateTotals() {
-    _subtotal = 0;
-    for (var item in _cartItems) {
-      // Sepete eklendiği andaki snapshot fiyatı tercih et; yoksa
-      // ürünün güncel effectivePrice'ına düş (geriye uyumluluk).
-      final unitPrice = item.cartItem.unitPrice ?? item.product.effectivePrice;
-      _subtotal += unitPrice * item.cartItem.quantity;
-    }
-    
-    // Kupon indirimini hesapla
-    if (_appliedCouponData != null) {
-      final discountType = _appliedCouponData!['discount_type']?.toString() ?? 'fixed_amount';
-      final rawValue = _appliedCouponData!['discount_value'];
-      final discountValue = (rawValue is num) ? rawValue.toDouble() : 0.0;
-      final rawMaxDiscount = _appliedCouponData!['maximum_discount_amount'];
-      final maxDiscount = (rawMaxDiscount is num) ? rawMaxDiscount.toDouble() : null;
-
-      if (discountType == 'percentage') {
-        _discountAmount = _subtotal * discountValue / 100;
-        if (maxDiscount != null && _discountAmount > maxDiscount) {
-          _discountAmount = maxDiscount;
-        }
-      } else {
-        _discountAmount = discountValue;
-      }
-      // İndirim sepet tutarını aşamaz
-      if (_discountAmount > _subtotal) {
-        _discountAmount = _subtotal;
-      }
-    } else {
-      _discountAmount = 0;
-    }
-    
-    // Ücretsiz teslimat kontrolü
-    if (_freeDeliveryMinAmount > 0 && _subtotal >= _freeDeliveryMinAmount) {
-      _deliveryFee = 0.0;
-      _isFreeDelivery = true;
-      debugPrint('🛒 CART: Ücretsiz teslimat aktif! Sepet toplamı: ₺$_subtotal >= Limit: ₺$_freeDeliveryMinAmount');
-    } else {
-      _deliveryFee = _baseDeliveryFee;
-      _isFreeDelivery = false;
-    }
-    
-    _total = _subtotal - _discountAmount + _deliveryFee;
-  }
-
-  Future<void> _applyCoupon() async {
-    final code = _couponController.text.trim().toUpperCase();
-    
-    if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Kupon kodunu giriniz'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    if (_currentShopId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sepette ürün bulunamadı'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    try {
-      // Kuponu sunucuda doğrula (süre, kullanım limiti, kullanıcı başına limit dahil)
-      final rows = await Supabase.instance.client.rpc('validate_coupon', params: {
-        'p_shop_id': _currentShopId,
-        'p_code': code,
-        'p_subtotal': _subtotal,
-        'p_user_id': userId,
-      }) as List;
-
-      if (rows.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Geçersiz kupon kodu'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-        return;
-      }
-
-      final response = rows.first as Map<String, dynamic>;
-
-      // Kuponu uygula
-      setState(() {
-        _appliedCoupon = code;
-        _appliedCouponData = response;
-        _calculateTotals();
-      });
-
-      final discountType = response['discount_type'] ?? 'fixed_amount';
-      final discountValue = (response['discount_value'] ?? 0).toDouble();
-      final discountText = discountType == 'percentage'
-          ? '%${discountValue.toStringAsFixed(0)} indirim'
-          : '₺${discountValue.toStringAsFixed(0)} indirim';
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$discountText uygulandı!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ CART: Kupon kontrolü hatası: $e');
-      final message = e is PostgrestException ? e.message : 'Kupon kontrolü sırasında hata oluştu';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
-
-  String _formatCouponLabel() {
-    if (_appliedCouponData == null) return '';
-    final dType = _appliedCouponData!['discount_type']?.toString() ?? 'fixed_amount';
-    final rawValue = _appliedCouponData!['discount_value'];
-    final dValue = (rawValue is num) ? rawValue.toDouble() : 0.0;
-    if (dType == 'percentage') {
-      return '%${dValue.toStringAsFixed(0)} indirim';
-    }
-    return '₺${dValue.toStringAsFixed(0)} indirim';
-  }
-
-  void _removeCoupon() {
-    setState(() {
-      _appliedCoupon = null;
-      _appliedCouponData = null;
-      _couponController.clear();
-      _calculateTotals();
-    });
-  }
-
-  Future<void> _updateQuantity(CartItemWithProduct item, int newQuantity) async {
-    if (newQuantity < 1) return;
-
-    try {
-      debugPrint('🛒 CART: Miktar güncelleniyor - cartItemId: ${item.cartItem.id}, newQuantity: $newQuantity');
-      await _cartService.updateCartItemQuantity(item.cartItem.id, newQuantity);
-      await _loadCart();
-    } catch (e) {
-      debugPrint('❌ CART: Miktar güncellenirken hata: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Miktar güncellenirken hata: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _removeItem(CartItemWithProduct item) async {
-    try {
-      debugPrint('🛒 CART: Ürün çıkarılıyor - cartItemId: ${item.cartItem.id}');
-      await _cartService.removeFromCart(item.cartItem.id);
-      await _loadCart();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ürün sepetten çıkarıldı')),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ CART: Ürün çıkarılırken hata: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ürün çıkarılırken hata: $e')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+
+    if (userId == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.shopName ?? 'Sepet')),
+        body: const Center(child: Text('Lütfen giriş yapın')),
+      );
+    }
+
+    final cartProvider = context.watch<CartProvider>();
+    final items =
+        cartProvider.groupedByShop[widget.shopId] ?? const <CartItem>[];
+    final coupon = cartProvider.couponForShop(widget.shopId);
+    if (coupon != null && _couponController.text != coupon.code) {
+      _couponController.value = TextEditingValue(
+        text: coupon.code,
+        selection: TextSelection.collapsed(offset: coupon.code.length),
+      );
+    }
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -341,22 +99,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         child: SafeArea(
           child: Column(
             children: [
-              // Modern Header
-              _buildModernHeader(context),
-              
-              // Content
+              _buildHeader(context, items),
               Expanded(
                 child: SlideTransition(
                   position: _slideAnimation,
-                  child: _isLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : _cartItems.isEmpty
-                          ? _buildModernEmptyCart(context)
-                          : _buildCartContent(context),
+                  child: items.isEmpty
+                      ? _buildEmptyCart(context)
+                      : _buildCartContent(context, cartProvider, items),
                 ),
               ),
             ],
@@ -366,12 +115,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildModernHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, List<CartItem> items) {
+    final itemCount = items.fold<int>(0, (sum, item) => sum + item.quantity);
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Row(
         children: [
-          // Back Button
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
@@ -381,24 +130,28 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               onPressed: () => Navigator.maybePop(context),
-              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+              icon: const Icon(
+                Icons.arrow_back_ios_new,
+                color: Colors.white,
+                size: 18,
+              ),
             ),
           ),
           const SizedBox(width: 12),
-          
-          // Title
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Sepetim',
-                  style: TextStyle(
-                    fontSize: 22,
+                Text(
+                  widget.shopName ?? 'Sepetim',
+                  style: const TextStyle(
+                    fontSize: 20,
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
                     letterSpacing: -0.5,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Row(
                   children: [
@@ -409,7 +162,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${_cartItems.length} ürün',
+                      '$itemCount ürün',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.white.withOpacity(0.9),
@@ -421,9 +174,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               ],
             ),
           ),
-          
-          // Clear Cart Button
-          if (_cartItems.isNotEmpty)
+          if (items.isNotEmpty)
             Container(
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
@@ -432,15 +183,12 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               child: IconButton(
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: () async {
-                  final userId = Supabase.instance.client.auth.currentUser?.id;
-                  if (userId != null) {
-                    debugPrint('🛒 CART: Sepet temizleniyor');
-                    await _cartService.clearCart(userId);
-                    _loadCart();
-                  }
-                },
-                icon: const Icon(Icons.delete_outline, color: Colors.white, size: 18),
+                onPressed: () => _showClearCartDialog(context),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: Colors.white,
+                  size: 18,
+                ),
                 tooltip: 'Sepeti Temizle',
               ),
             ),
@@ -449,57 +197,44 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildModernEmptyCart(BuildContext context) {
+  Widget _buildEmptyCart(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 600),
-              builder: (context, value, child) {
-                return Transform.scale(
-                  scale: value,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                          Theme.of(context).colorScheme.primary.withOpacity(0.05),
-                        ],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.shopping_cart_outlined,
-                      size: 60,
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
-                    ),
-                  ),
-                );
-              },
-            ),
-            
-            const SizedBox(height: 32),
-            
-            const Text(
-              'Sepetiniz Boş',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF1A1A2E),
-                letterSpacing: -0.5,
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    Theme.of(context).colorScheme.primary.withOpacity(0.05),
+                  ],
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.shopping_cart_outlined,
+                size: 60,
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
               ),
             ),
-            
+            const SizedBox(height: 32),
+            const Text(
+              'Bu mağazadan sepetiniz boş',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1A1A2E),
+              ),
+            ),
             const SizedBox(height: 12),
-            
             Text(
-              'Hemen alışverişe başla ve\nevini çıkar!',
+              'Ürünleri sepete ekleyip buradan\nsipariş verebilirsiniz.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
@@ -513,235 +248,392 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildCartContent(BuildContext context) {
+  Widget _buildCartContent(
+    BuildContext context,
+    CartProvider cartProvider,
+    List<CartItem> items,
+  ) {
     return Column(
       children: [
-        // Sepet öğeleri
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-            itemCount: _cartItems.length,
-            itemBuilder: (context, index) {
-              final item = _cartItems[index];
-              
-              return TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: 1),
-                duration: Duration(milliseconds: 300 + (index * 50)),
-                curve: Curves.easeOut,
-                builder: (context, value, child) {
-                  return Transform.translate(
-                    offset: Offset(0, 30 * (1 - value)),
-                    child: Opacity(
-                      opacity: value,
-                      child: _buildModernCartItem(item),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        
-        // Checkout button
-        _buildModernCheckoutSection(context),
-      ],
-    );
-  }
-
-  Widget _buildModernCartItem(CartItemWithProduct item) {
-    final product = item.product;
-    final cartItem = item.cartItem;
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Ürün resmi
-            Container(
-              width: 90,
-              height: 90,
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            itemCount: items.length,
+            separatorBuilder: (context, index) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Divider(height: 1, color: Colors.grey.shade100),
+            ),
+            itemBuilder: (context, index) => Container(
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                image: product.images.isNotEmpty
-                    ? DecorationImage(
-                        image: NetworkImage(product.images.first),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
                     offset: const Offset(0, 2),
                   ),
                 ],
               ),
-              child: product.images.isEmpty
-                  ? Icon(Icons.image, size: 40, color: Colors.grey.shade400)
-                  : null,
+              margin: const EdgeInsets.only(bottom: 4),
+              child: _buildCartItem(context, items[index], cartProvider),
             ),
-            const SizedBox(width: 16),
+          ),
+        ),
+        _buildCouponSection(context, cartProvider),
+        _buildCheckoutSection(context, cartProvider, items),
+      ],
+    );
+  }
 
-            // Ürün bilgileri
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                      height: 1.3,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Fiyat: sepete eklendiği andaki snapshot fiyatı
-                  // (CartItem.unitPrice) tercih edilir. Snapshot yoksa
-                  // ürünün güncel effective/price'ına düşülür.
-                  _buildPriceRow(theme, item, product),
-                  
-                  const SizedBox(height: 12),
-                  
-                  // Miktar kontrolü
-                  Row(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _updateQuantity(item, cartItem.quantity - 1),
-                                borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Icon(
-                                    Icons.remove_rounded,
-                                    size: 20,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text(
-                                cartItem.quantity.toString(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _updateQuantity(item, cartItem.quantity + 1),
-                                borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Icon(
-                                    Icons.add_rounded,
-                                    size: 20,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+  Widget _buildCartItem(
+    BuildContext context,
+    CartItem item,
+    CartProvider cartProvider,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 65,
+            height: 65,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.grey.shade100,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: item.productImageUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: item.productImageUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) => const Center(
+                        child: Icon(Icons.image_not_supported, size: 24),
                       ),
-                      const Spacer(),
-                      // Sil butonu
-                      Material(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(10),
-                        child: InkWell(
-                          onTap: () => _removeItem(item),
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            child: Icon(
-                              Icons.delete_outline_rounded,
-                              color: Colors.red.shade700,
-                              size: 22,
-                            ),
-                          ),
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.shopping_bag,
+                        size: 24,
+                        color: Colors.grey,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.productName ?? 'Ürün',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: Color(0xFF1A1A2E),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      '${item.effectivePrice.toStringAsFixed(2)}₺',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: item.isFlashSaleItem
+                            ? const Color(0xFFE53935)
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    if (item.hasDiscount) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '${(item.isFlashSaleItem ? (item.productPrice ?? 0) : (item.productOldPrice ?? 0)).toStringAsFixed(2)}₺',
+                        style: TextStyle(
+                          fontSize: 11,
+                          decoration: TextDecoration.lineThrough,
+                          color: Colors.grey.shade500,
                         ),
                       ),
                     ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ],
-              ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _quantityButton(
+                        icon: Icons.remove_rounded,
+                        onTap: () {
+                          // Satıcı minimum adet koyduysa onun altına inmek
+                          // yerine ürün sepetten çıkarılır.
+                          if (item.canRemoveOne) {
+                            cartProvider.updateQuantity(
+                              item.id,
+                              item.quantity - 1,
+                            );
+                          } else {
+                            cartProvider.removeFromCart(item.id);
+                          }
+                        },
+                      ),
+                      Container(
+                        width: 40,
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${item.quantity}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      _quantityButton(
+                        icon: Icons.add_rounded,
+                        onTap: item.canAddMore
+                            ? () => cartProvider.updateQuantity(
+                                item.id,
+                                item.quantity + 1,
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Satıcı adet limitine uymayan satır için uyarı — ödeme
+                // adımında sunucu reddedeceği için burada erken uyarıyoruz.
+                if (item.quantityLimitWarning != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 14,
+                          color: Colors.orange.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            item.quantityLimitWarning!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
-          ],
+          ),
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => cartProvider.removeFromCart(item.id),
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.close, color: Colors.red.shade400, size: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quantityButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: onTap != null ? Colors.white : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: onTap != null
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade400,
         ),
       ),
     );
   }
 
-  /// Sepet satırında gösterilecek fiyat bloğu.
-  /// - `CartItem.unitPrice` snapshot'ı varsa onu tercih eder (sepete
-  ///   eklenirkenki geçerli fiyat).
-  /// - Snapshot yoksa ürünün güncel `effectivePrice`'ına düşer.
-  /// - Eski fiyat (üstü çizili) yalnızca anlamlıysa gösterilir: ya ürün
-  ///   şu an indirimliyse (`hasDiscount`), ya da snapshot ile güncel
-  ///   fiyat farklıysa.
-  Widget _buildPriceRow(
-    ThemeData theme,
-    CartItemWithProduct item,
-    Product product,
-  ) {
-    final unitPrice = item.cartItem.unitPrice ?? product.effectivePrice;
-    final hasSnapshot = item.cartItem.unitPrice != null;
-    final showOldPrice = hasSnapshot
-        ? (product.price > unitPrice)
-        : product.hasDiscount;
-    final oldPrice = product.price;
+  Widget _buildCouponSection(BuildContext context, CartProvider cartProvider) {
+    final theme = Theme.of(context);
+    final coupon = cartProvider.couponForShop(widget.shopId);
+    final subtotal = cartProvider.getShopTotal(widget.shopId);
 
-    return Row(
-      children: [
-        if (showOldPrice) ...[
-          Text(
-            '₺${oldPrice.toStringAsFixed(2)}',
-            style: TextStyle(
-              decoration: TextDecoration.lineThrough,
-              color: Colors.grey.shade500,
-              fontSize: 13,
+    if (coupon != null) {
+      final discount = coupon.discountFor(subtotal);
+      return Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          border: Border.all(color: Colors.green.shade300),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green.shade700),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Kupon Uygulandı',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
+                  Text(
+                    '${coupon.code} • ${coupon.label} • -₺${discount.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.green.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: () {
+                cartProvider.removeCoupon(widget.shopId);
+                _couponController.clear();
+              },
+              icon: Icon(Icons.close, color: Colors.green.shade700),
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _couponController,
+              textCapitalization: TextCapitalization.characters,
+              enabled: !_isApplyingCoupon,
+              decoration: InputDecoration(
+                hintText: 'Kupon kodunu girin',
+                prefixIcon: const Icon(Icons.local_offer_outlined, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+              ),
             ),
           ),
-          const SizedBox(width: 6),
-        ],
-        Text(
-          '₺${unitPrice.toStringAsFixed(2)}',
-          style: TextStyle(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: _isApplyingCoupon
+                ? null
+                : () => _applyCoupon(cartProvider),
+            icon: _isApplyingCoupon
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.check, size: 18),
+            label: const Text('Uygula'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: Colors.white,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildModernCheckoutSection(BuildContext context) {
-    final theme = Theme.of(context);
-    
+  Future<void> _applyCoupon(CartProvider cartProvider) async {
+    final code = _couponController.text.trim();
+    if (code.isEmpty) return;
+    setState(() => _isApplyingCoupon = true);
+    try {
+      final coupon = await cartProvider.applyCoupon(
+        shopId: widget.shopId,
+        code: code,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Kupon uygulandı: ${coupon.label}'),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isApplyingCoupon = false);
+    }
+  }
+
+  Widget _buildCheckoutSection(
+    BuildContext context,
+    CartProvider cartProvider,
+    List<CartItem> items,
+  ) {
+    final subtotal = cartProvider.getShopTotal(widget.shopId);
+    final coupon = cartProvider.couponForShop(widget.shopId);
+    final discount = coupon?.discountFor(subtotal) ?? 0.0;
+    final deliveryFee = cartProvider.getDeliveryFee(widget.shopId);
+    final total = subtotal - discount + deliveryFee;
+    final meetsMinOrder = cartProvider.meetsMinOrderAmount(widget.shopId);
+    final remaining = cartProvider.getRemainingForMinOrder(widget.shopId);
+    final shop = cartProvider.getShop(widget.shopId);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -759,278 +651,73 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       ),
       padding: const EdgeInsets.all(16),
       child: SafeArea(
+        top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Kupon Kodu Bölümü
-            if (_appliedCoupon == null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _couponController,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: InputDecoration(
-                          hintText: 'Kupon kodunu girin',
-                          prefixIcon: const Icon(Icons.local_offer_outlined),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: _applyCoupon,
-                      icon: const Icon(Icons.check),
-                      label: const Text('Uygula'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        backgroundColor: theme.colorScheme.primary,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    border: Border.all(color: Colors.green.shade300),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green.shade700),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Kupon Uygulandı',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700,
-                              ),
-                            ),
-                            Text(
-                              _appliedCouponData != null
-                                  ? '$_appliedCoupon - ${_formatCouponLabel()}'
-                                  : _appliedCoupon ?? '',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.green.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _removeCoupon,
-                        icon: Icon(Icons.close, color: Colors.green.shade700),
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            
-            // Ara Toplam
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Ara Toplam:',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                Text(
-                  '₺${_subtotal.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            if (_discountAmount > 0) ...[
+            _summaryRow('Ara Toplam', subtotal),
+            if (discount > 0) ...[
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'İndirim:',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.green.shade700,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    '-₺${_discountAmount.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green.shade700,
-                    ),
-                  ),
-                ],
-              ),
+              _summaryRow('İndirim', -discount, isDiscount: true),
             ],
             const SizedBox(height: 8),
-            // Teslimat
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Teslimat:',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _isFreeDelivery ? 'Ücretsiz' : '₺${_deliveryFee.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: _isFreeDelivery ? Colors.green : null,
-                      ),
-                    ),
-                    if (!_isFreeDelivery && _freeDeliveryMinAmount > 0)
-                      Text(
-                        '₺${(_freeDeliveryMinAmount - _subtotal).toStringAsFixed(0)} daha ekleyin',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-            // Ücretsiz teslimat bilgilendirmesi
-            if (_isFreeDelivery) ...[
-              const SizedBox(height: 4),
+            _summaryRow('Teslimat', deliveryFee),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            _summaryRow('Toplam', total, isTotal: true),
+            if (!meetsMinOrder && shop != null) ...[
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade200),
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
-                    const SizedBox(width: 6),
-                    Text(
-                      '₺${_freeDeliveryMinAmount.toStringAsFixed(0)} üzeri ücretsiz teslimat!',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.w500,
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: Colors.orange.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Minimum sipariş tutarı ₺${shop.minOrderAmount.toStringAsFixed(2)} — ₺${remaining.toStringAsFixed(2)} daha ekleyin',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade800,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Divider(height: 1, color: Colors.grey.shade300),
-            ),
-            // Toplam - Vurgulu
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary.withOpacity(0.1),
-                    theme.colorScheme.primaryContainer.withOpacity(0.2),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Toplam:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                  Text(
-                    '₺${_total.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 22,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Sipariş Ver Butonu - Modern
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 50,
               child: ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CheckoutScreen(
-                        cartItems: _cartItems,
-                        subtotal: _subtotal,
-                        deliveryFee: _deliveryFee,
-                        total: _total,
-                        discountAmount: _discountAmount,
-                        appliedCoupon: _appliedCoupon,
-                        appliedCouponId: _appliedCouponData?['id'] as String?,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: (items.isEmpty || !meetsMinOrder)
+                    ? null
+                    : () => _goToCheckout(context, cartProvider),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
-                  elevation: 4,
-                  shadowColor: theme.colorScheme.primary.withOpacity(0.5),
+                  disabledBackgroundColor: Colors.grey.shade300,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Text(
-                      'Sipariş Ver',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward_rounded, size: 20),
-                  ],
+                child: Text(
+                  meetsMinOrder ? 'Siparişi Tamamla' : 'Minimum Tutar Yetersiz',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ),
@@ -1040,15 +727,92 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     );
   }
 
-}
+  Widget _summaryRow(
+    String label,
+    double amount, {
+    bool isDiscount = false,
+    bool isTotal = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 14,
+            fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
+            color: isTotal ? const Color(0xFF1A1A2E) : Colors.grey.shade700,
+          ),
+        ),
+        Text(
+          '${amount.toStringAsFixed(2)}₺',
+          style: TextStyle(
+            fontSize: isTotal ? 20 : 15,
+            fontWeight: isTotal ? FontWeight.w900 : FontWeight.w700,
+            color: isDiscount ? Colors.green : const Color(0xFF1A1A2E),
+          ),
+        ),
+      ],
+    );
+  }
 
-// Helper class
-class CartItemWithProduct {
-  final CartItem cartItem;
-  final Product product;
+  Future<void> _showClearCartDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Sepeti Temizle'),
+          ],
+        ),
+        content: const Text(
+          'Bu mağazadan sepetinizdeki tüm ürünleri silmek istediğinizden emin misiniz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text(
+              'Temizle',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
 
-  CartItemWithProduct({
-    required this.cartItem,
-    required this.product,
-  });
+    if (confirmed == true && context.mounted) {
+      await context.read<CartProvider>().clearShopCart(widget.shopId);
+    }
+  }
+
+  Future<void> _goToCheckout(
+    BuildContext context,
+    CartProvider cartProvider,
+  ) async {
+    await cartProvider.loadShopInfo();
+    if (!cartProvider.meetsMinOrderAmount(widget.shopId)) return;
+    if (!context.mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CheckoutScreen(
+          shopId: widget.shopId,
+          shopName:
+              widget.shopName ??
+              cartProvider.getShop(widget.shopId)?.name ??
+              'Dükkan',
+          couponsByShop: cartProvider.couponsByShop,
+        ),
+      ),
+    );
+  }
 }

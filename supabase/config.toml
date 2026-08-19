@@ -58,6 +58,11 @@ verify_jwt = true
 [functions.process-notification-outbox]
 verify_jwt = false
 
+# Kurye sipariş/Paket+ atama e-posta outbox worker'ı kullanıcı JWT'siyle değil,
+# pg_cron tarafından gönderilen INTERNAL_WORKER_SECRET ile korunur.
+[functions.process-courier-assignment-emails]
+verify_jwt = false
+
 [functions.send-courier-package-email]
 verify_jwt = true
 

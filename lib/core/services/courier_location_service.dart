@@ -1,7 +1,50 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+
+/// Kurye konum akışı için platforma özel ayarlar.
+///
+/// Düz [LocationSettings] ile akış, uygulama arka plana alınır alınmaz
+/// (Android'de ekran kapanınca, iOS'ta suspend olunca) susuyordu — yani
+/// kurye tam teslimat sırasında, telefon cebindeyken haritada donuyordu.
+/// Android'de foreground service bildirimi, iOS'ta background location
+/// modu ile akış sürdürülür. Manifest izinleri (FOREGROUND_SERVICE_LOCATION,
+/// ACCESS_BACKGROUND_LOCATION) zaten tanımlı.
+LocationSettings _courierLocationSettings({
+  required int distanceFilter,
+  Duration? timeLimit,
+}) {
+  if (!kIsWeb && Platform.isIOS) {
+    return AppleSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: distanceFilter,
+      timeLimit: timeLimit,
+      pauseLocationUpdatesAutomatically: false,
+      allowBackgroundLocationUpdates: true,
+      showBackgroundLocationIndicator: true,
+      activityType: ActivityType.otherNavigation,
+    );
+  }
+  if (!kIsWeb && Platform.isAndroid) {
+    return AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: distanceFilter,
+      timeLimit: timeLimit,
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationText: 'Konumunuz müşterilerle paylaşılıyor',
+        notificationTitle: 'CizreApp Kurye',
+        enableWakeLock: true,
+      ),
+    );
+  }
+  return LocationSettings(
+    accuracy: LocationAccuracy.high,
+    distanceFilter: distanceFilter,
+    timeLimit: timeLimit,
+  );
+}
 
 class CourierLocationService {
   static final CourierLocationService _instance =
@@ -18,6 +61,12 @@ class CourierLocationService {
   Timer? _streamRestartTimer;
   bool _isTracking = false;
   bool _periodicUpdateInProgress = false;
+
+  /// `ensure_my_profile` idempotent ve yalnız eksik legacy profili tamamlıyor;
+  /// her konum yazımında (10 sn'de bir) çağrılması saf israftı — konum
+  /// başına iki ağ gidiş-dönüşü. Oturum başına bir kez yeter; konum RPC'si
+  /// "profil yok" hatası verirse aşağıda yeniden denenir.
+  bool _profileEnsured = false;
 
   bool get isTracking => _isTracking;
 
@@ -105,13 +154,10 @@ class CourierLocationService {
     _positionStream?.cancel();
     _positionStream = null;
     _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // 10 metrelik değişim
-        // timeLimit yok: sabit kuryede GPS 5 sn'de fix veremeyip timeout/
-        // restart döngüsüne girer; hareket anlık güncellemesi kesilir ve
-        // kurye haritada eski yerde kalır. Periyodik timer son savunma.
-      ),
+      // timeLimit yok: sabit kuryede GPS 5 sn'de fix veremeyip timeout/
+      // restart döngüsüne girer; hareket anlık güncellemesi kesilir ve
+      // kurye haritada eski yerde kalır. Periyodik timer son savunma.
+      locationSettings: _courierLocationSettings(distanceFilter: 10),
     ).listen(
       (Position position) {
         _updateLocationInDatabase(position);
@@ -148,6 +194,9 @@ class CourierLocationService {
     LocationAccuracy accuracy = LocationAccuracy.high,
   }) async {
     try {
+      // Tek atımlık okuma: bilerek düz LocationSettings. Foreground service
+      // yapılandırması yalnız sürekli akışa aittir — buraya konursa her
+      // periyodik okumada kalıcı bildirim açılıp kapanırdı.
       return await Geolocator.getCurrentPosition(
         locationSettings: LocationSettings(
           accuracy: accuracy,
@@ -214,13 +263,18 @@ class CourierLocationService {
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // 1) Eksik legacy profili güvenli varsayılanlarla oluştur (idempotent,
-        //    mevcutsa dokunmaz). Bu adım idempotenttir.
-        try {
-          await client.rpc('ensure_my_profile');
-        } catch (e) {
-          // ensure_my_profile yetki/auth hatası verirse yine de konum
-          // deneyebiliriz; konum RPC kendi içinde kontrol yapacak.
-          debugPrint('ensure_my_profile cagrisi atlandi: $e');
+        //    mevcutsa dokunmaz). Oturum başına bir kez — ya da bir önceki
+        //    konum yazımı başarısız olup buraya yeniden denemeyle
+        //    döndüysek (o zaman gerçekten profil eksik olabilir).
+        if (!_profileEnsured || attempt > 1) {
+          try {
+            await client.rpc('ensure_my_profile');
+            _profileEnsured = true;
+          } catch (e) {
+            // ensure_my_profile yetki/auth hatası verirse yine de konum
+            // deneyebiliriz; konum RPC kendi içinde kontrol yapacak.
+            debugPrint('ensure_my_profile cagrisi atlandi: $e');
+          }
         }
 
         // 2) Konumu server'a yaz. RPC çağıranın role='courier' olduğunu
@@ -271,6 +325,7 @@ class CourierLocationService {
     _updateTimer = null;
     _streamRestartTimer = null;
     _periodicUpdateInProgress = false;
+    _profileEnsured = false;
     debugPrint('Kurye konum takibi durduruldu');
   }
 

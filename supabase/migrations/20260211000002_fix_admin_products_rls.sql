@@ -4,7 +4,7 @@
 
 -- Mevcut politikaları admin için izin ver (varolan politikalar)
 -- 1. 20240123000000_fix_linter_warnings.sql - products_select_policy
--- 2. 20260208000011_fix_admin_rls_policies.sql - products_admin_select_all
+-- 2. 20260208000012_fix_admin_rls_policies.sql - products_admin_select_all
 
 -- Bu politikalar zaten admin için ürünleri görüyor muhtemelen
 -- Ancak admin panelinde ürün/kazanç 0 sorunu yaşıyorsa:

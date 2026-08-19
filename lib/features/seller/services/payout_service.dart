@@ -220,6 +220,30 @@ class PayoutService {
     }
   }
 
+  /// Kuryesi olmayan mağazalarda, teslim edilen siparişlerden admin
+  /// tarafından kesilen toplam teslimat ücretini getir.
+  /// (orders.admin_delivery_fee: kuryesi olan mağazalarda her zaman 0'dır,
+  /// bkz. calculate_order_commission() trigger'ı.)
+  /// Ödeme isteği oluşturulurken "detay" olarak kaydedilir.
+  Future<double> getDeliveryFeeDeductedTotal(String shopId) async {
+    try {
+      final response = await _supabase
+          .from('orders')
+          .select('admin_delivery_fee')
+          .eq('shop_id', shopId)
+          .eq('status', 'delivered');
+
+      double total = 0;
+      for (final row in response) {
+        total += (row['admin_delivery_fee'] as num?)?.toDouble() ?? 0;
+      }
+      return total;
+    } catch (e) {
+      debugPrint('⚠️ getDeliveryFeeDeductedTotal hatası: $e');
+      return 0;
+    }
+  }
+
   /// Yeni ödeme isteği oluştur
   Future<Map<String, dynamic>> createPayoutRequest({
     required String sellerId,
@@ -279,6 +303,18 @@ class PayoutService {
       // Tamamlanmış sipariş sayısını hesapla (order_count için)
       final orderCount = await getCompletedOrderCount(shopId);
 
+      // Kuryesi olmayan mağazalarda, alacaktan zaten düşülmüş olan teslimat
+      // ücreti kesintisini hesapla ve isteğe "detay" olarak ekle. Kuryesi olan
+      // mağazalarda admin_delivery_fee her zaman 0 olduğundan bu değer 0 çıkar.
+      final deliveryFeeDeducted =
+          hasCourier ? 0.0 : await getDeliveryFeeDeductedTotal(shopId);
+      final String? deductionDetail = deliveryFeeDeducted > 0
+          ? 'Kuryeniz olmadığı için siparişleriniz admin kuryesiyle teslim '
+              'edilir. Bu nedenle teslim edilen $orderCount siparişten toplam '
+              '₺${deliveryFeeDeducted.toStringAsFixed(2)} teslimat ücreti '
+              'kesilerek ödenebilir tutarınıza yansıtılmıştır.'
+          : null;
+
       // Ödeme isteğini oluştur
       final response = await _supabase
           .from('payout_requests')
@@ -291,6 +327,8 @@ class PayoutService {
             'net_receivable': netPayoutAmount, // Net ödenebilir
             'admin_credit': await getAdminCredit(shopId),
             'order_count': orderCount, // Gerçek tamamlanmış sipariş sayısı
+            'delivery_fee_deducted': deliveryFeeDeducted, // Kesilen teslimat ücreti
+            'deduction_detail': deductionDetail, // Kesinti açıklaması
             'status': 'pending',
             'iban': shopIban,
             'bank_name': shopBankName,

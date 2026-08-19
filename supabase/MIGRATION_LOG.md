@@ -107,17 +107,17 @@
 | 2026-02-07 00:00:06 | `20260207000006_fix_shop_reviews_unique_constraint.sql` | 1.1K |
 | 2026-02-07 00:00:07 | `20260207000007_create_chat_system.sql` | 6.7K |
 | 2026-02-07 00:00:08 | `20260207000008_fix_conversation_create.sql` | 3.1K |
-| 2026-02-07 00:00:08 | `20260207000008_fix_linter_warnings.sql` | 4.9K |
-| 2026-02-07 00:00:09 | `20260207000009_fix_chat_push_and_conversation.sql` | 7.0K |
-| 2026-02-07 00:00:09 | `20260207000009_fix_rls_performance.sql` | 5.0K |
-| 2026-02-07 00:00:10 | `20260207000010_fix_chat_safe.sql` | 2.9K |
-| 2026-02-07 00:00:10 | `20260207000010_fix_missing_indexes.sql` | 2.4K |
-| 2026-02-07 00:00:11 | `20260207000011_add_privacy_status_to_profiles.sql` | 1.7K |
-| 2026-02-07 00:00:11 | `20260207000011_fix_chat_safe_check.sql` | 3.4K |
-| 2026-02-07 00:00:12 | `20260207000012_fix_chat_urgent.sql` | 3.3K |
-| 2026-02-07 00:00:13 | `20260207000013_fix_chat_no_notification_insert.sql` | 3.6K |
-| 2026-02-07 00:00:14 | `20260207000014_fix_chat_complete.sql` | 4.9K |
-| 2026-02-07 00:00:15 | `20260207000015_add_message_push_notification.sql` | 2.7K |
+| 2026-02-07 00:00:08 | `20260207000009_fix_linter_warnings.sql` | 4.9K |
+| 2026-02-07 00:00:09 | `20260207000010_fix_chat_push_and_conversation.sql` | 7.0K |
+| 2026-02-07 00:00:09 | `20260207000011_fix_rls_performance.sql` | 5.0K |
+| 2026-02-07 00:00:10 | `20260207000012_fix_chat_safe.sql` | 2.9K |
+| 2026-02-07 00:00:10 | `20260207000013_fix_missing_indexes.sql` | 2.4K |
+| 2026-02-07 00:00:11 | `20260207000014_add_privacy_status_to_profiles.sql` | 1.7K |
+| 2026-02-07 00:00:11 | `20260207000015_fix_chat_safe_check.sql` | 3.4K |
+| 2026-02-07 00:00:12 | `20260207000016_fix_chat_urgent.sql` | 3.3K |
+| 2026-02-07 00:00:13 | `20260207000017_fix_chat_no_notification_insert.sql` | 3.6K |
+| 2026-02-07 00:00:14 | `20260207000018_fix_chat_complete.sql` | 4.9K |
+| 2026-02-07 00:00:15 | `20260207000019_add_message_push_notification.sql` | 2.7K |
 | 2026-02-08 00:00:01 | `20260208000001_fix_chat_foreign_keys.sql` | 3.4K |
 | 2026-02-08 00:00:02 | `20260208000002_chat_push_notification_trigger.sql` | 4.6K |
 | 2026-02-08 00:00:03 | `20260208000003_chat_delete_policy.sql` | 1.4K |
@@ -129,15 +129,15 @@
 | 2026-02-08 00:00:09 | `20260208000009_fix_mark_as_read_function.sql` | 1.4K |
 | 2026-02-08 00:00:10 | `20260208000010_all_chat_fixes.sql` | 3.1K |
 | 2026-02-08 00:00:11 | `20260208000011_admin_dashboard_rls.sql` | 3.0K |
-| 2026-02-08 00:00:11 | `20260208000011_fix_admin_rls_policies.sql` | 4.5K |
+| 2026-02-08 00:00:11 | `20260208000012_fix_admin_rls_policies.sql` | 4.5K |
 | 2026-02-09 00:00:01 | `20260209000001_fix_orders_rls.sql` | 1.5K |
-| 2026-02-09 00:00:01 | `20260209000001_free_delivery_settings.sql` | 451B |
-| 2026-02-09 00:00:02 | `20260209000002_fix_rls_infinite_recursion.sql` | 4.4K |
-| 2026-02-09 00:00:03 | `20260209000003_comprehensive_rls_optimization.sql` | 11.3K |
-| 2026-02-09 00:00:04 | `20260209000004_security_fixes.sql` | 4.6K |
-| 2026-02-09 00:00:05 | `20260209000005_add_performance_indexes.sql` | 1.8K |
-| 2026-02-09 00:00:06 | `20260209000006_fix_post_feed_n_plus_one.sql` | 541B |
-| 2026-02-09 00:00:07 | `20260209000007_fix_comments_count_trigger.sql` | 1.7K |
+| 2026-02-09 00:00:01 | `20260209000002_free_delivery_settings.sql` | 451B |
+| 2026-02-09 00:00:02 | `20260209000003_fix_rls_infinite_recursion.sql` | 4.4K |
+| 2026-02-09 00:00:03 | `20260209000004_comprehensive_rls_optimization.sql` | 11.3K |
+| 2026-02-09 00:00:04 | `20260209000005_security_fixes.sql` | 4.6K |
+| 2026-02-09 00:00:05 | `20260209000006_add_performance_indexes.sql` | 1.8K |
+| 2026-02-09 00:00:06 | `20260209000007_fix_post_feed_n_plus_one.sql` | 541B |
+| 2026-02-09 00:00:07 | `20260209000008_fix_comments_count_trigger.sql` | 1.7K |
 | 2026-02-09 00:00:10 | `20260209000010_admin_crud_policies.sql` | 7.7K |
 | 2026-02-09 00:00:11 | `20260209000011_fix_all_rls_performance.sql` | 3.9K |
 | 2026-02-09 00:00:12 | `20260209000012_fix_orders_products_rls.sql` | 6.2K |
@@ -149,16 +149,16 @@
 | 2026-02-10 00:00:05 | `20260210000005_redesign_seller_payment_system.sql` | 13.6K |
 | 2026-02-10 00:00:06 | `20260210000006_fix_commission_status_constraint.sql` | 985B |
 | 2026-02-10 00:00:07 | `20260210000007_create_analytics_functions.sql` | 3.1K |
-| 2026-02-10 00:00:07 | `20260210000007_fix_comment_mentions_column.sql` | 697B |
-| 2026-02-10 00:00:08 | `20260210000008_hide_inactive_shop_products.sql` | 2.1K |
-| 2026-02-10 00:00:09 | `20260210000009_fix_orders_seller_access.sql` | 4.1K |
-| 2026-02-10 00:00:10 | `20260210000010_fix_notification_and_email_issues.sql` | 5.5K |
-| 2026-02-10 00:00:11 | `20260210000011_fix_order_payment_to_seller.sql` | 11.6K |
-| 2026-02-10 00:00:12 | `20260210000012_fix_shop_reviews_order_id_nullable.sql` | 539B |
-| 2026-02-10 00:00:13 | `20260210000013_fix_linter_warnings.sql` | 6.0K |
-| 2026-02-10 00:00:14 | `20260210000014_fix_linter_warnings_part2.sql` | 5.5K |
-| 2026-02-10 00:00:15 | `20260210000015_fix_cash_payment_revenue_for_non_courier.sql` | 5.7K |
-| 2026-02-10 00:00:16 | `20260210000016_create_shop_coupons_system.sql` | 7.9K |
+| 2026-02-10 00:00:07 | `20260210000008_fix_comment_mentions_column.sql` | 697B |
+| 2026-02-10 00:00:08 | `20260210000009_hide_inactive_shop_products.sql` | 2.1K |
+| 2026-02-10 00:00:09 | `20260210000010_fix_orders_seller_access.sql` | 4.1K |
+| 2026-02-10 00:00:10 | `20260210000011_fix_notification_and_email_issues.sql` | 5.5K |
+| 2026-02-10 00:00:11 | `20260210000012_fix_order_payment_to_seller.sql` | 11.6K |
+| 2026-02-10 00:00:12 | `20260210000013_fix_shop_reviews_order_id_nullable.sql` | 539B |
+| 2026-02-10 00:00:13 | `20260210000014_fix_linter_warnings.sql` | 6.0K |
+| 2026-02-10 00:00:14 | `20260210000015_fix_linter_warnings_part2.sql` | 5.5K |
+| 2026-02-10 00:00:15 | `20260210000016_fix_cash_payment_revenue_for_non_courier.sql` | 5.7K |
+| 2026-02-10 00:00:16 | `20260210000017_create_shop_coupons_system.sql` | 7.9K |
 | 2026-02-11 00:00:00 | `20260211000000_add_test_coupons.sql` | 1.5K |
 | 2026-02-11 00:00:01 | `20260211000001_stock_management_trigger.sql` | 2.7K |
 | 2026-02-11 00:00:02 | `20260211000002_fix_admin_products_rls.sql` | 3.3K |
@@ -188,9 +188,9 @@
 | 2026-02-27 00:00:07 | `20260227000007_fix_verification_code_type.sql` | 768B |
 | 2026-02-28 00:00:01 | `20260228000001_force_update_system.sql` | 4.7K |
 | 2026-02-28 00:00:02 | `20260228000002_courier_orders_update.sql` | 2.5K |
-| 2026-02-28 00:00:02 | `20260228000002_fix_shop_views_rls.sql` | 2.0K |
-| 2026-02-28 00:00:03 | `20260228000003_add_post_share_notification_type.sql` | 1.2K |
-| 2026-02-28 00:00:04 | `20260228000004_add_html_support_to_daily_deals.sql` | 837B |
+| 2026-02-28 00:00:02 | `20260228000003_fix_shop_views_rls.sql` | 2.0K |
+| 2026-02-28 00:00:03 | `20260228000004_add_post_share_notification_type.sql` | 1.2K |
+| 2026-02-28 00:00:04 | `20260228000005_add_html_support_to_daily_deals.sql` | 837B |
 | 2026-03-01 00:00:01 | `20260301000001_create_push_notifications_tracking.sql` | 3.6K |
 | 2026-03-01 00:00:02 | `20260301000002_create_posts_with_profiles_view.sql` | 1.4K |
 | 2026-03-01 00:00:03 | `20260301000003_create_shops_with_products_view.sql` | 2.0K |
@@ -201,8 +201,8 @@
 | 2026-04-06 00:00:01 | `20260406000001_add_admin_notification_support.sql` | 1.7K |
 | 2026-04-06 00:00:02 | `20260406000002_add_paid_at_to_shops.sql` | 841B |
 | 2026-04-11 00:00:00 | `20260411000000_add_is_pinned_columns.sql` | 1.1K |
-| 2026-04-11 00:00:00 | `20260411000000_add_messages_enabled_column.sql` | 398B |
-| 2026-04-11 00:00:00 | `20260411000000_create_return_requests_table.sql` | 4.0K |
+| 2026-04-11 00:00:00 | `20260411000001_add_messages_enabled_column.sql` | 398B |
+| 2026-04-11 00:00:00 | `20260411000002_create_return_requests_table.sql` | 4.0K |
 | 2026-04-11 12:00:01 | `20260411120001_courier_status_change.sql` | 3.6K |
 | 2026-04-11 12:00:02 | `20260411120002_guest_access_support_about.sql` | 1.5K |
 | 2026-04-11 12:00:03 | `20260411120003_new_features.sql` | 2.9K |
@@ -218,32 +218,32 @@
 | 2026-05-25 12:00:00 | `20260525120000_add_post_report_notification_type.sql` | 2.4K |
 | 2026-05-28 00:00:01 | `20260528000001_fix_story_likes_count_trigger.sql` | 2.9K |
 | 2026-05-29 00:00:00 | `20260529000000_fix_story_likes_count.sql` | 2.4K |
-| 2026-05-29 00:00:00 | `20260529000000_fix_story_likes_security.sql` | 1.6K |
+| 2026-05-29 00:00:00 | `20260529000001_fix_story_likes_security.sql` | 1.6K |
 | 2026-06-02 00:00:01 | `20260602000001_add_courier_notification_types.sql` | 1.4K |
 | 2026-06-02 00:00:02 | `20260602000002_fix_duplicate_notifications.sql` | 923B |
 | 2026-06-14 00:00:01 | `20260614000001_add_admin_pinned_column.sql` | 1.6K |
 | 2026-06-19 00:00:00 | `20260619000000_ai_quick_prompts.sql` | 4.3K |
 | 2026-06-19 00:00:01 | `20260619000001_ai_conversations_preview.sql` | 735B |
 | 2026-06-21 00:00:00 | `20260621000000_add_image_to_ai_quick_prompts.sql` | 1.3K |
-| 2026-06-21 00:00:00 | `20260621000000_ai_chat_fix_permissions.sql` | 6.2K |
-| 2026-06-21 00:00:00 | `20260621000000_create_ai_chat_tables.sql` | 4.3K |
-| 2026-06-21 00:00:00 | `20260621000000_create_ai_prompt_images.sql` | 2.7K |
-| 2026-06-21 00:00:00 | `20260621000000_fix_ai_settings_rls.sql` | 843B |
-| 2026-06-21 00:00:00 | `20260621000000_fix_provider_constraint.sql` | 405B |
+| 2026-06-21 00:00:00 | `20260621000001_ai_chat_fix_permissions.sql` | 6.2K |
+| 2026-06-21 00:00:00 | `20260621000002_create_ai_chat_tables.sql` | 4.3K |
+| 2026-06-21 00:00:00 | `20260621000003_create_ai_prompt_images.sql` | 2.7K |
+| 2026-06-21 00:00:00 | `20260621000004_fix_ai_settings_rls.sql` | 843B |
+| 2026-06-21 00:00:00 | `20260621000005_fix_provider_constraint.sql` | 405B |
 | 2026-06-21 12:00:01 | `20260621120001_add_delivered_courier_columns.sql` | 1.8K |
 | 2026-06-21 12:00:02 | `20260621120002_add_online_enabled_column.sql` | 1.2K |
 | 2026-06-21 12:00:03 | `20260621120003_fix_duplicate_order_notifications_final.sql` | 2.9K |
 | 2026-06-24 00:00:00 | `20260624000000_fix_admin_order_courier_info.sql` | 1.3K |
-| 2026-06-24 00:00:00 | `20260624000000_fix_all_rls_and_data.sql` | 6.4K |
-| 2026-06-24 00:00:00 | `20260624000000_fix_commission_trigger.sql` | 3.6K |
-| 2026-06-24 00:00:00 | `20260624000000_fix_courier_order_assignment.sql` | 1.3K |
+| 2026-06-24 00:00:00 | `20260624000001_fix_all_rls_and_data.sql` | 6.4K |
+| 2026-06-24 00:00:00 | `20260624000002_fix_commission_trigger.sql` | 3.6K |
+| 2026-06-24 00:00:00 | `20260624000003_fix_courier_order_assignment.sql` | 1.3K |
 | 2026-07-02 00:00:00 | `20260702000000_app_animation_settings.sql` | 1.8K |
 | 2026-07-09 00:00:01 | `20260709000001_CREATE_CANCELLATION_REQUESTS.sql` | 7.2K |
 | 2026-07-09 00:00:02 | `20260709000002_CANCELLATION_RPCS.sql` | 14.5K |
 | 2026-07-09 00:00:04 | `20260709000004_ADMIN_CANCEL_WITH_REFUND_RPC.sql` | 7.4K |
 | 2026-07-09 00:00:05 | `20260709000005_BALANCE_REFUND_FIX.sql` | 6.5K |
-| 2026-07-09 00:00:05 | `20260709000005_TRANSFER_SENDER_NAME.sql` | 1.7K |
-| 2026-07-09 00:00:06 | `20260709000006_TRANSFER_RPC_REVOKE_PUBLIC.sql` | 2.8K |
+| 2026-07-09 00:00:05 | `20260709000006_TRANSFER_SENDER_NAME.sql` | 1.7K |
+| 2026-07-09 00:00:06 | `20260709000007_TRANSFER_RPC_REVOKE_PUBLIC.sql` | 2.8K |
 | 2026-07-10 00:00:01 | `20260710000001_add_invoice_info.sql` | 2.9K |
 | 2026-07-10 00:00:02 | `20260710000002_FIX_ADMIN_VIEW_SECURITY_INVOKER.sql` | 1.6K |
 | 2026-07-10 00:00:03 | `20260710000003_smm_integration.sql` | 8.5K |
@@ -268,9 +268,9 @@
 | 2026-07-20 00:00:01 | `20260720000001_fix_screenshot_url_nullable.sql` | 387B |
 | 2026-07-20 00:00:02 | `20260720000002_task_multi_images.sql` | 2.9K |
 | 2026-07-20 00:00:03 | `20260720000003_fix_admin_get_task_submissions_ambiguous_id.sql` | 2.5K |
-| 2026-07-20 00:00:03 | `20260720000003_grant_ad_reward_atomic_rpc.sql` | 5.8K |
-| 2026-07-20 00:00:04 | `20260720000004_add_task_notification_types.sql` | 1.8K |
-| 2026-07-20 00:00:05 | `20260720000005_suspicious_users.sql` | 1.6K |
+| 2026-07-20 00:00:03 | `20260720000004_grant_ad_reward_atomic_rpc.sql` | 5.8K |
+| 2026-07-20 00:00:04 | `20260720000005_add_task_notification_types.sql` | 1.8K |
+| 2026-07-20 00:00:05 | `20260720000006_suspicious_users.sql` | 1.6K |
 | 2026-07-22 00:00:01 | `20260722000001_review_reminder_dismiss_db.sql` | 3.5K |
 | 2026-07-22 00:00:02 | `20260722000002_approve_existing_shops.sql` | 450B |
 | 2026-07-22 00:00:03 | `20260722000003_fix_coupon_validation.sql` | 3.7K |
@@ -311,7 +311,7 @@
 | 2026-07-29 00:00:01 | [`20260729000001_secure_ai_api_keys.sql`](migrations/20260729000001_secure_ai_api_keys.sql) | 3.4K |
 | 2026-07-29 00:00:03 | [`20260729000003_get_sehirici_trip_path.sql`](migrations/20260729000003_get_sehirici_trip_path.sql) | 1.2K |
 | 2026-07-29 00:00:04 | [`20260729000004_fraud_detection_system.sql`](migrations/20260729000004_fraud_detection_system.sql) | 12.4K |
-| 2026-07-29 00:00:04 | [`20260729000004_news_engagement_notifications_and_analytics.sql`](migrations/20260729000004_news_engagement_notifications_and_analytics.sql) | 8.4K |
+| 2026-07-29 00:00:04 | [`20260729000005_news_engagement_notifications_and_analytics.sql`](migrations/20260729000005_news_engagement_notifications_and_analytics.sql) | 8.4K |
 | 2026-07-30 00:00:01 | [`20260730000001_cart_flash_sale_columns.sql`](migrations/20260730000001_cart_flash_sale_columns.sql) | 1.5K |
 | 2026-07-30 00:00:02 | [`20260730000002_admob_reward_points_system.sql`](migrations/20260730000002_admob_reward_points_system.sql) | 51.3K |
 
@@ -319,25 +319,25 @@
 
 Bu dosyalar [`supabase/migrations/`](migrations/) altinda aktiftir ancak adlari `^\d{14}_` kuralina uymadigi icin yukaridaki 292 standard migration sayimina ve mevcut manifest uretici betiklerine dahil degildir. Yeniden adlandirma veya uygulama durumu bu dokumantasyon gorevinin disindadir.
 
-- `20260101_ai_chat_provider_update.sql`
-- `20260101_ai_chat_security_fix.sql`
-- `20260101_ai_chat_system.sql`
-- `20260126_account_deletion_rpc.sql`
-- `20260621_ADD_BALANCE_NOTIFICATION.sql`
-- `20260621_CREATE_BALANCE_SYSTEM.sql`
-- `20260623_ADD_PAYMENT_METHOD_BALANCE.sql`
-- `20260624_ADD_ADMIN_BALANCE_BANK_SETTINGS.sql`
-- `20260624_CREATE_BANK_ACCOUNTS_TABLE.sql`
-- `20260625_ADD_CARD_TOPUP_ENABLED_SETTING.sql`
-- `20260626_FIX_BALANCE_NOTIFICATION_TRIGGER.sql`
-- `20260626_REMOVE_BALANCE_NOTIFICATION_TRIGGER.sql`
-- `20260628_enrich_deduct_from_balance_rpc.sql`
-- `20260629_FIX_BALANCE_TOPUP_RACE_CONDITION.sql`
-- `20260630_FIX_CALLBACK_IDEMPOTENCY_RPC.sql`
-- `20260630_FIX_COMPLETE_ONLINE_PAYMENT_IDEMPOTENT.sql`
-- `20260630_PREVENT_DUPLICATE_TOKEN.sql`
-- `20260707_DEDUCT_FROM_BALANCE_ENRICHED.sql`
-- `20260707_FIX_ADMIN_VIEWS_SECURITY_DEFINER.sql`
-- `20260707_NOTIFICATIONS_AND_BALANCE_FIX.sql`
-- `20260708_FIX_SELLER_EARNINGS_TRIGGER.sql`
-- `20260710_BALANCE_TOPUP_SECURITY_FIX.sql`
+- `20260101000000_ai_chat_provider_update.sql`
+- `20260101000001_ai_chat_security_fix.sql`
+- `20260101000002_ai_chat_system.sql`
+- `20260126000000_account_deletion_rpc.sql`
+- `20260621000006_ADD_BALANCE_NOTIFICATION.sql`
+- `20260621000007_CREATE_BALANCE_SYSTEM.sql`
+- `20260623000000_ADD_PAYMENT_METHOD_BALANCE.sql`
+- `20260624000004_ADD_ADMIN_BALANCE_BANK_SETTINGS.sql`
+- `20260624000005_CREATE_BANK_ACCOUNTS_TABLE.sql`
+- `20260625000000_ADD_CARD_TOPUP_ENABLED_SETTING.sql`
+- `20260626000000_FIX_BALANCE_NOTIFICATION_TRIGGER.sql`
+- `20260626000001_REMOVE_BALANCE_NOTIFICATION_TRIGGER.sql`
+- `20260628000000_enrich_deduct_from_balance_rpc.sql`
+- `20260629000000_FIX_BALANCE_TOPUP_RACE_CONDITION.sql`
+- `20260630000000_FIX_CALLBACK_IDEMPOTENCY_RPC.sql`
+- `20260630000001_FIX_COMPLETE_ONLINE_PAYMENT_IDEMPOTENT.sql`
+- `20260630000002_PREVENT_DUPLICATE_TOKEN.sql`
+- `20260707000000_DEDUCT_FROM_BALANCE_ENRICHED.sql`
+- `20260707000001_FIX_ADMIN_VIEWS_SECURITY_DEFINER.sql`
+- `20260707000002_NOTIFICATIONS_AND_BALANCE_FIX.sql`
+- `20260708000000_FIX_SELLER_EARNINGS_TRIGGER.sql`
+- `20260710000000_BALANCE_TOPUP_SECURITY_FIX.sql`

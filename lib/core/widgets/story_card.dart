@@ -463,6 +463,10 @@ class _StoriesSectionState extends State<StoriesSection> {
                                 CachedNetworkImage(
                                   imageUrl: story.displayUrl,
                                   fit: BoxFit.cover,
+                                  // Story önizleme ~140–200px genişlikte gösterilir;
+                                  // tam çözünürlükte decode edip bitmap önbelleğini
+                                  // şişirmemek için sınır koy.
+                                  memCacheWidth: 450,
                                   errorWidget: (context, url, error) {
                                     return Container(
                                       color: Colors.grey.shade800,
@@ -602,6 +606,7 @@ class _StoriesSectionState extends State<StoriesSection> {
                             CachedNetworkImage(
                               imageUrl: story.displayUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 450,
                               errorWidget: (context, url, error) {
                                 return Container(
                                   color: Colors.grey.shade800,
@@ -728,6 +733,7 @@ class _StoriesSectionState extends State<StoriesSection> {
                                             ? CachedNetworkImage(
                                                 imageUrl: avatarUrl,
                                                 fit: BoxFit.cover,
+                                                memCacheWidth: 200,
                                                 errorWidget: (context, url, error) {
                                                   return Container(
                                                     color: Colors.grey.shade600,

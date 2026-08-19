@@ -101,17 +101,19 @@ class CartProvider with ChangeNotifier {
   // Sepeti yükle
   Future<void> loadCart() async {
     debugPrint('🛒 CartProvider.loadCart() BAŞLADI - userId: $userId');
-    
+
     // userId boşsa sepeti yükleme (giriş yapılmamış)
     if (userId.isEmpty) {
-      debugPrint('⚠️ CartProvider.loadCart() ATLA - userId boş (kullanıcı giriş yapmamış)');
+      debugPrint(
+        '⚠️ CartProvider.loadCart() ATLA - userId boş (kullanıcı giriş yapmamış)',
+      );
       _items = [];
       _isLoading = false;
       _error = null;
       notifyListeners();
       return;
     }
-    
+
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -119,9 +121,13 @@ class CartProvider with ChangeNotifier {
     try {
       _items = await _cartService.getCart(userId);
       _error = null;
-      debugPrint('🛒 CartProvider.loadCart() BAŞARILI - ${_items.length} ürün yüklendi');
+      debugPrint(
+        '🛒 CartProvider.loadCart() BAŞARILI - ${_items.length} ürün yüklendi',
+      );
       for (var item in _items) {
-        debugPrint('  └─ ProductID: ${item.productId}, Quantity: ${item.quantity}');
+        debugPrint(
+          '  └─ ProductID: ${item.productId}, Quantity: ${item.quantity}',
+        );
       }
     } catch (e) {
       _error = e.toString();
@@ -162,7 +168,9 @@ class CartProvider with ChangeNotifier {
     }
 
     final subtotal = _shopSubtotal(shopId);
-    debugPrint('🎟️ CartProvider.applyCoupon() shop=$shopId code=$code subtotal=$subtotal');
+    debugPrint(
+      '🎟️ CartProvider.applyCoupon() shop=$shopId code=$code subtotal=$subtotal',
+    );
 
     try {
       final response = await Supabase.instance.client.rpc(
@@ -222,6 +230,38 @@ class CartProvider with ChangeNotifier {
     }
   }
 
+  /// Yalnızca bir mağazanın sepetini temizle (diğer mağazaların ürünlerine
+  /// dokunmadan). Mağaza-içi "kendi sepet" ekranındaki "Sepeti Temizle"
+  /// butonu için — `clearCart()` TÜM sepeti sildiği için burada kullanılamaz.
+  Future<void> clearShopCart(String shopId) async {
+    try {
+      final shopItems = _items.where((it) => it.shopId == shopId).toList();
+
+      for (final item in shopItems) {
+        if (item.flashSaleId != null && item.quantity > 0) {
+          try {
+            await _flashSaleService.releaseFlashSale(
+              saleId: item.flashSaleId!,
+              quantity: item.quantity,
+            );
+          } catch (e) {
+            debugPrint(
+              '⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e',
+            );
+          }
+        }
+        await _cartService.removeFromCart(item.id);
+      }
+
+      await loadCart();
+      removeCoupon(shopId);
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   /// Sepet değiştikten sonra (add/update/remove/clear) her kuponu
   /// yeniden doğrula. `minimum_order_amount` altına düşen kuponları
   /// sessizce kaldır ve UI'ya `_lastRemovedCoupon` üzerinden bildir.
@@ -256,7 +296,9 @@ class CartProvider with ChangeNotifier {
     String? flashSaleId,
     double? flashPrice,
   }) async {
-    debugPrint('➕ CartProvider.addToCart() - productId: $productId, quantity: $quantity, variantData: $variantData, flashSaleId: $flashSaleId, flashPrice: $flashPrice');
+    debugPrint(
+      '➕ CartProvider.addToCart() - productId: $productId, quantity: $quantity, variantData: $variantData, flashSaleId: $flashSaleId, flashPrice: $flashPrice',
+    );
 
     // Kullanıcı giriş yapmamışsa hata fırlat
     if (userId.isEmpty) {
@@ -272,7 +314,9 @@ class CartProvider with ChangeNotifier {
         flashSaleId: flashSaleId,
         flashPrice: flashPrice,
       );
-      debugPrint('✅ CartProvider.addToCart() BAŞARILI, sepet yeniden yükleniyor...');
+      debugPrint(
+        '✅ CartProvider.addToCart() BAŞARILI, sepet yeniden yükleniyor...',
+      );
       await loadCart(); // Sepeti yeniden yükle
       _revalidateCoupons();
     } catch (e) {
@@ -352,7 +396,9 @@ class CartProvider with ChangeNotifier {
               quantity: item.quantity,
             );
           } catch (e) {
-            debugPrint('⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e');
+            debugPrint(
+              '⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e',
+            );
             // Tek bir başarısızlık tüm sepet temizlemeyi engellemesin.
           }
         }
@@ -421,8 +467,11 @@ class CartProvider with ChangeNotifier {
 
   // Dükkan bilgilerini yükle (sepetteki tüm dükkanlar için)
   Future<void> loadShopInfo() async {
-    final shopIds = _items.map((item) => item.shopId ?? '').where((id) => id.isNotEmpty).toSet();
-    
+    final shopIds = _items
+        .map((item) => item.shopId ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
     for (final shopId in shopIds) {
       if (!_shops.containsKey(shopId)) {
         try {
@@ -462,7 +511,7 @@ class CartProvider with ChangeNotifier {
   bool meetsMinOrderAmount(String shopId) {
     final shop = _shops[shopId];
     if (shop == null || shop.minOrderAmount <= 0) return true;
-    
+
     final shopTotal = getShopTotal(shopId);
     return shopTotal >= shop.minOrderAmount;
   }
@@ -471,7 +520,7 @@ class CartProvider with ChangeNotifier {
   double getRemainingForMinOrder(String shopId) {
     final shop = _shops[shopId];
     if (shop == null || shop.minOrderAmount <= 0) return 0;
-    
+
     final shopTotal = getShopTotal(shopId);
     final remaining = shop.minOrderAmount - shopTotal;
     return remaining > 0 ? remaining : 0;
@@ -487,19 +536,46 @@ class CartProvider with ChangeNotifier {
   }
 
   // Teslimat ücretini hesapla (ücretsiz teslimat kontrolü dahil)
+  //
+  // Öncelik sırası `private.prepare_checkout_session` ile BİREBİR aynıdır;
+  // sepette gösterilen ücret ile ödeme adımında hesaplanan ücret ayrışmamalı:
+  //   1) Mağazanın sepetteki tüm ürünleri `free_shipping` ise  -> 0
+  //   2) Mağazanın ücretsiz teslimat limiti aşıldıysa          -> 0
+  //   3) Ürüne özel kargo ücreti varsa (en yükseği)            -> o ücret
+  //   4) Aksi halde mağazanın kargo ücreti
   double getDeliveryFee(String shopId) {
     final shop = _shops[shopId];
     if (shop == null) return 0;
-    
-    final shopTotal = getShopTotal(shopId);
-    final freeDeliveryMinAmount = shop.freeDeliveryMinAmount ?? 0;
-    
-    // Ücretsiz teslimat kontrolü
-    if (freeDeliveryMinAmount > 0 && shopTotal >= freeDeliveryMinAmount) {
-      debugPrint('🛒 CartProvider: Ücretsiz teslimat aktif! Shop: $shopId, Toplam: ₺$shopTotal >= Limit: ₺$freeDeliveryMinAmount');
+
+    final shopItems = _items.where((item) => item.shopId == shopId).toList();
+
+    // 1) Tüm ürünler ücretsiz kargo mu?
+    if (shopItems.isNotEmpty &&
+        shopItems.every((item) => item.productFreeShipping)) {
       return 0.0;
     }
-    
+
+    // 2) Mağaza ücretsiz teslimat limiti
+    final shopTotal = getShopTotal(shopId);
+    final freeDeliveryMinAmount = shop.freeDeliveryMinAmount ?? 0;
+    if (freeDeliveryMinAmount > 0 && shopTotal >= freeDeliveryMinAmount) {
+      debugPrint(
+        '🛒 CartProvider: Ücretsiz teslimat aktif! Shop: $shopId, Toplam: ₺$shopTotal >= Limit: ₺$freeDeliveryMinAmount',
+      );
+      return 0.0;
+    }
+
+    // 3) Ürüne özel kargo ücretlerinin en yükseği
+    double? maxProductFee;
+    for (final item in shopItems) {
+      final fee = item.productShippingFee;
+      if (fee != null && (maxProductFee == null || fee > maxProductFee)) {
+        maxProductFee = fee;
+      }
+    }
+    if (maxProductFee != null) return maxProductFee;
+
+    // 4) Mağaza kargo ücreti
     return shop.deliveryFee;
   }
 
@@ -517,7 +593,7 @@ class CartProvider with ChangeNotifier {
   bool isFreeDelivery(String shopId) {
     final shop = _shops[shopId];
     if (shop == null || (shop.freeDeliveryMinAmount ?? 0) == 0) return false;
-    
+
     final shopTotal = getShopTotal(shopId);
     return shopTotal >= (shop.freeDeliveryMinAmount ?? 0);
   }
@@ -526,7 +602,7 @@ class CartProvider with ChangeNotifier {
   double getRemainingForFreeDelivery(String shopId) {
     final shop = _shops[shopId];
     if (shop == null || (shop.freeDeliveryMinAmount ?? 0) == 0) return 0;
-    
+
     final shopTotal = getShopTotal(shopId);
     final remaining = (shop.freeDeliveryMinAmount ?? 0) - shopTotal;
     return remaining > 0 ? remaining : 0;

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -18,14 +19,53 @@ class SehiriciRoadSnapService {
   final http.Client _client;
 
   static const String _baseUrl = 'https://router.project-osrm.org';
+
+  /// OSRM'nin tek istekte kabul ettiği koordinat sayısı (URL uzunluğu sınırı).
   static const int _maxCoordinates = 80;
+
+  /// İz bu sayıdan uzunsa parça parça eşlenir. Üst sınır, tek bir "rota çek"
+  /// eyleminin OSRM'ye atacağı istek sayısını makul tutar.
+  static const int _maxChunks = 14;
+
   static const Duration _timeout = Duration(seconds: 15);
 
   /// Şoförün kronolojik GPS izini map matching ile geçtiği yollara oturtur.
+  ///
+  /// İz [_maxCoordinates]'i aşarsa **parçalara bölünüp** her parça ayrı
+  /// eşlenir ve sonuçlar uç uca eklenir.
+  ///
+  /// Bu, "rota her tarafa çizgi çekiyor" hatasının kök nedeniydi: eskiden uzun
+  /// izler tek isteğe sığsın diye 80 noktaya *indeks bazlı* seyreltiliyordu.
+  /// 2 saatlik bir vardiyada bu, noktalar arası ~750 m demek; OSRM böyle seyrek
+  /// bir izde hangi yoldan gidildiğini bilemez, `gaps=ignore` da onu her şeyi
+  /// tek parçaya bağlamaya zorlar — sonuç, şehrin yarısını dolaşan bir çizgi.
+  /// Parçalı eşlemede noktalar arası gerçek aralık (~10 sn'lik sürüş) korunur.
   Future<List<LatLng>> matchDrivenPath(List<LatLng> trace) async {
     final input = _prepareCoordinates(trace);
     if (input.length < 2) return const [];
 
+    final chunks = _chunkForMatching(input);
+    final result = <LatLng>[];
+    for (final chunk in chunks) {
+      final matched = await _matchChunk(chunk);
+      // Tek bir parça eşleşmezse yarım rota kaydetmektense hiç kaydetme:
+      // eksik parçanın uçlarını birleştirmek bina üzerinden kiriş çizerdi.
+      if (matched.length < 2) return const [];
+      for (final point in matched) {
+        if (result.isEmpty || pathLengthMeters([result.last, point]) >= 0.5) {
+          result.add(point);
+        }
+      }
+    }
+    // Bütünsel makullük: eşlenmiş yol, sürülen izden çok daha uzun olamaz.
+    return _isPlausible(input, result, maxLengthRatio: 1.8)
+        ? result
+        : const [];
+  }
+
+  /// Tek bir koordinat penceresini OSRM `match` ile yola oturtur.
+  Future<List<LatLng>> _matchChunk(List<LatLng> input) async {
+    if (input.length < 2) return const [];
     final coordinates = _coordinateString(input);
     final radiuses = List.filled(input.length, '35').join(';');
     final uri = Uri.parse(
@@ -53,17 +93,34 @@ class SehiriciRoadSnapService {
       if (confidence < 0.35) return const [];
 
       final result = _decodeGeoJsonGeometry(matching['geometry']);
-      return _isPlausible(input, result) ? result : const [];
+      return _isPlausible(input, result, maxLengthRatio: 1.8)
+          ? result
+          : const [];
     } catch (e) {
       debugPrint('Şehiriçi yol eşleme hatası: $e');
       return const [];
     }
   }
 
+  /// İzi, ardışık parçaların uçları çakışacak şekilde böler. Çakışma olmadan
+  /// parçaların birleştiği yerde kopukluk (ve dolayısıyla kiriş) oluşurdu.
+  static List<List<LatLng>> _chunkForMatching(List<LatLng> input) {
+    if (input.length <= _maxCoordinates) return [input];
+    final chunks = <List<LatLng>>[];
+    var start = 0;
+    while (start < input.length - 1 && chunks.length < _maxChunks) {
+      final end = math.min(start + _maxCoordinates, input.length);
+      chunks.add(input.sublist(start, end));
+      if (end >= input.length) break;
+      start = end - 1; // bir nokta çakışsın
+    }
+    return chunks;
+  }
+
   /// Admin çizim/durak noktalarından, noktaların sırasını koruyan yol rotası
   /// üretir. Bu metot GPS map matching yerine waypoint routing kullanır.
   Future<List<LatLng>> routeThroughWaypoints(List<LatLng> waypoints) async {
-    final input = _prepareCoordinates(waypoints);
+    final input = _prepareWaypoints(waypoints);
     if (input.length < 2) return const [];
 
     final uri = Uri.parse(
@@ -91,7 +148,36 @@ class SehiriciRoadSnapService {
     }
   }
 
+  /// GPS izini geçerli, makul aralıklı koordinatlara indirger.
+  ///
+  /// Seyreltme **mesafeye** göredir, indekse göre DEĞİL: duruş bulutları
+  /// (araç beklerken biriken onlarca yakın nokta) atılır ama hareket hâlindeki
+  /// noktalar olduğu gibi korunur. Eskiden burada indeks bazlı örnekleme vardı
+  /// ve izin geometrisini yok ediyordu — bkz. [matchDrivenPath] açıklaması.
+  ///
+  /// Parçalı eşleme bütçesini aşacak kadar uzun izlerde (çok turlu vardiya)
+  /// aralık, bütçeye sığana dek kademeli olarak büyütülür; böylece seyreltme
+  /// hâlâ *uzamsal* olarak düzgün kalır.
+  ///
+  /// SADECE sürüş izleri için. Durak/waypoint listesi [_prepareWaypoints]'ten
+  /// geçer: orada "ışınlanma" filtresi uzak durakları eleyeceği için zararlı.
   static List<LatLng> _prepareCoordinates(List<LatLng> points) {
+    // Bir parça iki uçta çakıştığı için her parça net (_maxCoordinates - 1)
+    // nokta ilerletir.
+    const budget = _maxChunks * (_maxCoordinates - 1);
+    var spacing = 12.0;
+    var trace = sanitizeGpsTrace(points, minSpacingMeters: spacing);
+    while (trace.length > budget && spacing < 400) {
+      spacing *= 1.8;
+      trace = sanitizeGpsTrace(points, minSpacingMeters: spacing);
+    }
+    return trace;
+  }
+
+  /// Admin durak/çizim noktalarını doğrular. GPS temizliği UYGULANMAZ:
+  /// duraklar arası mesafe kilometrelerce olabilir ve `sanitizeGpsTrace`'in
+  /// ışınlanma filtresi bunları aykırı sanıp hattan düşürürdü.
+  static List<LatLng> _prepareWaypoints(List<LatLng> points) {
     final valid = <LatLng>[];
     for (final point in points) {
       if (!point.latitude.isFinite ||
@@ -102,6 +188,7 @@ class SehiriciRoadSnapService {
           point.longitude > 180) {
         continue;
       }
+      // Üst üste binen noktalar OSRM'de gereksiz waypoint üretir.
       if (valid.isEmpty || pathLengthMeters([valid.last, point]) >= 2) {
         valid.add(point);
       }
@@ -139,14 +226,26 @@ class SehiriciRoadSnapService {
     return result;
   }
 
-  static bool _isPlausible(List<LatLng> input, List<LatLng> result) {
+  /// [maxLengthRatio]: sonucun girdiye göre kabul edilen en büyük uzunluk oranı.
+  ///
+  /// Varsayılan 3.5, **waypoint routing** içindir: girdi duraklar arası kuş
+  /// uçuşu çizgidir, gerçek yol doğal olarak çok daha uzun olur.
+  /// **Map matching**'de ise girdi zaten sürülen izdir; eşlenen yol ondan
+  /// kayda değer biçimde uzun olamaz. Orada 3.5'e izin vermek, şehrin yarısını
+  /// dolaşan hatalı eşleşmelerin "makul" sayılıp kaydedilmesine yol açıyordu.
+  static bool _isPlausible(
+    List<LatLng> input,
+    List<LatLng> result, {
+    double maxLengthRatio = 3.5,
+  }) {
     if (input.length < 2 || result.length < 2) return false;
     final inputLength = pathLengthMeters(input);
     final resultLength = pathLengthMeters(result);
     if (inputLength <= 0 || resultLength <= 0) return false;
 
     // Yanlış şehir/yol eşleşmelerini ve aşırı dolambaçlı sonuçları engelle.
-    if (resultLength < inputLength * 0.45 || resultLength > inputLength * 3.5) {
+    if (resultLength < inputLength * 0.45 ||
+        resultLength > inputLength * maxLengthRatio) {
       return false;
     }
     final startGap = pathLengthMeters([input.first, result.first]);

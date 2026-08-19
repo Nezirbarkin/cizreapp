@@ -17,6 +17,7 @@ import 'sehirici/providers/sehirici_location_provider.dart';
 import 'core/services/verification_service.dart';
 import 'core/services/payment_service.dart';
 import 'core/services/ad_consent_service.dart';
+import 'core/navigation/app_navigator.dart';
 import 'firebase_options.dart';
 // ignore: unused_import
 import 'features/market/providers/cart_provider.dart';
@@ -297,7 +298,9 @@ class CizreApp extends StatefulWidget {
 class _CizreAppState extends State<CizreApp> {
   StreamSubscription<AuthState>? _authStateSubscription; // Nullable yap, Supabase başarısız olursa hata vermesin
   StreamSubscription<Uri>? _appLinksSubscription; // Web için nullable
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  // Root navigator key global olarak app_navigator.dart'ta tutulur; böylece
+  // context'ten bağımsız (ör. oturum kapatma) güvenli yönlendirmeler yapılabilir.
+  final GlobalKey<NavigatorState> _navigatorKey = appNavigatorKey;
   
   /// Web'de profil/shop URL'sine doğrudan gidildiyse true
   bool get _isWebProfileRoute {

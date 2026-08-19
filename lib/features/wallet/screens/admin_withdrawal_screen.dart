@@ -5,7 +5,11 @@ import '../../../core/utils/app_error_handler.dart';
 
 /// Admin: Çekim Talepleri Yönetim Ekranı
 class AdminWithdrawalScreen extends StatefulWidget {
-  const AdminWithdrawalScreen({super.key});
+  /// true ise kendi Scaffold/AppBar'ını çizmez, sadece içeriği döner
+  /// (ör. "Ödemeler" hub'ında bir sekme olarak gömülü kullanım için).
+  final bool embedded;
+
+  const AdminWithdrawalScreen({super.key, this.embedded = false});
 
   @override
   State<AdminWithdrawalScreen> createState() => _AdminWithdrawalScreenState();
@@ -40,8 +44,12 @@ class _AdminWithdrawalScreenState extends State<AdminWithdrawalScreen> with Sing
     });
 
     try {
-      final pending = await _withdrawalService.getAllWithdrawals(status: 'pending');
-      final processed = await _withdrawalService.getAllWithdrawals(status: 'processing,completed,failed,cancelled');
+      final pending = await _withdrawalService.getAllWithdrawals(
+        statuses: ['pending'],
+      );
+      final processed = await _withdrawalService.getAllWithdrawals(
+        statuses: ['processing', 'completed', 'failed', 'cancelled'],
+      );
 
       setState(() {
         _pendingWithdrawals = pending;
@@ -110,47 +118,57 @@ class _AdminWithdrawalScreenState extends State<AdminWithdrawalScreen> with Sing
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Çekim Talepleri'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Bekleyen'),
-                  if (_pendingWithdrawals.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '${_pendingWithdrawals.length}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const Tab(text: 'İşlenenler'),
-          ],
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildWithdrawalsList(_pendingWithdrawals, isPending: true),
-                _buildWithdrawalsList(_processedWithdrawals, isPending: false),
+    final tabBar = TabBar(
+      controller: _tabController,
+      tabs: [
+        Tab(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Bekleyen'),
+              if (_pendingWithdrawals.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_pendingWithdrawals.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
               ],
-            ),
+            ],
+          ),
+        ),
+        const Tab(text: 'İşlenenler'),
+      ],
+    );
+
+    final body = _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : TabBarView(
+            controller: _tabController,
+            children: [
+              _buildWithdrawalsList(_pendingWithdrawals, isPending: true),
+              _buildWithdrawalsList(_processedWithdrawals, isPending: false),
+            ],
+          );
+
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Material(color: Theme.of(context).cardColor, child: tabBar),
+          Expanded(child: body),
+        ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Çekim Talepleri'), bottom: tabBar),
+      body: body,
     );
   }
 

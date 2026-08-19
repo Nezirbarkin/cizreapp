@@ -4,8 +4,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 import '../models/sehirici_models.dart';
-import '../utils/sehirici_route_geometry.dart';
-import '../utils/sehirici_time_utils.dart';
+import 'sehirici_auto_trip_evaluator.dart';
 import 'sehirici_location_tracker.dart';
 import 'sehirici_trip_service.dart';
 
@@ -24,6 +23,10 @@ enum SehiriciAutoTripPhase { stopped, watching, driving }
 ///
 /// Singleton — uygulama genelinde tek instance. [SehiriciLocationTracker]
 /// ile aynı deseni izler.
+///
+/// Başlatma/bitirme **kararları** [SehiriciAutoTripEvaluator] içindedir (saf,
+/// saat/konum parametreli, fiziksel senaryolarla test edilebilir); bu sınıf
+/// yalnızca fazları, timer'ları ve tracker'ı yönetir.
 class SehiriciAutoTripController {
   SehiriciAutoTripController._internal();
   static final SehiriciAutoTripController instance =
@@ -38,39 +41,23 @@ class SehiriciAutoTripController {
   bool get isWatching => _phase == SehiriciAutoTripPhase.watching;
   bool get isDriving => _phase == SehiriciAutoTripPhase.driving;
 
-  // ── Ayarlanabilir eşikler ────────────────────────────────────────────
-  /// Hareket sayılan minimum hız (m/s, ~10.8 km/s).
-  static const double kMoveSpeedMs = 3.0;
-  /// Hareket sayılan minimum yer değiştirme (metre, hız okunamazsa).
-  static const double kMoveDistanceM = 50.0;
-  /// "Hat bölgesinde" sayılmak için rota/durak koridoru genişliği (metre).
-  static const double kCorridorM = 300.0;
+  // ── Zamanlama sabitleri ─────────────────────────────────────────────
+  /// Karar eşikleri (hareket hızı/yer değiştirme, hat koridoru, M-of-N)
+  /// [SehiriciAutoTripEvaluator] üzerindedir.
   /// Watching fazı örnek aralığı (stream tetiklenmezse fallback timer).
   static const Duration kSampleInterval = Duration(seconds: 25);
-  /// Sürdürülebilirlik: son K örnekten en az M'i koşulları sağlamalı.
-  static const int kBufferLen = 3;
-  static const int kBufferNeed = 2;
   /// Driving fazı bitiş kontrolü periyodu (tracker'a ek olarak zaman-bazlı).
   static const Duration kEndCheckInterval = Duration(seconds: 60);
-
-  // (Opsiyonel, mimaride hazır — kullanıcı seçmedi. Açmak için koşulu
-  //  _evaluateEndConditions içine ekleyin.)
-  // static const double kLastStopRadiusM = 150.0;
 
   // ── Konfigürasyon (start ile verilir) ─────────────────────────────────
   String? _driverId;
   SehiriciLine? _line;
-  TimeOfDay? _workStart;
-  TimeOfDay? _workEnd;
-  List<LatLng> _stopPoints = const [];
-  List<LatLng> _polyline = const [];
+  SehiriciAutoTripEvaluator? _evaluator;
 
   // ── Dinamik durum ─────────────────────────────────────────────────────
   StreamSubscription<Position>? _watchSub;
   Timer? _watchFallback;
   Timer? _endCheckTimer;
-  Position? _lastWatchPosition;
-  final List<bool> _startBuffer = [];
   bool _busy = false;
 
   // UI bildirimleri (panel bu callback'leri set eder).
@@ -90,11 +77,12 @@ class SehiriciAutoTripController {
     }
     _driverId = driverId;
     _line = line;
-    _workStart = workStart;
-    _workEnd = workEnd;
-    _stopPoints = line.stops.map((s) => LatLng(s.lat, s.lng)).toList();
-    _polyline = _decodePolyline(line.roadPolyline);
-    _startBuffer.clear();
+    _evaluator = SehiriciAutoTripEvaluator(
+      stopPoints: line.stops.map((s) => LatLng(s.lat, s.lng)).toList(),
+      polyline: _decodePolyline(line.roadPolyline),
+      workStart: workStart,
+      workEnd: workEnd,
+    );
 
     // Konum izni (arka plan dahil). Reddedilirse yine de deneyelim — ön plan
     // içinde çalışır.
@@ -113,6 +101,10 @@ class SehiriciAutoTripController {
 
   /// Otomasyonu tamamen durdur. Aktif sefere dokunmaz (bitirmez).
   Future<void> stop() async {
+    // Controller yalnızca driving fazında tracker'ı başlattığı için onu sahiplenir.
+    // Watching/stopped fazında tracker panel'e ait olabilir (auto kapalı manuel
+    // akış) — ona dokunmayalım.
+    final ownedTracker = _phase == SehiriciAutoTripPhase.driving;
     _phase = SehiriciAutoTripPhase.stopped;
     await _watchSub?.cancel();
     _watchSub = null;
@@ -121,8 +113,10 @@ class SehiriciAutoTripController {
     _endCheckTimer?.cancel();
     _endCheckTimer = null;
     _tracker.onPositionWritten = null;
-    _lastWatchPosition = null;
-    _startBuffer.clear();
+    if (ownedTracker) {
+      await _tracker.stop();
+    }
+    _evaluator = null;
     _busy = false;
   }
 
@@ -132,8 +126,7 @@ class SehiriciAutoTripController {
 
   void _enterWatching() {
     _phase = SehiriciAutoTripPhase.watching;
-    _startBuffer.clear();
-    _lastWatchPosition = null;
+    _evaluator?.reset();
 
     _watchSub = Geolocator.getPositionStream(
       locationSettings: sehiriciLocationSettings(
@@ -160,28 +153,12 @@ class SehiriciAutoTripController {
 
   Future<void> _onWatchPosition(Position pos) async {
     if (_phase != SehiriciAutoTripPhase.watching || _busy) return;
-    final signal = _evaluateStartSignal(pos);
-    _lastWatchPosition = pos;
-    _startBuffer.add(signal);
-    if (_startBuffer.length > kBufferLen) {
-      _startBuffer.removeAt(0);
-    }
-
-    final positives = _startBuffer.where((s) => s).length;
-    if (_startBuffer.length >= kBufferNeed && positives >= kBufferNeed) {
+    final evaluator = _evaluator;
+    if (evaluator == null) return;
+    final decision = evaluator.feed(pos, TimeOfDay.now());
+    if (decision == SehiriciAutoStartDecision.start) {
       await _autoStart(pos);
     }
-  }
-
-  /// 4 koşulun hepsi sağlanıyor mu? (sürdürülebilirlik ayrıca M-of-N ile)
-  bool _evaluateStartSignal(Position pos) {
-    if (!_isWithinWorkingHours()) {
-      _startBuffer.clear();
-      return false;
-    }
-    final moved = _isMoving(pos);
-    final near = _isNearLine(pos);
-    return moved && near;
   }
 
   Future<void> _autoStart(Position pos) async {
@@ -257,22 +234,11 @@ class SehiriciAutoTripController {
     }
   }
 
-  /// Bitiş koşulları. Onaylanan tek tetikleyici: çalışma saati sonu.
-  /// (Son-durak varışı mimaride hazırdır; açmak için buraya ekleyin.)
+  /// Bitiş koşulları kararı [SehiriciAutoTripEvaluator.evaluateEnd] verir
+  /// (onaylanan tek tetikleyici: çalışma saati sonu; son-durak varışı
+  /// mimaride hazır ama bilinçli olarak kapalı).
   String? _evaluateEndConditions(Position? pos) {
-    if (_workStart != null && _workEnd != null && !_isWithinWorkingHours()) {
-      return 'Çalışma saatleri bitti';
-    }
-    // ── Opsiyonel: son durak varışı (kullanıcı seçmedi) ───────────────
-    // if (pos != null && _stopPoints.isNotEmpty) {
-    //   final last = _stopPoints.last;
-    //   if (distanceMeters(LatLng(pos.latitude, pos.longitude), last)
-    //         <= kLastStopRadiusM &&
-    //       (pos.speed < 1.0)) {
-    //     return 'Son durağa ulaşıldı';
-    //   }
-    // }
-    return null;
+    return _evaluator?.evaluateEnd(TimeOfDay.now());
   }
 
   Future<void> _autoEnd(String reason) async {
@@ -304,50 +270,8 @@ class SehiriciAutoTripController {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // Koşul yardımcıları
+  // Yardımcılar
   // ─────────────────────────────────────────────────────────────────────
-
-  bool _isWithinWorkingHours() {
-    if (_workStart == null || _workEnd == null) return true; // ayar yoksa sürekli uygun
-    final now = TimeOfDay.now();
-    return isTimeWithinRange(
-      currentHour: now.hour,
-      currentMinute: now.minute,
-      startHour: _workStart!.hour,
-      startMinute: _workStart!.minute,
-      endHour: _workEnd!.hour,
-      endMinute: _workEnd!.minute,
-    );
-  }
-
-  bool _isMoving(Position pos) {
-    // GPS hız okunabilir ve eşik üstündeyse kesin hareket.
-    if (!pos.speed.isNaN && pos.speed > 0 && pos.speed >= kMoveSpeedMs) {
-      return true;
-    }
-    // Hız yoksa/yetersizse yer değiştirmeye bak.
-    final last = _lastWatchPosition;
-    if (last == null) return false;
-    final d = distanceMeters(
-      LatLng(last.latitude, last.longitude),
-      LatLng(pos.latitude, pos.longitude),
-    );
-    return d >= kMoveDistanceM;
-  }
-
-  bool _isNearLine(Position pos) {
-    final p = LatLng(pos.latitude, pos.longitude);
-    double best = double.infinity;
-    for (final s in _stopPoints) {
-      final d = distanceMeters(p, s);
-      if (d < best) best = d;
-    }
-    if (_polyline.length >= 2) {
-      final pd = nearestDistanceToPolylineMeters(p, _polyline);
-      if (pd < best) best = pd;
-    }
-    return best <= kCorridorM;
-  }
 
   List<LatLng> _decodePolyline(List<List<double>>? raw) {
     if (raw == null) return const [];

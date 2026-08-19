@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
-import '../services/sehirici_trip_service.dart';
 import 'sehirici_live_map.dart';
 
 /// Anasayfa (market_screen) Hikaye bölümünün altına eklenecek
@@ -31,13 +30,9 @@ class _SehiriciCompactCardState extends State<SehiriciCompactCard> {
   void _maybeStartRealtime() {
     if (!mounted) return;
     final provider = context.read<SehiriciProvider>();
+    provider.ensureFresh();
     if (!provider.moduleEnabled) return;
-    final cityId = provider.selectedCityId;
-    SehiriciTripService().watchActiveTrips(
-      cityId: cityId,
-      onTripUpdate: provider.onTripRealtimeUpdate,
-      onTripDelete: provider.onTripRealtimeDelete,
-    );
+    provider.ensureRealtimeWatching();
   }
 
   @override

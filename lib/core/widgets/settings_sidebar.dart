@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
 import '../models/user_model.dart';
 import '../services/privacy_service.dart';
-import '../services/push_notification_service.dart';
+import '../navigation/app_navigator.dart';
 import '../../features/favorites/screens/favorites_screen.dart';
 import '../../features/market/screens/address_management_screen.dart';
 import '../../features/market/screens/order_history_screen.dart';
@@ -21,6 +21,7 @@ import '../../features/courier/screens/courier_panel_screen.dart';
 import '../../features/news/screens/news_reporter_panel_screen.dart';
 import '../../sehirici/sehirici.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
+import '../../features/market/screens/my_coupons_screen.dart';
 import 'balance_header_widget.dart';
 
 class SettingsSidebar extends StatefulWidget {
@@ -498,6 +499,21 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
 
                               _buildMenuItem(
                                 context: context,
+                                icon: Icons.confirmation_number_outlined,
+                                title: 'Kuponlarım',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const MyCouponsScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              _buildMenuItem(
+                                context: context,
                                 icon: Icons.favorite_outline,
                                 title: 'Favorilerim',
                                 onTap: () {
@@ -740,26 +756,11 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     );
 
                                     if (confirm == true && mounted) {
-                                      try {
-                                        // Önce FCM token'ı temizle (signOut'dan ÖNCE!)
-                                        await PushNotificationService.clearTokenOnLogout();
-                                        await Supabase.instance.client.auth.signOut();
-                                        // Ana ekrana yönlendir (misafir modu)
-                                        if (mounted) {
-                                          // ignore: use_build_context_synchronously
-                                          Navigator.of(context).pushNamedAndRemoveUntil(
-                                            '/',
-                                            (route) => false,
-                                          );
-                                        }
-                                      } catch (e) {
-                                        if (mounted) {
-                                          // ignore: use_build_context_synchronously
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('Çıkış yapılırken hata: $e')),
-                                          );
-                                        }
-                                      }
+                                      // Root navigator key ile güvenli çıkış:
+                                      // async signOut sonrası context dispose
+                                      // olsa bile yönlendirme çalışır → siyah
+                                      // ekran önlenir.
+                                      await AppNavigator.signOutAndReset('/');
                                     }
                                   }
                                 },

@@ -122,8 +122,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       final Map<String, Map<String, dynamic>> groupedNotifications = {};
 
       for (var notif in allNotifications) {
-        final key =
-            '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}';
+        final createdAtStr = notif['created_at']?.toString() ?? '';
+        final createdAtKey = createdAtStr.length >= 16
+            ? createdAtStr.substring(0, 16)
+            : createdAtStr;
+        final key = '${notif['title']}|${notif['content']}|$createdAtKey';
 
         if (groupedNotifications.containsKey(key)) {
           final isBroadcast = notif['_is_broadcast'] == true;
@@ -180,23 +183,25 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         totalPending += group['pending_count'] as int;
       }
 
-      setState(() {
-        _pushNotifications = groupedNotifications.values.toList()
-          ..sort((a, b) {
-            final aDate = a['created_at'] as String;
-            final bDate = b['created_at'] as String;
-            return bDate.compareTo(aDate);
-          });
-        _totalSent = totalSent;
-        _totalDelivered = totalSent;
-        _totalRead = totalRead;
-        _totalFailed = 0;
-        _totalPending = totalPending;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _pushNotifications = groupedNotifications.values.toList()
+            ..sort((a, b) {
+              final aDate = a['created_at'] as String;
+              final bDate = b['created_at'] as String;
+              return bDate.compareTo(aDate);
+            });
+          _totalSent = totalSent;
+          _totalDelivered = totalSent;
+          _totalRead = totalRead;
+          _totalFailed = 0;
+          _totalPending = totalPending;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Bildirimler yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

@@ -3,7 +3,7 @@
 // Deploy: supabase functions deploy get-seller-earnings
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import { getAdminClient } from "../_shared/client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,9 +25,7 @@ serve(async (req: Request) => {
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getAdminClient();
 
     // Kullanıcıyı doğrula
     const { data: { user }, error: authError } = await supabase.auth.getUser(
@@ -55,45 +53,27 @@ serve(async (req: Request) => {
       });
     }
 
-    // Kazanç özeti
-    const { data: earnings, error: earningsError } = await supabase
+    // Özet DB tarafında tek aggregate sorgusuyla (tüm geçmişi çekmek yerine).
+    const { data: summary, error: summaryError } = await supabase
+      .rpc("get_seller_earnings_summary", { p_seller_id: user.id })
+      .maybeSingle();
+
+    if (summaryError) {
+      throw summaryError;
+    }
+
+    const s = summary ?? {};
+
+    // Son 10 kayıt liste için (limitli — tüm geçmiş değil).
+    const { data: recentEarnings, error: recentError } = await supabase
       .from("seller_earnings")
       .select("*")
       .eq("seller_id", user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(10);
 
-    if (earningsError) {
-      throw earningsError;
-    }
-
-    // Özet hesapla
-    let totalGross = 0;
-    let totalCommission = 0;
-    let totalNet = 0;
-    let pendingAmount = 0;
-    let availableAmount = 0;
-    let withdrawnAmount = 0;
-
-    for (const earning of earnings || []) {
-      const gross = parseFloat(earning.gross_amount || "0");
-      const commission = parseFloat(earning.commission_amount || "0");
-      const net = parseFloat(earning.net_amount || "0");
-
-      totalGross += gross;
-      totalCommission += commission;
-      totalNet += net;
-
-      switch (earning.status) {
-        case "pending":
-          pendingAmount += net;
-          break;
-        case "available":
-          availableAmount += net;
-          break;
-        case "withdrawn":
-          withdrawnAmount += net;
-          break;
-      }
+    if (recentError) {
+      throw recentError;
     }
 
     // Sistem ayarları
@@ -105,17 +85,17 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({
       status: "success",
       earnings_summary: {
-        total_orders: earnings?.length || 0,
-        total_gross: totalGross,
-        total_commission: totalCommission,
-        total_net: totalNet,
-        pending_amount: pendingAmount,
-        available_amount: availableAmount,
-        withdrawn_amount: withdrawnAmount,
+        total_orders: s.total_orders ?? 0,
+        total_gross: s.total_gross ?? 0,
+        total_commission: s.total_commission ?? 0,
+        total_net: s.total_net ?? 0,
+        pending_amount: s.pending_amount ?? 0,
+        available_amount: s.available_amount ?? 0,
+        withdrawn_amount: s.withdrawn_amount ?? 0,
         min_withdrawal: settings?.min_withdrawal_amount || 50,
         withdrawal_fee_percent: settings?.withdrawal_fee_percent || 2,
       },
-      recent_earnings: earnings?.slice(0, 10) || [],
+      recent_earnings: recentEarnings ?? [],
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

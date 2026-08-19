@@ -36,9 +36,9 @@ yeniden kullanmayı tercih eder.
 |---|---|---|
 | 1 | `20260730000002_admob_reward_points_system.sql` | puan tabloları + RPC'ler |
 | 2 | `20260801000001_admin_reward_points_overview.sql` | `admin_reward_points_overview` |
-| 3 | `20260802000005_server_authoritative_checkout_schema.sql` | checkout `private` şeması |
-| 4 | `20260802000006_prepare_checkout_session_rpc.sql` | `prepare_checkout_session` |
-| 5 | `20260802000007_commit_cod_and_balance_orders.sql` | `commit_cod_order` / `commit_balance_order` |
+| 3 | `20260802000006_server_authoritative_checkout_schema.sql` | checkout `private` şeması |
+| 4 | `20260802000007_prepare_checkout_session_rpc.sql` | `prepare_checkout_session` |
+| 5 | `20260802000008_commit_cod_and_balance_orders.sql` | `commit_cod_order` / `commit_balance_order` |
 | 6 | `20260802000010_order_state_machine_rpc.sql` | `cancel_order` + durum makinesi |
 | 7 | `_part_consolidated_commission_views.sql` | `v_debt_orders`, `v_admin_commission_dashboard` |
 | 8 | `_part_consolidated_profile_objects.sql` | `public_profiles_safe`, `ensure_my_profile`, `set_my_presence` |

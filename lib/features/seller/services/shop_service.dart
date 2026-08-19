@@ -48,10 +48,15 @@ class ShopService {
 
       if (updateData.isEmpty) return;
 
-      await _supabase
+      final result = await _supabase
           .from('shops')
           .update(updateData)
-          .eq('id', shopId);
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
     } catch (e) {
       throw Exception('Mağaza bilgileri güncellenemedi: $e');
     }
@@ -63,10 +68,15 @@ class ShopService {
     required Map<String, dynamic> workingHours,
   }) async {
     try {
-      await _supabase
+      final result = await _supabase
           .from('shops')
           .update({'working_hours': workingHours})
-          .eq('id', shopId);
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
     } catch (e) {
       throw Exception('Çalışma saatleri güncellenemedi: $e');
     }
@@ -93,10 +103,15 @@ class ShopService {
       // Debug log: Güncellenecek veriyi yazdır (debugPrint → release'de log sızıntısı yapmaz)
       debugPrint('🔧 SHOP SERVICE: Updating shop $shopId with data: $updateData');
 
-      await _supabase
+      final result = await _supabase
           .from('shops')
           .update(updateData)
-          .eq('id', shopId);
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
 
       debugPrint('✅ SHOP SERVICE: Update successful');
     } catch (e) {
@@ -201,10 +216,15 @@ class ShopService {
     required String categoryId,
   }) async {
     try {
-      await _supabase
+      final result = await _supabase
           .from('shops')
           .update({'category_id': categoryId})
-          .eq('id', shopId);
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
     } catch (e) {
       throw Exception('Kategori güncellenemedi: $e');
     }
@@ -236,10 +256,15 @@ class ShopService {
     required List<String> categories,
   }) async {
     try {
-      await _supabase
+      final result = await _supabase
           .from('shops')
           .update({'seller_categories': categories})
-          .eq('id', shopId);
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
     } catch (e) {
       throw Exception('Satıcı kategorileri güncellenemedi: $e');
     }

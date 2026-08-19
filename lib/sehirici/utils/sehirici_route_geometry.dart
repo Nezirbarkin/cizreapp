@@ -141,6 +141,83 @@ List<LatLng> simplifyPath(
   return result;
 }
 
+/// Ham GPS izini yol eşlemeye (map matching) verilmeden önce temizler.
+///
+/// Şoför izleri iki tür kirlilik taşır ve ikisi de OSRM `match` servisini
+/// yoldan çıkarıp "her tarafa çizgi" üreten rotalara yol açar:
+///
+///  1. **Duruş bulutu** — araç durakta/kırmızı ışıkta beklerken 10 sn'de bir
+///     nokta yazılır; GPS gezinmesi (drift) yüzünden 15-20 m'lik alanda
+///     onlarca nokta birikir. Map matching bu bulutu "ileri geri manevra"
+///     sanıp çevredeki sokaklara sapar.
+///  2. **Işınlanma** — tünel/bina çıkışında tek bir hatalı fix izi kilometrelerce
+///     öteye fırlatır; eşleme aradaki tüm yolları doldurmaya çalışır.
+///
+/// [minSpacingMeters] altındaki noktalar (ilk hariç) atılır; ardışık iki nokta
+/// arası [maxJumpMeters]'ı aşarsa aykırı nokta atlanır ve iz son sağlam
+/// noktadan devam eder. Son nokta, aralık kuralına takılsa bile korunur —
+/// izin bittiği yer rota için anlamlıdır.
+List<LatLng> sanitizeGpsTrace(
+  List<LatLng> trace, {
+  double minSpacingMeters = 12,
+  double maxJumpMeters = 3000,
+}) {
+  final out = <LatLng>[];
+  for (final p in trace) {
+    if (!p.latitude.isFinite ||
+        !p.longitude.isFinite ||
+        p.latitude < -90 ||
+        p.latitude > 90 ||
+        p.longitude < -180 ||
+        p.longitude > 180) {
+      continue;
+    }
+    if (out.isEmpty) {
+      out.add(p);
+      continue;
+    }
+    final d = _distanceMeters(out.last, p);
+    if (d > maxJumpMeters) continue; // aykırı fix — atla
+    if (d < minSpacingMeters) continue; // duruş bulutu — atla
+    out.add(p);
+  }
+  // İzin son noktası aralık kuralına takıldıysa geri ekle (tek nokta hariç).
+  if (out.length >= 2 && trace.isNotEmpty) {
+    final last = trace.last;
+    if (last.latitude.isFinite &&
+        last.longitude.isFinite &&
+        _distanceMeters(out.last, last) <= maxJumpMeters &&
+        out.last != last) {
+      out.add(last);
+    }
+  }
+  return out;
+}
+
+/// Bir polyline'ı, şeklini bozmadan en fazla [maxPoints] noktaya indirir.
+///
+/// [simplifyPath] tek bir toleransla çalışır; yol geometrisi çok uzun olduğunda
+/// (çok turlu bir vardiya izi) sabit tolerans binlerce noktayı geçirir ve bu
+/// noktalar JSONB'ye yazılıp her harita çiziminde işlenir. Burada tolerans,
+/// hedef nokta sayısına ulaşana kadar kademeli olarak artırılır.
+///
+/// [maxPoints] < 2 ise veya girdi zaten yeterince kısaysa girdi aynen döner.
+List<LatLng> simplifyToMaxPoints(
+  List<LatLng> path, {
+  required int maxPoints,
+  double startToleranceMeters = 2,
+  double maxToleranceMeters = 40,
+}) {
+  if (maxPoints < 2 || path.length <= maxPoints) return List.of(path);
+  var tolerance = startToleranceMeters <= 0 ? 1.0 : startToleranceMeters;
+  var result = simplifyPath(path, toleranceMeters: tolerance);
+  while (result.length > maxPoints && tolerance < maxToleranceMeters) {
+    tolerance *= 1.8;
+    result = simplifyPath(path, toleranceMeters: tolerance);
+  }
+  return result;
+}
+
 /// Bir önceki ve sonraki nokta arasındaki bearing (pusula yönü) hesaplar.
 /// Sonuç 0-360 derece (0 = kuzey, 90 = doğu, 180 = güney, 270 = batı).
 /// Aynı nokta ise null döner.

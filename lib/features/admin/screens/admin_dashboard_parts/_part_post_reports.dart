@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -5,374 +17,15 @@ extension on _AdminDashboardScreenState {
   // Gonderi sikayetleri + detay/silme
   // ==========================================================================
 
-  // --- _buildPostReportsContent ---
-  Widget _buildPostReportsContent() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _loadPostReports(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Hata: ${snapshot.error}'));
-        }
-
-        final reports = snapshot.data ?? [];
-
-        // İstatistikler
-        final pendingCount = reports
-            .where((r) => r['status'] == 'pending')
-            .length;
-        final reviewingCount = reports
-            .where((r) => r['status'] == 'reviewing')
-            .length;
-        final resolvedCount = reports
-            .where((r) => r['status'] == 'resolved')
-            .length;
-        final rejectedCount = reports
-            .where((r) => r['status'] == 'rejected')
-            .length;
-
-        return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {});
-          },
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Gönderi Şikayetleri Yönetimi',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-
-                // İstatistik Kartları
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildPostReportStatCard(
-                        icon: Icons.pending,
-                        title: 'Bekleyen',
-                        count: pendingCount,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildPostReportStatCard(
-                        icon: Icons.visibility,
-                        title: 'İnceleniyor',
-                        count: reviewingCount,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildPostReportStatCard(
-                        icon: Icons.check_circle,
-                        title: 'Çözüldü',
-                        count: resolvedCount,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildPostReportStatCard(
-                        icon: Icons.cancel,
-                        title: 'Reddedildi',
-                        count: rejectedCount,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                if (reports.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.flag_outlined,
-                            size: 64,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Gönderi şikayeti bulunamadı',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: reports.length,
-                    itemBuilder: (context, index) {
-                      final report = reports[index];
-                      final reporter =
-                          report['reporter'] as Map<String, dynamic>?;
-                      final reportedPost =
-                          report['reported_post'] as Map<String, dynamic>?;
-                      final status = report['status'] as String? ?? 'pending';
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: BorderSide(
-                            color: _getReportStatusColor(
-                              status,
-                            ).withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => _showPostReportDetailDialog(report),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: _getReportStatusColor(
-                                          status,
-                                        ).withOpacity(0.15),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            _getReportStatusIcon(status),
-                                            size: 14,
-                                            color: _getReportStatusColor(
-                                              status,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            _getReportStatusText(status),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: _getReportStatusColor(
-                                                status,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
-                                      ),
-                                      onPressed: () =>
-                                          _showDeletePostReportDialog(report),
-                                      tooltip: 'Sil',
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Şikayet eden
-                                Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage:
-                                          reporter?['avatar_url'] != null
-                                          ? NetworkImage(
-                                              reporter!['avatar_url'],
-                                            )
-                                          : null,
-                                      child: reporter?['avatar_url'] == null
-                                          ? Text(
-                                              (reporter?['username'] as String?)
-                                                      ?.substring(0, 1)
-                                                      .toUpperCase() ??
-                                                  '?',
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.blue.shade700,
-                                              ),
-                                            )
-                                          : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            reporter?['full_name'] ??
-                                                reporter?['username'] ??
-                                                'Bilinmeyen',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          Text(
-                                            'Şikayet eden',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.arrow_forward,
-                                      size: 16,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            reportedPost?['title'] ?? 'Gönderi',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          Text(
-                                            'Gönderi',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Şikayet nedeni
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade50,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.flag,
-                                        color: Colors.red.shade700,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          report['reason'] ?? '-',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Açıklama varsa
-                                if (report['description'] != null &&
-                                    (report['description'] as String)
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    report['description'],
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-
-                                const SizedBox(height: 8),
-                                Text(
-                                  _formatDate(report['created_at']),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // --- _buildPostReportStatCard ---
-  Widget _buildPostReportStatCard({
-    required IconData icon,
-    required String title,
-    required int count,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: Colors.orange, size: 24),
-          const SizedBox(height: 8),
-          Text(
-            '$count',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          Text(
-            title,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
-    );
-  }
+  // NOT: Bu dosyada bir donem `_buildPostReportsContent()` (tam sayfa
+  // "Gönderi Şikayetleri Yönetimi" ekrani) ve yalniz onun kullandigi
+  // `_buildPostReportStatCard()` bulunuyordu. Hicbir yerden ERISILEMIYORDU:
+  // _selectedMenu hicbir zaman 'Gönderi Şikayetleri' degerini almiyor,
+  // drawer'da da boyle bir menu yok. Ayni icerik zaten Sikayetler
+  // sayfasina gomulu (_part_reports.dart). 2026-08-16'da kaldirildi.
+  //
+  // Asagidaki iki dialog CANLIDIR: _part_reports.dart icindeki gonderi
+  // sikayeti kartlari bunlari cagirir.
 
   // --- _showPostReportDetailDialog ---
   void _showPostReportDetailDialog(Map<String, dynamic> report) {
@@ -602,13 +255,21 @@ extension on _AdminDashboardScreenState {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
-              await Supabase.instance.client
-                  .from('post_reports')
-                  .delete()
-                  .eq('id', report['id']);
-              if (mounted) {
-                Navigator.pop(context);
-                setState(() {});
+              try {
+                await Supabase.instance.client
+                    .from('post_reports')
+                    .delete()
+                    .eq('id', report['id']);
+                if (mounted) {
+                  Navigator.pop(context);
+                  setState(() {});
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Hata: $e')),
+                  );
+                }
               }
             },
             child: const Text('Sil'),

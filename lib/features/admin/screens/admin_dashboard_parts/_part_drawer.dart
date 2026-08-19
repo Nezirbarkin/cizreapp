@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -83,6 +95,15 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.auto_awesome_rounded,
+                    title: 'Kullanıcı Özellikleri',
+                    isSelected: _selectedMenu == 'Kullanıcı Özellikleri',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Kullanıcı Özellikleri');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.post_add_rounded,
                     title: 'Gönderiler',
                     isSelected: _selectedMenu == 'Gönderiler',
@@ -92,6 +113,15 @@ extension on _AdminDashboardScreenState {
                         _selectedMenu = 'Gönderiler';
                         _newPostsCount = 0;
                       });
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.campaign_rounded,
+                    title: 'İlanlar & Kategoriler',
+                    isSelected: _selectedMenu == 'İlanlar & Kategoriler',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'İlanlar & Kategoriler');
                       Navigator.pop(context);
                     },
                   ),
@@ -376,11 +406,8 @@ extension on _AdminDashboardScreenState {
                 style: TextStyle(color: Colors.white),
               ),
               onTap: () async {
-                await PushNotificationService.clearTokenOnLogout();
-                await Supabase.instance.client.auth.signOut();
-                if (context.mounted) {
-                  Navigator.pushReplacementNamed(context, '/login');
-                }
+                // Root navigator key ile güvenli çıkış → login ekranı.
+                await AppNavigator.signOutAndReset('/login');
               },
             ),
             const SizedBox(height: 16),

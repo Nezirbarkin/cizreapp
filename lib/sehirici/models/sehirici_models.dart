@@ -423,6 +423,34 @@ class SehiriciActiveTrip {
       status: status,
     );
   }
+
+  /// Realtime INSERT ile gelen yeni seferlerde hat tablosu join edilmediği
+  /// için boş kalan kod/ad/renk alanlarını, provider'ın zaten yüklü olan
+  /// hat listesinden zenginleştirmek için kullanılır.
+  SehiriciActiveTrip copyWithLine(SehiriciLine line) {
+    return SehiriciActiveTrip(
+      tripId: tripId,
+      lineId: lineId,
+      lineCode: line.code,
+      lineName: line.name,
+      lineColor: line.colorHex,
+      driverName: driverName,
+      licensePlate: licensePlate,
+      workingHoursStart: workingHoursStart,
+      workingHoursEnd: workingHoursEnd,
+      currentLat: currentLat,
+      currentLng: currentLng,
+      currentHeading: currentHeading,
+      currentSpeed: currentSpeed,
+      startedAt: startedAt,
+      nextStopId: nextStopId,
+      nextStopName: nextStopName,
+      nextStopLat: nextStopLat,
+      nextStopLng: nextStopLng,
+      etaMinutes: etaMinutes,
+      status: status,
+    );
+  }
 }
 
 class SehiriciFavoriteStop {

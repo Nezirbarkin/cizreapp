@@ -69,43 +69,27 @@ serve(async (req: Request) => {
     }
 
     // ═════════════════════════════════════════════════════════════
-    // 2) Session sahiplik kontrolu
+    // 2) commit_balance_order — server-authoritative atomik
+    //
+    // Onceki surumde burada bir on-kontrol vardi:
+    //   supabase.from("server_checkout_sessions")  -> sema nitelemesi YOK,
+    // yani public.server_checkout_sessions aranıyordu. Tablo private
+    // semasinda oldugu icin sorgu her zaman bos donuyor ve fonksiyon
+    // kosulsuz "session_not_found" veriyordu. Ayrica session.status
+    // "completed" ile karsilastiriliyordu; CHECK kisiti yalnizca
+    // 'pending','committed','expired','cancelled','failed' kabul ediyor.
+    //
+    // On-kontrol zaten gereksiz: commit_balance_order sahiplik, durum,
+    // sona erme ve bakiye yeterliligini kendi icinde dogruluyor.
+    //
+    // KRITIK: RPC KULLANICI baglaminda cagrilmali. commit_balance_order
+    // auth.uid() okuyor; service-role baglaminda auth.uid() NULL doner ve
+    // fonksiyon "Authentication gerekli" ile patlar. userSupabase kullanicinin
+    // JWT'sini tasidigi icin dogru baglam odur.
     // ═════════════════════════════════════════════════════════════
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { data: session, error: sessionError } = await supabase
-      .from("server_checkout_sessions")
-      .select("id, user_id, status, expires_at, payment_method, server_total")
-      .eq("id", checkout_session_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (sessionError || !session) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "session_not_found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (session.payment_method !== "balance") {
-      return new Response(
-        JSON.stringify({ ok: false, error: "wrong_payment_method" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (session.status === "completed" || session.status === "expired") {
-      return new Response(
-        JSON.stringify({ ok: false, error: `session_${session.status}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 3) commit_balance_order — server-authoritative atomik
-    // ═════════════════════════════════════════════════════════════
-    const { data: result, error: rpcError } = await supabase.rpc(
-      "private.commit_balance_order",
-      { p_session_id: session.id }
+    const { data: result, error: rpcError } = await userSupabase.rpc(
+      "commit_balance_order",
+      { p_session_id: checkout_session_id }
     );
 
     if (rpcError) {

@@ -141,11 +141,16 @@ class _AdminAboutSettingsScreenState extends State<AdminAboutSettingsScreen> {
 
     setState(() => _isSavingForceUpdate = true);
     try {
+      // NOT: current_version/current_build_code buraya yazılmaz — bunlar
+      // ayrı bir kavramdır ("şu anki uygulama versiyonu", bilgi amaçlı),
+      // min_version/min_build_code ise zorunlu güncelleme eşiğidir.
+      // check_app_version() RPC'si karşılaştırmayı istemcinin gönderdiği
+      // sürümle yapar (bkz. version_check_service.dart), current_version
+      // kolonunu kullanmaz — ama yine de burada yazmak yanlış/yanıltıcı
+      // metadata üretir.
       await Supabase.instance.client.from('app_about_settings').update({
         'min_version': minVersion,
         'min_build_code': minBuild,
-        'current_version': minVersion,
-        'current_build_code': minBuild,
         'force_update_enabled': _forceUpdateEnabled,
       }).eq('id', 1);
       if (mounted) _showSnackBar('Zorunlu güncelleme ayarları kaydedildi', isError: false);

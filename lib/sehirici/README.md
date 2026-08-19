@@ -106,7 +106,7 @@ Realtime: `sehirici_trips` ve `sehirici_trip_locations`
 - [`lib/main.dart`](../../lib/main.dart:22) — SehiriciProvider MultiProvider'a eklendi
 - [`lib/main.dart`](../../lib/main.dart) — routes (`/sehirici-lines`, `/sehirici-favorites`, `/sehirici-driver`)
 - [`lib/features/market/screens/market_screen.dart`](../../lib/features/market/screens/market_screen.dart) — Hikaye altına SehiriciCompactCard
-- [`lib/features/admin/widgets/admin_drawer.dart`](../../lib/features/admin/widgets/admin_drawer.dart) — "Şehiriçi Yönetimi" menüsü
+- [`lib/features/admin/screens/admin_dashboard_parts/_part_drawer.dart`](../../lib/features/admin/screens/admin_dashboard_parts/_part_drawer.dart) — "Şehiriçi Yönetimi" menüsü (admin panelinin gerçek drawer'ı `_buildDrawer` burada; eskiden bu satır `widgets/admin_drawer.dart`'ı gösteriyordu ama o widget hiç kullanılmıyordu, 2026-08-16'da silindi)
 - [`lib/features/admin/screens/admin_dashboard_screen.dart`](../../lib/features/admin/screens/admin_dashboard_screen.dart) — dispatch case
 - [`lib/core/widgets/settings_sidebar.dart`](../../lib/core/widgets/settings_sidebar.dart) — "Şoför Paneli" butonu
 

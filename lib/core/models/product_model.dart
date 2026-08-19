@@ -1,3 +1,93 @@
+import 'package:flutter/material.dart';
+
+/// Satıcının ürüne ekleyebileceği rozetler.
+///
+/// Buradaki `key` değerleri veritabanındaki `products.badges` dizisinde saklanır
+/// ve `products_badges_allowed` CHECK constraint'i ile birebir aynı olmalıdır —
+/// listeye yeni bir rozet eklenecekse önce migration ile constraint güncellenir.
+class ProductBadge {
+  final String key;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const ProductBadge({
+    required this.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  /// Bir üründe aynı anda gösterilebilecek en fazla rozet sayısı (DB ile aynı).
+  static const int maxPerProduct = 3;
+
+  static const List<ProductBadge> all = [
+    ProductBadge(
+      key: 'yeni',
+      label: 'Yeni',
+      icon: Icons.fiber_new,
+      color: Color(0xFF2E7D32),
+    ),
+    ProductBadge(
+      key: 'cok_satan',
+      label: 'Çok Satan',
+      icon: Icons.local_fire_department,
+      color: Color(0xFFE64A19),
+    ),
+    ProductBadge(
+      key: 'sinirli_stok',
+      label: 'Sınırlı Stok',
+      icon: Icons.hourglass_bottom,
+      color: Color(0xFFC62828),
+    ),
+    ProductBadge(
+      key: 'el_yapimi',
+      label: 'El Yapımı',
+      icon: Icons.back_hand_outlined,
+      color: Color(0xFF6D4C41),
+    ),
+    ProductBadge(
+      key: 'organik',
+      label: 'Organik',
+      icon: Icons.eco_outlined,
+      color: Color(0xFF388E3C),
+    ),
+    ProductBadge(
+      key: 'yerli_uretim',
+      label: 'Yerli Üretim',
+      icon: Icons.flag_outlined,
+      color: Color(0xFFD32F2F),
+    ),
+    ProductBadge(
+      key: 'ithal',
+      label: 'İthal',
+      icon: Icons.public,
+      color: Color(0xFF1565C0),
+    ),
+    ProductBadge(
+      key: 'garantili',
+      label: 'Garantili',
+      icon: Icons.verified_user_outlined,
+      color: Color(0xFF00838F),
+    ),
+    ProductBadge(
+      key: 'son_firsat',
+      label: 'Son Fırsat',
+      icon: Icons.bolt,
+      color: Color(0xFFF9A825),
+    ),
+  ];
+
+  /// Bilinmeyen key'ler için null döner; DB'de eski/kaldırılmış bir rozet
+  /// kalmışsa UI patlamak yerine o rozeti sessizce atlar.
+  static ProductBadge? fromKey(String key) {
+    for (final b in all) {
+      if (b.key == key) return b;
+    }
+    return null;
+  }
+}
+
 class ProductColor {
   final String name;
   final String hex;
@@ -57,6 +147,26 @@ class Product {
   // Kampanya: şu an sadece 'buy2_get1_balance' ("2 al biri bakiye") destekleniyor
   final String? campaignType;
 
+  // ── Satıcının ekleyebildiği ek özellikler ──────────────────────────────────
+  /// Ürün rozetleri (`ProductBadge.all` içindeki key'ler).
+  final List<String> badges;
+
+  /// Hazırlık (kargoya veriliş) süresi, gün. İkisi de null = süre belirtilmemiş.
+  final int? prepTimeMinDays;
+  final int? prepTimeMaxDays;
+
+  /// Ürüne özel kargo ücreti. null = mağazanın `delivery_fee` değeri geçerli.
+  final double? shippingFee;
+
+  /// Ürüne özel ücretsiz kargo. Bir mağazanın sepetteki tüm ürünleri
+  /// `freeShipping` ise o mağazanın kargo ücreti 0 olur.
+  final bool freeShipping;
+
+  /// Fiziksel ürünlerde sipariş adedi sınırı (dijital ürünlerde
+  /// `minQuantity`/`maxQuantity` kullanılır, bu alanlar uygulanmaz).
+  final int? minOrderQuantity;
+  final int? maxOrderQuantity;
+
   // Puanlama alanları (veritabanından çekilir)
   final double _rating;
   final int _totalReviews;
@@ -91,6 +201,13 @@ class Product {
     this.isPointsEligible = false,
     this.maxPointsCoveragePercent = 100,
     this.campaignType,
+    this.badges = const [],
+    this.prepTimeMinDays,
+    this.prepTimeMaxDays,
+    this.shippingFee,
+    this.freeShipping = false,
+    this.minOrderQuantity,
+    this.maxOrderQuantity,
     double rating = 0.0,
     int totalReviews = 0,
   }) : _rating = rating,
@@ -184,6 +301,59 @@ class Product {
   // "2 al biri bakiye" kampanyası aktif mi?
   bool get isBuy2Get1BalanceCampaign => campaignType == 'buy2_get1_balance';
 
+  // ── Ek özellik yardımcıları ────────────────────────────────────────────────
+
+  /// Gösterilebilir rozetler. DB'de tanınmayan bir key kalmışsa atlanır.
+  List<ProductBadge> get badgeDetails =>
+      badges.map(ProductBadge.fromKey).whereType<ProductBadge>().toList();
+
+  /// Hazırlık süresi metni. Süre girilmemişse null döner (UI hiç göstermez).
+  String? get prepTimeLabel {
+    final min = prepTimeMinDays;
+    final max = prepTimeMaxDays;
+    if (min == null && max == null) return null;
+
+    // Tek değer girilmişse onu kullan.
+    if (min == null) return _prepDayText(max!);
+    if (max == null || max == min) return _prepDayText(min);
+    return '$min-$max iş günü içinde kargoda';
+  }
+
+  String _prepDayText(int days) =>
+      days == 0 ? 'Aynı gün kargoda' : '$days iş günü içinde kargoda';
+
+  /// Bu ürünün kendi kargo kuralı var mı? (bilgi rozetleri için)
+  bool get hasCustomShipping => freeShipping || (shippingFee != null);
+
+  /// Sepete eklenebilecek en az adet. Belirtilmemişse 1.
+  /// Dijital ürünlerde bu alan kullanılmaz.
+  int get minOrderQty =>
+      (!isDigital && minOrderQuantity != null && minOrderQuantity! > 0)
+      ? minOrderQuantity!
+      : 1;
+
+  /// Sepete eklenebilecek en fazla adet — satıcı limiti ile stok limitinin
+  /// küçüğü. Hiçbiri yoksa null (yalnızca stok/adet üst sınırı geçerli).
+  int? get maxOrderQty {
+    if (isDigital) return null;
+    final limit = maxOrderQuantity;
+    if (limit == null || limit <= 0) return null;
+    return limit;
+  }
+
+  /// Satıcının koyduğu adet sınırı için açıklama metni.
+  String? get orderQuantityLabel {
+    if (isDigital) return null;
+    final min = minOrderQty;
+    final max = maxOrderQty;
+    if (min <= 1 && max == null) return null;
+    if (min > 1 && max != null) {
+      return 'En az $min, en fazla $max adet alınabilir';
+    }
+    if (min > 1) return 'En az $min adet alınabilir';
+    return 'En fazla $max adet alınabilir';
+  }
+
   factory Product.fromJson(Map<String, dynamic> json) {
     // sizes parsing
     List<String> sizesList = [];
@@ -221,6 +391,12 @@ class Product {
             .map((e) => e.toString())
             .toList();
       }
+    }
+
+    // badges parsing
+    List<String> badgesList = [];
+    if (json['badges'] is List) {
+      badgesList = (json['badges'] as List).map((e) => e.toString()).toList();
     }
 
     // discount_price'ı da al
@@ -267,6 +443,13 @@ class Product {
       maxPointsCoveragePercent:
           (json['max_points_coverage_percent'] as num?)?.toInt() ?? 100,
       campaignType: json['campaign_type'] as String?,
+      badges: badgesList,
+      prepTimeMinDays: (json['prep_time_min_days'] as num?)?.toInt(),
+      prepTimeMaxDays: (json['prep_time_max_days'] as num?)?.toInt(),
+      shippingFee: (json['shipping_fee'] as num?)?.toDouble(),
+      freeShipping: json['free_shipping'] as bool? ?? false,
+      minOrderQuantity: (json['min_order_quantity'] as num?)?.toInt(),
+      maxOrderQuantity: (json['max_order_quantity'] as num?)?.toInt(),
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
     );
@@ -303,6 +486,13 @@ class Product {
       'is_points_eligible': isDigital ? isPointsEligible : false,
       'max_points_coverage_percent': maxPointsCoveragePercent,
       'campaign_type': campaignType,
+      'badges': badges,
+      'prep_time_min_days': prepTimeMinDays,
+      'prep_time_max_days': prepTimeMaxDays,
+      'shipping_fee': shippingFee,
+      'free_shipping': freeShipping,
+      'min_order_quantity': minOrderQuantity,
+      'max_order_quantity': maxOrderQuantity,
       'rating': rating,
       'total_reviews': totalReviews,
     };
@@ -338,8 +528,20 @@ class Product {
     bool? isPointsEligible,
     int? maxPointsCoveragePercent,
     String? campaignType,
+    List<String>? badges,
+    int? prepTimeMinDays,
+    int? prepTimeMaxDays,
+    double? shippingFee,
+    bool? freeShipping,
+    int? minOrderQuantity,
+    int? maxOrderQuantity,
     double? rating,
     int? totalReviews,
+
+    /// `discountPrice`'ı gerçekten null yapmak için. `discountPrice: null`
+    /// geçmek `??` zinciri yüzünden mevcut değeri korur; toplu "indirimi
+    /// kaldır" işleminden sonra listeyi güncellemek için bu bayrak gerekir.
+    bool clearDiscountPrice = false,
   }) {
     return Product(
       id: id ?? this.id,
@@ -348,7 +550,9 @@ class Product {
       description: description ?? this.description,
       price: price ?? this.price,
       oldPrice: oldPrice ?? this.oldPrice,
-      discountPrice: discountPrice ?? this.discountPrice,
+      discountPrice: clearDiscountPrice
+          ? null
+          : (discountPrice ?? this.discountPrice),
       stockQuantity: stockQuantity ?? this.stockQuantity,
       imageUrl: imageUrl ?? this.imageUrl,
       additionalImages: additionalImages ?? this.additionalImages,
@@ -374,6 +578,13 @@ class Product {
       maxPointsCoveragePercent:
           maxPointsCoveragePercent ?? this.maxPointsCoveragePercent,
       campaignType: campaignType ?? this.campaignType,
+      badges: badges ?? this.badges,
+      prepTimeMinDays: prepTimeMinDays ?? this.prepTimeMinDays,
+      prepTimeMaxDays: prepTimeMaxDays ?? this.prepTimeMaxDays,
+      shippingFee: shippingFee ?? this.shippingFee,
+      freeShipping: freeShipping ?? this.freeShipping,
+      minOrderQuantity: minOrderQuantity ?? this.minOrderQuantity,
+      maxOrderQuantity: maxOrderQuantity ?? this.maxOrderQuantity,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,
     );

@@ -79,8 +79,8 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadShopData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadShopData({bool showLoading = true}) async {
+    if (showLoading) setState(() => _isLoading = true);
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
@@ -121,7 +121,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && showLoading) setState(() => _isLoading = false);
     }
   }
 
@@ -200,11 +200,19 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
       );
       
 
+      // Yükleme başarılı: bekleyen yerel önizleme byte'larını temizle ki
+      // ekran, sunucudan gelen güncel URL'i göstersin (eski görsel kalıntısı kalmasın).
+      _logoFile = null;
+      _coverFile = null;
+      _logoBytes = null;
+      _coverBytes = null;
+
+      await _loadShopData(showLoading: false);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Mağaza bilgileri güncellendi'), backgroundColor: Colors.green),
         );
-        _loadShopData();
       }
     } catch (e) {
       if (mounted) {
@@ -245,12 +253,13 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
 
       debugPrint('✅ SELLER PANEL: Teslimat ayarları başarıyla kaydedildi!');
 
+      // Kaydettikten sonra veriyi yeniden yükle
+      await _loadShopData(showLoading: false);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Teslimat ayarları güncellendi'), backgroundColor: Colors.green),
         );
-        // Kaydettikten sonra veriyi yeniden yükle
-        _loadShopData();
       }
     } catch (e) {
       debugPrint('❌ SELLER PANEL: Hata: $e');
@@ -272,6 +281,8 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
         workingHours: _workingHours,
       );
 
+      await _loadShopData(showLoading: false);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Çalışma saatleri güncellendi'), backgroundColor: Colors.green),
@@ -289,11 +300,14 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   }
 
   Future<void> _pickImage(bool isLogo) async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1024, maxHeight: 1024);
+    try {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1024, maxHeight: 1024);
+      if (!mounted || image == null) return;
 
-    if (image != null) {
       final bytes = await image.readAsBytes();
+      if (!mounted) return;
+
       setState(() {
         if (isLogo) {
           _logoFile = image;
@@ -303,6 +317,20 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
           _coverBytes = bytes;
         }
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Görsel seçildi. Kaydetmek için "Bilgileri Kaydet" butonuna basın.'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      debugPrint('🔴 SHOP SETTINGS DEBUG: Görsel seçilemedi: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Görsel seçilemedi: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -353,10 +381,30 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     debugPrint('🔵 SHOP SETTINGS DEBUG: _coverFile: $_coverFile');
     debugPrint('🔵 SHOP SETTINGS DEBUG: _shopData?["cover_image"]: ${_shopData?['cover_image']}');
     
+    final hasPendingImage = _coverFile != null || _logoFile != null;
+
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (hasPendingImage)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.amber.shade100,
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.amber.shade900),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Yeni görsel henüz kaydedilmedi. Aşağıdaki "Bilgileri Kaydet" butonuna basın.',
+                      style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // Cover Image
           Stack(
             children: [

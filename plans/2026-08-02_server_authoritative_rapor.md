@@ -174,9 +174,9 @@ FOR EACH STATEMENT EXECUTE FUNCTION block_update_delete();
 ### Yeni — Database
 | Dosya | Amaç |
 |---|---|
-| `supabase/migrations/20260802000005_server_authoritative_checkout_schema.sql` | private schema + 3 tablo + orders/payment_transactions kolon ekleme |
-| `supabase/migrations/20260802000006_prepare_checkout_session_rpc.sql` | prepare_checkout_session RPC |
-| `supabase/migrations/20260802000007_commit_cod_and_balance_orders.sql` | commit_cod_order + commit_balance_order RPC |
+| `supabase/migrations/20260802000006_server_authoritative_checkout_schema.sql` | private schema + 3 tablo + orders/payment_transactions kolon ekleme |
+| `supabase/migrations/20260802000007_prepare_checkout_session_rpc.sql` | prepare_checkout_session RPC |
+| `supabase/migrations/20260802000008_commit_cod_and_balance_orders.sql` | commit_cod_order + commit_balance_order RPC |
 | `supabase/migrations/20260802000013_coupon_limit_enforcement_strict.sql` | private.validate_coupon + private.use_coupon |
 | `supabase/migrations/20260802000009_lock_payment_finalizer_to_backend.sql` | private.atomic_finalize_payment_transaction + private.commit_online_order |
 | `supabase/migrations/20260802000010_order_state_machine_rpc.sql` | cancel_order + mark_order_paid/shipped/delivered |

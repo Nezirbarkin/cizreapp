@@ -9,6 +9,7 @@ import '../../../core/models/product_model.dart';
 import '../../../core/models/category_model.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../widgets/flash_aware_price_row.dart';
@@ -36,7 +37,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final CategoryService _categoryService = CategoryService();
   final ProfileService _profileService = ProfileService();
   final CartService _cartService = CartService();
-  
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -45,7 +46,8 @@ class _SearchScreenState extends State<SearchScreen> {
   List<Category> _categoryResults = [];
   List<Map<String, dynamic>> _userResults = [];
   bool _isSearching = false;
-  int _selectedTabIndex = 0; // 0: Tümü, 1: Dükkanlar, 2: Ürünler, 3: Kategoriler, 4: Kişiler
+  int _selectedTabIndex =
+      0; // 0: Tümü, 1: Dükkanlar, 2: Ürünler, 3: Kategoriler, 4: Kişiler
 
   // Sipariş alınabilirlik durumu: global flag + ürünlerin dükkan durumu cache
   bool _globalOrdersEnabled = true;
@@ -162,9 +164,9 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _addingToCart.remove(product.id));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sepete eklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sepete eklenirken hata: $e')));
       }
     }
   }
@@ -200,7 +202,10 @@ class _SearchScreenState extends State<SearchScreen> {
             setState(() => _cartQuantities.remove(product.id));
           }
         } else {
-          await _cartService.updateQuantity(cartItemId: cartItem.id, quantity: newQuantity);
+          await _cartService.updateQuantity(
+            cartItemId: cartItem.id,
+            quantity: newQuantity,
+          );
           if (mounted) {
             setState(() => _cartQuantities[product.id] = newQuantity);
           }
@@ -208,9 +213,9 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
       }
     }
   }
@@ -270,36 +275,44 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
   // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
-  Future<void> _loadShopAcceptingOrdersForProducts(List<Product> products) async {
+  Future<void> _loadShopAcceptingOrdersForProducts(
+    List<Product> products,
+  ) async {
     final shopIds = products
         .map((p) => p.shopId)
-        .where((id) => !_shopAcceptingOrders.containsKey(id) && !_loadingShopIds.contains(id))
+        .where(
+          (id) =>
+              !_shopAcceptingOrders.containsKey(id) &&
+              !_loadingShopIds.contains(id),
+        )
         .toSet();
 
     if (shopIds.isEmpty) return;
 
     setState(() => _loadingShopIds.addAll(shopIds));
 
-    await Future.wait(shopIds.map((shopId) async {
-      try {
-        final shop = await _shopService.getShopById(shopId);
-        final accepting = shop?.isAcceptingOrders ?? true;
-        if (mounted) {
-          setState(() {
-            _shopAcceptingOrders[shopId] = accepting;
-            _loadingShopIds.remove(shopId);
-          });
+    await Future.wait(
+      shopIds.map((shopId) async {
+        try {
+          final shop = await _shopService.getShopById(shopId);
+          final accepting = shop?.isAcceptingOrders ?? true;
+          if (mounted) {
+            setState(() {
+              _shopAcceptingOrders[shopId] = accepting;
+              _loadingShopIds.remove(shopId);
+            });
+          }
+        } catch (_) {
+          // Hata durumunda dükkan açık varsay (müşteriyi yanlış engelleme)
+          if (mounted) {
+            setState(() {
+              _shopAcceptingOrders[shopId] = true;
+              _loadingShopIds.remove(shopId);
+            });
+          }
         }
-      } catch (_) {
-        // Hata durumunda dükkan açık varsay (müşteriyi yanlış engelleme)
-        if (mounted) {
-          setState(() {
-            _shopAcceptingOrders[shopId] = true;
-            _loadingShopIds.remove(shopId);
-          });
-        }
-      }
-    }));
+      }),
+    );
   }
 
   // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
@@ -311,7 +324,11 @@ class _SearchScreenState extends State<SearchScreen> {
     return true;
   }
 
-  int get _totalResults => _shopResults.length + _productResults.length + _categoryResults.length + _userResults.length;
+  int get _totalResults =>
+      _shopResults.length +
+      _productResults.length +
+      _categoryResults.length +
+      _userResults.length;
 
   List<dynamic> _getFilteredResults() {
     switch (_selectedTabIndex) {
@@ -324,7 +341,12 @@ class _SearchScreenState extends State<SearchScreen> {
       case 4:
         return _userResults;
       default:
-        return [..._shopResults, ..._productResults, ..._categoryResults, ..._userResults];
+        return [
+          ..._shopResults,
+          ..._productResults,
+          ..._categoryResults,
+          ..._userResults,
+        ];
     }
   }
 
@@ -369,7 +391,10 @@ class _SearchScreenState extends State<SearchScreen> {
                           hintText: 'Dükkan, ürün veya kategori ara...',
                           prefixIcon: Icon(Icons.search, color: Colors.grey),
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                         ),
                         autofocus: true,
                       ),
@@ -407,12 +432,12 @@ class _SearchScreenState extends State<SearchScreen> {
               child: _isSearching
                   ? const Center(child: CircularProgressIndicator())
                   : _searchController.text.isEmpty
-                      ? _buildEmptyState()
-                      : _getFilteredResults().isEmpty
-                          ? _buildNoResults()
-                          : _selectedTabIndex == 2 && _productResults.isNotEmpty
-                              ? _buildProductGrid()
-                              : _buildResultsList(),
+                  ? _buildEmptyState()
+                  : _getFilteredResults().isEmpty
+                  ? _buildNoResults()
+                  : _selectedTabIndex == 2 && _productResults.isNotEmpty
+                  ? _buildProductGrid()
+                  : _buildResultsList(),
             ),
           ],
         ),
@@ -469,10 +494,7 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(height: 8),
           Text(
             'Dükkan, kişi ,ürün veya kategori adı yazın',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -497,10 +519,7 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(height: 8),
           Text(
             'Farklı bir arama terimi deneyin',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -526,39 +545,36 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResultsList() {
     final results = _getFilteredResults();
-    
+
     // "Tümü" sekmesinde: ürünler dışındakileri listele, ürünleri grid olarak göster
     if (_selectedTabIndex == 0) {
       final nonProducts = results.where((item) => item is! Product).toList();
       final products = results.whereType<Product>().toList();
-      
+
       return CustomScrollView(
         slivers: [
           // Diğer sonuçlar (Dükkanlar, Kategoriler, Kişiler)
           SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final item = nonProducts[index];
-                if (item is Shop) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _buildShopTile(item),
-                  );
-                } else if (item is Category) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _buildCategoryTile(item),
-                  );
-                } else if (item is Map<String, dynamic>) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _buildUserTile(item),
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-              childCount: nonProducts.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final item = nonProducts[index];
+              if (item is Shop) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildShopTile(item),
+                );
+              } else if (item is Category) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildCategoryTile(item),
+                );
+              } else if (item is Map<String, dynamic>) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildUserTile(item),
+                );
+              }
+              return const SizedBox.shrink();
+            }, childCount: nonProducts.length),
           ),
           // Ürünler başlığı
           SliverToBoxAdapter(
@@ -585,19 +601,16 @@ class _SearchScreenState extends State<SearchScreen> {
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  return _buildProductCardForGrid(products[index]);
-                },
-                childCount: products.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                return _buildProductCardForGrid(products[index]);
+              }, childCount: products.length),
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 16)),
         ],
       );
     }
-    
+
     // Diğer sekmeler (dükkanlar, kategoriler, kişiler) - normal liste
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -719,14 +732,22 @@ class _SearchScreenState extends State<SearchScreen> {
                           ? CachedNetworkImage(
                               imageUrl: product.images.first,
                               fit: BoxFit.cover,
+                              memCacheWidth: 400,
                               errorWidget: (context, url, error) {
                                 return const Center(
-                                  child: Icon(Icons.image_not_supported, size: 24),
+                                  child: Icon(
+                                    Icons.image_not_supported,
+                                    size: 24,
+                                  ),
                                 );
                               },
                             )
                           : const Center(
-                              child: Icon(Icons.shopping_bag, size: 24, color: Colors.grey),
+                              child: Icon(
+                                Icons.shopping_bag,
+                                size: 24,
+                                color: Colors.grey,
+                              ),
                             ),
                     ),
                   ),
@@ -742,13 +763,24 @@ class _SearchScreenState extends State<SearchScreen> {
                       left: 4,
                       child: CampaignBadge(),
                     ),
+                  // Satıcı rozetleri + ücretsiz kargo. Kampanya rozeti alt
+                  // sol köşeyi kullandığı için o varken bir kat yukarı kayar.
+                  Positioned(
+                    bottom: product.isBuy2Get1BalanceCampaign ? 22 : 4,
+                    left: 4,
+                    right: 4,
+                    child: ProductCardTagStrip(product: product),
+                  ),
                   // Sabitlenmiş badge
                   if (product.sellerPinned)
                     Positioned(
                       top: 4,
                       left: product.hasDiscount ? 52 : 4,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.amber.shade700,
                           borderRadius: BorderRadius.circular(4),
@@ -765,11 +797,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: closedBadge,
-                    ),
+                    Positioned(top: 4, right: 4, child: closedBadge),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -790,7 +818,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ],
               ),
             ),
-            
+
             // Ürün bilgileri
             Padding(
               padding: const EdgeInsets.only(left: 4, right: 4, top: 4),
@@ -812,9 +840,9 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 2),
-                  
+
                   // Fiyat (flaş indirim bilinçli)
                   SizedBox(
                     height: 14,
@@ -832,9 +860,9 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 4),
-                  
+
                   // Buton
                   SizedBox(
                     width: double.infinity,
@@ -845,15 +873,21 @@ class _SearchScreenState extends State<SearchScreen> {
                               if (!isOrderable)
                                 Expanded(
                                   child: Text(
-                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                    _globalOrdersEnabled
+                                        ? 'Geçici Kapalı'
+                                        : 'Kapalı',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
                                 )
                               else
                                 const Spacer(),
                               AddToCartFab(
                                 isLoading: isAdding,
-                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                onPressed:
+                                    (isAdding || !isInStock || !isOrderable)
                                     ? null
                                     : () => _addToCart(product),
                               ),
@@ -869,7 +903,10 @@ class _SearchScreenState extends State<SearchScreen> {
                                 // Azalt butonu
                                 InkWell(
                                   onTap: isInStock
-                                      ? () => _updateQuantity(product, cartQuantity - 1)
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity - 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -897,8 +934,16 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: (isInStock && isOrderable && (product.isDigital || cartQuantity < product.stockQuantity))
-                                      ? () => _updateQuantity(product, cartQuantity + 1)
+                                  onTap:
+                                      (isInStock &&
+                                          isOrderable &&
+                                          (product.isDigital ||
+                                              cartQuantity <
+                                                  product.stockQuantity))
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity + 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -906,7 +951,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: (isInStock && (product.isDigital || cartQuantity < product.stockQuantity))
+                                      color:
+                                          (isInStock &&
+                                              (product.isDigital ||
+                                                  cartQuantity <
+                                                      product.stockQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

@@ -60,6 +60,7 @@ class SehiriciLocationTracker {
 
   StreamSubscription<Position>? _streamSub;
   Timer? _fallbackTimer;
+  bool _fallbackBusy = false;
   Position? _lastPosition;
   DateTime? _lastWriteAt;
   bool _isTracking = false;
@@ -69,7 +70,19 @@ class SehiriciLocationTracker {
   /// Her başarılı DB konum yazımından sonra çağrılır. SehiriciAutoTripController
   /// bunu driving fazında bitiş koşullarını değerlendirmek için kullanır.
   /// Atanmazsa no-op.
+  ///
+  /// Tek sahipli (controller'a ait) — UI dinlemek için [positions] kullanmalı.
   void Function(Position position)? onPositionWritten;
+
+  final StreamController<Position> _positionsCtrl =
+      StreamController<Position>.broadcast();
+
+  /// DB'ye yazılan her konum. Şoför panelinin kendi aracını haritada canlı
+  /// göstermesi için: panel DB'den kendi konumunu geri okumaz (kendi
+  /// seferinin realtime kanalını dinlemiyor), doğrudan buradan besleniyor.
+  /// [onPositionWritten]'dan ayrıdır — onun tek sahibi
+  /// SehiriciAutoTripController'dır ve `stop()` onu temizler.
+  Stream<Position> get positions => _positionsCtrl.stream;
 
   bool get isTracking => _isTracking;
   Position? get lastPosition => _lastPosition;
@@ -85,7 +98,13 @@ class SehiriciLocationTracker {
     int passengerCount = 0,
   }) async {
     if (_isTracking) {
+      // stop() onPositionWritten'ı temizler. Buradaki çağrı bir "yeniden
+      // başlatma"dır: çağıran (SehiriciAutoTripController) callback'i
+      // start()'tan HEMEN ÖNCE atadığı için, korumazsak sessizce siliniyor
+      // ve driving fazının bitiş değerlendirmesi çalışmıyordu.
+      final keepCallback = onPositionWritten;
       await stop();
+      onPositionWritten = keepCallback;
     }
 
     // Konum izni kontrol
@@ -107,12 +126,30 @@ class SehiriciLocationTracker {
     _lastWriteAt = null;
     _isTracking = true;
 
-    // İlk konumu hemen al (mevcut mantık korunur)
+    // İlk konum: soğuk GPS'te `getCurrentPosition` dakikalarca askıda
+    // kalabiliyordu ve sefer boyunca ilk nokta yazılmadan bekleniyordu.
+    // Önce son bilinen konumla hemen yayın yap, ardından taze fix'i
+    // zaman sınırlı olarak dene.
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        _lastPosition = last;
+        await _writePosition(tripService, last);
+      }
+    } catch (e) {
+      debugPrint('Son bilinen konum alınamadı: $e');
+    }
     try {
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: sehiriciLocationSettings(distanceFilter: 0),
+        locationSettings: sehiriciLocationSettings(
+          distanceFilter: 0,
+          timeLimit: const Duration(seconds: 12),
+        ),
       );
       _lastPosition = pos;
+      // Son bilinen konum az önce yazıldıysa throttle bunu atlayabilir;
+      // ilk taze fix'in hemen gitmesi için penceresi sıfırlanır.
+      _lastWriteAt = null;
       await _writePosition(tripService, pos);
     } catch (e) {
       debugPrint('İlk konum alınamadı: $e');
@@ -132,16 +169,24 @@ class SehiriciLocationTracker {
     });
 
     // Fallback timer: stream tetiklenmezse zorla konum al.
+    // `_fallbackBusy` + timeLimit olmadan, GPS askıda kaldığında her tick
+    // yeni bir getCurrentPosition başlatıp bunlar üst üste yığılıyordu.
     _fallbackTimer = Timer.periodic(interval, (_) async {
-      if (_currentTripId == null) return;
+      if (_currentTripId == null || _fallbackBusy) return;
+      _fallbackBusy = true;
       try {
         final pos = await Geolocator.getCurrentPosition(
-          locationSettings: sehiriciLocationSettings(distanceFilter: 0),
+          locationSettings: sehiriciLocationSettings(
+            distanceFilter: 0,
+            timeLimit: interval,
+          ),
         );
         _lastPosition = pos;
         await _writePosition(tripService, pos);
       } catch (e) {
         debugPrint('Fallback konum güncellemesi hatası: $e');
+      } finally {
+        _fallbackBusy = false;
       }
     });
   }
@@ -175,6 +220,7 @@ class SehiriciLocationTracker {
           cb(pos);
         } catch (_) {}
       }
+      if (!_positionsCtrl.isClosed) _positionsCtrl.add(pos);
     } catch (e) {
       debugPrint('Konum yazma hatası: $e');
       // Hata olursa son yazma zamanını sıfırla ki bir sonraki tick'te tekrar denesin

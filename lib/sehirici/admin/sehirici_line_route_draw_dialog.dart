@@ -25,6 +25,9 @@ import '../utils/sehirici_route_geometry.dart';
 /// Çizim modu: tıkla-tıkla mı, parmakla çiz mi.
 enum MapDrawMode { click, draw }
 
+/// Nokta listesindeki bir noktadan itibaren rota kırpma yönü.
+enum _PointTrimAction { trimFromStart, trimToEnd }
+
 class SehiriciLineRouteDrawDialog extends StatefulWidget {
   final SehiriciLine line;
   const SehiriciLineRouteDrawDialog({super.key, required this.line});
@@ -204,6 +207,24 @@ class _SehiriciLineRouteDrawDialogState
     });
   }
 
+  /// Baştan bu noktaya kadar (bu nokta dahil) olan kısmı siler — rotanın
+  /// başlangıcını bu noktaya taşır.
+  void _trimFromStart(int index) {
+    setState(() {
+      _points.removeRange(0, index + 1);
+      _dirty = true;
+    });
+  }
+
+  /// Bu noktadan sona kadar (bu nokta dahil) olan kısmı siler — rotanın
+  /// bitişini bu noktadan öncesine taşır.
+  void _trimToEnd(int index) {
+    setState(() {
+      _points.removeRange(index, _points.length);
+      _dirty = true;
+    });
+  }
+
   void _undo() {
     if (_points.isEmpty) return;
     setState(() {
@@ -293,7 +314,10 @@ class _SehiriciLineRouteDrawDialogState
         );
         return;
       }
-      final simplified = simplifyPath(roadMatched, toleranceMeters: 1.5);
+      // Çok turlu bir vardiya izi eşlendiğinde on binlerce nokta çıkabilir;
+      // sabit 1.5 m tolerans bunu ciddi biçimde azaltmaz. Nokta sayısını
+      // tavanla sınırla — yol geometrisi görsel olarak korunur.
+      final simplified = simplifyToMaxPoints(roadMatched, maxPoints: 1500);
       setState(() {
         _points
           ..clear()
@@ -906,13 +930,43 @@ class _SehiriciLineRouteDrawDialogState
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            PopupMenuButton<_PointTrimAction>(
+                              icon: const Icon(
+                                Icons.content_cut,
+                                color: Colors.deepPurple,
+                                size: 18,
+                              ),
+                              tooltip: 'Buradan itibaren sil',
+                              onSelected: (action) {
+                                switch (action) {
+                                  case _PointTrimAction.trimFromStart:
+                                    _trimFromStart(i);
+                                    break;
+                                  case _PointTrimAction.trimToEnd:
+                                    _trimToEnd(i);
+                                    break;
+                                }
+                              },
+                              itemBuilder: (c) => [
+                                PopupMenuItem(
+                                  enabled: i > 0,
+                                  value: _PointTrimAction.trimFromStart,
+                                  child: const Text('Baştan buraya kadar sil'),
+                                ),
+                                PopupMenuItem(
+                                  enabled: i < _points.length - 1,
+                                  value: _PointTrimAction.trimToEnd,
+                                  child: const Text('Buradan sona kadar sil'),
+                                ),
+                              ],
+                            ),
                             IconButton(
                               icon: const Icon(
                                 Icons.delete_outline,
                                 color: Colors.red,
                                 size: 18,
                               ),
-                              tooltip: 'Sil',
+                              tooltip: 'Bu noktayı sil',
                               onPressed: () => _removePoint(i),
                             ),
                             ReorderableDragStartListener(
