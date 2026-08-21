@@ -257,8 +257,16 @@ class PushNotificationService {
   /// üzerinden yapılır; genel topic aboneliği kesinlikle oluşturulmaz.
   static Future<void> _removeLegacyTopicSubscriptions() async {
     try {
-      await _firebaseMessaging.unsubscribeFromTopic('all_users');
-      await _firebaseMessaging.unsubscribeFromTopic('logged_in_users');
+      // Zaman aşımı YOK ise ve platform kanalı yanıt vermezse (bazı
+      // Android cihazlarda Play Services erişilemez olduğunda görülüyor),
+      // bu await sonsuza kadar asılı kalır ve onu çağıran signOut akışı
+      // hiç tamamlanmaz → kullanıcı "çıkış yap"a basınca hiçbir şey olmaz.
+      await _firebaseMessaging
+          .unsubscribeFromTopic('all_users')
+          .timeout(const Duration(seconds: 5));
+      await _firebaseMessaging
+          .unsubscribeFromTopic('logged_in_users')
+          .timeout(const Duration(seconds: 5));
       debugPrint('✅ Eski genel FCM topic abonelikleri temizlendi');
     } catch (e) {
       debugPrint('⚠️ Eski FCM topic abonelikleri temizlenemedi: $e');
@@ -652,7 +660,9 @@ class PushNotificationService {
         return;
       }
 
-      await Supabase.instance.client.rpc('clear_my_fcm_token');
+      await Supabase.instance.client
+          .rpc('clear_my_fcm_token')
+          .timeout(const Duration(seconds: 5));
 
       debugPrint('✅ Çıkışta FCM token temizlendi (userId: $userId)');
     } catch (e) {

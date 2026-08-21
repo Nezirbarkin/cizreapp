@@ -27,12 +27,18 @@ class AppNavigator {
   /// panelleri için '/login' kullanılabilir.
   static Future<void> signOutAndReset([String destination = '/']) async {
     // FCM token mutlaka signOut'tan ÖNCE temizlenmeli (session hâlâ gerekli).
+    // Zaman aşımı: ağ/Firebase çağrısı yanıt vermezse bile çıkış akışı
+    // asılı kalmadan devam etsin (kullanıcı "çıkış yap"a basınca hiçbir
+    // şey olmuyor hissine kapılmasın).
     try {
-      await PushNotificationService.clearTokenOnLogout();
+      await PushNotificationService.clearTokenOnLogout()
+          .timeout(const Duration(seconds: 6));
     } catch (_) {}
 
     try {
-      await Supabase.instance.client.auth.signOut();
+      await Supabase.instance.client.auth
+          .signOut()
+          .timeout(const Duration(seconds: 6));
     } catch (_) {}
 
     final nav = appNavigatorKey.currentState;
