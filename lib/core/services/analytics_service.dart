@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:hive/hive.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -54,6 +56,74 @@ class AnalyticsService {
   static const String _boxName = 'analytics_events';
   static Box? _box; // Generic Box (AnalyticsEvent olmadan) - nullable
 
+  // --- Hata akisi korumalari ---------------------------------------------
+  // AppLogger.error uygulamanin her yerinden cagriliyor. Kancayi filtresiz
+  // baglarsak (a) tek bir dongusel hata tabloyu doldurur, (b) merkezi yazimin
+  // kendi hatasi tekrar AppLogger.error'a dusup sonsuz dongu yapar.
+  static const Duration _errorDedupeWindow = Duration(minutes: 5);
+  static const int _maxErrorEventsPerRun = 50;
+  final Map<String, DateTime> _recentErrorKeys = {};
+  int _errorEventsThisRun = 0;
+  bool _errorSinkBusy = false;
+
+  /// AppLogger.error/fatal cagrilarini merkezi analitige baglar.
+  /// `main.dart` icinde, Supabase hazir olduktan sonra bir kez cagrilir.
+  static void attachToLogger() {
+    final instance = AnalyticsService();
+    AppLogger.errorSink = instance._onLoggedError;
+  }
+
+  void _onLoggedError(String message, String? details) {
+    // Merkezi yazim sirasinda olusan hatanin kendisini tekrar yazmaya
+    // calismamak icin re-entrancy kilidi.
+    if (_errorSinkBusy) return;
+    if (_errorEventsThisRun >= _maxErrorEventsPerRun) return;
+
+    final type = _normalizeErrorType(message);
+    final key = '$type|${_truncate(details ?? '', 120)}';
+    final now = DateTime.now();
+    final lastSeen = _recentErrorKeys[key];
+    if (lastSeen != null && now.difference(lastSeen) < _errorDedupeWindow) {
+      return;
+    }
+    _recentErrorKeys[key] = now;
+    if (_recentErrorKeys.length > 200) {
+      _recentErrorKeys.removeWhere(
+        (_, seenAt) => now.difference(seenAt) >= _errorDedupeWindow,
+      );
+    }
+    _errorEventsThisRun++;
+
+    _errorSinkBusy = true;
+    // Loglama cagrisini bloklamamak icin bekletmiyoruz.
+    unawaited(
+      trackError(type, details: details).whenComplete(() {
+        _errorSinkBusy = false;
+      }),
+    );
+  }
+
+  /// Log mesajindan gruplanabilir bir hata tipi uretir.
+  ///
+  /// Ham mesaj ("❌ Feed loading error: SocketException(...)") tipe cevrilmezse
+  /// `errorTypeCounts` her satiri ayri bir tip sayar ve dagilim kartı
+  /// okunamaz hale gelir.
+  static String _normalizeErrorType(String message) {
+    var text = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // Bastaki emoji/isaretleri at.
+    text = text.replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
+    final colon = text.indexOf(':');
+    if (colon >= 8) {
+      text = text.substring(0, colon);
+    }
+    text = text.trim();
+    if (text.isEmpty) text = 'Bilinmeyen';
+    return _truncate(text, 80);
+  }
+
+  static String _truncate(String value, int maxLength) =>
+      value.length <= maxLength ? value : value.substring(0, maxLength);
+
   /// Analytics servisini başlat
   static Future<void> initialize() async {
     // Web'de Hive kullanmıyoruz - IndexedDB problemi
@@ -101,7 +171,9 @@ class AnalyticsService {
         });
       }
     } catch (e) {
-      AppLogger.error('Remote analytics event error: $e');
+      // Bilerek AppLogger.error DEGIL: errorSink bu cagriyi tekrar merkezi
+      // yazima sokar ve baglanti kopukken sonsuz dongu olusur.
+      AppLogger.warning('Remote analytics event error: $e');
     }
 
     if (_box != null) {
@@ -318,17 +390,31 @@ class AnalyticsService {
     }
   }
 
-  /// Tüm veriler temizle
+  /// Sadece bu cihazdaki yerel Hive kayitlarini temizler.
+  /// Merkezi (admin panelinde gorunen) veri icin [purgeRemoteEvents] kullanin.
   Future<void> clearAllEvents() async {
     if (_box == null) return;
     try {
       await _box!.clear();
-      AppLogger.info('🧹 All analytics events cleared');
+      AppLogger.info('🧹 All local analytics events cleared');
     } catch (e) {
       AppLogger.error('Clear all events error: $e');
     }
   }
 
-  /// Toplam event sayısı
-  int get eventCount => _box?.length ?? 0;
+  /// Merkezi analitik kayitlarini siler (yalnizca admin; RPC tarafinda
+  /// `private.current_user_is_admin()` ile dogrulanir). Silinen satir sayisini
+  /// dondurur. [olderThanDays] null ise tum tablo temizlenir.
+  Future<int> purgeRemoteEvents({int? olderThanDays}) async {
+    final raw = await Supabase.instance.client.rpc<dynamic>(
+      'admin_purge_analytics_events',
+      params: {'p_older_than_days': olderThanDays},
+    );
+    return raw is num ? raw.toInt() : int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
+  /// Yalnizca bu cihazdaki yerel event sayisi. Admin panelinde toplam etkinlik
+  /// gostermek icin kullanmayin - merkezi sayim `admin_logs_data` RPC'sinden
+  /// `totalEvents` alanindan gelir.
+  int get localEventCount => _box?.length ?? 0;
 }

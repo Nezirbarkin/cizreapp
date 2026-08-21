@@ -63,6 +63,11 @@ verify_jwt = false
 [functions.process-courier-assignment-emails]
 verify_jwt = false
 
+# E-fatura gönderim kuyruğu worker'ı — poke trigger (pg_net) ve yedek cron
+# tarafından çağrılır, kullanıcı JWT'si yok, INTERNAL_WORKER_SECRET ile korunur.
+[functions.process-invoice-outbox]
+verify_jwt = false
+
 [functions.send-courier-package-email]
 verify_jwt = true
 

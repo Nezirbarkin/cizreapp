@@ -10,6 +10,7 @@ import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
 import '../services/sehirici_driver_service.dart';
 import '../services/sehirici_auto_trip_controller.dart';
+import '../services/sehirici_city_service.dart';
 import '../services/sehirici_line_service.dart';
 import '../services/sehirici_road_snap_service.dart';
 import '../services/sehirici_trip_service.dart';
@@ -500,6 +501,12 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     required String tripId,
   }) async {
     try {
+      // Global anahtar şoför ayarını EZER: admin "otomatik rota yazımı"nı
+      // kapattıysa, şoför kendi ayarını açık bıraksa bile hattın rotası
+      // sürüş izinden yazılmaz (kirli rotaların kaynağı buydu).
+      final settings = await SehiriciCityService().getSettings();
+      if (!settings.autoRouteEnabled) return;
+
       final enabled =
           _driverProfile?['auto_route_from_traveled_path'] as bool? ?? false;
       if (!enabled) return;

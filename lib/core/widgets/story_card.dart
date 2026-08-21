@@ -278,6 +278,7 @@ class _StoriesSectionState extends State<StoriesSection> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _stories = stories;
         _usernames = usernamesMap;
@@ -285,7 +286,7 @@ class _StoriesSectionState extends State<StoriesSection> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       debugPrint('Hikayeler yüklenirken hata: $e');
     }
   }
@@ -355,7 +356,7 @@ class _StoriesSectionState extends State<StoriesSection> {
     } catch (e) {
       // Hata durumunda geri al
       final storyIndex = _stories.indexWhere((s) => s.id == storyId);
-      if (storyIndex != -1) {
+      if (storyIndex != -1 && mounted) {
         final story = _stories[storyIndex];
         setState(() {
           _stories[storyIndex] = story.copyWith(
@@ -366,14 +367,14 @@ class _StoriesSectionState extends State<StoriesSection> {
           );
         });
       }
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('İşlem başarısız: $e')),
         );
       }
     } finally {
-      setState(() => _likingStories.remove(storyId));
+      if (mounted) setState(() => _likingStories.remove(storyId));
     }
   }
 

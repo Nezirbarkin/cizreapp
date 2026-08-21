@@ -32,10 +32,20 @@ class AppLogger {
     _logger.w(message, error: error, stackTrace: stackTrace);
   }
 
+  /// Hata kayitlarini merkezi analitige aktaran kanca.
+  ///
+  /// `main.dart` icinde `AnalyticsService.attachToLogger()` ile baglanir.
+  /// Dogrudan import etmiyoruz cunku AnalyticsService zaten AppLogger'i
+  /// kullaniyor; callback araya girmeseydi core/utils <-> core/services
+  /// arasinda dairesel bir bagimlilik olusurdu.
+  static void Function(String type, String? details)? errorSink;
+
   /// Error seviyesinde log
   static void error(String message, {dynamic error, StackTrace? stackTrace}) {
     _logger.e(message, error: error, stackTrace: stackTrace);
-    
+
+    _sinkError(message, error);
+
     // Production'da crash reporting service'e gönder (Sentry, Firebase Crashlytics vs)
     if (!kDebugMode) {
       _reportToService(message, error, stackTrace);
@@ -45,10 +55,23 @@ class AppLogger {
   /// Fatal error log
   static void fatal(String message, {dynamic error, StackTrace? stackTrace}) {
     _logger.f(message, error: error, stackTrace: stackTrace);
-    
+
+    _sinkError(message, error);
+
     // Production'da crash reporting service'e gönder
     if (!kDebugMode) {
       _reportToService(message, error, stackTrace);
+    }
+  }
+
+  /// Kancayi cagirir; kanca patlarsa loglama zinciri kirilmasin diye yutulur.
+  static void _sinkError(String message, dynamic error) {
+    final sink = errorSink;
+    if (sink == null) return;
+    try {
+      sink(message, error?.toString());
+    } catch (_) {
+      // Analitik yazimi basarisiz olduysa uygulamanin akisi etkilenmemeli.
     }
   }
 

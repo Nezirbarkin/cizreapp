@@ -1,7 +1,7 @@
 // ignore_for_file: avoid_print, deprecated_member_use, use_build_context_synchronously
 
 import 'dart:async';
-import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' show PointerDeviceKind, PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
@@ -45,6 +45,7 @@ import 'core/services/push_notification_service.dart';
 import 'core/services/cache_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/analytics_service.dart';
+import 'core/utils/app_logger.dart';
 import 'core/services/performance_monitoring_service.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/storage_service.dart';
@@ -107,6 +108,13 @@ void main() async {
         log('Context okunamadı: $e');
       }
     }
+    // Merkezi kayda da gonder (kanca Supabase hazir olunca baglanir; o ana
+    // kadar bu cagri sessizce yok sayilir).
+    AppLogger.error(
+      'FlutterError: ${details.library ?? 'widgets'}',
+      error: details.exception,
+      stackTrace: stack,
+    );
   };
 
   // Supabase durumunu takip et
@@ -208,6 +216,22 @@ void main() async {
       ]);
     } catch (e) {
       log('⚠️ Initialization error: $e');
+    }
+
+    // Hata loglarini merkezi analitige bagla. Supabase hazir olmadan
+    // baglamiyoruz; insert zaten oturum gerektiriyor ve erken baglamak
+    // yalnizca bosa giden denemeler uretirdi.
+    if (supabaseInitialized) {
+      AnalyticsService.attachToLogger();
+
+      // Yakalanmamis Flutter/isolate hatalari da merkezi kayda dussun; daha
+      // once yalnizca konsola yazildiklari icin admin panelindeki "Son Hatalar"
+      // ve "Hata Tipi Dagilimi" kartlari kalici olarak bos kaliyordu.
+      PlatformDispatcher.instance.onError = (error, stack) {
+        AppLogger.error('Uncaught async error', error: error, stackTrace: stack);
+        return true; // hata yutuldu, uygulama devam etsin
+      };
+      log('✅ Merkezi hata kaydı etkin');
     }
 
     // AdMob SDK başlat (ödüllü reklam - web'de desteklenmiyor)

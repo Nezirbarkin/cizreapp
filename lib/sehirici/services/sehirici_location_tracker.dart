@@ -49,6 +49,16 @@ LocationSettings sehiriciLocationSettings({
 /// bırakılır (network/RPC gecikmesi dahil).
 const _kMinWriteInterval = Duration(seconds: 8);
 
+/// Bu yarıçaptan (metre) daha belirsiz fixler atlanır. Tünel/bina/kapalı
+/// otopark çıkışında gelen tek atımlık hatalı fix, sefer izini kilometrelerce
+/// öteye fırlatıp haritada şehri kesen düz çizgiler üretiyordu.
+const _kMaxAcceptableAccuracyMeters = 75.0;
+
+/// Kötü fix atlamanın üst sınırı. GPS uzun süre toparlamazsa (kentsel kanyon)
+/// sefer "donmuş" görünmesin diye bu süreden sonra doğruluğu ne olursa olsun
+/// yazılır — kötü bir konum, hiç konum olmamasından iyidir.
+const _kMaxAccuracySkip = Duration(seconds: 45);
+
 /// Şoför için canlı konum takip servisi.
 /// Geolocator'dan konum alıp SehiriciTripService üzerinden DB'ye yazar.
 /// Singleton — uygulama genelinde tek instance.
@@ -201,6 +211,13 @@ class SehiriciLocationTracker {
     if (tripId == null) return;
     final now = DateTime.now();
     if (_lastWriteAt != null && now.difference(_lastWriteAt!) < _kMinWriteInterval) {
+      return;
+    }
+    // Belirsiz fixi atla — ama son yazmadan bu yana çok geçtiyse yine de yaz.
+    // (accuracy bilinmiyorsa geolocator 0 döner; o hâlde eşiğe takılmaz.)
+    if (pos.accuracy > _kMaxAcceptableAccuracyMeters &&
+        _lastWriteAt != null &&
+        now.difference(_lastWriteAt!) < _kMaxAccuracySkip) {
       return;
     }
     _lastWriteAt = now;

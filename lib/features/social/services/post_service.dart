@@ -197,6 +197,8 @@ class PostService {
 
       // NOT: Beğeni bildirimi SQL trigger tarafından otomatik gönderiliyor
       // notify_post_like_trigger - duplicatesiz single notification
+
+      await _analyticsService.trackPostLike(postId);
     } catch (e) {
       throw Exception('Beğeni eklenirken hata: $e');
     }
@@ -371,6 +373,8 @@ class PostService {
 
       // NOT: Yorum bildirimi SQL trigger tarafından otomatik gönderiliyor
       // notify_post_comment_trigger - duplicatesiz single notification
+
+      await _analyticsService.trackComment(postId);
 
       return PostComment.fromJson(response);
     } catch (e) {

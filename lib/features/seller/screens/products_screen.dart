@@ -111,6 +111,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
           .maybeSingle();
 
       if (shopResponse == null) {
+        if (!mounted) return;
         setState(() {
           _products = [];
           _isLoading = false;
@@ -127,6 +128,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
           .eq('shop_id', shopId)
           .order('created_at', ascending: false);
 
+      if (!mounted) return;
       setState(() {
         _products = (response as List)
             .map((json) => Product.fromJson(Map<String, dynamic>.from(json)))
@@ -135,7 +137,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       });
     } catch (e) {
       debugPrint('Ürünler yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -181,7 +183,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
       // Listeyi yenile
       final index = _products.indexWhere((p) => p.id == product.id);
-      if (index != -1) {
+      if (index != -1 && mounted) {
         setState(() {
           _products[index] = product.copyWith(
             sellerPinned: !product.sellerPinned,
@@ -219,7 +221,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
       // Listeyi yenile
       final index = _products.indexWhere((p) => p.id == product.id);
-      if (index != -1) {
+      if (index != -1 && mounted) {
         setState(() {
           _products[index] = product.copyWith(
             isAvailable: !product.isAvailable,
@@ -273,6 +275,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
     try {
       final deleted = await _productService.deleteProduct(product.id);
+      if (!mounted) return;
       setState(() {
         if (deleted) {
           _products.removeWhere((p) => p.id == product.id);

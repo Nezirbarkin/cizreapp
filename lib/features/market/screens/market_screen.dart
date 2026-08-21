@@ -92,6 +92,7 @@ class _MarketScreenState extends State<MarketScreen> {
   List<Post> _recentPosts = [];
   Map<String, Map<String, dynamic>> _postUsersMap = {}; // userId -> user data
   Set<String> _favoriteProductIds = {};
+  final Map<String, Future<int>> _couponCountCache = {};
   Map<String, int> _categoryShopCounts = {};
   int _unreadNotificationCount = 0;
   int _unreadChatCount = 0;
@@ -328,6 +329,7 @@ class _MarketScreenState extends State<MarketScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+    _couponCountCache.clear();
 
     try {
       // ⚡ iOS PERFORMANCE: Tüm bağımsız veri yükleme işlemlerini PARALEL yap
@@ -2163,7 +2165,10 @@ class _MarketScreenState extends State<MarketScreen> {
                                       ),
                                       // Kupon var etiketi
                                       FutureBuilder<int>(
-                                        future: _getActiveCouponCount(shop.id),
+                                        future: _couponCountCache.putIfAbsent(
+                                          shop.id,
+                                          () => _getActiveCouponCount(shop.id),
+                                        ),
                                         builder: (context, snapshot) {
                                           if (snapshot.hasData &&
                                               snapshot.data! > 0) {

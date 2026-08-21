@@ -145,23 +145,28 @@ class _MyCouponsScreenState extends State<MyCouponsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kuponlarım'),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        flexibleSpace: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                primary,
-                Color.lerp(primary, Colors.black, 0.28) ?? primary,
-              ],
-            ),
+        title: const Text(
+          'Kuponlarım',
+          style: TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
           ),
         ),
+        centerTitle: true,
+        // Tema renginin tam tonu: gradyan/şeffaflık yok, M3'ün yüzey
+        // tint'i ve scrolled-under gölgesi kapalı — bar hiç solmuyor.
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.light.copyWith(
+          statusBarColor: primary,
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
             tooltip: 'Yenile',

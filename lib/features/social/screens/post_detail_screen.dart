@@ -1,9 +1,12 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
+import '../../../core/services/analytics_service.dart';
 import '../../../core/services/post_view_service.dart';
 import '../../../core/widgets/mention_autocomplete_field.dart';
 import '../../../core/widgets/skeleton_loader.dart';
@@ -27,6 +30,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostReportService _postReportService = PostReportService();
   final _profileService = ProfileService();
   final _postViewService = PostViewService();
+  final _analyticsService = AnalyticsService();
+  // Admin > Loglar'daki "Ort. Goruntuleme (ms)" karti bu olcume dayaniyor;
+  // sure hic gonderilmedigi surece kart kalici olarak 0 gosteriyordu.
+  final Stopwatch _viewStopwatch = Stopwatch();
   final _commentController = TextEditingController();
   List<PostComment> _comments = [];
   Map<String, Map<String, dynamic>> _userProfiles = {};
@@ -39,22 +46,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _viewStopwatch.start();
     _loadData();
     _loadCurrentUserProfile();
     _trackPostView();
     _loadLikeStatus();
   }
 
+  // initState'ten tetiklenen bu istekler ekran kapandiktan sonra donebiliyor;
+  // mounted kontrolu olmadan "setState() called after dispose()" firlatiyordu
+  // (merkezi hata kaydi acildiktan sonra ilk yakalanan hatalardan biri buydu).
   Future<void> _loadLikeStatus() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId != null) {
       try {
         final isLiked = await _postService.hasUserLiked(widget.post.id, userId);
+        if (!mounted) return;
         setState(() {
           _isLiked = isLiked;
           _likesCount = widget.post.likesCount;
         });
       } catch (e) {
+        if (!mounted) return;
         setState(() {
           _likesCount = widget.post.likesCount;
         });
@@ -93,6 +106,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       }
     } catch (e) {
       // Hata olursa liked durumunu geri al
+      if (!mounted) return;
       setState(() {
         _isLiked = wasLiked;
       });
@@ -272,8 +286,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   void dispose() {
+    _reportViewDuration();
     _commentController.dispose();
     super.dispose();
+  }
+
+  /// Ekranda gecirilen sureyi merkezi analitige yazar.
+  /// Cok kisa dokunuslar (yanlislikla acilip kapanan ekran) ortalamayi
+  /// bozmasin diye 500 ms altindaki goruntulemeler atlanir.
+  void _reportViewDuration() {
+    if (!_viewStopwatch.isRunning) return;
+    _viewStopwatch.stop();
+    final elapsedMs = _viewStopwatch.elapsedMilliseconds;
+    if (elapsedMs < 500) return;
+    // dispose() icinde await edemeyiz; hata yutulur, ekran kapanisi beklemez.
+    unawaited(
+      _analyticsService.trackPostView(widget.post.id, duration: elapsedMs),
+    );
   }
 
   Future<void> _loadCurrentUserProfile() async {
@@ -281,6 +310,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (userId != null) {
       try {
         final profile = await _profileService.getUserProfile(userId);
+        if (!mounted) return;
         setState(() {
           _currentUserProfile = profile;
         });
@@ -346,12 +376,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _comments = comments;
         _userProfiles = profiles;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -385,7 +417,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         );
       }
     } finally {
-      setState(() => _isCommenting = false);
+      if (mounted) {
+        setState(() => _isCommenting = false);
+      }
     }
   }
 

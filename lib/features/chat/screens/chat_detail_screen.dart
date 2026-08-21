@@ -67,6 +67,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
     // Scroll pozisyonunu takip et
     _scrollController.addListener(_onScroll);
+
+    // Klavye açıldığında (input focus alınca) en alttaysak en alta kaydır
+    _messageFocusNode.addListener(() {
+      if (_messageFocusNode.hasFocus) {
+        _scrollToBottom(force: true);
+      }
+    });
   }
 
   void _onScroll() {
@@ -82,6 +89,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _chatService.markMessagesAsRead(widget.conversationId);
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Klavye açılıp kapanırken viewInsets değişir; liste viewport'u küçülüp
+    // büyüdüğünde en alttaki kullanıcı için son mesajın görünür kalmasını sağla.
+    if (!mounted) return;
+    if (_isAtBottom) {
+      _scrollToBottom(force: true);
     }
   }
 
@@ -256,7 +273,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
-  void _scrollToBottom() {
+  /// [force] true ise kullanıcının scroll pozisyonuna bakılmaksızın en alta
+  /// kaydırır (kendi gönderdiğimiz mesaj veya klavye açılışı gibi durumlar için).
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         if (_isInitialLoad) {
@@ -264,8 +283,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
           _isInitialLoad = false;
         } else {
-          // Sonraki mesajlarda animasyonlu scroll - sadece kullanıcı en alttaysa
-          if (_isAtBottom) {
+          // Sonraki mesajlarda animasyonlu scroll - kullanıcı en alttaysa
+          // veya force=true ise (örn. kendi gönderdiğimiz mesaj, klavye açılışı)
+          if (_isAtBottom || force) {
             _scrollController.animateTo(
               _scrollController.position.maxScrollExtent,
               duration: const Duration(milliseconds: 250),
@@ -327,7 +347,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       );
     }
 
-    _scrollToBottom();
+    // Kendi gönderdiğimiz mesaj her zaman görünür olmalı (scroll pozisyonundan bağımsız)
+    _scrollToBottom(force: true);
   }
 
   @override
@@ -600,11 +621,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   Widget _buildMessageBubble(Message message, bool isMe) {
-    // DEBUG: Okundu durumu detaylı log
-    debugPrint(
-      '🔵 _buildMessageBubble: isMe=$isMe isRead=${message.isRead} messageStatus=${message.messageStatus} senderId=${message.senderId.substring(0, 8)}...',
-    );
-
     // PERFORMANCE: TimeOfDay yerine direkt hesaplama (daha hafif)
     final turkeyTime = message.createdAt.toUtc().add(const Duration(hours: 3));
     final timeString =
@@ -894,9 +910,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   /// WhatsApp benzeri mesaj durumu ikonu
   Widget _buildMessageStatusIcon(String status, {required bool isMe}) {
-    // DEBUG: Okundu durumu logla
-    debugPrint('🔔 _buildMessageStatusIcon: status=$status isMe=$isMe');
-
     switch (status) {
       case 'failed':
         return const Icon(Icons.error_outline, size: 16, color: Colors.red);

@@ -765,6 +765,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       final products = _searchQuery.isEmpty
           ? await _productService.getAllProducts()
           : await _productService.searchProducts(_searchQuery);
+      if (!mounted) return;
       setState(() {
         _products = products;
         _filteredProducts = List.from(products);
@@ -774,7 +775,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       // Ürünlerin dükkanlarının sipariş alma durumunu arka planda yükle
       _loadShopAcceptingOrdersForProducts(products);
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(
           context,

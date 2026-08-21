@@ -141,6 +141,17 @@ List<LatLng> simplifyPath(
   return result;
 }
 
+/// Koordinat çizilebilir mi? NaN/Infinity ve aralık dışı değerler elenir.
+/// Bozuk bir tek satır (örn. yazma sırasında düşen bağlantı) tüm polyline'ı
+/// haritanın dışına fırlatabildiği için her giriş noktasında kontrol edilir.
+bool isValidCoordinate(LatLng p) =>
+    p.latitude.isFinite &&
+    p.longitude.isFinite &&
+    p.latitude >= -90 &&
+    p.latitude <= 90 &&
+    p.longitude >= -180 &&
+    p.longitude <= 180;
+
 /// Ham GPS izini yol eşlemeye (map matching) verilmeden önce temizler.
 ///
 /// Şoför izleri iki tür kirlilik taşır ve ikisi de OSRM `match` servisini
@@ -164,12 +175,7 @@ List<LatLng> sanitizeGpsTrace(
 }) {
   final out = <LatLng>[];
   for (final p in trace) {
-    if (!p.latitude.isFinite ||
-        !p.longitude.isFinite ||
-        p.latitude < -90 ||
-        p.latitude > 90 ||
-        p.longitude < -180 ||
-        p.longitude > 180) {
+    if (!isValidCoordinate(p)) {
       continue;
     }
     if (out.isEmpty) {
@@ -216,6 +222,171 @@ List<LatLng> simplifyToMaxPoints(
     result = simplifyPath(path, toleranceMeters: tolerance);
   }
   return result;
+}
+
+/// Bir seferin istemcide tutulan ham GPS nokta tavanı. Konum ~10 sn'de bir
+/// yazıldığından 4000 nokta ≈ 11 saatlik vardiyaya karşılık gelir. Tavan aşılırsa
+/// en eski noktalar düşürülür: liste her çizimde baştan işlendiği için
+/// sınırsız büyümesi haritayı yavaşlatır.
+const int kMaxRawTripPoints = 4000;
+
+/// Canlı sefer izini (şoförün geçtiği yol) haritada çizilebilir parçalara böler.
+///
+/// [sanitizeGpsTrace]'ten farkı: bu fonksiyon **çizim** içindir, map matching
+/// girdisi değil. Bu yüzden aykırı fixleri sessizce atlayıp izi tek parça
+/// hâlinde birleştirmez — birleştirmek, haritada şehrin bir ucundan diğerine
+/// uzanan sahte düz çizgiler (kiriş) üretir. Bunun yerine iz, kopukluk
+/// noktalarından ayrı polyline parçalarına bölünür.
+///
+/// Üç tür kirlilik temizlenir:
+///
+///  1. **Duruş bulutu** — araç durakta/kırmızı ışıkta beklerken 10 sn'de bir
+///     nokta yazılır; GPS gezinmesi yüzünden aynı yerde onlarca nokta birikir
+///     ve haritada bir "karalama" oluşur. [minSpacingMeters] altındaki noktalar
+///     atılır.
+///  2. **Işınlanma (aykırı fix)** — tünel/bina çıkışında tek bir hatalı fix izi
+///     kilometrelerce öteye fırlatır, sonraki fix geri döner. Tek nokta
+///     ileri-bakışla tespit edilir: sıçramadan sonraki nokta eski çıpaya
+///     yakınsa, sıçrayan nokta yok sayılır ve iz kesintisiz devam eder.
+///  3. **Gerçek kopukluk** — uygulama arka planda uyutulduğunda veya ağ
+///     kesildiğinde iki fix arası kilometrelerce olabilir. Bu gerçek bir
+///     sıçramadır; noktayı atmak yerine yeni bir parça başlatılır, böylece
+///     araç arada gitmediği bir yoldan geçmiş gibi görünmez.
+///
+/// [maxGapMeters] varsayılanı 500 m: yazma aralığı ~10 sn olduğundan bu ~180
+/// km/sa demektir — şehir içi hiçbir gerçek hareket bu eşiği aşmaz.
+/// Parçalar ayrıca [simplifyToleranceMeters] ile sadeleştirilir ve
+/// [maxPointsPerSegment] ile sınırlanır (uzun vardiyalarda çizim maliyeti).
+///
+/// 2 noktadan kısa kalan parçalar (tek başına bir aykırı fix gibi) düşürülür.
+List<List<LatLng>> buildTripPathSegments(
+  List<LatLng> trace, {
+  double minSpacingMeters = 20,
+  double maxGapMeters = 500,
+  double simplifyToleranceMeters = 6,
+  int maxPointsPerSegment = 800,
+}) {
+  final segments = <List<LatLng>>[];
+  var current = <LatLng>[];
+  // Sıçrama yapmış, aykırı mı yoksa gerçek kopukluk mu olduğu bir sonraki
+  // noktayla anlaşılacak nokta.
+  LatLng? pending;
+  // Aralık kuralına takılan en son nokta. Parça burada bitiyorsa geri eklenir:
+  // canlı izin son noktası aracın ŞU ANKİ yeridir, çizginin araç marker'ının
+  // gerisinde kalmaması için korunur. Aykırı bir son fix buraya hiç girmez —
+  // o [pending] olarak takılı kalır ve parçaya alınmaz.
+  LatLng? nearTail;
+
+  void closeSegment() {
+    // Tek noktalık "parça" (yalnızca duruş bulutu) çizim üretmemeli; kuyruk
+    // sadece gerçekten yol alınmış parçalara eklenir.
+    final tail = nearTail;
+    if (tail != null && current.length >= 2) current.add(tail);
+    nearTail = null;
+    if (current.length >= 2) segments.add(current);
+    current = <LatLng>[];
+  }
+
+  for (final point in trace) {
+    if (!isValidCoordinate(point)) continue;
+
+    if (current.isEmpty && pending == null) {
+      current = <LatLng>[point];
+      continue;
+    }
+
+    if (pending != null) {
+      final anchor = current.isEmpty ? null : current.last;
+      final returnsToAnchor =
+          anchor != null && _distanceMeters(anchor, point) <= maxGapMeters;
+      if (returnsToAnchor) {
+        // Tek atımlık aykırı fix: yok say, iz çıpadan devam etsin.
+        pending = null;
+      } else {
+        // İz gerçekten oraya taşındı: mevcut parçayı kapat, yenisini başlat.
+        closeSegment();
+        current = <LatLng>[pending];
+        pending = null;
+      }
+    }
+
+    final distance = _distanceMeters(current.last, point);
+    if (distance > maxGapMeters) {
+      pending = point; // kararı bir sonraki nokta verecek
+      continue;
+    }
+    if (distance < minSpacingMeters) {
+      nearTail = point; // duruş bulutu: çizme, ama kuyruk adayı olarak tut
+      continue;
+    }
+    nearTail = null;
+    current.add(point);
+  }
+  closeSegment();
+
+  return segments
+      .map((segment) => simplifyToMaxPoints(
+            simplifyPath(segment, toleranceMeters: simplifyToleranceMeters),
+            maxPoints: maxPointsPerSegment,
+          ))
+      .where((segment) => segment.length >= 2)
+      .toList(growable: false);
+}
+
+/// Kayıtlı bir HAT ROTASINI (`sehirici_lines.route_polyline`) temizler.
+///
+/// [buildTripPathSegments]'ten farkı: hat rotası **tek ve bağlantılı** bir
+/// polyline olmak zorundadır — parçalara bölünemez. Bu yüzden gerçek bir uzun
+/// atlama (rotanın uzak bir noktada devam etmesi) korunur; yalnızca "git-gel"
+/// yapan tekil aykırı noktalar atılır.
+///
+/// Rota noktalarında zaman damgası olmadığı için hız ölçütü kullanılamaz;
+/// ölçüt komşuluk geometrisidir: bir nokta önceki korunan noktadan
+/// [outlierJumpMeters]'tan uzaksa ama **ondan sonraki nokta yine çıpaya
+/// yakınsa**, o nokta rotadan fırlamış tekil bir hatadır ve atılır.
+///
+/// Ayrıca [minSpacingMeters] altındaki üst üste binen noktalar elenir, sonuç
+/// [simplifyToleranceMeters] ile sadeleştirilip [maxPoints] ile sınırlanır.
+/// Uçlar (rotanın başı ve sonu) her zaman korunur.
+List<LatLng> sanitizeRoutePolyline(
+  List<LatLng> route, {
+  double minSpacingMeters = 10,
+  double outlierJumpMeters = 300,
+  double simplifyToleranceMeters = 5,
+  int maxPoints = 1500,
+}) {
+  final valid = route.where(isValidCoordinate).toList(growable: false);
+  if (valid.length < 2) return List.of(valid);
+
+  final kept = <LatLng>[valid.first];
+  for (var i = 1; i < valid.length; i++) {
+    final point = valid[i];
+    final distance = _distanceMeters(kept.last, point);
+
+    if (distance > outlierJumpMeters) {
+      // Sonraki nokta çıpaya geri dönüyorsa bu tekil bir sapmadır.
+      final next = i + 1 < valid.length ? valid[i + 1] : null;
+      final returnsToAnchor =
+          next != null && _distanceMeters(kept.last, next) <= outlierJumpMeters;
+      if (returnsToAnchor) continue; // aykırı nokta — at
+      kept.add(point); // rota gerçekten orada devam ediyor — koru
+      continue;
+    }
+
+    if (distance < minSpacingMeters) continue; // üst üste binen nokta
+    kept.add(point);
+  }
+
+  // Rotanın son noktası aralık kuralına takıldıysa geri ekle.
+  if (kept.length >= 2 && kept.last != valid.last) {
+    final tailGap = _distanceMeters(kept.last, valid.last);
+    if (tailGap <= outlierJumpMeters) kept.add(valid.last);
+  }
+
+  return simplifyToMaxPoints(
+    simplifyPath(kept, toleranceMeters: simplifyToleranceMeters),
+    maxPoints: maxPoints,
+  );
 }
 
 /// Bir önceki ve sonraki nokta arasındaki bearing (pusula yönü) hesaplar.

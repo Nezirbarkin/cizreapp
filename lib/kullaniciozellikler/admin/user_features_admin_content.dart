@@ -28,7 +28,11 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
   bool _loadingUsers = true;
   bool _loadingCatalog = true;
   bool _loadingAssignments = false;
+  bool _onlyFree = false;
   String? _error;
+
+  List<ProfileFeature> get _visibleCatalog =>
+      _onlyFree ? _catalog.where((f) => f.isUserClaimable).toList() : _catalog;
 
   @override
   void initState() {
@@ -331,6 +335,12 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
             ),
           ),
           _SummaryChip(label: 'Katalog', value: '${_catalog.length}'),
+          _SummaryChip(
+            label: 'Ücretsiz',
+            value:
+                '${_catalog.where((f) => f.isUserClaimable).length}/2',
+            highlight: true,
+          ),
           _SummaryChip(label: 'Atanmış', value: '${_assignments.length}'),
           if (_selectedUser != null)
             _SummaryChip(
@@ -463,6 +473,28 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+          child: Row(
+            children: [
+              FilterChip(
+                label: const Text('Sadece ücretsiz'),
+                avatar: const Icon(Icons.people_alt_rounded, size: 16),
+                selected: _onlyFree,
+                onSelected: (value) => setState(() => _onlyFree = value),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Ücretsiz: ${_catalog.where((f) => f.isUserClaimable).length}/2',
+                style: TextStyle(
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: _loadingCatalog
               ? const Center(child: CircularProgressIndicator())
@@ -474,14 +506,26 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
                   ),
-                  itemCount: _catalog.length,
+                  itemCount: _visibleCatalog.length,
                   itemBuilder: (context, index) {
-                    final feature = _catalog[index];
+                    final feature = _visibleCatalog[index];
                     final assigned = _assignments.any(
                       (item) => item.id == feature.id && item.isEnabled,
                     );
                     return Card(
                       clipBehavior: Clip.antiAlias,
+                      shape: feature.isUserClaimable
+                          ? RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: Colors.green.shade600,
+                                width: 2,
+                              ),
+                            )
+                          : null,
+                      color: feature.isUserClaimable
+                          ? Colors.green.withValues(alpha: 0.06)
+                          : null,
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
@@ -509,7 +553,15 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      _KindChip(kind: feature.kind),
+                                      Wrap(
+                                        spacing: 4,
+                                        runSpacing: 4,
+                                        children: [
+                                          _KindChip(kind: feature.kind),
+                                          if (feature.isUserClaimable)
+                                            const _FreeChip(),
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -718,17 +770,30 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
 class _SummaryChip extends StatelessWidget {
   final String label;
   final String value;
+  final bool highlight;
 
-  const _SummaryChip({required this.label, required this.value});
+  const _SummaryChip({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Chip(
-      backgroundColor: Colors.white.withValues(alpha: 0.18),
+      backgroundColor: highlight
+          ? Colors.greenAccent.withValues(alpha: 0.28)
+          : Colors.white.withValues(alpha: 0.18),
       side: BorderSide.none,
+      avatar: highlight
+          ? const Icon(Icons.check_circle, color: Colors.white, size: 16)
+          : null,
       label: Text(
         '$label: $value',
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -750,6 +815,27 @@ class _KindChip extends StatelessWidget {
     };
     return Chip(
       label: Text(label, style: const TextStyle(fontSize: 10)),
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+    );
+  }
+}
+
+class _FreeChip extends StatelessWidget {
+  const _FreeChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      backgroundColor: Colors.green.shade600,
+      label: const Text(
+        'ÜCRETSİZ',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ),
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
     );

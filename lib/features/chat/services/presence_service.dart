@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -22,6 +23,20 @@ class PresenceService {
 
   final StreamController<List<String>> _onlineUsersController =
       StreamController<List<String>>.broadcast();
+
+  /// Admin panelindeki platform kırılımı (iOS/Android/Web) için
+  /// profiles.platform'a yazılır. Değer aralığı DB CHECK ile sınırlı:
+  /// 'ios' | 'android' | 'web' | 'unknown'.
+  static String _currentPlatform() {
+    if (kIsWeb) return 'web';
+    try {
+      if (Platform.isIOS) return 'ios';
+      if (Platform.isAndroid) return 'android';
+    } catch (_) {
+      // Desteklenmeyen platform (masaüstü vb.)
+    }
+    return 'unknown';
+  }
 
   /// Online kullanıcı id listesi (self dahil).
   Stream<List<String>> get onlineUsersStream => _onlineUsersController.stream;
@@ -50,6 +65,7 @@ class PresenceService {
       await Supabase.instance.client.from('profiles').update({
         'is_online': isOnlineEnabled,
         'last_seen': DateTime.now().toUtc().toIso8601String(),
+        'platform': _currentPlatform(),
       }).eq('id', userId);
       debugPrint('✅ DB is_online=$isOnlineEnabled set for user=$userId');
     } catch (e) {
@@ -188,6 +204,7 @@ class PresenceService {
       await Supabase.instance.client.from('profiles').update({
         'is_online': isOnlineEnabled,
         'last_seen': DateTime.now().toUtc().toIso8601String(),
+        'platform': _currentPlatform(),
       }).eq('id', userId);
       debugPrint('✅ resumeGlobal: is_online=$isOnlineEnabled for user=$_userId');
     } catch (e) {

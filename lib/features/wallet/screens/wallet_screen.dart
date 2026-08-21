@@ -59,11 +59,13 @@ class _WalletScreenState extends State<WalletScreen> {
         page: 1,
         limit: 5,
       );
+      if (!mounted) return;
       setState(() {
         _recentTransactions = result.transactions;
         _isLoadingTransactions = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoadingTransactions = false;
         _recentTransactionsError = true;
@@ -79,11 +81,13 @@ class _WalletScreenState extends State<WalletScreen> {
 
     try {
       final balance = await _balanceService.getBalance();
+      if (!mounted) return;
       setState(() {
         _balance = balance;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;

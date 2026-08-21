@@ -46,6 +46,7 @@ import '../../wallet/screens/admin_withdrawal_screen.dart';
 import '../utils/admin_user_helpers.dart';
 import '../../../kullaniciozellikler/admin/user_features_admin_content.dart';
 import '../../../ilanlar/admin/ilan_admin_content.dart';
+import '../../../core/models/invoice_model.dart';
 
 part 'admin_dashboard_parts/_part_helpers.dart';
 part 'admin_dashboard_parts/_part_data_loaders.dart';
@@ -115,6 +116,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final TextEditingController _userSearchController = TextEditingController();
   Future<List<Map<String, dynamic>>>? _usersFuture;
   Future<Map<String, dynamic>>? _logsDataFuture;
+  Future<Map<String, dynamic>>? _analyticsDataFuture;
+  // Dagilim/hata metriklerinin zaman penceresi. Tum zamanlar uzerinden
+  // hesaplanan "saatlik dagilim" hem anlamsizdi hem de tablo buyudukce
+  // her acilista tam tablo taramasi yapiyordu.
+  int _logsWindowDays = 30;
   String? _selectedShopFilter; // Sipariş yönetiminde dükkan filtresi
   String _paymentsStatusFilter = 'all'; // Ödemeler sekmesinde durum filtresi
 

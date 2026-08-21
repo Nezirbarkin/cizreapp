@@ -954,6 +954,7 @@ extension on _AdminDashboardScreenState {
         'p_recent_user_limit': 20,
         'p_error_limit': 20,
         'p_most_viewed_limit': 5,
+        'p_window_days': _logsWindowDays,
       },
     );
     final data = Map<String, dynamic>.from(raw as Map);
@@ -990,19 +991,50 @@ extension on _AdminDashboardScreenState {
         if (int.tryParse(entry.key) != null)
           int.parse(entry.key): asInt(entry.value),
     };
-    final mostViewedPosts = <String, int>{
+    // mostViewedPosts artik gercek post_views verisinden gelen bir dizi:
+    // her eleman {post_id, label, view_count}. Eskiden entity_id -> sayi
+    // seklinde bir obje idi ve o kaynak (app_analytics_events'teki post_view)
+    // hicbir zaman yazilmadigi icin kart daima bostu.
+    final mostViewedPosts = ((data['mostViewedPosts'] as List?) ?? const [])
+        .map((rawPost) {
+          final post = Map<String, dynamic>.from(rawPost as Map);
+          return <String, dynamic>{
+            'post_id': post['post_id']?.toString() ?? '',
+            'label': post['label']?.toString() ?? '',
+            'view_count': asInt(post['view_count']),
+          };
+        })
+        .toList();
+
+    final eventTypeCounts = <String, int>{
       for (final entry in Map<String, dynamic>.from(
-        (data['mostViewedPosts'] as Map?) ?? const {},
+        (data['eventTypeCounts'] as Map?) ?? const {},
       ).entries)
         entry.key: asInt(entry.value),
     };
 
+    // platform: 'ios' | 'android' | 'web' | 'unknown' -> {online, total}
+    final platformCounts = <String, Map<String, int>>{
+      for (final entry in Map<String, dynamic>.from(
+        (data['platformCounts'] as Map?) ?? const {},
+      ).entries)
+        entry.key: {
+          'online': asInt((entry.value as Map?)?['online']),
+          'total': asInt((entry.value as Map?)?['total']),
+        },
+    };
+
     return {
+      'windowDays': asInt(data['windowDays']),
       'online': asInt(data['online']),
       'inactive': asInt(data['inactive']),
       'errorTypeCounts': errorTypeCounts,
+      'eventTypeCounts': eventTypeCounts,
+      'platformCounts': platformCounts,
       'hourlyDistribution': hourlyDistribution,
       'mostViewedPosts': mostViewedPosts,
+      'windowEvents': asInt(data['windowEvents']),
+      'postViewCount': asInt(data['postViewCount']),
       'dau': asInt(data['dau']),
       'wau': asInt(data['wau']),
       'mau': asInt(data['mau']),

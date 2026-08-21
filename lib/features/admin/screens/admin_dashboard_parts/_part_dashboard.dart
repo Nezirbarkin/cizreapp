@@ -162,12 +162,20 @@ extension on _AdminDashboardScreenState {
               color: Colors.red,
               gradient: [Colors.red.shade400, Colors.red.shade600],
             ),
-            _buildStatCard(
-              icon: Icons.analytics_rounded,
-              title: 'Events',
-              value: '${_analyticsService.eventCount}',
-              color: Colors.teal,
-              gradient: [Colors.teal.shade400, Colors.teal.shade600],
+            // Eskiden yerel Hive sayacini yaziyordu; o deger adminin KENDI
+            // cihazindaki kutunun boyutuydu, tum kullanicilarin etkinligi
+            // degil. Artik merkezi tablodan geliyor.
+            FutureBuilder<Map<String, dynamic>>(
+              future: _analyticsDataFuture ??= _loadLogsData(),
+              builder: (context, snapshot) => _buildStatCard(
+                icon: Icons.analytics_rounded,
+                title: 'Etkinlikler',
+                value: snapshot.hasData
+                    ? '${snapshot.data!['totalEvents'] ?? 0}'
+                    : (snapshot.hasError ? '–' : '...'),
+                color: Colors.teal,
+                gradient: [Colors.teal.shade400, Colors.teal.shade600],
+              ),
             ),
           ],
         );

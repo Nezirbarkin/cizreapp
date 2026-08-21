@@ -10,6 +10,7 @@ import '../providers/sehirici_provider.dart';
 import '../services/sehirici_city_service.dart';
 import '../services/sehirici_line_service.dart';
 import '../services/sehirici_driver_service.dart';
+import '../utils/sehirici_route_geometry.dart';
 import 'sehirici_route_viewer_dialog.dart';
 import 'sehirici_line_stops_editor_dialog.dart';
 import 'sehirici_line_route_draw_dialog.dart';
@@ -441,6 +442,7 @@ class _LinesTabState extends State<_LinesTab> {
                       tooltip: 'Durakları Düzenle',
                       onPressed: () => _openStopsEditor(l),
                     ),
+                    _routeMenu(l),
                     Switch(
                       value: l.isActive,
                       onChanged: (v) async {
@@ -467,6 +469,147 @@ class _LinesTabState extends State<_LinesTab> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Hat satırındaki rota kısayolları. Çizim dialogunu açmadan rotayı
+  /// temizlemeyi/silmeyi sağlar; rota yoksa yalnızca "Çiz" etkin kalır.
+  Widget _routeMenu(SehiriciLine line) {
+    final hasRoute =
+        line.roadPolyline != null && line.roadPolyline!.length >= 2;
+    return PopupMenuButton<String>(
+      icon: Icon(
+        Icons.route,
+        color: hasRoute ? Theme.of(context).colorScheme.primary : Colors.grey,
+      ),
+      tooltip: hasRoute
+          ? 'Rota (${line.roadPolyline!.length} nokta)'
+          : 'Rota yok',
+      onSelected: (value) => switch (value) {
+        'draw' => _openRouteDraw(line),
+        'sanitize' => _sanitizeLineRoute(line),
+        'clear' => _clearLineRoute(line),
+        _ => null,
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'draw',
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.brush),
+            title: Text('Rotayı Çiz'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'sanitize',
+          enabled: hasRoute,
+          child: const ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.cleaning_services_outlined),
+            title: Text('Rotayı Ayıkla'),
+            subtitle: Text('Gürültülü noktaları temizle'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'clear',
+          enabled: hasRoute,
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.delete_outline,
+                color: hasRoute ? Colors.red : Colors.grey),
+            title: Text(
+              'Rotayı Sil',
+              style: TextStyle(color: hasRoute ? Colors.red : Colors.grey),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openRouteDraw(SehiriciLine line) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => SehiriciLineRouteDrawDialog(line: line),
+    );
+    if (mounted) _load();
+  }
+
+  Future<void> _sanitizeLineRoute(SehiriciLine line) async {
+    final raw = line.roadPolyline;
+    if (raw == null || raw.length < 2) return;
+    final cleaned = sanitizeRoutePolyline(
+      raw.map((p) => LatLng(p[0], p[1])).toList(),
+    );
+
+    if (!mounted) return;
+    if (cleaned.length < 2) {
+      _snack('Rota temizlenince 2 noktanın altına düştü; dokunulmadı.',
+          Colors.orange);
+      return;
+    }
+    if (cleaned.length == raw.length) {
+      _snack('${line.code} rotası zaten temiz.', Colors.green);
+      return;
+    }
+
+    final ok = await _service.cacheRoutePolyline(
+      lineId: line.id,
+      lineStopsInOrder: line.stops,
+      points:
+          cleaned.map((p) => <double>[p.latitude, p.longitude]).toList(),
+      source: 'admin_sanitized',
+    );
+    if (!mounted) return;
+    _snack(
+      ok
+          ? '${line.code}: ${raw.length} → ${cleaned.length} nokta '
+              '(${raw.length - cleaned.length} gürültü atıldı).'
+          : 'Rota kaydedilemedi.',
+      ok ? Colors.green : Colors.red,
+    );
+    if (ok) _load();
+  }
+
+  Future<void> _clearLineRoute(SehiriciLine line) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${line.code} rotası silinsin mi?'),
+        content: Text(
+          '${line.roadPolyline?.length ?? 0} noktalı rota kalıcı olarak '
+          'silinecek. Hat rotasız kalır ve haritada çizgi görünmez.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final ok = await _service.clearRoutePolyline(line.id);
+    if (!mounted) return;
+    _snack(
+      ok ? '${line.code} rotası silindi.' : 'Rota silinemedi.',
+      ok ? Colors.green : Colors.red,
+    );
+    if (ok) _load();
+  }
+
+  void _snack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
     );
   }
 
@@ -1422,8 +1565,11 @@ class _SettingsTab extends StatefulWidget {
 
 class _SettingsTabState extends State<_SettingsTab> {
   final SehiriciCityService _service = SehiriciCityService();
+  final SehiriciLineService _lineService = SehiriciLineService();
   SehiriciSettings? _settings;
   bool _loading = true;
+  // Toplu rota bakımı sürerken kontrolleri kilitler (çift tetikleme koruması).
+  bool _routeBusy = false;
 
   @override
   void initState() {
@@ -1501,7 +1647,198 @@ class _SettingsTabState extends State<_SettingsTab> {
             }
           },
         ),
+        const Divider(),
+        _buildRouteMaintenanceSection(s),
       ],
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // Hat rotası bakımı
+  // ─────────────────────────────────────────────
+
+  /// Hat rotalarının kaynağını ve kalitesini yöneten bölüm.
+  ///
+  /// Kirli hat rotalarının kök nedeni, şoförün ham GPS izinden otomatik rota
+  /// üretilmesidir: duruş bulutları ve hatalı fixler rotaya yazılıp haritada
+  /// "her tarafa çizgi" görüntüsü oluşturur. Buradaki üç kontrol sırasıyla
+  /// kaynağı keser, mevcut kiri ayıklar ve gerekirse hepsini sıfırlar.
+  Widget _buildRouteMaintenanceSection(SehiriciSettings s) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Text(
+            'HAT ROTASI BAKIMI',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.auto_fix_high),
+          title: const Text('Otomatik Rota Yazımı'),
+          subtitle: const Text(
+            'Şoförün sürüşünden hat rotası üretilsin mi? Kapalıyken rotalar '
+            'yalnız admin tarafından elle çizilir — kirli rota oluşmaz.',
+          ),
+          value: s.autoRouteEnabled,
+          onChanged: _routeBusy
+              ? null
+              : (v) => _updateSetting(
+                    'sehirici_auto_route_enabled', v.toString(),
+                    invalidateCaches: true,
+                  ),
+        ),
+        ListTile(
+          leading: _routeBusy
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.cleaning_services_outlined),
+          title: const Text('Bozuk Rotaları Ayıkla'),
+          subtitle: const Text(
+            'Kayıtlı rotaları siler değil TEMİZLER: üst üste binen noktaları '
+            've rotadan fırlayan hatalı fixleri atar.',
+          ),
+          enabled: !_routeBusy,
+          onTap: _routeBusy ? null : _sanitizeRoutes,
+        ),
+        ListTile(
+          leading: Icon(
+            Icons.delete_sweep_outlined,
+            color: _routeBusy ? Colors.grey : Colors.red,
+          ),
+          title: Text(
+            'Tüm Rotaları Sil',
+            style: TextStyle(color: _routeBusy ? Colors.grey : Colors.red),
+          ),
+          subtitle: const Text(
+            'Bütün hatların kayıtlı rotasını kaldırır. Hatlar rotasız kalır, '
+            'haritada çizgi görünmez; yeniden çizilmesi gerekir.',
+          ),
+          enabled: !_routeBusy,
+          onTap: _routeBusy ? null : _clearAllRoutes,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _sanitizeRoutes() async {
+    setState(() => _routeBusy = true);
+    try {
+      final report = await _lineService.sanitizeAllRoutePolylines();
+      if (!mounted) return;
+      if (report.isEmpty) {
+        _showRouteResult('Kayıtlı rotası olan hat yok.', Colors.blueGrey);
+        return;
+      }
+      final changed = report.where((r) => r.saved).toList();
+      if (changed.isEmpty) {
+        _showRouteResult(
+          '${report.length} hat kontrol edildi, hepsi zaten temiz.',
+          Colors.green,
+        );
+        return;
+      }
+      final removed =
+          changed.fold<int>(0, (sum, r) => sum + (r.before - r.after));
+      _showRouteResult(
+        '${changed.length}/${report.length} hat temizlendi, '
+        '$removed gürültülü nokta atıldı.',
+        Colors.green,
+        detail: changed
+            .map((r) => '${r.code}: ${r.before} → ${r.after} nokta')
+            .join('\n'),
+      );
+    } catch (e) {
+      if (mounted) _showRouteResult('Ayıklama başarısız: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _routeBusy = false);
+    }
+  }
+
+  Future<void> _clearAllRoutes() async {
+    final lines = await _lineService.getLinesWithRoute();
+    if (!mounted) return;
+    if (lines.isEmpty) {
+      _showRouteResult('Kayıtlı rotası olan hat yok.', Colors.blueGrey);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tüm rotalar silinsin mi?'),
+        content: Text(
+          '${lines.length} hattın kayıtlı rotası kalıcı olarak silinecek:\n\n'
+          '${lines.map((l) => '• ${l.code} (${l.points.length} nokta)').join('\n')}\n\n'
+          'Bu işlem geri alınamaz. Hatlar rotasız kalır ve haritada çizgi '
+          'görünmez; her hattın rotası yeniden çizilmelidir.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hepsini Sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _routeBusy = true);
+    try {
+      final result = await _lineService.clearAllRoutePolylines();
+      if (!mounted) return;
+      _showRouteResult(
+        result.failed == 0
+            ? '${result.cleared} hattın rotası silindi.'
+            : '${result.cleared} hat silindi, ${result.failed} hat başarısız.',
+        result.failed == 0 ? Colors.green : Colors.orange,
+      );
+    } catch (e) {
+      if (mounted) _showRouteResult('Silme başarısız: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _routeBusy = false);
+    }
+  }
+
+  void _showRouteResult(String message, Color color, {String? detail}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 5),
+        action: detail == null
+            ? null
+            : SnackBarAction(
+                label: 'Detay',
+                textColor: Colors.white,
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Rota temizleme raporu'),
+                    content: SingleChildScrollView(child: Text(detail)),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Kapat'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+      ),
     );
   }
 

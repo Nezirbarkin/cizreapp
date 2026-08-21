@@ -26,6 +26,8 @@ class _TopupScreenState extends State<TopupScreen> {
   bool _isLoading = false;
   bool _isWebViewOpen = false;
   bool _isLoadingBanks = true;
+  bool _isCheckingPending = true;
+  bool _hasPendingConfirmation = false;
   String? _error;
   WebViewController? _webViewController;
   String _selectedMethod = 'card';
@@ -42,6 +44,17 @@ class _TopupScreenState extends State<TopupScreen> {
     super.initState();
     _loadSettings();
     _loadBankAccounts();
+    _loadPendingStatus();
+  }
+
+  Future<void> _loadPendingStatus() async {
+    final hasPending = await _transferService.hasPendingConfirmation();
+    if (mounted) {
+      setState(() {
+        _hasPendingConfirmation = hasPending;
+        _isCheckingPending = false;
+      });
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -50,7 +63,7 @@ class _TopupScreenState extends State<TopupScreen> {
           .from('app_about_settings')
           .select('card_topup_enabled')
           .maybeSingle();
-      
+
       if (mounted && response != null) {
         setState(() {
           _cardTopupEnabled = response['card_topup_enabled'] as bool? ?? true;
@@ -102,10 +115,7 @@ class _TopupScreenState extends State<TopupScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
           InkWell(
@@ -117,14 +127,20 @@ class _TopupScreenState extends State<TopupScreen> {
                   duration: const Duration(seconds: 1),
                   backgroundColor: Colors.green.shade600,
                   behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               );
             },
             borderRadius: BorderRadius.circular(6),
             child: Container(
               padding: const EdgeInsets.all(4),
-              child: Icon(Icons.copy_rounded, size: 16, color: Colors.blue.shade700),
+              child: Icon(
+                Icons.copy_rounded,
+                size: 16,
+                color: Colors.blue.shade700,
+              ),
             ),
           ),
         ],
@@ -140,7 +156,9 @@ class _TopupScreenState extends State<TopupScreen> {
           content: const Text('Lütfen tutar girin'),
           backgroundColor: Colors.orange.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -152,7 +170,9 @@ class _TopupScreenState extends State<TopupScreen> {
           content: const Text('Geçersiz tutar'),
           backgroundColor: Colors.red.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -165,7 +185,9 @@ class _TopupScreenState extends State<TopupScreen> {
           content: const Text('Lütfen gönderen ad soyad bilgisini girin'),
           backgroundColor: Colors.orange.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -182,6 +204,7 @@ class _TopupScreenState extends State<TopupScreen> {
 
       if (!mounted) return;
       if (!context.mounted) return;
+      setState(() => _hasPendingConfirmation = true);
       final bankName = _selectedBankAccount?.bankName ?? 'seçili banka';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -192,7 +215,9 @@ class _TopupScreenState extends State<TopupScreen> {
           backgroundColor: Colors.green.shade600,
           duration: const Duration(seconds: 5),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     } catch (e) {
@@ -204,7 +229,9 @@ class _TopupScreenState extends State<TopupScreen> {
           backgroundColor: Colors.red.shade600,
           duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     } finally {
@@ -246,7 +273,9 @@ class _TopupScreenState extends State<TopupScreen> {
           content: const Text('Minimum yükleme tutarı 10 TL\'dir'),
           backgroundColor: Colors.orange.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       return;
@@ -255,10 +284,14 @@ class _TopupScreenState extends State<TopupScreen> {
     if (_selectedMethod == 'card' && !_cardTopupEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Kredi kartı ile ödeme şu an kapalı. Havale/EFT kullanın.'),
+          content: const Text(
+            'Kredi kartı ile ödeme şu an kapalı. Havale/EFT kullanın.',
+          ),
           backgroundColor: Colors.orange.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       setState(() => _selectedMethod = 'transfer');
@@ -279,7 +312,7 @@ class _TopupScreenState extends State<TopupScreen> {
       _openPaymentWebView(result.paymentPageUrl);
     } catch (e) {
       if (!mounted) return;
-      
+
       String errorMessage = e.toString();
 
       for (final prefix in ['Exception: ', 'FriendlyException: ']) {
@@ -297,27 +330,32 @@ class _TopupScreenState extends State<TopupScreen> {
           lower.contains('yapılandırılmamış') ||
           lower.contains('credentials')) {
         errorMessage = _friendlyError(errorMessage);
-      } else if (errorMessage.contains('"code"') && errorMessage.contains('"message"')) {
+      } else if (errorMessage.contains('"code"') &&
+          errorMessage.contains('"message"')) {
         try {
-          final match = RegExp(r'"message"\s*:\s*"([^"]+)"').firstMatch(errorMessage);
+          final match = RegExp(
+            r'"message"\s*:\s*"([^"]+)"',
+          ).firstMatch(errorMessage);
           if (match != null) {
             errorMessage = match.group(1)!.replaceAll('\\u0027', "'");
           }
         } catch (_) {}
       }
-      
+
       setState(() {
         _error = errorMessage;
         _isLoading = false;
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
           backgroundColor: Colors.red.shade600,
           duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     }
@@ -334,7 +372,8 @@ class _TopupScreenState extends State<TopupScreen> {
               debugPrint('WebView: $url');
               if (url.contains('balance-success') || url.contains('success')) {
                 _handlePaymentSuccess();
-              } else if (url.contains('balance-failed') || url.contains('fail')) {
+              } else if (url.contains('balance-failed') ||
+                  url.contains('fail')) {
                 _handlePaymentFailed();
               }
             },
@@ -378,18 +417,24 @@ class _TopupScreenState extends State<TopupScreen> {
           content: const Text('Bakiye başarıyla yüklendi!'),
           backgroundColor: Colors.green.shade600,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     } else {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Ödeme alındı, bakiyeye yansıması birkaç dakika sürebilir.'),
+          content: const Text(
+            'Ödeme alındı, bakiyeye yansıması birkaç dakika sürebilir.',
+          ),
           backgroundColor: Colors.orange.shade600,
           duration: const Duration(seconds: 5),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     }
@@ -510,7 +555,10 @@ class _TopupScreenState extends State<TopupScreen> {
                       Expanded(
                         child: Text(
                           _error!,
-                          style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     ],
@@ -533,10 +581,7 @@ class _TopupScreenState extends State<TopupScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.blue.shade600,
-            Colors.blue.shade800,
-          ],
+          colors: [Colors.blue.shade600, Colors.blue.shade800],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -628,7 +673,10 @@ class _TopupScreenState extends State<TopupScreen> {
                 Expanded(
                   child: Text(
                     'Kredi kartı ile ödeme şu an kapalıdır.',
-                    style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+                    style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
@@ -659,7 +707,7 @@ class _TopupScreenState extends State<TopupScreen> {
     required Color color,
   }) {
     final isSelected = _selectedMethod == method;
-    
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
@@ -691,7 +739,9 @@ class _TopupScreenState extends State<TopupScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isSelected ? color.withValues(alpha: 0.15) : Colors.grey.shade100,
+                    color: isSelected
+                        ? color.withValues(alpha: 0.15)
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
@@ -774,7 +824,7 @@ class _TopupScreenState extends State<TopupScreen> {
 
   Widget _buildQuickAmountChip(ThemeData theme, double amount) {
     final isSelected = _amountController.text == amount.toString();
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -844,10 +894,7 @@ class _TopupScreenState extends State<TopupScreen> {
           child: TextField(
             controller: _amountController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               labelText: 'Tutar',
               prefixText: '₺ ',
@@ -866,11 +913,17 @@ class _TopupScreenState extends State<TopupScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(18),
-                borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
+                borderSide: BorderSide(
+                  color: theme.colorScheme.primary,
+                  width: 2,
+                ),
               ),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 18,
+              ),
             ),
           ),
         ),
@@ -928,7 +981,10 @@ class _TopupScreenState extends State<TopupScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.account_balance_rounded, color: Colors.purple.shade700),
+                      Icon(
+                        Icons.account_balance_rounded,
+                        color: Colors.purple.shade700,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'Havale Yapılacak Banka',
@@ -982,7 +1038,11 @@ class _TopupScreenState extends State<TopupScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.info_outline_rounded, color: Colors.orange.shade700, size: 18),
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: Colors.orange.shade700,
+                      size: 18,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       'Havale Bilgileri',
@@ -996,7 +1056,10 @@ class _TopupScreenState extends State<TopupScreen> {
                 ),
                 const SizedBox(height: 10),
                 _buildInfoRow('Banka', _selectedBankAccount?.bankName ?? '-'),
-                _buildInfoRow('Hesap', _selectedBankAccount?.accountName ?? '-'),
+                _buildInfoRow(
+                  'Hesap',
+                  _selectedBankAccount?.accountName ?? '-',
+                ),
                 _buildInfoRow('IBAN', _selectedBankAccount?.iban ?? '-'),
                 if (_selectedBankAccount?.branch != null &&
                     _selectedBankAccount!.branch!.isNotEmpty)
@@ -1005,14 +1068,21 @@ class _TopupScreenState extends State<TopupScreen> {
                     _selectedBankAccount!.description!.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.amber.shade50,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.note_outlined, size: 14, color: Colors.amber),
+                        const Icon(
+                          Icons.note_outlined,
+                          size: 14,
+                          color: Colors.amber,
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -1029,14 +1099,21 @@ class _TopupScreenState extends State<TopupScreen> {
                 ],
                 const SizedBox(height: 10),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.access_time_rounded, size: 14, color: Colors.orange.shade800),
+                      Icon(
+                        Icons.access_time_rounded,
+                        size: 14,
+                        color: Colors.orange.shade800,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Bakiye 0-1 saatte otomatik yansıtılır.',
@@ -1054,132 +1131,187 @@ class _TopupScreenState extends State<TopupScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Bildirim Formu
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Form(
-              key: _senderNameFormKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          // Zaten onay bekleyen bir bildirim varsa formu gösterme
+          if (_hasPendingConfirmation)
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.amber.shade200),
+              ),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.notifications_active_rounded, color: Colors.green.shade700),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Havale Yaptınız Mı?',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green.shade700,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
+                  Icon(
+                    Icons.hourglass_top_rounded,
+                    color: Colors.amber.shade800,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
-                    style: TextStyle(fontSize: 12, color: Colors.green.shade800),
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _senderNameController,
-                    textCapitalization: TextCapitalization.words,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: 'Gönderen Ad Soyad *',
-                      hintText: 'Havaleyi yapan kişinin adı soyadı',
-                      prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: Colors.green.shade700, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                    validator: (value) {
-                      final v = value?.trim() ?? '';
-                      if (v.isEmpty) {
-                        return 'Gönderen ad soyad zorunludur';
-                      }
-                      if (v.length < 3) {
-                        return 'En az 3 karakter girin';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.green.shade600, Colors.green.shade700],
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.green.withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _isLoading ? null : () => _submitTransferConfirmation(context),
-                          borderRadius: BorderRadius.circular(14),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (_isLoading)
-                                  const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                else
-                                  const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Sisteme Bildir',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Zaten onay bekleyen bir havale bildiriminiz var. '
+                      'Yeni bildirim gönderebilmek için admin onayını/reddini bekleyin.',
+                      style: TextStyle(
+                        color: Colors.amber.shade900,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
                 ],
               ),
+            )
+          else
+            // Bildirim Formu
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Form(
+                key: _senderNameFormKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.notifications_active_rounded,
+                          color: Colors.green.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Havale Yaptınız Mı?',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Havale işlemini tamamladıysanız, admin\'e bildirim gönderin.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _senderNameController,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        labelText: 'Gönderen Ad Soyad *',
+                        hintText: 'Havaleyi yapan kişinin adı soyadı',
+                        prefixIcon: const Icon(
+                          Icons.person_outline_rounded,
+                          size: 20,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: Colors.green.shade700,
+                            width: 2,
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) {
+                          return 'Gönderen ad soyad zorunludur';
+                        }
+                        if (v.length < 3) {
+                          return 'En az 3 karakter girin';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.green.shade600,
+                              Colors.green.shade700,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.green.withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: (_isLoading || _isCheckingPending)
+                                ? null
+                                : () => _submitTransferConfirmation(context),
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (_isLoading)
+                                    const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  else
+                                    const Icon(
+                                      Icons.send_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Sisteme Bildir',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
         ],
       ],
     );
@@ -1189,10 +1321,7 @@ class _TopupScreenState extends State<TopupScreen> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary,
-            theme.colorScheme.secondary,
-          ],
+          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),

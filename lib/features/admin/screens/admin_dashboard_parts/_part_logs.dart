@@ -46,6 +46,7 @@ extension on _AdminDashboardScreenState {
         final recentUsers =
             (data['recentUsers'] as List<Map<String, dynamic>>?) ?? [];
         final errors = (data['errors'] as List<AnalyticsEvent>?) ?? [];
+        final windowDays = (data['windowDays'] as int?) ?? _logsWindowDays;
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -62,10 +63,30 @@ extension on _AdminDashboardScreenState {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    tooltip: 'Yenile',
-                    onPressed: _refreshLogsData,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButton<int>(
+                        value: _logsWindowDays,
+                        underline: const SizedBox.shrink(),
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('Son 1 gün')),
+                          DropdownMenuItem(value: 7, child: Text('Son 7 gün')),
+                          DropdownMenuItem(value: 30, child: Text('Son 30 gün')),
+                          DropdownMenuItem(value: 90, child: Text('Son 90 gün')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _logsWindowDays = value);
+                          _refreshLogsData();
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        tooltip: 'Yenile',
+                        onPressed: _refreshLogsData,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -137,21 +158,31 @@ extension on _AdminDashboardScreenState {
                       ),
                       _buildStatCard(
                         icon: Icons.analytics_rounded,
-                        title: 'Toplam Etkinlik',
+                        title: 'Toplam Etkinlik (tüm zaman)',
                         value: '${data['totalEvents'] ?? 0}',
                         color: Colors.teal,
                         gradient: [Colors.teal.shade400, Colors.teal.shade600],
                       ),
                       _buildStatCard(
+                        icon: Icons.visibility_rounded,
+                        title: 'Gönderi Görüntüleme ($windowDays g)',
+                        value: '${data['postViewCount'] ?? 0}',
+                        color: Colors.deepPurple,
+                        gradient: [
+                          Colors.deepPurple.shade400,
+                          Colors.deepPurple.shade600,
+                        ],
+                      ),
+                      _buildStatCard(
                         icon: Icons.timer_rounded,
-                        title: 'Ort. Görüntüleme (ms)',
+                        title: 'Ort. Görüntüleme (ms, $windowDays g)',
                         value: '${data['avgViewDuration'] ?? 0}',
                         color: Colors.cyan,
                         gradient: [Colors.cyan.shade400, Colors.cyan.shade600],
                       ),
                       _buildStatCard(
                         icon: Icons.error_outline_rounded,
-                        title: 'Toplam Hata',
+                        title: 'Hata ($windowDays g)',
                         value: '${data['errorCount'] ?? 0}',
                         color: Colors.red,
                         gradient: [Colors.red.shade400, Colors.red.shade600],
@@ -164,6 +195,60 @@ extension on _AdminDashboardScreenState {
                         gradient: [Colors.grey.shade500, Colors.grey.shade700],
                       ),
                     ],
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Platform Dağılımı',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Builder(
+                builder: (context) {
+                  final platformCounts =
+                      (data['platformCounts'] as Map<String, Map<String, int>>?) ??
+                      const {};
+                  if (platformCounts.isEmpty) {
+                    return const Text('Veri yok.');
+                  }
+                  const labels = {
+                    'ios': 'iOS',
+                    'android': 'Android',
+                    'web': 'Web',
+                    'unknown': 'Bilinmeyen',
+                  };
+                  const icons = {
+                    'ios': Icons.phone_iphone_rounded,
+                    'android': Icons.android_rounded,
+                    'web': Icons.language_rounded,
+                    'unknown': Icons.device_unknown_rounded,
+                  };
+                  final order = ['ios', 'android', 'web', 'unknown'];
+                  final keys = [
+                    ...order.where(platformCounts.containsKey),
+                    ...platformCounts.keys.where((k) => !order.contains(k)),
+                  ];
+                  return Card(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: keys.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final key = keys[index];
+                        final counts = platformCounts[key] ?? const {};
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(icons[key] ?? Icons.devices_rounded),
+                          title: Text(labels[key] ?? key),
+                          subtitle: Text('Toplam: ${counts['total'] ?? 0}'),
+                          trailing: Text(
+                            'Şu an aktif: ${counts['online'] ?? 0}',
+                          ),
+                        );
+                      },
+                    ),
                   );
                 },
               ),
@@ -209,6 +294,14 @@ extension on _AdminDashboardScreenState {
                         final lastSeen = u['last_seen'] != null
                             ? DateTime.parse(u['last_seen']).toLocal()
                             : null;
+                        const platformIcons = {
+                          'ios': Icons.phone_iphone_rounded,
+                          'android': Icons.android_rounded,
+                          'web': Icons.language_rounded,
+                        };
+                        final platformIcon =
+                            platformIcons[u['platform']] ??
+                            Icons.device_unknown_rounded;
                         return ListTile(
                           leading: Icon(
                             Icons.circle,
@@ -221,6 +314,11 @@ extension on _AdminDashboardScreenState {
                           subtitle: lastSeen != null
                               ? Text('Son görülme: $lastSeen')
                               : null,
+                          trailing: Icon(
+                            platformIcon,
+                            size: 18,
+                            color: Colors.grey.shade600,
+                          ),
                         );
                       },
                     ),
@@ -228,13 +326,16 @@ extension on _AdminDashboardScreenState {
                 },
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Son Hatalar',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                'Son Hatalar (son $windowDays gün)',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               if (errors.isEmpty)
-                const Text('Kayıtlı hata yok.')
+                Text('Son $windowDays günde kayıtlı hata yok.')
               else
                 Card(
                   child: ListView.separated(
@@ -259,9 +360,12 @@ extension on _AdminDashboardScreenState {
                   ),
                 ),
               const SizedBox(height: 24),
-              const Text(
-                'Hata Tipi Dağılımı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                'Hata Tipi Dağılımı (son $windowDays gün)',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               Builder(
@@ -287,9 +391,48 @@ extension on _AdminDashboardScreenState {
                 },
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Saatlik Aktivite Dağılımı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              // Hangi olcumun gercekten toplandigini gosterir. Bos bir kart ile
+              // hic yazilmayan bir event tipi arasindaki farki ancak bu ayirt
+              // ettiriyor.
+              Text(
+                'Etkinlik Tipi Dağılımı (son $windowDays gün)',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Builder(
+                builder: (context) {
+                  final counts =
+                      (data['eventTypeCounts'] as Map<String, int>?) ?? {};
+                  if (counts.isEmpty) {
+                    return Text('Son $windowDays günde etkinlik kaydı yok.');
+                  }
+                  final sorted = counts.entries.toList()
+                    ..sort((a, b) => b.value.compareTo(a.value));
+                  return Card(
+                    child: Column(
+                      children: sorted
+                          .map(
+                            (e) => ListTile(
+                              dense: true,
+                              title: Text(e.key),
+                              trailing: Text('${e.value}'),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Saatlik Aktivite Dağılımı (son $windowDays gün)',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               Builder(
@@ -330,25 +473,40 @@ extension on _AdminDashboardScreenState {
                 },
               ),
               const SizedBox(height: 24),
-              const Text(
-                'En Çok Görüntülenen İçerikler',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                'En Çok Görüntülenen İçerikler (son $windowDays gün)',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               Builder(
                 builder: (context) {
                   final mostViewed =
-                      (data['mostViewedPosts'] as Map<String, int>?) ?? {};
+                      (data['mostViewedPosts'] as List<Map<String, dynamic>>?) ??
+                      const [];
                   if (mostViewed.isEmpty) return const Text('Veri yok.');
                   return Card(
                     child: Column(
-                      children: mostViewed.entries
+                      children: mostViewed
                           .map(
-                            (e) => ListTile(
+                            (post) => ListTile(
                               dense: true,
                               leading: const Icon(Icons.visibility_rounded),
-                              title: Text(e.key),
-                              trailing: Text('${e.value} görüntülenme'),
+                              title: Text(
+                                post['label'] as String? ?? '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${post['post_id']}',
+                                style: const TextStyle(fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Text(
+                                '${post['view_count']} görüntülenme',
+                              ),
                             ),
                           )
                           .toList(),

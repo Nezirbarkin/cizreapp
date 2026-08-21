@@ -63,10 +63,21 @@ class SehiriciLiveMap extends StatefulWidget {
   final String? highlightLineId;
 
   /// Şoförün o an geçtiği canlı yol polyline'ını göster/gizle.
-  /// true (varsayılan): kullanıcı tarafında araç arkasında çizilir (şoför
-  /// dışındaki herkes için faydalı, yolculuğu gösterir).
-  /// false: şoför panelinde — şoförün kendi canlı rotası çizilmez, sadece
-  /// admin tarafından tanımlanmış hat rotası görünür.
+  ///
+  /// VARSAYILAN ARTIK false — canlı iz haritada çizilmiyor. Nedeni ham GPS
+  /// gürültüsü DEĞİL (o ayrıca [buildTripPathSegments] ile temizleniyor):
+  /// konum ~10 sn'de bir yazıldığı için ardışık noktalar şehir içi hızda
+  /// 130-300 m arayla düşüyor ve aralar DÜZ ÇİZGİYLE birleştiriliyor. Çizgi
+  /// caddeleri takip etmiyor; blokların ve binaların üzerinden kestirme
+  /// geçiyor, araç aynı koridorda gidip geldiğinde de bu kestirmeler birbirini
+  /// keserek haritada karmaşa üretiyor.
+  ///
+  /// İki örnek arasındaki yolun gerçek şekli veride hiç yok; bunu ancak yol
+  /// eşleme (OSRM `match`) üretebilir. O yapılana kadar iz çizilmiyor —
+  /// haritada araç marker'ı ve admin'in çizdiği hat rotası kalıyor.
+  ///
+  /// true verilirse eski davranış (temizlenmiş, parçalara bölünmüş ham iz)
+  /// geri gelir; altyapı yerinde duruyor.
   final bool showLiveTripPath;
 
   /// Aktif kuryeleri (role='courier', konum paylaşan) haritada motor ikonuyla
@@ -90,7 +101,7 @@ class SehiriciLiveMap extends StatefulWidget {
     this.onLongPress,
     this.showRoute = true,
     this.highlightLineId,
-    this.showLiveTripPath = true,
+    this.showLiveTripPath = false,
     this.showCouriers = true,
   });
 
@@ -133,10 +144,17 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   // Mevcut trip verileri (ETA hesaplaması için)
   final Map<String, SehiriciActiveTrip> _currentTripData = {};
 
-  // Her aktif sefer için şoförün geçtiği gerçek yol (polyline).
-  // Realtime ile yeni noktalar eklenir, haritada arkasında çizilir.
+  // Her aktif sefer için şoförün geçtiği gerçek yolun HAM GPS noktaları.
+  // Realtime ile yeni noktalar eklenir. Haritaya doğrudan ÇİZİLMEZ: önce
+  // `buildTripPathSegments` ile temizlenip parçalara bölünür (bkz.
+  // _rebuildTripPathPolyline).
   final Map<String, List<LatLng>> _tripPaths = {};
   final Set<String> _tripPathsLoading = {};
+
+  // Çizilen parçaların imzası (tripId -> "parçaSayısı:toplamNokta:sonNokta").
+  // Duran araçta gelen GPS gezinmesi hiçbir parçayı değiştirmez; imza aynıysa
+  // setState atlanır ve harita gereksiz yere yeniden çizilmez.
+  final Map<String, String> _tripPathSignatures = {};
 
   final SehiriciTripService _tripService = SehiriciTripService();
   final SehiriciLineService _lineService = SehiriciLineService();
@@ -232,6 +250,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   /// Realtime: bir sefere yeni konum noktası eklendi.
   void _onTripPathPoint(String tripId, double lat, double lng) {
     final newPoint = LatLng(lat, lng);
+    if (!isValidCoordinate(newPoint)) return;
     final list = _tripPaths.putIfAbsent(tripId, () => <LatLng>[]);
     // Aynı noktayı tekrar ekleme (GPS aynı noktayı iki kez gönderebilir)
     if (list.isNotEmpty) {
@@ -242,6 +261,11 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       }
     }
     list.add(newPoint);
+    // Uzun vardiyalarda liste sınırsız büyümesin (her nokta her çizimde
+    // yeniden işleniyor).
+    if (list.length > kMaxRawTripPoints) {
+      list.removeRange(0, list.length - kMaxRawTripPoints);
+    }
     // İlgili trip için polyline'ı yeniden çiz
     final trip = widget.activeTrips.firstWhere(
       (t) => t.tripId == tripId,
@@ -643,6 +667,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       if (!widget.showLiveTripPath) {
         _tripService.stopWatching();
         _tripPaths.clear();
+        _tripPathSignatures.clear();
         setState(() {
           _polylines = _polylines
               .where((p) => !p.polylineId.value.startsWith('trip_path_'))
@@ -774,10 +799,12 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       _previousPositions.remove(tripId);
       _targetPositions.remove(tripId);
       _currentTripData.remove(tripId);
-      // Şoförün geçtiği yol polyline'ını da temizle
+      // Şoförün geçtiği yol polyline'ını da temizle (parça parça çizildiği
+      // için tek id değil, önek eşleşmesi gerekiyor).
       _tripPaths.remove(tripId);
+      _tripPathSignatures.remove(tripId);
       _polylines = _polylines
-          .where((p) => p.polylineId.value != 'trip_path_$tripId')
+          .where((p) => !p.polylineId.value.startsWith('trip_path_$tripId'))
           .toSet();
     }
   }
@@ -921,8 +948,13 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       try {
         final path = await _tripService.getTripPath(trip.tripId);
         if (!mounted) return;
-        _tripPaths[trip.tripId] =
-            path.map((p) => LatLng(p.lat, p.lng)).toList();
+        var points = path.map((p) => LatLng(p.lat, p.lng)).toList();
+        // Sunucu tarafı filtre öncesinde yazılmış eski, gürültülü geçmiş
+        // beklenenden uzun olabilir; ham tavanı burada da uygula.
+        if (points.length > kMaxRawTripPoints) {
+          points = points.sublist(points.length - kMaxRawTripPoints);
+        }
+        _tripPaths[trip.tripId] = points;
         _rebuildTripPathPolyline(trip);
       } catch (e) {
         debugPrint('_loadInitialTripPaths hata: $e');
@@ -932,7 +964,13 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
     }
   }
 
-  /// Belirli bir seferin polyline'ını haritaya ekler (güncel nokta listesiyle).
+  /// Belirli bir seferin canlı yol polyline'ını haritaya ekler.
+  ///
+  /// Ham GPS geçmişi doğrudan çizilmez: [buildTripPathSegments] önce duruş
+  /// bulutlarını ve aykırı fixleri temizler, ardından izi kopukluk
+  /// noktalarından parçalara böler. Her parça ayrı bir polyline olur — tek
+  /// polyline kullanmak, kopukluğun iki ucunu birleştiren ve şehri baştan
+  /// başa kesen sahte düz çizgiler üretiyordu.
   void _rebuildTripPathPolyline(SehiriciActiveTrip trip) {
     final line = widget.lines.firstWhere(
       (l) => l.id == trip.lineId,
@@ -943,21 +981,32 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
         colorHex: trip.lineColor,
       ),
     );
-    final points = _tripPaths[trip.tripId] ?? const <LatLng>[];
-    if (points.length < 2) return;
-    setState(() {
-      _polylines = {
-        ..._polylines
-            .where((p) => p.polylineId.value != 'trip_path_${trip.tripId}'),
-        Polyline(
-          polylineId: PolylineId('trip_path_${trip.tripId}'),
-          points: points,
-          color: line.color,
-          width: 4,
-          consumeTapEvents: false,
-        ),
-      };
-    });
+    final tripId = trip.tripId;
+    final segments = buildTripPathSegments(_tripPaths[tripId] ?? const []);
+
+    // Duran araçta gelen gezinme noktaları çizimi değiştirmez; aynı imzada
+    // setState çağırmak tüm GoogleMap'i boş yere yeniden kurardı.
+    final signature = segments.isEmpty
+        ? 'empty'
+        : '${segments.length}:'
+            '${segments.fold<int>(0, (sum, s) => sum + s.length)}:'
+            '${segments.last.last.latitude},${segments.last.last.longitude}';
+    if (_tripPathSignatures[tripId] == signature) return;
+    _tripPathSignatures[tripId] = signature;
+
+    final rebuilt = _polylines
+        .where((p) => !p.polylineId.value.startsWith('trip_path_$tripId'))
+        .toSet();
+    for (var i = 0; i < segments.length; i++) {
+      rebuilt.add(Polyline(
+        polylineId: PolylineId('trip_path_${tripId}_$i'),
+        points: segments[i],
+        color: line.color,
+        width: 4,
+        consumeTapEvents: false,
+      ));
+    }
+    setState(() => _polylines = rebuilt);
   }
 
   /// Durak marker'ları için küçük, tıklanabilir bir durak ikonu üretir

@@ -34,8 +34,9 @@ class TransferService {
   /// var, bu yüzden kullanıcı başkası adına veya status='approved' ile kayıt
   /// ekleyemez.
   ///
-  /// Aynı kullanıcı için zaten pending bir kayıt varsa, DB tarafında unique
-  /// kontrolü yok (kasıtlı: kullanıcı yeni tutar için yeni bildirim gönderebilir).
+  /// Aynı kullanıcı için zaten pending bir kayıt varsa yeni bildirim
+  /// gönderilmesine izin verilmez; önce mevcut bildirimin admin tarafından
+  /// onaylanması/reddedilmesi beklenir. (Bkz. [hasPendingConfirmation].)
   Future<void> submitTransferConfirmation({
     required double amount,
     required String senderFullName,
@@ -48,6 +49,13 @@ class TransferService {
     }
     if (amount <= 0) {
       throw Exception('Geçersiz tutar');
+    }
+
+    if (await hasPendingConfirmation()) {
+      throw Exception(
+        'Zaten onay bekleyen bir havale bildiriminiz var. Yeni bildirim '
+        'göndermeden önce lütfen admin onayını bekleyin.',
+      );
     }
 
     try {
@@ -155,6 +163,26 @@ class TransferService {
     } on PostgrestException catch (e) {
       debugPrint('❌ reject_confirmation RPC hatası: ${e.code} ${e.message}');
       throw Exception(_friendlyRpcError(e));
+    }
+  }
+
+  /// (Müşteri) Kendisinin zaten onay bekleyen bir havale bildirimi var mı?
+  /// Yeni bildirim göndermeden önce tekrar-bildirim engeli için kullanılır.
+  Future<bool> hasPendingConfirmation() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return false;
+
+    try {
+      final response = await _supabase
+          .from('transfer_confirmations')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('status', 'pending')
+          .limit(1);
+      return (response as List).isNotEmpty;
+    } catch (e) {
+      debugPrint('❌ hasPendingConfirmation hatası: $e');
+      return false;
     }
   }
 

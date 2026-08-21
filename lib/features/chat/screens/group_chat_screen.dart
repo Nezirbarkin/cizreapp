@@ -55,6 +55,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     
     // Scroll pozisyonunu takip et
     _scrollController.addListener(_onScroll);
+
+    // Klavye açıldığında (input focus alınca) en alttaysak en alta kaydır
+    _messageFocusNode.addListener(() {
+      if (_messageFocusNode.hasFocus) {
+        _scrollToBottom(force: true);
+      }
+    });
   }
 
   void _onScroll() {
@@ -70,6 +77,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _groupChatService.markGroupMessagesReadReceipts(widget.group.id);
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Klavye açılıp kapanırken viewInsets değişir; liste viewport'u küçülüp
+    // büyüdüğünde en alttaki kullanıcı için son mesajın görünür kalmasını sağla.
+    if (!mounted) return;
+    if (_isAtBottom) {
+      _scrollToBottom(force: true);
     }
   }
 
@@ -110,13 +127,26 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
       _currentGroup.id,
       (messages) {
         if (mounted) {
-          // Sadece mesaj listesi değiştiyse setState çağır
+          // Sadece mesaj listesi gerçekten değiştiyse setState çağır
+          // (uzunluk + son id karşılaştırması, listenin ortasındaki bir
+          // update'i (örn. okundu sayısı) kaçırdığı için tüm alanları kontrol et)
           bool hasChanged = _messages.length != messages.length;
-          if (!hasChanged && _messages.isNotEmpty && messages.isNotEmpty) {
-            hasChanged = _messages.last.id != messages.last.id;
+          if (!hasChanged) {
+            for (int i = 0; i < messages.length; i++) {
+              final a = _messages[i];
+              final b = messages[i];
+              if (a.id != b.id ||
+                  a.content != b.content ||
+                  a.readByCount != b.readByCount ||
+                  a.isFailed != b.isFailed ||
+                  a.isSending != b.isSending) {
+                hasChanged = true;
+                break;
+              }
+            }
           }
           if (!hasChanged) return; // Değişiklik yoksa gereksiz rebuild'i önle
-          
+
           setState(() => _messages = messages);
           if (_isAtBottom) _scrollToBottom();
           // Debounce okundu işaretleme
@@ -139,15 +169,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     );
   }
 
-  void _scrollToBottom() {
+  /// [force] true ise kullanıcının scroll pozisyonuna bakılmaksızın en alta
+  /// kaydırır (kendi gönderdiğimiz mesaj veya klavye açılışı gibi durumlar için).
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         if (_isInitialLoad) {
           // İlk yüklemede anında en alta atla (animasyon yok)
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
           _isInitialLoad = false;
-        } else if (_isAtBottom) {
-          // Sadece kullanıcı en alttaysa scroll yap
+        } else if (_isAtBottom || force) {
+          // Kullanıcı en alttaysa veya force=true ise scroll yap
           _scrollController.animateTo(
             _scrollController.position.maxScrollExtent,
             duration: const Duration(milliseconds: 250),
@@ -185,7 +217,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     setState(() {
       _messages.add(tempMessage);
     });
-    _scrollToBottom();
+    // Kendi gönderdiğimiz mesaj her zaman görünür olmalı (scroll pozisyonundan bağımsız)
+    _scrollToBottom(force: true);
 
     final message = await _groupChatService.sendGroupMessage(
       groupId: _currentGroup.id,
@@ -831,7 +864,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
   // ─── Mesaj Input ───
   Widget _buildMessageInput(bool isDark) {
     // SafeArea ile cihazın alt navigasyon barı için padding ekle
-    // resizeToAvoidBottomInset varsayılan true - klavye otomatik hallediyor
     return SafeArea(
       top: false,
       child: Container(

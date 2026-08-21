@@ -97,6 +97,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
 
       if (shopResponse == null) {
         debugPrint('🔴 [_loadDashboardData] HATA: Satıcıya ait mağaza yok! userId=$userId');
+        if (!mounted) return;
         setState(() {
           _stats = {'hasShop': false};
           _isLoading = false;
@@ -207,6 +208,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
       if (_availablePayout < 0) _availablePayout = 0;
       debugPrint('🔵 [_loadDashboardData] Kullanılabilir ödeme: $_availablePayout');
 
+      if (!mounted) return;
       setState(() {
         _stats = {
           'hasShop': true,
@@ -232,7 +234,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
     } catch (e, stack) {
       debugPrint('🔴 [_loadDashboardData] CATCH BLOĞU - HATA: $e');
       debugPrint('🔴 [_loadDashboardData] STACK TRACE: $stack');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
