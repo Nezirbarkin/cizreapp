@@ -1,8 +1,79 @@
+// Yazar rolü enum'u (profiles.role ile uyumlu)
+enum AuthorRole {
+  customer,
+  seller,
+  admin,
+  courier,
+  driver,
+  unknown;
+
+  static AuthorRole fromString(String? value) {
+    switch (value) {
+      case 'customer':
+        return AuthorRole.customer;
+      case 'seller':
+        return AuthorRole.seller;
+      case 'admin':
+        return AuthorRole.admin;
+      case 'courier':
+        return AuthorRole.courier;
+      case 'driver':
+        return AuthorRole.driver;
+      default:
+        return AuthorRole.unknown;
+    }
+  }
+
+  /// UI'da gösterilecek etiket
+  String get displayLabel {
+    switch (this) {
+      case AuthorRole.seller:
+        return 'Satıcı';
+      case AuthorRole.courier:
+        return 'Kurye';
+      case AuthorRole.driver:
+        return 'Sürücü';
+      case AuthorRole.admin:
+        return 'Admin';
+      case AuthorRole.customer:
+        return 'Kullanıcı';
+      case AuthorRole.unknown:
+        return 'Bilinmeyen';
+    }
+  }
+
+  /// Rozet rengini döndürür
+  bool get isStaff =>
+      this == AuthorRole.seller ||
+      this == AuthorRole.courier ||
+      this == AuthorRole.driver ||
+      this == AuthorRole.admin;
+}
+
+/// Verilen değerler arasında null/boş (trim sonrası) olmayan ilk değeri döndürür.
+/// Hepsi boşsa [fallback] döndürür. Yazar adı gösteriminde full_name eksikse
+/// username'e, o da yoksa "Bilinmeyen Kullanıcı"ya düşmek için kullanılır.
+/// Not: DB'de full_name NULL (ama username dolu) olan yazarların "Bilinmeyen
+/// Kullanıcı" olarak görünmesini önler.
+String firstNonEmpty(
+  List<String?> values, {
+  String fallback = 'Bilinmeyen Kullanıcı',
+}) {
+  for (final v in values) {
+    if (v != null && v.trim().isNotEmpty) return v;
+  }
+  return fallback;
+}
+
 class Post {
   final String id;
   final String userId;
   final String? content;
   final List<String> images;
+  // Legacy tek-görsel kolonu (DB: posts.image_url). Yeni gönderiler images[]
+  // kullanır; bu alan yalnızca eski satırları temsil eder ve görselin
+  // kaybolmaması için fromJson'de images'a katılır.
+  final String? imageUrl;
   final String? location;
   final double? latitude;
   final double? longitude;
@@ -15,11 +86,20 @@ class Post {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  // ✅ Yazar bilgileri (posts_with_profiles view'ından gelir)
+  final String? authorUsername;
+  final String? authorFullName;
+  final String? authorAvatarUrl;
+  final bool authorIsVerified;
+  final AuthorRole authorRole;
+  final bool authorProfileExists;
+
   Post({
     required this.id,
     required this.userId,
     this.content,
     this.images = const [],
+    this.imageUrl,
     this.location,
     this.latitude,
     this.longitude,
@@ -29,6 +109,12 @@ class Post {
     this.isActive = true,
     this.isPinned = false,
     this.adminPinned = false,
+    this.authorUsername,
+    this.authorFullName,
+    this.authorAvatarUrl,
+    this.authorIsVerified = false,
+    this.authorRole = AuthorRole.unknown,
+    this.authorProfileExists = true,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -38,6 +124,7 @@ class Post {
     String? userId,
     String? content,
     List<String>? images,
+    String? imageUrl,
     String? location,
     double? latitude,
     double? longitude,
@@ -47,6 +134,12 @@ class Post {
     bool? isActive,
     bool? isPinned,
     bool? adminPinned,
+    String? authorUsername,
+    String? authorFullName,
+    String? authorAvatarUrl,
+    bool? authorIsVerified,
+    AuthorRole? authorRole,
+    bool? authorProfileExists,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -55,6 +148,7 @@ class Post {
       userId: userId ?? this.userId,
       content: content ?? this.content,
       images: images ?? this.images,
+      imageUrl: imageUrl ?? this.imageUrl,
       location: location ?? this.location,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
@@ -64,6 +158,12 @@ class Post {
       isActive: isActive ?? this.isActive,
       isPinned: isPinned ?? this.isPinned,
       adminPinned: adminPinned ?? this.adminPinned,
+      authorUsername: authorUsername ?? this.authorUsername,
+      authorFullName: authorFullName ?? this.authorFullName,
+      authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
+      authorIsVerified: authorIsVerified ?? this.authorIsVerified,
+      authorRole: authorRole ?? this.authorRole,
+      authorProfileExists: authorProfileExists ?? this.authorProfileExists,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -75,6 +175,7 @@ class Post {
       'user_id': userId,
       'content': content,
       'images': images,
+      if (imageUrl != null) 'image_url': imageUrl,
       'location': location,
       'latitude': latitude,
       'longitude': longitude,
@@ -84,17 +185,58 @@ class Post {
       'is_active': isActive,
       'is_pinned': isPinned,
       'admin_pinned': adminPinned,
+      // Yazar bilgileri (view'dan okunduğunda cache için serialize edilir)
+      if (authorUsername != null) 'author_username': authorUsername,
+      if (authorFullName != null) 'author_full_name': authorFullName,
+      if (authorAvatarUrl != null) 'author_avatar_url': authorAvatarUrl,
+      'author_is_verified': authorIsVerified,
+      'author_role': authorRole.name,
+      'author_profile_exists': authorProfileExists,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
 
+  /// ✅ posts_with_profiles view'ından GELEN JSON'u parse eder.
+  /// Hem view'dan (username, full_name, avatar_url, role, is_verified düz alanlar)
+  /// hem de düz posts tablosundan (yazar alanları null) çalışır.
+  /// Geriye dönük uyumluluk: author_username/author_full_name/author_avatar_url
+  /// de okunur (cache restore senaryoları için).
   factory Post.fromJson(Map<String, dynamic> json) {
+    // View'dan gelen düz alanlar: username, full_name, avatar_url, role, is_verified
+    // Veya cache'den gelen: author_username, author_full_name, ...
+    final username = json['author_username'] as String? ??
+        json['username'] as String?;
+    final fullName = json['author_full_name'] as String? ??
+        json['full_name'] as String?;
+    final avatarUrl = json['author_avatar_url'] as String? ??
+        json['avatar_url'] as String?;
+    final isVerified = json['author_is_verified'] as bool? ??
+        json['is_verified'] as bool? ??
+        false;
+    final role = AuthorRole.fromString(
+      json['author_role'] as String? ?? json['role'] as String?,
+    );
+    final profileExists = json['author_profile_exists'] as bool? ?? true;
+
+    // Görseller: ana kolon images[] (text[]). image_url legacy tek-görsel
+    // kolonudur; images boş ama image_url varsa onu gösterim için images'a
+    // katlıyoruz ki eski gönderilerdeki görsel kaybolmasın.
+    final imageUrl = json['image_url'] as String?;
+    var images = (json['images'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    if (images.isEmpty && imageUrl != null && imageUrl.isNotEmpty) {
+      images = [imageUrl];
+    }
+
     return Post(
       id: json['id'] as String,
-      userId: json['user_id'] as String,
+      // Şema: user_id NULL olabilir (orphan post). Null gelirse feed çökmesin
+      // diye boş string'e düşürürüz; UI "Bilinmeyen Kullanıcı" fallback'i ile
+      // başa çıkar (author_profile_exists=false).
+      userId: json['user_id'] as String? ?? '',
       content: json['content'] as String?,
-      images: (json['images'] as List<dynamic>?)?.cast<String>() ?? [],
+      images: images,
+      imageUrl: imageUrl,
       location: json['location'] as String?,
       latitude: json['latitude'] != null ? (json['latitude'] as num).toDouble() : null,
       longitude: json['longitude'] != null ? (json['longitude'] as num).toDouble() : null,
@@ -104,6 +246,12 @@ class Post {
       isActive: json['is_active'] as bool? ?? true,
       isPinned: json['is_pinned'] as bool? ?? false,
       adminPinned: json['admin_pinned'] as bool? ?? false,
+      authorUsername: username,
+      authorFullName: fullName,
+      authorAvatarUrl: avatarUrl,
+      authorIsVerified: isVerified,
+      authorRole: role,
+      authorProfileExists: profileExists,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );

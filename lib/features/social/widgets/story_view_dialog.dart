@@ -104,8 +104,15 @@ class _StoryViewDialogState extends State<StoryViewDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final username = _userProfile?['username'] ?? widget.story.userId.substring(0, 8);
-    final fullName = _userProfile?['full_name'] ?? username;
+    // ✅ UX FIX: Profil kaydı OLMAYAN eski story sahipleri için UUID
+    //    kırpıntısı göstermek yerine jenerik "kullanici" fallback'i.
+    final rawUsername = _userProfile?['username']?.toString().trim();
+    final hasRealUsername = rawUsername != null && rawUsername.isNotEmpty;
+    final username = hasRealUsername ? rawUsername : 'kullanici';
+    final fullName =
+        (_userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)
+            ? _userProfile!['full_name'].toString()
+            : username;
     final avatarUrl = _userProfile?['avatar_url'];
 
     return Dialog(

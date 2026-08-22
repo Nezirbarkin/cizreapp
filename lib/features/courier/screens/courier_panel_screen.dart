@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/models/courier_assignment_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/courier_notification_service.dart';
@@ -54,6 +55,7 @@ class CourierPanelScreen extends StatefulWidget {
 class _CourierPanelScreenState extends State<CourierPanelScreen>
     with WidgetsBindingObserver {
   int _selectedIndex = 0;
+  bool _didApplyRouteArguments = false;
   final NotificationService _notificationService = NotificationService();
   int _unreadNotificationCount = 0; // ignore: unused_field
 
@@ -70,6 +72,18 @@ class _CourierPanelScreenState extends State<CourierPanelScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didApplyRouteArguments) return;
+    _didApplyRouteArguments = true;
+
+    final arguments = ModalRoute.of(context)?.settings.arguments;
+    if (arguments is Map && arguments['tab'] == 1) {
+      _selectedIndex = 1;
+    }
   }
 
   @override
@@ -1627,9 +1641,15 @@ class CourierOrdersTab extends StatefulWidget {
 class _CourierOrdersTabState extends State<CourierOrdersTab>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
+  RealtimeChannel? _ordersChannel;
   List<Map<String, dynamic>> _availableOrders = [];
   List<Map<String, dynamic>> _myOrders = [];
   bool _isLoading = true;
+  bool _isRefreshing = false;
+  bool _refreshQueued = false;
+  bool _focusRequestedTabAfterRefresh = false;
+  bool _didReadRouteArguments = false;
+  String? _packageError; // Paket RPC hata özeti (UI'da gösterilir)
   double _commissionPercent = 20;
 
   /// Kurye ücretini al
@@ -1655,14 +1675,101 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     // Eskiden didChangeAppLifecycleState yalnızca parent'ta setState ederdi
     // ve kurye yeni atamaları görmezdi; pull-to-refresh gerekirdi.
     WidgetsBinding.instance.addObserver(this);
+    _subscribeToCourierWorkChanges();
     _loadOrders();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    final channel = _ordersChannel;
+    if (channel != null) {
+      Supabase.instance.client.removeChannel(channel);
+    }
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didReadRouteArguments) return;
+    _didReadRouteArguments = true;
+
+    // Atama/yönlendirme push'ından gelindiğinde dış panel "Siparişler"i açar;
+    // yeni işler açık kabul beklediği için içte "Atanabilir" sekmesi gösterilir.
+    final arguments = ModalRoute.of(context)?.settings.arguments;
+    if (arguments is Map && arguments['tab'] == 1) {
+      _focusRequestedTabAfterRefresh = true;
+    }
+  }
+
+  /// Kurye paneli açıkken yapılan atama/devir ve Paket+ değişikliklerini anlık
+  /// yeniler. Özellikle `reject_order_assignment` mevcut assignment satırının
+  /// `courier_id` değerini değiştirdiği için yeni kurye, uygulamayı yeniden
+  /// açmadan siparişi görmelidir.
+  void _subscribeToCourierWorkChanges() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final previous = _ordersChannel;
+    if (previous != null) {
+      Supabase.instance.client.removeChannel(previous);
+    }
+
+    _ordersChannel = Supabase.instance.client
+        .channel('courier_work_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'courier_assignments',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'courier_id',
+            value: userId,
+          ),
+          callback: (_) {
+            if (mounted) {
+              _focusRequestedTabAfterRefresh = true;
+              _loadOrders();
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'courier_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'courier_id',
+            value: userId,
+          ),
+          callback: (_) {
+            if (mounted) _loadOrders();
+          },
+        )
+        // Paket teklifinde courier_requests.courier_id kabul öncesi null kalır;
+        // sipariş teklifinde de hedef değişikliği sırasında Realtime UPDATE
+        // filtresi her istemcide güvenilir olmayabilir. Hedef kullanıcıya yazılan
+        // yönlendirme notification'ı iki akış için ortak ve RLS ile kullanıcıya
+        // özeldir; bu olay Atanabilir listesini anında yeniler.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (_) {
+            if (mounted) {
+              _focusRequestedTabAfterRefresh = true;
+              _loadOrders();
+            }
+          },
+        )
+        .subscribe();
   }
 
   @override
@@ -1673,7 +1780,16 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
   }
 
   Future<void> _loadOrders() async {
-    setState(() => _isLoading = true);
+    if (_isRefreshing) {
+      // Atama ilk yükleme devam ederken gelirse Realtime olayını kaybetme.
+      _refreshQueued = true;
+      return;
+    }
+    _isRefreshing = true;
+    setState(() {
+      _isLoading = true;
+      _packageError = null;
+    });
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
@@ -1696,109 +1812,116 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       debugPrint('========== KURYE SİPARİŞ YÜKLEME ==========');
       debugPrint('Kullanıcı ID: $userId');
 
-      // Service rol ile RLS bypass et
-      final serviceClient = Supabase.instance.client;
-
-      // Atanabilir siparişleri getir
+      // Atanabilir siparişleri PII içermeyen RPC'den yükle.
+      // Eski yol orders'ı doğrudan select edip customer_phone /
+      // delivery_address_text (PII) henüz kabul etmemiş tüm kuryelere
+      // sızdırıyordu; ayrıca RLS körlüğü yüzünden başka kuryeye atanmış
+      // siparişleri de listeliyordu. get_available_orders_for_courier her iki
+      // sorunu da sunucu tarafında çözer — yalnız id/total/shop_name/item_count
+      // döner; adres/telefon yalnız kabul edene (get_courier_active_orders) açılır.
       List<Map<String, dynamic>> availableFiltered = [];
       try {
-        // Kuryesi olmayan dükkanlardaki confirmed/preparing/ready siparişleri bul
-        final ordersData = await serviceClient
-            .from('orders')
-            .select('''
-                id, total, delivery_address_text, customer_phone, created_at, shop_id, status,
-                shops(name, has_own_courier),
-                order_items(quantity, product_name)
-            ''')
-            .inFilter('status', ['confirmed', 'preparing', 'ready'])
-            .order('created_at', ascending: true)
-            .limit(100);
-
-        debugPrint('Tüm sipariş sayısı: ${ordersData.length}');
-
-        // Dükkan bilgilerini al
-        final shopsData = await serviceClient
-            .from('shops')
-            .select('id')
-            .or('has_own_courier.is.null,has_own_courier.eq.false');
-        final shopIds = (shopsData as List)
-            .map((s) => s['id'] as String?)
-            .whereType<String>()
-            .toSet();
-
-        // Atanmış siparişleri bul
-        final assignedData = await serviceClient
-            .from('courier_assignments')
-            .select('order_id')
-            .inFilter('status', [
-              'assigned',
-              'picked_up',
-              'on_the_way',
-              'delivered',
-            ]);
-        final assignedIds = (assignedData as List)
-            .map((a) => a['order_id'] as String?)
-            .whereType<String>()
-            .toSet();
-
-        debugPrint('Kuryesi olmayan dükkan sayısı: ${shopIds.length}');
-        debugPrint('Atanmış sipariş sayısı: ${assignedIds.length}');
-
-        for (final order in (ordersData as List)) {
-          final shopId = order['shop_id'] as String?;
-          final orderId = order['id'] as String?;
-          if (shopId == null || orderId == null) continue;
-
-          // Kuryesi olmayan dükkan ve atanmamış sipariş
-          if (shopIds.contains(shopId) && !assignedIds.contains(orderId)) {
-            availableFiltered.add(Map<String, dynamic>.from(order));
-            debugPrint('Atanabilir sipariş: ${orderId}');
-          }
-        }
-
+        final rows = await Supabase.instance.client.rpc(
+          'get_available_orders_for_courier',
+        );
+        availableFiltered = (rows as List)
+            .map<Map<String, dynamic>>(
+              (r) => {
+                'id': r['id'],
+                'total': r['total'],
+                'shop_id': r['shop_id'],
+                'shop_name': r['shop_name'],
+                'shops': {'name': r['shop_name']},
+                'created_at': r['created_at'],
+                // RPC order status döndürmez; havuz yalnızca
+                // confirmed/preparing/ready siparişleri içerir.
+                'status': 'ready',
+                'item_count': r['item_count'],
+                'order_items': List.generate(
+                  (r['item_count'] as num? ?? 0).toInt(),
+                  (_) => <String, dynamic>{},
+                ),
+                '_type': 'order',
+              },
+            )
+            .toList();
         debugPrint('Toplam atanabilir sipariş: ${availableFiltered.length}');
       } catch (e) {
         debugPrint('❌ Atanabilir siparişler hatası: $e');
       }
 
+      // Ret/devret sonrası yalnız hedef kuryeye yönlendirilmiş sipariş teklifleri.
+      // Bu RPC kabul öncesi tam teslimat detayını yalnız offer sahibine açar.
+      try {
+        final routedRows = await Supabase.instance.client.rpc(
+          'get_courier_routed_order_offers',
+        );
+        final routedOrders = (routedRows as List).map<Map<String, dynamic>>((
+          r,
+        ) {
+          final items = r['order_items_json'];
+          return {
+            'id': r['order_id'],
+            'total': r['order_total'],
+            'shop_id': r['shop_id'],
+            'shop_name': r['shop_name'],
+            'shops': {'name': r['shop_name']},
+            'created_at': r['created_at'],
+            'status': r['order_status'] ?? 'ready',
+            'delivery_address_text': r['delivery_address_text'],
+            'customer_phone': r['customer_phone'],
+            'order_items': items is List
+                ? List<Map<String, dynamic>>.from(items)
+                : <Map<String, dynamic>>[],
+            'assignment_id': r['assignment_id'],
+            'offer_id': r['offer_id'],
+            'fee_amount': r['fee_amount'],
+            'is_routed_offer': true,
+            '_type': 'order',
+          };
+        }).toList();
+        availableFiltered = [...routedOrders, ...availableFiltered];
+        debugPrint('Yönlendirilmiş sipariş teklifi: ${routedOrders.length}');
+      } catch (e) {
+        debugPrint('❌ Yönlendirilmiş sipariş teklifleri hatası: $e');
+      }
+
       // Aktif siparişleri getir (bu kuryeye atanmış olanlar)
       List<Map<String, dynamic>> myOrdersList = [];
       try {
-        final assignments = await serviceClient
-            .from('courier_assignments')
-            .select('''
-                id, status, fee_amount, assigned_at,
-                orders(
-                    id, total, delivery_address_text, customer_phone, created_at, status, user_id,
-                    shops(name),
-                    order_items(quantity, product_name)
-                )
-            ''')
-            .eq('courier_id', userId)
-            .inFilter('status', [
-              'assigned',
-              'picked_up',
-              'on_the_way',
-              'delivered',
-            ])
-            .order('assigned_at', ascending: false);
+        // SECURITY DEFINER RPC, assignment devrinden sonra yeni kuryenin tam
+        // sipariş detayını tek sorguda ve RLS/embed kırılganlığı olmadan döner.
+        // Önceki doğrudan courier_assignments -> orders embed sorgusunda alt
+        // orders kaydı RLS nedeniyle null dönebildiği için assignment mevcut
+        // olsa bile kart listeye hiç eklenmiyordu.
+        final assignments = await Supabase.instance.client.rpc(
+          'get_courier_active_orders',
+        );
 
         debugPrint('Aktif sipariş sayısı: ${assignments.length}');
 
         for (final a in (assignments as List)) {
-          final order = a['orders'] as Map<String, dynamic>?;
-          if (order != null) {
-            // order zaten spread'de nested objeleri (shops, order_items) içeriyor
-            myOrdersList.add({
-              ...order,
-              'assignment_id': a['id'],
-              'assignment_status': a['status'],
-              'fee_amount': a['fee_amount'],
-            });
-            debugPrint(
-              'Aktif sipariş: ${order['id']} | durum: ${a['status']} | items: ${(order['order_items'] as List?)?.length ?? 0}',
-            );
-          }
+          final items = a['order_items_json'];
+          final normalizedItems = items is List
+              ? List<Map<String, dynamic>>.from(items)
+              : <Map<String, dynamic>>[];
+          final order = <String, dynamic>{
+            'id': a['order_id'],
+            'total': a['order_total'],
+            'status': a['order_status'],
+            'delivery_address_text': a['delivery_address_text'],
+            'customer_phone': a['customer_phone'],
+            'created_at': a['created_at'],
+            'shops': {'name': a['shop_name']},
+            'order_items': normalizedItems,
+            'assignment_id': a['assignment_id'],
+            'assignment_status': a['assignment_status'],
+            'fee_amount': a['fee_amount'],
+          };
+          myOrdersList.add(order);
+          debugPrint(
+            'Aktif sipariş: ${order['id']} | durum: ${a['assignment_status']} | items: ${normalizedItems.length}',
+          );
         }
 
         debugPrint('Toplam aktif sipariş: ${myOrdersList.length}');
@@ -1808,11 +1931,12 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
 
       debugPrint('===========================================');
 
-      // Paket gönderim talepleri: PII içermeyen RPC üzerinden yüklenir.
-      // Atanmamış bekleyen talepler için courier_requests tablosuna doğrudan
-      // .select() ile erişim KALDIRILDI (yetkisiz kuryelere PII sızıntısı).
+      // Paket gönderim talepleri güvenli RPC üzerinden yüklenir. Hedeflenmiş
+      // tekliflerde tam alım/teslim bilgisi yalnız hedef kuryeye; genel havuzda
+      // ise PII yerine açıklayıcı adres özeti döner.
       List<Map<String, dynamic>> availablePackages = [];
       List<Map<String, dynamic>> myPackages = [];
+      String? packageError; // UI'da gösterilecek hata özeti
       try {
         final pending = await Supabase.instance.client.rpc(
           'list_available_package_requests',
@@ -1826,6 +1950,19 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                 'courier_fee': r['courier_fee'],
                 'delivery_card_label': r['delivery_card_label'],
                 'created_at': r['created_at'],
+                'offer_id': r['offer_id'],
+                'sender_name': r['sender_name'],
+                'sender_phone': r['sender_phone'],
+                'recipient_name': r['recipient_name'],
+                'recipient_phone': r['recipient_phone'],
+                'pickup_address': r['pickup_address'],
+                'pickup_lat': r['pickup_lat'],
+                'pickup_lng': r['pickup_lng'],
+                'delivery_address': r['delivery_address'],
+                'delivery_address_detail': r['delivery_address_detail'],
+                'delivery_lat': r['delivery_lat'],
+                'delivery_lng': r['delivery_lng'],
+                'is_routed_offer': r['is_routed'] == true,
                 '_type': 'package',
               },
             )
@@ -1834,10 +1971,14 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
         // Atanmış paketler: kendi satırlarımızı RLS üzerinden çekebiliriz.
         // Sadece PII olmayan kolonları istiyoruz; detaylar get_assigned_package_details
         // ile kart açılınca yüklenir.
-        final myAccepted = await serviceClient
+        final myAccepted = await Supabase.instance.client
             .from('courier_requests')
             .select(
-              'id, status, courier_fee, total_fee, admin_commission, created_at, accepted_at, delivered_at',
+              'id, status, courier_fee, total_fee, admin_commission, created_at, '
+              'accepted_at, delivered_at, distance_km, '
+              'sender_name, sender_phone, recipient_name, recipient_phone, '
+              'pickup_address, pickup_lat, pickup_lng, '
+              'delivery_address, delivery_address_detail, delivery_lat, delivery_lng',
             )
             .eq('courier_id', userId)
             .inFilter('status', [
@@ -1851,17 +1992,47 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
         ).map((r) => {...r, '_type': 'package'}).toList();
       } catch (e) {
         debugPrint('❌ Paket talepleri hatası: $e');
+        // Kullanıcı dostu özet. Özellikle 42P01 (tablo yok) ve
+        // PGRST202 (PostgREST cache eski) durumları için yönlendirme.
+        final msg = e.toString();
+        if (msg.contains('42P01') || msg.contains('does not exist')) {
+          packageError =
+              'Sistemde bir güncelleme gerekiyor (paket tablosu eksik). '
+              'Lütfen yöneticiyle iletişime geçin.';
+        } else if (msg.contains('PGRST202')) {
+          packageError =
+              'Şema önbelleği güncelleniyor. Birkaç saniye sonra tekrar '
+              'denemek için aşağıya dokunun.';
+        } else {
+          packageError = 'Paket talepleri yüklenemedi. Tekrar deneyin.';
+        }
       }
 
       setState(() {
         _availableOrders = [...availablePackages, ...availableFiltered];
         _myOrders = [...myPackages, ...myOrdersList];
+        _packageError = packageError;
         _isLoading = false;
       });
+
+      if (_focusRequestedTabAfterRefresh && _availableOrders.isNotEmpty) {
+        _focusRequestedTabAfterRefresh = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _tabController.index != 0) {
+            _tabController.animateTo(0);
+          }
+        });
+      }
     } catch (e, stackTrace) {
       debugPrint('❌ Genel hata: $e');
       debugPrint('Stack: $stackTrace');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    } finally {
+      _isRefreshing = false;
+      if (_refreshQueued && mounted) {
+        _refreshQueued = false;
+        Future.microtask(_loadOrders);
+      }
     }
   }
 
@@ -1916,9 +2087,16 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       onRefresh: _loadOrders,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-        itemCount: _availableOrders.length,
+        itemCount: _packageError != null
+            ? _availableOrders.length + 1
+            : _availableOrders.length,
         itemBuilder: (context, index) {
-          final order = _availableOrders[index];
+          // İlk item, RPC hata özeti ise bilgi kartı göster
+          if (_packageError != null && index == 0) {
+            return _buildPackageErrorBanner(_packageError!);
+          }
+          final orderIndex = _packageError != null ? index - 1 : index;
+          final order = _availableOrders[orderIndex];
           if (order['_type'] == 'package')
             return _buildPackageCard(order, isMine: false);
           return _buildAvailableOrderCard(order);
@@ -2502,6 +2680,20 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             const SizedBox(height: 12),
             // Teslim edilmiş siparişlerde buton gösterme
             if (order['assignment_status'] != 'delivered') ...[
+              if (order['assignment_status'] == 'assigned') ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _rejectOrderAssignment(order),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Siparişi Reddet'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               // Sol tarafta duruma göre adım butonu, sağ tarafta her durumda
               // doğrudan erişilebilen "Teslim Ettim" butonu gösterilir. Böylece
               // kurye ara adımları (aldım/yola çıktım) tamamlamak zorunda kalmadan
@@ -2594,91 +2786,23 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
   }
 
   Future<void> _acceptOrder(Map<String, dynamic> order) async {
+    final orderId = order['id'];
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
-
-      // Önce bu siparişin zaten atanmış olup olmadığını kontrol et
-      final existingAssignment = await Supabase.instance.client
-          .from('courier_assignments')
-          .select('id, status, courier_id')
-          .eq('order_id', order['id'])
-          .maybeSingle();
-
-      if (existingAssignment != null) {
-        // Sipariş zaten atanmış
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                existingAssignment['courier_id'] == userId
-                    ? 'Bu siparişi zaten aldınız'
-                    : 'Bu sipariş başka bir kurye tarafından alınmış',
-              ),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        _loadOrders();
-        return;
-      }
-
-      // Ücreti al
-      final settings = await Supabase.instance.client
-          .from('courier_settings')
-          .select('fee_per_delivery')
-          .limit(1)
-          .maybeSingle();
-      final fee = (settings?['fee_per_delivery'] as num?)?.toDouble() ?? 15.0;
-
-      debugPrint(
-        '📦 Sipariş alınıyor: ${order['id']}, kurye: $userId, ücret: $fee',
+      // Sunucu-otoriteli atama (self-accept): p_courier_id gönderilmediğinde
+      // RPC auth.uid()'yi atar. courier_assignments INSERT policy'si olmadığı
+      // için istemci doğrudan insert edemezdi (42501). RPC ayrıca fee, anti-race
+      // (FOR UPDATE + aktif-atama kontrolü), orders.status=on_the_way ve
+      // müşteriye tek "yolda" bildirimini atomik yapar.
+      final isRoutedOffer = order['is_routed_offer'] == true;
+      final result = await Supabase.instance.client.rpc(
+        isRoutedOffer ? 'accept_routed_order_offer' : 'assign_order_to_courier',
+        params: isRoutedOffer
+            ? {'p_offer_id': order['offer_id']}
+            : {'p_order_id': orderId},
       );
-
-      // Atamayı oluştur
-      await Supabase.instance.client.from('courier_assignments').insert({
-        'order_id': order['id'],
-        'courier_id': userId,
-        'status': 'assigned',
-        'fee_amount': fee,
-        'assigned_at': DateTime.now().toIso8601String(),
-      });
-
-      // Sipariş durumunu on_the_way yap
-      try {
-        await Supabase.instance.client
-            .from('orders')
-            .update({
-              'status': 'on_the_way',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', order['id']);
-        debugPrint('✅ Sipariş durumu on_the_way olarak güncellendi');
-      } catch (e) {
-        debugPrint('⚠️ Sipariş durumu güncellenemedi: $e');
-        // Kritik değil, atama yapıldı
-      }
-
-      // Müşteriye bildirim gönder
-      try {
-        final courierNotificationService = CourierNotificationService();
-        final courierProfile = await Supabase.instance.client
-            .from('profiles')
-            .select('full_name, username')
-            .eq('id', userId)
-            .maybeSingle();
-        final courierName =
-            courierProfile?['full_name'] ??
-            courierProfile?['username'] ??
-            'Kurye';
-        await courierNotificationService.notifyCustomerOrderAssigned(
-          customerId: order['user_id'] ?? '',
-          orderId: order['id'],
-          courierName: courierName,
-        );
-      } catch (e) {
-        debugPrint('⚠️ Müşteri bildirimi hatası: $e');
-      }
+      final fee = (result is List && result.isNotEmpty)
+          ? (((result.first as Map)['r_fee_amount'] as num?)?.toDouble() ?? 0)
+          : 0;
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2689,27 +2813,31 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             backgroundColor: Colors.green,
           ),
         );
-        _loadOrders();
+        await _loadOrders();
+        if (mounted && _tabController.index != 1) {
+          _tabController.animateTo(1);
+        }
       }
     } catch (e) {
       debugPrint('❌ Sipariş alınırken hata: $e');
+      final msg = e.toString();
+      final userMsg = msg.contains('already_assigned')
+          ? 'Bu sipariş başka bir kurye tarafından alınmış.'
+          : 'Sipariş alınamadı: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sipariş alınamadı: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(userMsg), backgroundColor: Colors.orange),
         );
+        _loadOrders();
       }
     }
   }
 
-  /// Siparişi aldığında çağrılır - picked_up durumuna geçer
-  /// Müşteriye "Siparişiniz Yolda" bildiriminin TEK KAYNAĞI (autoAssignCourierToOrder
-  /// tarafından çağrılan _notifyCourierOfAssignment ile değil; burada doğrudan
-  /// notifyCustomerOrderAssigned kullanılır). orders.status da 'on_the_way'
-  /// yapılarak satıcı paneli müşteriye Yolda bildirimi gönderebilsin diye
-  /// sipariş durumu senkronize tutulur.
+  /// Siparişi aldığında çağrılır - picked_up durumuna geçer.
+  ///
+  /// Müşteriye "Siparişiniz Yolda" bildirimi artık assign_order_to_courier
+  /// RPC'sinde TEK SEFER gönderiliyor (atama anında). Eskiden hem _acceptOrder
+  /// hem burada g��nderiliyordu (çift bildirim); artık burada gönderilmez.
   Future<void> _acceptDelivery(Map<String, dynamic> order) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -2719,7 +2847,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       final assignmentId = order['assignment_id'] as String?;
       if (orderId == null) return;
 
-      // Assignment durumunu picked_up yap
+      // Assignment durumunu picked_up yap (RLS UPDATE policy izin verir).
       if (assignmentId != null) {
         await Supabase.instance.client
             .from('courier_assignments')
@@ -2733,8 +2861,8 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             .eq('courier_id', userId);
       }
 
-      // Sipariş durumunu 'on_the_way' yap (satıcı paneli uyumu)
-      // Kurye "Siparişi Aldım" dediğinde sipariş YOLDA durumuna geçer.
+      // Sipariş durumunu 'on_the_way' yap (assign RPC zaten yapmış olsa da
+      // savunma amaçlı tutulur; satıcı paneli uyumu).
       try {
         await Supabase.instance.client
             .from('orders')
@@ -2747,40 +2875,10 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
         debugPrint('⚠️ Sipariş status güncellenemedi (kritik değil): $e');
       }
 
-      // Müşteriye "yolda" bildirimi gönder (TEK KAYNAK)
-      try {
-        final courierNotificationService = CourierNotificationService();
-        // Gerçek kurye adını profilden çek. Eskiden hardcoded 'Kurye'
-        // geçiriliyordu; müşteri kimin teslim ettiğini göremiyordu.
-        String courierName = 'Kurye';
-        try {
-          final profile = await Supabase.instance.client
-              .from('profiles')
-              .select('full_name, username')
-              .eq('id', userId)
-              .maybeSingle();
-          courierName = (profile?['full_name'] as String?)?.isNotEmpty == true
-              ? profile!['full_name'] as String
-              : (profile?['username'] as String?) ?? 'Kurye';
-        } catch (_) {
-          // profil alınamazsa 'Kurye' fallback
-        }
-        // notifyCustomerOrderAssigned zaten "Yolda" mesajı veriyor
-        await courierNotificationService.notifyCustomerOrderAssigned(
-          customerId: order['user_id'] ?? '',
-          orderId: orderId,
-          courierName: courierName,
-        );
-      } catch (e) {
-        debugPrint('⚠️ Yolda bildirimi hatası: $e');
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Sipariş alındı! Müşteriye "yolda" bildirimi gönderildi.',
-            ),
+            content: Text('Sipariş alındı. Teslimata çıkabilirsiniz.'),
             backgroundColor: Colors.blue,
           ),
         );
@@ -2827,7 +2925,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Yola çıktınız! Müşteriye bildirim gönderildi.'),
+            content: Text('Yola çıktınız!'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -2892,183 +2990,26 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     }
   }
 
-  /// Teslimatı tamamla (yardımcı metod)
+  /// Teslimatı tamamla (yardımcı metod).
+  ///
+  /// Sunucu-otoriteli: complete_order_delivery RPC tek atomik işlemde
+  ///   * courier_assignments.status='delivered' + delivered_at
+  ///   * orders.status='delivered', payment_status='paid', delivered_courier_*
+  ///   * profiles.delivered_count + 1 (guard trigger sadece RPC/postgres'i geçer)
+  ///   * idempotent courier_earnings (assignment_id unique)
+  ///   * müşteri + satıcı teslim bildirimi (add_notification)
+  /// yapar. Eski istemci akışı kırıktı: courier_earnings INSERT REVOKE'lu,
+  /// delivered_count guard'ı istemci UPDATE'ini engelliyor, satıcı/müşteri
+  /// bildirimleri RLS (user_id=auth.uid()) altında bloklanıyordu.
   Future<void> _completeDelivery(
     String assignmentId,
     String orderId,
     String userId,
   ) async {
-    // Atamanın saklı fee_amount'ını al; kazanç kaydını güncel fee_per_delivery
-    // yerine bu sabit değerle yaz (admin ücreti sonradan değişse bile tutararlı kalır).
-    double assignmentFee = 0;
-    try {
-      final assignmentRow = await Supabase.instance.client
-          .from('courier_assignments')
-          .select('fee_amount')
-          .eq('id', assignmentId)
-          .maybeSingle();
-      assignmentFee = (assignmentRow?['fee_amount'] as num?)?.toDouble() ?? 0;
-    } catch (e) {
-      debugPrint('⚠️ Atama fee_amount alınamadı: $e');
-    }
-
-    // Atamayı delivered olarak güncelle
-    await Supabase.instance.client
-        .from('courier_assignments')
-        .update({
-          'status': 'delivered',
-          'delivered_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', assignmentId);
-
-    // Kurye bilgisini al (sipariş güncellemesinde de kaydetmek için önce çekiyoruz)
-    String courierName = 'Kurye';
-    String courierPhone = '';
-    try {
-      final courierProfile = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, username, phone')
-          .eq('id', userId)
-          .maybeSingle();
-      courierName =
-          courierProfile?['full_name'] ??
-          courierProfile?['username'] ??
-          'Kurye';
-      courierPhone = (courierProfile?['phone'] as String?) ?? '';
-    } catch (e) {
-      debugPrint('Kurye bilgisi alinamadi: $e');
-    }
-
-    // Sipariş durumunu güncelle ve teslim eden kurye bilgisini de orders'a yaz.
-    // Bu sayede satıcı/admin panelleri courier_assignments join'ine bağımlı
-    // kalmadan orders kaydından kurye bilgisini gösterebilir.
-    // ÖNEMLİ: payment_status='paid' de burada yazılır. Eskiden kurye
-    // _completeDelivery orders'ı doğrudan güncelleyip OrderService'i
-    // atladığı için payment_status hep 'pending' kalıyordu; sadece kendi
-    // kuryesi olan dükkanlar paid yapıyordu. Teslim = ödenmiş (tüm yöntemler).
-    final now = DateTime.now().toIso8601String();
-    try {
-      await Supabase.instance.client
-          .from('orders')
-          .update({
-            'status': 'delivered',
-            'payment_status': 'paid',
-            'delivered_at': now,
-            'delivered_courier_id': userId,
-            'delivered_courier_name': courierName,
-            'delivered_courier_phone': courierPhone,
-          })
-          .eq('id', orderId);
-    } catch (e) {
-      // Sütunlar henüz eklenmemiş olabilir (migration çalıştırılmamış);
-      // o durumda sadece temel alanları güncelleyerek devam et.
-      debugPrint(
-        "⚠️ Kurye bilgisi orders'a yazılamadı (sütun eksik olabilir): $e",
-      );
-      try {
-        await Supabase.instance.client
-            .from('orders')
-            .update({
-              'status': 'delivered',
-              'payment_status': 'paid',
-              'delivered_at': now,
-            })
-            .eq('id', orderId);
-      } catch (e2) {
-        debugPrint('❌ orders güncellenemedi: $e2');
-      }
-    }
-
-    // Satıcıya bildirim gönder
-    try {
-      final orderData = await Supabase.instance.client
-          .from('orders')
-          .select('user_id, shop_id, shops(owner_id)')
-          .eq('id', orderId)
-          .maybeSingle();
-
-      if (orderData != null) {
-        final shopData = orderData['shops'] as Map<String, dynamic>?;
-        final sellerId = shopData?['owner_id'] as String?;
-
-        if (sellerId != null) {
-          // Satıcıya bildirim (kurye bilgisi ile)
-          await Supabase.instance.client.from('notifications').insert({
-            'user_id': sellerId,
-            'type': 'order_delivered',
-            'title': '✅ Sipariş Teslim Edildi',
-            'content': 'Sipariş $courierName tarafından teslim edildi.',
-            'data': {
-              'order_id': orderId,
-              'type': 'order_delivered',
-              'courier_name': courierName,
-            },
-            'is_read': false,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-          debugPrint('✅ Satıcıya teslimat bildirimi gönderildi');
-        }
-
-        // Müşteriye bildirim
-        final customerId = orderData['user_id'] as String?;
-        if (customerId != null) {
-          final courierNotificationService = CourierNotificationService();
-          await courierNotificationService.notifyCustomerOrderDelivered(
-            customerId: customerId,
-            orderId: orderId,
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('⚠️ Teslimat bildirimi hatası: $e');
-    }
-
-    // Teslimat sayısını artır (profiles tablosunda delivered_count)
-    try {
-      // Önce mevcut değeri al
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('delivered_count')
-          .eq('id', userId)
-          .maybeSingle();
-
-      final currentCount = (profile?['delivered_count'] as int?) ?? 0;
-
-      // Yeni değeri güncelle
-      await Supabase.instance.client
-          .from('profiles')
-          .update({'delivered_count': currentCount + 1})
-          .eq('id', userId);
-
-      // Kazanç tablosuna kayıt ekle — atamanın saklı fee_amount'ını kullan
-      // (yeniden sorgulanan güncel fee_per_delivery değil, böylece admin
-      // teslimat sonrası ücreti değiştirse bile kazanç kaydı tutarlı kalır).
-      await Supabase.instance.client.from('courier_earnings').insert({
-        'courier_id': userId,
-        'assignment_id': assignmentId,
-        'order_id': orderId,
-        'amount': assignmentFee,
-        'status': 'pending',
-        'created_at': DateTime.now().toIso8601String(),
-      });
-
-      debugPrint('✅ Teslimat kaydedildi: count=${currentCount + 1}');
-    } catch (e) {
-      debugPrint('⚠️ Teslimat sayısı/kazanç kaydı güncellenemedi: $e');
-      // Teslimat durumu 'delivered' olarak işaretlendi ama kazanç satırı
-      // oluşamadı (ağ/RLS). Kuryenin ödemesini kaçırmaması için bilgilendir.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Teslimat kaydedildi ancak kazanç kaydı oluşturulamadı. Lütfen yöneticiye bildirin.',
-            ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 6),
-          ),
-        );
-      }
-    }
+    await Supabase.instance.client.rpc(
+      'complete_order_delivery',
+      params: {'p_assignment_id': assignmentId},
+    );
   }
 
   void _callCustomer(String phone) async {
@@ -3091,95 +3032,19 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     }
   }
 
-  Future<void> _sendPackagePickupEmails(Map<String, dynamic> request) async {
+  Future<void> _sendPackagePickupEmail(String requestId) async {
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
-      final courier = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, phone, email')
-          .eq('id', userId)
-          .maybeSingle();
-      final courierName = courier?['full_name'] ?? 'Kurye';
-      final courierPhone = courier?['phone'] ?? '-';
-      final message =
-          'Kurye: $courierName ($courierPhone)\nAlım: ${request['pickup_address'] ?? '-'}\nTeslim: ${request['delivery_address'] ?? '-'}';
-
-      final recipients = <String>[];
-      final courierEmail = courier?['email'] as String?;
-      if (courierEmail != null && courierEmail.isNotEmpty) {
-        recipients.add(courierEmail);
-      } else {
-        debugPrint(
-          '⚠️ Kuryenin profiles.email alanı boş, kuryeye mail gönderilemeyecek (userId=$userId)',
-        );
-      }
-
-      final admins = await Supabase.instance.client
-          .from('profiles')
-          .select('email')
-          .eq('role', 'admin');
-      final adminList = List<Map<String, dynamic>>.from(admins);
-      debugPrint('📧 Bulunan admin sayısı: ${adminList.length}');
-      for (final a in adminList) {
-        final email = a['email'] as String?;
-        if (email != null && email.isNotEmpty) {
-          recipients.add(email);
-        } else {
-          debugPrint('⚠️ Bir admin profilinde email boş');
-        }
-      }
-
-      debugPrint('📧 Paket alım maili gönderilecek adresler: $recipients');
-      int sent = 0;
-      for (final to in recipients) {
-        try {
-          final res = await Supabase.instance.client.functions.invoke(
-            'send-order-email',
-            body: {
-              'type': 'package_status',
-              'to': to,
-              'data': {'title': 'Paket Alındı', 'message': message},
-            },
-          );
-          debugPrint('📧 $to -> status=${res.status} data=${res.data}');
-          if (res.status == 200) sent++;
-        } catch (e) {
-          debugPrint('❌ $to adresine mail gönderilemedi: $e');
-        }
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Bildirim maili: $sent/${recipients.length} adrese gönderildi',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Paket alım emaili gönderilemedi: $e');
-    }
-  }
-
-  Future<void> _notifyPackageSender(
-    Map<String, dynamic> request,
-    String title,
-    String content, {
-    required String type,
-  }) async {
-    final senderId = request['sender_id'] as String?;
-    if (senderId == null) return;
-    try {
-      await NotificationService().createNotification(
-        userId: senderId,
-        type: type,
-        title: title,
-        content: content,
+      final response = await Supabase.instance.client.functions.invoke(
+        'send-courier-package-email',
+        body: {'request_id': requestId},
+      );
+      debugPrint(
+        '📧 Kurye paket kabul maili: status=${response.status} data=${response.data}',
       );
     } catch (e) {
-      debugPrint('Bildirim gönderilemedi: $e');
+      // Paket kabulü tamamlandı; e-posta ikincil bir kanal olduğundan ana işlemi
+      // başarısız göstermiyoruz. Edge Function başarısız kaydıyla tekrar denenebilir.
+      debugPrint('⚠️ Kurye paket kabul e-postası gönderilemedi: $e');
     }
   }
 
@@ -3199,15 +3064,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
         );
       }
 
-      // Bildirimler istemcide kalabilir; e-posta gönderimi RPC başarılı
-      // olduğu için kabul sonrası tetiklenir.
-      await _notifyPackageSender(
-        request,
-        'Kurye Atandı',
-        'Paket talebiniz bir kurye tarafından kabul edildi ve yola çıkacak.',
-        type: 'courier_assigned',
-      );
-      await _sendPackagePickupEmails(request);
+      // Gönderici bildirimi RPC içinde atomiktir. Kuryenin e-postası istemciye
+      // açılmadan, JWT doğrulayan Edge Function tarafından gönderilir.
+      await _sendPackagePickupEmail(request['id'] as String);
       _loadOrders();
     } catch (e) {
       debugPrint('Paket kabul hatası: $e');
@@ -3225,38 +3084,90 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     try {
       // Sunucu-otoriteli ret: rejected_by sütununu istemci göndermez; sunucu
       // atomik olarak normalized tabloya ve sütuna ekleme yapar.
-      await Supabase.instance.client.rpc(
+      final response = await Supabase.instance.client.rpc(
         'reject_package_request',
         params: {'p_request_id': request['id']},
       );
+      final rows = List<Map<String, dynamic>>.from(response as List);
+      final nextCourierId = rows.isEmpty
+          ? null
+          : rows.first['r_next_courier_id'];
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nextCourierId == null
+                  ? 'Paket reddedildi ve kurye havuzuna geri bırakıldı.'
+                  : 'Paket başka bir kuryeye yönlendirildi.',
+            ),
+          ),
+        );
+      }
       _loadOrders();
     } catch (e) {
       debugPrint('Paket reddetme hatası: $e');
     }
   }
 
-  /// Kurye "teslim edildi" demek yerine artık onay ister. Gönderici kendi
-  /// ekranından confirm_package_delivery çağırarak teslimi onaylar; sunucu
-  /// atomik olarak earnings + delivered_count artışı yapar.
-  Future<void> _requestPackageDeliveryConfirmation(
-    Map<String, dynamic> request,
-  ) async {
+  Future<void> _rejectOrderAssignment(Map<String, dynamic> order) async {
+    final assignmentId = order['assignment_id'] as String?;
+    if (assignmentId == null) return;
+
+    try {
+      final response = await Supabase.instance.client.rpc(
+        'reject_order_assignment',
+        params: {'p_assignment_id': assignmentId},
+      );
+      final rows = List<Map<String, dynamic>>.from(response as List);
+      final wasReassigned =
+          rows.isNotEmpty && rows.first['r_next_courier_id'] != null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              wasReassigned
+                  ? 'Sipariş başka bir kuryeye atandı.'
+                  : 'Sipariş reddedildi ve kurye havuzuna geri bırakıldı.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      await _loadOrders();
+    } catch (e) {
+      debugPrint('❌ Sipariş reddetme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sipariş reddedilemedi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Kurye teslimi doğrudan tamamlar (gönderici onayı yok). Sunucu-otoriteli
+  /// complete_package_delivery RPC atomik olarak status='delivered' +
+  /// idempotent earnings + delivered_count artışı + göndericiye teslim
+  /// bildirimi yapar.
+  Future<void> _completePackageDelivery(Map<String, dynamic> request) async {
     try {
       await Supabase.instance.client.rpc(
-        'request_package_delivery_confirmation',
+        'complete_package_delivery',
         params: {'p_request_id': request['id']},
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Göndericiye onay isteği gönderildi'),
-            backgroundColor: Colors.blue,
+            content: Text('Paket teslim edildi'),
+            backgroundColor: Colors.green,
           ),
         );
       }
       _loadOrders();
     } catch (e) {
-      debugPrint('Teslimat onay isteği hatası: $e');
+      debugPrint('Paket teslim tamamlama hatası: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
@@ -3283,6 +3194,10 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     dynamic lng,
   ) {
     final hasLocation = lat != null && lng != null;
+    final addressText = address?.toString().trim();
+    final visibleAddress = addressText == null || addressText.isEmpty
+        ? 'Adres bilgisi kabul sonrası açılır'
+        : addressText;
     return InkWell(
       onTap: () => _openPackageLocation(lat as num?, lng as num?),
       child: Row(
@@ -3290,7 +3205,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
         children: [
           Expanded(
             child: Text(
-              '$label: ${address ?? '-'}',
+              '$label: $visibleAddress',
               style: TextStyle(
                 fontSize: 13,
                 color: hasLocation ? Colors.blue.shade700 : null,
@@ -3300,6 +3215,72 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
           ),
           if (hasLocation)
             Icon(Icons.map_outlined, size: 16, color: Colors.blue.shade700),
+        ],
+      ),
+    );
+  }
+
+  /// Paket kartında telefon satırı (alım = gönderici, teslim = alıcı). Veri
+  /// yoksa (henüz kabul edilmemiş paketler) hiçbir şey gösterilmez.
+  Widget _buildPackagePhoneLine(String label, dynamic phone) {
+    final p = (phone as String?)?.trim();
+    if (p == null || p.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          Icon(Icons.phone, size: 14, color: Colors.green.shade700),
+          const SizedBox(width: 4),
+          Text(
+            '$label: $p',
+            style: TextStyle(fontSize: 12, color: Colors.green.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPackageErrorBanner(String message) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        border: Border.all(color: Colors.orange.shade200),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            color: Colors.orange.shade800,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.orange.shade900,
+                height: 1.4,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _loadOrders,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: Colors.orange.shade900,
+            ),
+            child: const Text(
+              'Tekrar dene',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );
@@ -3353,7 +3334,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Paket - Gönderen: ${request['sender_name'] ?? '-'}',
+                  'Paket - Gönderen: ${request['sender_name'] ?? 'Bilgi kabul sonrası açılır'}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -3365,12 +3346,14 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
               pickupLat,
               pickupLng,
             ),
+            _buildPackagePhoneLine('Alım Tel', request['sender_phone']),
             _buildPackageAddressLine(
               'Teslim',
               request['delivery_address'],
               deliveryLat,
               deliveryLng,
             ),
+            _buildPackagePhoneLine('Teslim Tel', request['recipient_phone']),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3443,17 +3426,18 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                   if (!isMine) const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      // 2026-08-03: Kurye doğrudan "delivered" yapamaz; önce
-                      // gönderici onayı gerekir. Teslim sonrası onay isteği
-                      // gönderir, kazanç atomik RPC ile oluşur.
+                      // 2026-08-10: Gönderici onayı kaldırıldı. Kabul eden
+                      // kurye doğrudan "Teslim Ettim" ile teslimi tamamlar;
+                      // sunucu atomik olarak earnings + delivered_count artışı
+                      // yapar ve göndericiye bildirim gönderir.
                       onPressed: () => isMine
-                          ? _requestPackageDeliveryConfirmation(request)
+                          ? _completePackageDelivery(request)
                           : _acceptPackage(request),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.deepOrange,
                         foregroundColor: Colors.white,
                       ),
-                      child: Text(isMine ? 'Onay İste' : 'Kabul Et'),
+                      child: Text(isMine ? 'Teslim Ettim' : 'Kabul Et'),
                     ),
                   ),
                 ],
@@ -3806,8 +3790,10 @@ class _CourierEarningsScreenState extends State<CourierEarningsScreen> {
       final payoutResult = await Supabase.instance.client.rpc(
         'request_courier_payout',
         params: {
-          'p_idempotency_key':
-              '${DateTime.now().millisecondsSinceEpoch}-${userId.substring(0, 8)}',
+          // request_courier_payout(p_idempotency_key uuid) — geçerli v4 UUID
+          // zorunlu. Eski kod 'ts-userId' biçiminde string gönderiyordu ve
+          // PostgREST bunu uuid'e cast edemeyip 22P02 ile patlıyordu.
+          'p_idempotency_key': const Uuid().v4(),
         },
       );
 

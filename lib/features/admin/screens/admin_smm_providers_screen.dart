@@ -48,11 +48,13 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
           .select('id, name, can_use_own_smm_api, digital_commission_rate')
           .order('name');
       final orders = await _smmService.getAllDigitalOrders();
-      setState(() {
-        _providers = providers;
-        _shops = List<Map<String, dynamic>>.from(shops);
-        _allOrders = orders;
-      });
+      if (mounted) {
+        setState(() {
+          _providers = providers;
+          _shops = List<Map<String, dynamic>>.from(shops);
+          _allOrders = orders;
+        });
+      }
       // ignore: unused_local_variable
       final _ = userId;
     } catch (e) {
@@ -149,9 +151,7 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
 
   Future<void> _showAddProviderDialog() async {
     final nameController = TextEditingController();
-    final apiUrlController = TextEditingController(
-      text: 'https://smmget.com/api/v2',
-    );
+    final apiUrlController = TextEditingController();
     final apiKeyController = TextEditingController();
     final userId = _supabase.auth.currentUser?.id;
 
@@ -192,6 +192,7 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
 
     if (result == true && userId != null) {
       if (nameController.text.trim().isEmpty ||
+          apiUrlController.text.trim().isEmpty ||
           apiKeyController.text.trim().isEmpty)
         return;
       try {
@@ -345,8 +346,19 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                     Switch(
                       value: p.isActive,
                       onChanged: (v) async {
-                        await _smmService.updateProvider(id: p.id, isActive: v);
-                        await _loadData();
+                        try {
+                          await _smmService.updateProvider(
+                            id: p.id,
+                            isActive: v,
+                          );
+                          await _loadData();
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Hata: $e')),
+                            );
+                          }
+                        }
                       },
                     ),
                   ],

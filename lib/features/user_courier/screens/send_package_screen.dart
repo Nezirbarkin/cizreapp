@@ -1,8 +1,15 @@
+// ignore_for_file: avoid_print
+
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/address_model.dart';
-import '../../../core/services/notification_service.dart';
+import '../../../core/services/maps_api_key_service.dart';
 import '../../market/screens/address_picker_screen.dart';
 import 'package_history_screen.dart';
 import '../widgets/couriers_map_card.dart';
@@ -29,6 +36,22 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   double _perKmFee = 3;
   bool _isLoading = true;
   bool _isSubmitting = false;
+
+  // Google Directions ile alınan gerçek yol mesafesi (km). null ise _distanceKm
+  // Haversine (kuş ucuşu) fallback döner. Sunucu (RPC) aynı kaynağı kullandığı
+  // için UI önizlemesi ile kesilen tutar tutarlıdır.
+  double? _roadDistanceKm;
+  bool _isDistanceLoading = false;
+  // Tekrar tekrar aynı koordinatlar için Directions çağırmamak için cache.
+  double? _fetchedPickupLat;
+  double? _fetchedPickupLng;
+  double? _fetchedDeliveryLat;
+  double? _fetchedDeliveryLng;
+  // Haritada çizilecek rota polyline noktaları (Google Directions).
+  List<LatLng> _routePoints = const [];
+  // DEBUG: rota fetch akışını ekranda gösterir (logcat Flogger tarafından
+  // boğulduğu için). Çözüm sonrası kaldırılacak.
+  String _routeDebug = '';
 
   // Sunucudan dönen son gerçek tutar (UI'da onay sonrası gösterilir)
   double? _lastServerTotalFee;
@@ -67,6 +90,8 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         _deliveryAddress?.longitude == null) {
       return null;
     }
+    // Gerçek yol mesafesi varsa onu kullan; yoksa Haversine (kuş uçuşu) fallback.
+    if (_roadDistanceKm != null) return _roadDistanceKm;
     final meters = Geolocator.distanceBetween(
       _pickupAddress!.latitude!,
       _pickupAddress!.longitude!,
@@ -153,27 +178,288 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         } else {
           _deliveryAddress = result;
         }
+        // Adres değişti: eski rota/mesafe temizlenir, yeni fetch dolar.
+        _roadDistanceKm = null;
+        _routePoints = const [];
+        _fetchedPickupLat = null;
+        _fetchedPickupLng = null;
+        _fetchedDeliveryLat = null;
+        _fetchedDeliveryLng = null;
       });
+      _fetchRoadDistance();
     }
   }
 
-  Future<void> _notifyCouriers() async {
+  /// Alım→teslim gerçek yol mesafesini (km) + rota polyline'ını getirir.
+  /// Önce `route-distance` Edge Function (aynı anda road_distance_cache'i de
+  /// doldurur → RPC kesilen tutarda yol mesafesini kullanır). Edge Function
+  /// yoksa/hata verirse direkt Google Directions çağırır (rota çizgisi ve
+  /// önizleme yine gösterilir; kesilen tutar Haversine'e düşer). Böylece rota
+  /// çizgisi Edge Function deploy'una bağlı kalmadan görünür.
+  /// DEBUG yardımcı: mesajı hem terminale basar hem ekrandaki _routeDebug'ya
+  /// yazar (logcat'in Dart loglarını boğmasına karşı).
+  void _rl(String msg) {
+    print('[ROUTE] $msg');
+    if (mounted) setState(() => _routeDebug = msg);
+  }
+
+  Future<void> _fetchRoadDistance() async {
+    final pickupLat = _pickupAddress?.latitude;
+    final pickupLng = _pickupAddress?.longitude;
+    final deliveryLat = _deliveryAddress?.latitude;
+    final deliveryLng = _deliveryAddress?.longitude;
+    _rl('fetch: pickup=$pickupLat,$pickupLng delivery=$deliveryLat,$deliveryLng');
+    if (pickupLat == null || pickupLng == null || deliveryLat == null ||
+        deliveryLng == null) {
+      _rl('erken return: koordinat yok (adres seçilmedi?)');
+      return;
+    }
+    // Aynı koordinatlar için tekrar çağırma.
+    if (_fetchedPickupLat == pickupLat && _fetchedPickupLng == pickupLng &&
+        _fetchedDeliveryLat == deliveryLat && _fetchedDeliveryLng == deliveryLng) {
+      _rl('erken return: ayni koordinat (cache)');
+      return;
+    }
+
+    if (mounted) setState(() => _isDistanceLoading = true);
+    _rl('Edge Function çağrılıyor…');
+
+    // 1) Edge Function (cache + polyline).
     try {
-      final couriers = await Supabase.instance.client
-          .from('profiles')
-          .select('id')
-          .eq('role', 'courier');
-      for (final courier in List<Map<String, dynamic>>.from(couriers)) {
-        NotificationService().createNotification(
-          userId: courier['id'] as String,
-          type: 'new_package_request',
-          title: 'Yeni Paket Talebi',
-          content:
-              'Alım: ${_pickupAddress?.addressLine1 ?? '-'} → Teslim: ${_deliveryAddress?.addressLine1 ?? '-'}',
-        );
+      final result = await Supabase.instance.client.functions.invoke(
+        'route-distance',
+        body: {
+          'pickup_lat': pickupLat,
+          'pickup_lng': pickupLng,
+          'delivery_lat': deliveryLat,
+          'delivery_lng': deliveryLng,
+        },
+      ).timeout(const Duration(seconds: 10));
+      _rl('Edge yaniti: ${result.data}');
+      if (_applyRoadResult(result.data, pickupLat, pickupLng, deliveryLat, deliveryLng)) {
+        return;
       }
+      _rl('Edge beklenmeyen format → direkt Google');
     } catch (e) {
-      debugPrint('Kurye bildirimi gönderilemedi: $e');
+      _rl('Edge basarisiz ($e) → direkt Google');
+    }
+
+    // 2) Direkt Google Directions (Edge Function yoksa/404/hata).
+    if (await _fetchRoadDistanceDirect(
+      pickupLat, pickupLng, deliveryLat, deliveryLng,
+    )) {
+      return;
+    }
+
+    // 3) OSRM demo (ücretsiz, key yok) — Directions API GCP'de kapalıyken
+    //    rota çizgisi gösterebilmek için. Yalnızca görsel; ücretlendirme
+    //    sunucuda kalır.
+    if (await _fetchRoadDistanceOSRM(
+      pickupLat, pickupLng, deliveryLat, deliveryLng,
+    )) {
+      return;
+    }
+    _rl('hiçbir yol çalışmadı — rota yok, Haversine km');
+
+    if (mounted) setState(() => _isDistanceLoading = false);
+  }
+
+  /// Direkt Google Directions API çağrısı (rota + mesafe önizleme). Key:
+  /// .env → app_about_settings. Bu yol cache yazmaz; RPC ekseni Haversine
+  /// kullanır. Başarı true döner.
+  Future<bool> _fetchRoadDistanceDirect(
+    double pickupLat, double pickupLng,
+    double deliveryLat, double deliveryLng,
+  ) async {
+    String? apiKey;
+    try {
+      apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+    } catch (_) {}
+    if (apiKey == null || apiKey.isEmpty || !apiKey.startsWith('AIza')) {
+      try {
+        apiKey = await MapsApiKeyService.getGoogleMapsApiKey();
+      } catch (_) {}
+    }
+    if (apiKey == null || apiKey.isEmpty) {
+      _rl('Direkt: API key yok');
+      return false;
+    }
+    _rl('Direkt Google çağrılıyor, key=${apiKey.substring(0, 8)}…');
+    try {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=$pickupLat,$pickupLng'
+        '&destination=$deliveryLat,$deliveryLng'
+        '&mode=driving&key=$apiKey',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      _rl('Google HTTP ${response.statusCode}, ${response.body.length} byte');
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic> && body['status'] == 'OK') {
+        return _applyRoadResult(body, pickupLat, pickupLng, deliveryLat, deliveryLng,
+            googleShape: true);
+      }
+      _rl('Google başarısız: status=${body is Map ? body['status'] : '?'}');
+    } catch (e) {
+      _rl('Direkt hata: $e');
+    }
+    return false;
+  }
+
+  /// Elde edilen rota sonucunu state'e uygular. Edge Function ({ok,distance_km,
+  /// polyline}) ve direkt Google ({status,routes}) formatlarını ikisini de
+  /// işler. Başarı true döner.
+  bool _applyRoadResult(
+    dynamic data,
+    double pickupLat, double pickupLng,
+    double deliveryLat, double deliveryLng,
+    {bool googleShape = false}) {
+    if (data is! Map<String, dynamic>) return false;
+
+    double? km;
+    String? polylineStr;
+
+    if (googleShape) {
+      // Direkt Google Directions yanıtı.
+      final routes = data['routes'] as List?;
+      if (routes == null || routes.isEmpty) return false;
+      final leg = (routes[0]['legs'] as List?)?.firstOrNull;
+      final meters = (leg?['distance']?['value'] as num?)?.toDouble();
+      if (meters == null || meters <= 0) return false;
+      km = meters / 1000.0;
+      polylineStr = routes[0]['overview_polyline']?['points'] as String?;
+    } else {
+      // Edge Function yanıtı.
+      if (data['ok'] != true) return false;
+      km = (data['distance_km'] as num?)?.toDouble();
+      polylineStr = data['polyline'] as String?;
+      if (km == null || km <= 0) return false;
+    }
+
+    final points = (polylineStr != null && polylineStr.isNotEmpty)
+        ? _decodePolyline(polylineStr)
+        : const <LatLng>[];
+    _rl('BAŞARI km=$km polylineLen=${polylineStr?.length ?? 0} nokta=${points.length}');
+    if (mounted) {
+      setState(() {
+        _roadDistanceKm = km;
+        _routePoints = points;
+        _fetchedPickupLat = pickupLat;
+        _fetchedPickupLng = pickupLng;
+        _fetchedDeliveryLat = deliveryLat;
+        _fetchedDeliveryLng = deliveryLng;
+        _isDistanceLoading = false;
+      });
+    }
+    return true;
+  }
+
+  /// OSRM demo router (ücretsiz, key yok). Google Directions API GCP'de
+  /// kapalıyken rota çizgisi + önizleme mesafesi için yedek. demo sunucusu
+  /// (router.project-osrm.org) production için güvenilir değildir (rate limit,
+  /// SLA yok) — yalnızca görsel rota içindir. geometries=polyline, Google ile
+  /// aynı encoded format döndürür. Ücretlendirme yine sunucu otoritesinde
+  /// (RPC Haversine/road_distance_cache) kalır; buradan gelen km yalnızca
+  /// önizlemedir. Başarı true döner.
+  Future<bool> _fetchRoadDistanceOSRM(
+    double pickupLat, double pickupLng,
+    double deliveryLat, double deliveryLng,
+  ) async {
+    try {
+      // OSRM koordinat sırası: lng,lat;lng,lat
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '$pickupLng,$pickupLat;$deliveryLng,$deliveryLat'
+        '?overview=full&geometries=polyline',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      _rl('OSRM HTTP ${response.statusCode}, ${response.body.length} byte');
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic> && body['code'] == 'Ok') {
+        final routes = body['routes'] as List?;
+        if (routes == null || routes.isEmpty) {
+          _rl('OSRM: rota yok');
+          return false;
+        }
+        final meters = (routes[0]['distance'] as num?)?.toDouble();
+        final geometry = routes[0]['geometry'] as String?;
+        if (meters == null || meters <= 0 || geometry == null || geometry.isEmpty) {
+          _rl('OSRM: mesafe/geometri yok');
+          return false;
+        }
+        final km = meters / 1000.0;
+        final points = _decodePolyline(geometry);
+        _rl('OSRM BAŞARI km=$km nokta=${points.length}');
+        if (mounted) {
+          setState(() {
+            _roadDistanceKm = km;
+            _routePoints = points;
+            _fetchedPickupLat = pickupLat;
+            _fetchedPickupLng = pickupLng;
+            _fetchedDeliveryLat = deliveryLat;
+            _fetchedDeliveryLng = deliveryLng;
+            _isDistanceLoading = false;
+          });
+        }
+        return true;
+      }
+      _rl('OSRM başarısız: code=${body is Map ? body['code'] : '?'}');
+    } catch (e) {
+      _rl('OSRM hata: $e');
+    }
+    return false;
+  }
+
+  /// Google encoded polyline (overview_polyline.points) decode -> LatLng listesi.
+  /// Standart algoritma: 5-bit gruplar, işaretli delta.
+  static List<LatLng> _decodePolyline(String encoded) {
+    final result = <LatLng>[];
+    int index = 0, len = encoded.length;
+    int lat = 0, lng = 0;
+    while (index < len) {
+      int b, shift = 0, resultLat = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        resultLat |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dlat = (resultLat & 1) == 1
+          ? ~(resultLat >> 1)
+          : (resultLat >> 1);
+      lat += dlat;
+
+      shift = 0;
+      int resultLng = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        resultLng |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dlng = (resultLng & 1) == 1
+          ? ~(resultLng >> 1)
+          : (resultLng >> 1);
+      lng += dlng;
+
+      result.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return result;
+  }
+
+  /// Paket oluşturulduktan sonra en uygun online kuryeye bildirim atar
+  /// (otomatik yönlendirme). Eski istemci-taraflı toplu bildirim RLS altında
+  /// sessizce bloklanıyordu (profiles.role grant dışı + çapraz-kullanıcı
+  /// notifications insert user_id=auth.uid() kuralına takılıyordu) ve ayrıca
+  /// TÜM kuryelere yayın yapıyordu. Artık sunucu-otoriteli route_new_package_request
+  /// RPC: en uygun (online优先, en az teslimatlı) kuryeyi seçer ve yalnız ona
+  /// bildirir; paket havuzda kalır, kurye kabul eder. Hata akışı bozmaz.
+  Future<void> _notifyCouriers(String requestId) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'route_new_package_request',
+        params: {'p_request_id': requestId},
+      );
+    } catch (e) {
+      debugPrint('Kurye yönlendirme bildirimi gönderilemedi: $e');
     }
   }
 
@@ -251,16 +537,16 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
               'p_idempotency_key': idempotencyKey,
             },
           )
-          .select('id,total_fee')
+          .select('r_id,r_total_fee')
           .single();
 
       // Sunucu tarafından hesaplanan tutarı UI'a uygula
-      final serverTotalFee = (insertedRequest['total_fee'] as num?)?.toDouble();
+      final serverTotalFee = (insertedRequest['r_total_fee'] as num?)?.toDouble();
       if (serverTotalFee != null && mounted) {
         setState(() => _lastServerTotalFee = serverTotalFee);
       }
 
-      _notifyCouriers();
+      _notifyCouriers(insertedRequest['r_id'] as String);
 
       if (mounted) {
         final fee = _lastServerTotalFee;
@@ -285,10 +571,21 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
       // yoktur; hata mesajı doğrudan gösterilir.
       if (mounted) {
         // Yetersiz bakiye hatası kontrolü
+        // RPC 'APP:insufficient_balance | mevcut: X, gerekli: Y' raise ediyor.
+        // Eski kod sadece 'Insufficient balance' (boşluklu EN) arıyordu; bu
+        // nedenle canlıda yetersiz bakiye diyaloğu ASLA tetiklenmiyordu.
+        // Refactor (2026-08-07): case-insensitive, hem TR hem EN, hem de
+        // 'mevcut/gerekli' anahtar kelimelerini yakala.
         final errorMessage = e.toString();
-        if (errorMessage.contains('Insufficient balance') ||
-            errorMessage.contains('yetersiz bakiye')) {
-          // Bakiye miktarlarını ayıkla
+        final lowerMessage = errorMessage.toLowerCase();
+        final isInsufficientBalance = lowerMessage.contains('insufficient') ||
+            errorMessage.contains('yetersiz bakiye') ||
+            errorMessage.contains('mevcut:') ||
+            errorMessage.contains('gerekli:');
+
+        if (isInsufficientBalance) {
+          // Bakiye miktarlarını ayıkla: hem EN (Available:/Required:) hem
+          // TR (mevcut:/gerekli:) formatlarını destekle.
           String? availableText;
           String? requiredText;
           try {
@@ -299,6 +596,15 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                   .trim();
               requiredText = errorMessage
                   .split('Required:')[1]
+                  .split(',')[0]
+                  .trim();
+            } else if (errorMessage.contains('mevcut:')) {
+              availableText = errorMessage
+                  .split('mevcut:')[1]
+                  .split(',')[0]
+                  .trim();
+              requiredText = errorMessage
+                  .split('gerekli:')[1]
                   .split(',')[0]
                   .trim();
             }
@@ -711,6 +1017,20 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                     address: _deliveryAddress,
                     onTap: () => _pickAddress(isPickup: false),
                   ),
+                  // DEBUG: rota fetch akışı (geçici, çözüm sonrası kaldırılacak).
+                  if (_routeDebug.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '🔍 ROTA: $_routeDebug'
+                        '${_routePoints.isNotEmpty ? " | çizgi: ${_routePoints.length} nokta" : ""}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.deepOrange,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -720,6 +1040,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                         pickupLng: _pickupAddress?.longitude,
                         deliveryLat: _deliveryAddress?.latitude,
                         deliveryLng: _deliveryAddress?.longitude,
+                        routePoints: _routePoints,
                       ),
                       const SizedBox(height: 12),
                       // Yakın kuryeler listesi
@@ -739,11 +1060,13 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Mesafe: ${distanceKm!.toStringAsFixed(1)} km',
+                              _isDistanceLoading
+                                  ? 'Mesafe: hesaplanıyor…'
+                                  : 'Mesafe: ${distanceKm!.toStringAsFixed(1)} km',
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Açılış: ${_baseFee.toStringAsFixed(2)} ₺  +  ${distanceKm.toStringAsFixed(1)} km × ${_perKmFee.toStringAsFixed(2)} ₺',
+                              'Açılış: ${_baseFee.toStringAsFixed(2)} ₺  +  ${distanceKm!.toStringAsFixed(1)} km × ${_perKmFee.toStringAsFixed(2)} ₺',
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey,

@@ -301,6 +301,19 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         couponDiscountByShop: couponDiscountByShop,
       );
 
+      // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
+      // Eskiden yalnız mağaza-içi tekli checkout bu RPC'yi çağırıyordu, çok
+      // dükkanlı sepette kampanyalar hiç uygulanmıyordu.
+      for (final order in result.orders) {
+        try {
+          await _supabase.rpc('apply_campaign_rewards_for_order', params: {
+            'p_order_id': order.id,
+          });
+        } catch (campaignError) {
+          debugPrint('⚠️ Kampanya ödülü uygulanamadı (${order.shopId}): $campaignError');
+        }
+      }
+
       // Kuponları "kullanıldı" olarak işaretle (use_coupon RPC).
       // Eskiden multi-shop bu RPC'yi hiç çağırmıyordu → kuponlar sonsuz tekrar
       // kullanılabiliyordu. Bakiye yolunda yalnızca ödenen siparişler için.

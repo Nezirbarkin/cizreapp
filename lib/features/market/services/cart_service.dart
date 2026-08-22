@@ -38,6 +38,10 @@ class CartService {
               shop_id,
               is_available,
               stock_quantity,
+              shipping_fee,
+              free_shipping,
+              min_order_quantity,
+              max_order_quantity,
               shops (
                 name
               )
@@ -198,6 +202,10 @@ class CartService {
       shop_id,
       is_available,
       stock_quantity,
+      shipping_fee,
+      free_shipping,
+      min_order_quantity,
+      max_order_quantity,
       shops (name)
     )
   ''';
@@ -412,6 +420,10 @@ class CartService {
       variantData: item['variant_data'] as Map<String, dynamic>?,
       flashSaleId: item['flash_sale_id'] as String?,
       flashPrice: (item['flash_price'] as num?)?.toDouble(),
+      productShippingFee: (product?['shipping_fee'] as num?)?.toDouble(),
+      productFreeShipping: product?['free_shipping'] as bool? ?? false,
+      productMinOrderQuantity: (product?['min_order_quantity'] as num?)?.toInt(),
+      productMaxOrderQuantity: (product?['max_order_quantity'] as num?)?.toInt(),
     );
   }
 

@@ -41,6 +41,7 @@ class FlashSaleCard extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: sale.productImageUrl!,
                           fit: BoxFit.cover,
+                          memCacheWidth: 400,
                           placeholder: (_, __) => Container(
                             color: Colors.grey.shade200,
                             child: const Center(

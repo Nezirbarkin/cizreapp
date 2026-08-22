@@ -1,8 +1,11 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:typed_data';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/news_model.dart';
 import '../../../core/services/storage_service.dart';
 import '../services/news_service.dart';
@@ -41,10 +44,23 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
   bool _isBreaking = false;
   bool _isSaving = false;
   bool _isUploadingImage = false;
+  bool _isUploadingMedia = false;
   XFile? _selectedImage;
   Uint8List? _selectedImageBytes;
   String? _uploadedImageUrl;
   bool _removeExistingImage = false;
+  final List<XFile> _selectedGalleryImages = [];
+  final List<Uint8List> _selectedGalleryBytes = [];
+  List<NewsImageModel> _existingGalleryImages = [];
+  XFile? _selectedVideo;
+  Uint8List? _selectedVideoBytes;
+  String? _uploadedVideoUrl;
+  bool _removeExistingVideo = false;
+  Timer? _uploadTimer;
+  DateTime? _uploadStartedAt;
+  Duration? _estimatedUploadDuration;
+  String? _uploadStatusLabel;
+  double? _uploadProgress;
 
   @override
   void initState() {
@@ -65,10 +81,24 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     _isFeatured = widget.news?.isFeatured ?? false;
     _isBreaking = widget.news?.isBreaking ?? false;
     _uploadedImageUrl = widget.news?.thumbnailUrl;
+    _uploadedVideoUrl = widget.news?.videoUrl;
+    _existingGalleryImages = [...?widget.news?.images];
+    if (widget.news != null) _loadExistingMedia();
+  }
+
+  Future<void> _loadExistingMedia() async {
+    final news = await _newsService.getNewsById(widget.news!.id);
+    if (!mounted || news == null) return;
+    setState(() {
+      _existingGalleryImages = [...news.images]
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      _uploadedVideoUrl = news.videoUrl;
+    });
   }
 
   @override
   void dispose() {
+    _uploadTimer?.cancel();
     _titleController.dispose();
     _contentController.dispose();
     _summaryController.dispose();
@@ -90,6 +120,51 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     }
   }
 
+  Future<void> _pickGalleryImages() async {
+    final remaining =
+        10 - _existingGalleryImages.length - _selectedGalleryImages.length;
+    if (remaining <= 0) {
+      _showMessage('Galeriye en fazla 10 görsel eklenebilir.');
+      return;
+    }
+    final images = await ImagePicker().pickMultiImage(imageQuality: 90);
+    if (images.isEmpty) return;
+
+    final accepted = images.take(remaining);
+    for (final image in accepted) {
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 15 * 1024 * 1024) {
+        _showMessage('${image.name} 15 MB sınırını aşıyor.');
+        continue;
+      }
+      _selectedGalleryImages.add(image);
+      _selectedGalleryBytes.add(bytes);
+    }
+    if (!mounted) return;
+    setState(() {});
+    if (images.length > remaining) {
+      _showMessage(
+        'İlk $remaining görsel seçildi; galeri sınırı 10 görseldir.',
+      );
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    final video = await ImagePicker().pickVideo(source: ImageSource.gallery);
+    if (video == null) return;
+    final bytes = await video.readAsBytes();
+    if (bytes.length > 100 * 1024 * 1024) {
+      _showMessage('Tanıtım videosu en fazla 100 MB olabilir.');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _selectedVideo = video;
+      _selectedVideoBytes = bytes;
+      _removeExistingVideo = false;
+    });
+  }
+
   Future<void> _uploadImage() async {
     if (_selectedImage == null) return;
 
@@ -98,12 +173,15 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     try {
       final image = _selectedImage!;
       final bytes = _selectedImageBytes ?? await image.readAsBytes();
+      _startUploadTracking('Kapak görseli yükleniyor', bytes.length);
       final extension = _fileExtension(image.name);
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.$extension';
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) throw StateError('Oturum bulunamadı');
       final uploadUrl = await _storageService.uploadBytes(
         bucket: 'news-images',
         bytes: bytes,
-        path: 'thumbnails/$fileName',
+        path: '$userId/thumbnails/$fileName',
         metadata: {'contentType': _contentType(extension)},
       );
 
@@ -127,7 +205,78 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
         ).showSnackBar(SnackBar(content: Text('Yükleme hatası: $e')));
       }
     } finally {
+      _finishUploadTracking();
       if (mounted) setState(() => _isUploadingImage = false);
+    }
+  }
+
+  Future<bool> _uploadVideo() async {
+    if (_selectedVideo == null) return true;
+    setState(() => _isUploadingMedia = true);
+    try {
+      final video = _selectedVideo!;
+      final bytes = _selectedVideoBytes ?? await video.readAsBytes();
+      _startUploadTracking('Tanıtım videosu yükleniyor', bytes.length);
+      final extension = _videoExtension(video.name);
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) throw StateError('Oturum bulunamadı');
+      final url = await _storageService.uploadBytes(
+        bucket: 'news-images',
+        bytes: bytes,
+        path:
+            '$userId/videos/${DateTime.now().microsecondsSinceEpoch}.$extension',
+        metadata: {'contentType': _videoContentType(extension)},
+      );
+      if (url == null) return false;
+      if (mounted) {
+        setState(() {
+          _uploadedVideoUrl = url;
+          _selectedVideo = null;
+          _selectedVideoBytes = null;
+        });
+      }
+      return true;
+    } finally {
+      _finishUploadTracking();
+      if (mounted) setState(() => _isUploadingMedia = false);
+    }
+  }
+
+  Future<int> _uploadGallery(String newsId) async {
+    if (_selectedGalleryImages.isEmpty) return 0;
+    setState(() => _isUploadingMedia = true);
+    var uploaded = 0;
+    try {
+      final startOrder = _existingGalleryImages.length;
+      for (var i = 0; i < _selectedGalleryImages.length; i++) {
+        _startUploadTracking(
+          'Galeri görseli ${i + 1}/${_selectedGalleryImages.length} yükleniyor',
+          _selectedGalleryBytes[i].length,
+        );
+        final result = await _newsService.uploadNewsImageBytes(
+          newsId: newsId,
+          bytes: _selectedGalleryBytes[i],
+          extension: _fileExtension(_selectedGalleryImages[i].name),
+          sortOrder: startOrder + i,
+        );
+        if (result != null) uploaded++;
+      }
+      return uploaded;
+    } finally {
+      _finishUploadTracking();
+      if (mounted) setState(() => _isUploadingMedia = false);
+    }
+  }
+
+  Future<void> _deleteExistingGalleryImage(NewsImageModel image) async {
+    final success = await _newsService.deleteNewsImage(image.id);
+    if (!mounted) return;
+    if (success) {
+      setState(
+        () => _existingGalleryImages.removeWhere((e) => e.id == image.id),
+      );
+    } else {
+      _showMessage('Galeri görseli silinemedi.');
     }
   }
 
@@ -153,6 +302,79 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
     }
   }
 
+  String _videoExtension(String fileName) {
+    final extension = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'mp4';
+    return const {'mp4', 'mov', 'webm'}.contains(extension) ? extension : 'mp4';
+  }
+
+  String _videoContentType(String extension) => switch (extension) {
+    'mov' => 'video/quicktime',
+    'webm' => 'video/webm',
+    _ => 'video/mp4',
+  };
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Supabase SDK byte yüklemesinde transfer callback'i sağlamadığı için
+  /// ilerleme, dosya boyutu ve ortalama 1 MB/sn bağlantı üzerinden tahminidir.
+  void _startUploadTracking(String label, int byteCount) {
+    _uploadTimer?.cancel();
+    final estimatedSeconds = (byteCount / (1024 * 1024)).ceil() + 2;
+    _uploadStartedAt = DateTime.now();
+    _estimatedUploadDuration = Duration(
+      seconds: estimatedSeconds.clamp(3, 300),
+    );
+    _uploadStatusLabel = label;
+    _uploadProgress = 0;
+    if (mounted) setState(() {});
+    _uploadTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _uploadStartedAt == null) return;
+      final elapsed = DateTime.now().difference(_uploadStartedAt!);
+      final estimate = _estimatedUploadDuration!.inMilliseconds;
+      setState(() {
+        _uploadProgress = (elapsed.inMilliseconds / estimate).clamp(0, 0.95);
+      });
+    });
+  }
+
+  void _finishUploadTracking() {
+    _uploadTimer?.cancel();
+    if (!mounted || _uploadStatusLabel == null) return;
+    setState(() => _uploadProgress = 1);
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  }
+
+  String _estimatedTimeText(int bytes) {
+    final seconds = ((bytes / (1024 * 1024)).ceil() + 2).clamp(3, 300);
+    if (seconds < 60) return 'yaklaşık $seconds sn';
+    final minutes = (seconds / 60).ceil();
+    return 'yaklaşık $minutes dk';
+  }
+
+  String get _remainingUploadText {
+    if (_uploadStartedAt == null || _estimatedUploadDuration == null) return '';
+    final elapsed = DateTime.now().difference(_uploadStartedAt!);
+    final remaining = _estimatedUploadDuration! - elapsed;
+    if (remaining.isNegative) return 'Bağlantıya göre biraz daha sürebilir';
+    if (remaining.inSeconds < 60) {
+      return 'Tahmini ${remaining.inSeconds + 1} sn kaldı';
+    }
+    return 'Tahmini ${(remaining.inSeconds / 60).ceil()} dk kaldı';
+  }
+
   Future<void> _saveNews() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -173,6 +395,11 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
         }
       }
 
+      if (!await _uploadVideo()) {
+        _showMessage('Video yüklenemedi. Haber kaydedilmedi.');
+        return;
+      }
+
       if (widget.news == null) {
         final result = await _newsService.createNews(
           title: _titleController.text,
@@ -185,11 +412,21 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isBreaking: _isBreaking,
           locationName: _locationController.text,
           thumbnailUrl: _uploadedImageUrl,
+          videoUrl: _uploadedVideoUrl,
           publishedAt: _isPublished ? DateTime.now() : null,
         );
         if (result != null && mounted) {
+          final selectedCount = _selectedGalleryImages.length;
+          final uploadedCount = await _uploadGallery(result.id);
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Haber başarıyla oluşturuldu')),
+            SnackBar(
+              content: Text(
+                uploadedCount == selectedCount
+                    ? 'Haber ve medya dosyaları başarıyla oluşturuldu'
+                    : 'Haber kaydedildi; bazı galeri görselleri yüklenemedi',
+              ),
+            ),
           );
           Navigator.pop(context, true);
         } else if (mounted) {
@@ -210,12 +447,23 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
           isBreaking: _isBreaking,
           locationName: _locationController.text,
           thumbnailUrl: _uploadedImageUrl,
+          videoUrl: _uploadedVideoUrl,
           clearThumbnail: _removeExistingImage,
+          clearVideo: _removeExistingVideo,
           publishedAt: _isPublished ? DateTime.now() : null,
         );
         if (success && mounted) {
+          final selectedCount = _selectedGalleryImages.length;
+          final uploadedCount = await _uploadGallery(widget.news!.id);
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Haber başarıyla güncellendi')),
+            SnackBar(
+              content: Text(
+                uploadedCount == selectedCount
+                    ? 'Haber ve medya dosyaları başarıyla güncellendi'
+                    : 'Haber güncellendi; bazı galeri görselleri yüklenemedi',
+              ),
+            ),
           );
           Navigator.pop(context, true);
         } else if (mounted) {
@@ -296,7 +544,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                     v?.isEmpty ?? true ? 'İçerik gereklidir' : null,
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('Görsel Yönetimi'),
+              _buildSectionTitle('Kapak Görseli'),
               const SizedBox(height: 12),
               if (_uploadedImageUrl != null && _selectedImage == null)
                 Column(
@@ -413,7 +661,23 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                     ),
                   ),
                 ),
+              if (_selectedImageBytes != null && !_isUploadingImage) ...[
+                const SizedBox(height: 8),
+                _buildEstimateRow(
+                  _selectedImageBytes!.length,
+                  label: 'Kapak görseli',
+                ),
+              ],
               const SizedBox(height: 24),
+              _buildGalleryEditor(),
+              const SizedBox(height: 24),
+              _buildVideoEditor(),
+              const SizedBox(height: 24),
+              if (_uploadStatusLabel != null &&
+                  (_isUploadingImage || _isUploadingMedia)) ...[
+                _buildUploadProgressPanel(),
+                const SizedBox(height: 24),
+              ],
               _buildSectionTitle('Kategorilendirme'),
               const SizedBox(height: 12),
               Row(
@@ -511,7 +775,9 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _saveNews,
+                  onPressed: (_isSaving || _isUploadingMedia)
+                      ? null
+                      : _saveNews,
                   icon: _isSaving
                       ? const SizedBox(
                           width: 20,
@@ -544,6 +810,214 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
         fontSize: 16,
         fontWeight: FontWeight.bold,
         color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+
+  Widget _buildGalleryEditor() {
+    final total = _existingGalleryImages.length + _selectedGalleryImages.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Çoklu Görsel Galerisi ($total/10)'),
+        const SizedBox(height: 8),
+        const Text(
+          'Haber detayında sıralı olarak gösterilecek görselleri seçin.',
+        ),
+        const SizedBox(height: 12),
+        if (total > 0)
+          SizedBox(
+            height: 116,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                ..._existingGalleryImages.map(
+                  (image) => _mediaPreview(
+                    child: Image.network(image.imageUrl, fit: BoxFit.cover),
+                    onRemove: () => _deleteExistingGalleryImage(image),
+                  ),
+                ),
+                for (var i = 0; i < _selectedGalleryImages.length; i++)
+                  _mediaPreview(
+                    child: Image.memory(
+                      _selectedGalleryBytes[i],
+                      fit: BoxFit.cover,
+                    ),
+                    onRemove: () => setState(() {
+                      _selectedGalleryImages.removeAt(i);
+                      _selectedGalleryBytes.removeAt(i);
+                    }),
+                  ),
+              ],
+            ),
+          ),
+        if (_selectedGalleryBytes.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildEstimateRow(
+            _selectedGalleryBytes.fold<int>(
+              0,
+              (sum, bytes) => sum + bytes.length,
+            ),
+            label: '${_selectedGalleryBytes.length} galeri görseli',
+          ),
+        ],
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: total >= 10 ? null : _pickGalleryImages,
+            icon: const Icon(Icons.collections_rounded),
+            label: const Text('Birden Fazla Görsel Seç'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mediaPreview({
+    required Widget child,
+    required VoidCallback onRemove,
+  }) {
+    return Container(
+      width: 150,
+      margin: const EdgeInsets.only(right: 10),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(borderRadius: BorderRadius.circular(10), child: child),
+          Positioned(
+            right: 4,
+            top: 4,
+            child: IconButton.filled(
+              visualDensity: VisualDensity.compact,
+              onPressed: onRemove,
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoEditor() {
+    final hasVideo = _selectedVideo != null || _uploadedVideoUrl != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Tanıtım Videosu'),
+        const SizedBox(height: 8),
+        const Text('MP4, MOV veya WebM; en fazla 100 MB.'),
+        const SizedBox(height: 12),
+        if (hasVideo)
+          ListTile(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            leading: const Icon(Icons.play_circle_fill_rounded, size: 42),
+            title: Text(_selectedVideo?.name ?? 'Yüklü tanıtım videosu'),
+            subtitle: Text(
+              _selectedVideo == null
+                  ? 'Video kaydedilmiş durumda'
+                  : '${_formatBytes(_selectedVideoBytes!.length)} • '
+                        '${_estimatedTimeText(_selectedVideoBytes!.length)}',
+            ),
+            trailing: IconButton(
+              tooltip: 'Videoyu kaldır',
+              onPressed: () => setState(() {
+                _selectedVideo = null;
+                _selectedVideoBytes = null;
+                _uploadedVideoUrl = null;
+                _removeExistingVideo = true;
+              }),
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+          ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _pickVideo,
+            icon: const Icon(Icons.video_library_rounded),
+            label: Text(hasVideo ? 'Videoyu Değiştir' : 'Tanıtım Videosu Seç'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEstimateRow(int bytes, {required String label}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.primaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule_rounded, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$label: ${_formatBytes(bytes)} • ${_estimatedTimeText(bytes)}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadProgressPanel() {
+    final progress = _uploadProgress ?? 0;
+    final percentage = (progress * 100).round();
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _uploadStatusLabel!,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text('%$percentage'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(value: progress),
+            const SizedBox(height: 8),
+            Text(
+              _remainingUploadText,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Süre bağlantı hızına göre değişebilir.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

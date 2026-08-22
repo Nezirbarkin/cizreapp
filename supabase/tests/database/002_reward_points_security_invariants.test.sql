@@ -1,7 +1,7 @@
 -- AdMob reward-point catalog, ACL, isolation and immutability invariants.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(46);
+select plan(48);
 
 select has_table('public', 'user_point_accounts', 'point account exists');
 select has_table('public', 'point_ledger_entries', 'point ledger exists');
@@ -53,7 +53,7 @@ select ok(not exists(
     'public.refund_digital_order_payment(uuid,numeric,text,text,boolean)'::regprocedure,
     'public.set_digital_order_reconciliation(uuid,text)'::regprocedure,
     'public.credit_digital_order_seller(uuid,numeric)'::regprocedure,
-    'public.admin_update_reward_points_config(integer,integer,bigint,integer,boolean,text,boolean,boolean,boolean,boolean,text,integer,integer,integer,boolean)'::regprocedure,
+    'public.admin_update_reward_points_config(integer,integer,bigint,integer,boolean,text,boolean,boolean,boolean,boolean,text,integer,integer,integer,boolean,text,text,text,text)'::regprocedure,
     'public.admin_reward_points_overview()'::regprocedure,
     'public.purge_expired_reward_fraud_hashes(integer)'::regprocedure,
     'public.enforce_product_points_eligibility_admin()'::regprocedure
@@ -117,6 +117,12 @@ select ok(
 select ok(not has_schema_privilege('reward_points_owner', 'public', 'CREATE'),
   'reward owner cannot create arbitrary public-schema objects');
 
+select ok(
+  has_schema_privilege('reward_points_owner', 'auth', 'USAGE')
+  and has_function_privilege('reward_points_owner', 'auth.uid()', 'EXECUTE'),
+  'reward owner can resolve auth.uid for SECURITY DEFINER admin gates'
+);
+
 select ok(not has_table_privilege('anon','public.user_point_accounts','SELECT'), 'anon cannot read accounts');
 select ok(not has_table_privilege('anon','public.point_ledger_entries','SELECT'), 'anon cannot read ledger');
 select ok(not has_table_privilege('authenticated','public.point_ledger_entries','INSERT'), 'authenticated cannot insert ledger');
@@ -165,9 +171,20 @@ select ok(not exists(
 select ok(not exists(
   select 1 from information_schema.columns
   where table_schema='public' and table_name='reward_points_public_config'
-    and column_name in ('admob_app_id_android','admob_app_id_ios',
-      'admob_rewarded_unit_id_android','admob_rewarded_unit_id_ios')
-), 'public reward config excludes AdMob identifiers');
+    and column_name in ('admob_app_id_android','admob_app_id_ios')
+), 'public reward config excludes native AdMob App IDs');
+
+select ok(not exists(
+  select 1
+  from (values ('admob_rewarded_unit_id_android'), ('admob_rewarded_unit_id_ios'))
+    as expected(column_name)
+  where not exists (
+    select 1 from information_schema.columns c
+    where c.table_schema='public'
+      and c.table_name='reward_points_public_config'
+      and c.column_name=expected.column_name
+  )
+), 'public reward config exposes both runtime rewarded unit IDs');
 
 select ok(exists(
   select 1 from pg_trigger

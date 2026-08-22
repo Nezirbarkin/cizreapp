@@ -423,6 +423,34 @@ class SehiriciActiveTrip {
       status: status,
     );
   }
+
+  /// Realtime INSERT ile gelen yeni seferlerde hat tablosu join edilmediği
+  /// için boş kalan kod/ad/renk alanlarını, provider'ın zaten yüklü olan
+  /// hat listesinden zenginleştirmek için kullanılır.
+  SehiriciActiveTrip copyWithLine(SehiriciLine line) {
+    return SehiriciActiveTrip(
+      tripId: tripId,
+      lineId: lineId,
+      lineCode: line.code,
+      lineName: line.name,
+      lineColor: line.colorHex,
+      driverName: driverName,
+      licensePlate: licensePlate,
+      workingHoursStart: workingHoursStart,
+      workingHoursEnd: workingHoursEnd,
+      currentLat: currentLat,
+      currentLng: currentLng,
+      currentHeading: currentHeading,
+      currentSpeed: currentSpeed,
+      startedAt: startedAt,
+      nextStopId: nextStopId,
+      nextStopName: nextStopName,
+      nextStopLat: nextStopLat,
+      nextStopLng: nextStopLng,
+      etaMinutes: etaMinutes,
+      status: status,
+    );
+  }
 }
 
 class SehiriciFavoriteStop {
@@ -455,6 +483,13 @@ class SehiriciSettings {
   final int maxHistoryMinutes;
   final bool allowUserFavorites;
 
+  /// Şoförün sürüş izinden otomatik hat rotası üretilmesine izin verilsin mi?
+  /// Şoför başına `sehirici_drivers.auto_route_from_traveled_path` ayarının
+  /// ÜSTÜNDEKİ global anahtardır: kapalıysa hiçbir şoför otomatik rota yazamaz,
+  /// rotalar yalnız admin tarafından elle çizilir. Kayıt bulunmazsa true —
+  /// ayar hiç tanımlanmamış kurulumlarda mevcut davranış korunur.
+  final bool autoRouteEnabled;
+
   const SehiriciSettings({
     this.moduleEnabled = true,
     this.defaultCityId,
@@ -462,6 +497,7 @@ class SehiriciSettings {
     this.etaRefreshSeconds = 30,
     this.maxHistoryMinutes = 60,
     this.allowUserFavorites = true,
+    this.autoRouteEnabled = true,
   });
 
   factory SehiriciSettings.fromSettingsMap(Map<String, dynamic> map) {
@@ -471,6 +507,10 @@ class SehiriciSettings {
       if (v is String) return v.toLowerCase() == 'true';
       return false;
     }
+
+    /// Anahtar hiç yoksa varsayılana düşer (getBool'dan farkı: yokluk != false).
+    bool getBoolOr(String key, bool fallback) =>
+        map.containsKey(key) ? getBool(key) : fallback;
 
     return SehiriciSettings(
       moduleEnabled: getBool('sehirici_module_enabled'),
@@ -483,6 +523,7 @@ class SehiriciSettings {
       maxHistoryMinutes:
           int.tryParse('${map['sehirici_max_history_minutes'] ?? '60'}') ?? 60,
       allowUserFavorites: getBool('sehirici_allow_user_favorites'),
+      autoRouteEnabled: getBoolOr('sehirici_auto_route_enabled', true),
     );
   }
 }

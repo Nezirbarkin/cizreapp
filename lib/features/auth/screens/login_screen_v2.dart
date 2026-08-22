@@ -36,45 +36,18 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    // emailToUse değişkenini try bloğunun dışında tanımla
-    String emailToUse = '';
-    
+    final identifier = _emailController.text.trim();
+
     try {
-      final input = _emailController.text.trim();
-      
-      // Kullanıcı adı mı yoksa e-posta mı kontrol et
-      final isEmail = input.contains('@');
-      emailToUse = input;
-      
-      if (!isEmail) {
-        // Kullanıcı adı ile giriş - profiles tablosundan email bul
-        debugPrint('🔍 Kullanıcı adı ile giriş: $input');
-        
-        try {
-          final profileResponse = await Supabase.instance.client
-              .from('profiles')
-              .select('email')
-              .eq('username', input.toLowerCase())
-              .maybeSingle();
-          
-          if (profileResponse == null || profileResponse['email'] == null) {
-            throw Exception('Kullanıcı adı veya e-posta bulunamadı');
-          }
-          
-          emailToUse = profileResponse['email'] as String;
-          debugPrint('✅ Email bulundu: $emailToUse');
-        } catch (e) {
-          debugPrint('❌ Kullanıcı adı bulunamadı: $e');
-          throw Exception('Kullanıcı adı veya şifre hatalı');
-        }
-      }
-      
-      // Giriş yap
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: emailToUse,
+      // profiles.email hassas alanı anon kullanıcılara kapalıdır. Kullanıcı
+      // adı çözümlemesini doğrudan tablo sorgusuyla yapmak bu nedenle giriş
+      // öncesinde RLS/kolon yetkisine takılıyordu. AuthService bu işlem için
+      // yalnız e-posta döndüren dar lookup_email_by_username RPC'sini kullanır.
+      await _authService.signInWithIdentifier(
+        identifier: identifier,
         password: _passwordController.text,
       );
-      
+
       // Rol kontrolü yap ve uygun panele yönlendir
       if (mounted) {
         await _navigateBasedOnRole();
@@ -82,8 +55,15 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
     } on AuthException catch (e) {
       if (mounted) {
         // Email doğrulama hatası kontrolü
-        if (e.message.contains('Email not confirmed') || e.message.contains('email_not_confirmed')) {
-          _showEmailVerificationDialog(emailToUse);
+        if (e.message.contains('Email not confirmed') ||
+            e.message.contains('email_not_confirmed')) {
+          // Kullanıcı adıyla girişte gerçek e-postayı istemci tarafında ayrıca
+          // tutmuyoruz. Dialog yeniden gönderim yapabilmek için e-posta ister.
+          if (identifier.contains('@')) {
+            _showEmailVerificationDialog(identifier.toLowerCase());
+          } else {
+            _showError(_authService.translateAuthError(e.message));
+          }
         } else {
           _showError(_authService.translateAuthError(e.message));
         }
@@ -120,13 +100,17 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
       switch (role) {
         case 'admin':
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+            MaterialPageRoute(
+              builder: (context) => const AdminDashboardScreen(),
+            ),
             (route) => false,
           );
           break;
         case 'seller':
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const SellerDashboardScreen()),
+            MaterialPageRoute(
+              builder: (context) => const SellerDashboardScreen(),
+            ),
             (route) => false,
           );
           break;
@@ -156,18 +140,36 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(color: Color(0xFFE8F8F5), shape: BoxShape.circle),
-              child: const Icon(Icons.mark_email_read_rounded, size: 40, color: Color(0xFF3498DB)),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F8F5),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.mark_email_read_rounded,
+                size: 40,
+                color: Color(0xFF3498DB),
+              ),
             ),
             const SizedBox(height: 20),
-            const Text('E-posta Doğrulanmadı', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50))),
+            const Text(
+              'E-posta Doğrulanmadı',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF2C3E50),
+              ),
+            ),
             const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Text(
                 'Hesabınızı aktifleştirmek için lütfen e-posta adresinizi doğrulayın.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF7F8C8D), height: 1.4),
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF7F8C8D),
+                  height: 1.4,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -179,7 +181,11 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
               ),
               child: Text(
                 email,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF3498DB), fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF3498DB),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -200,10 +206,15 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                 backgroundColor: const Color(0xFF95A5A6),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 elevation: 0,
               ),
-              child: const Text('Kapat', style: TextStyle(fontWeight: FontWeight.w600)),
+              child: const Text(
+                'Kapat',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
           ),
           SizedBox(
@@ -236,13 +247,13 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
   Future<void> _resendVerificationEmail(String email) async {
     if (!mounted) return;
     setState(() => _isLoading = true);
-    
+
     // Rate limiting için retry mekanizması
     int maxRetries = 3;
     Duration delay = const Duration(seconds: 2);
     bool success = false;
     String? errorMessage;
-    
+
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         // Supabase resend API - auth-callback.html sayfasına yönlendirir
@@ -251,47 +262,56 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
           email: email,
           emailRedirectTo: 'https://www.cizreapp.com/auth-callback.html',
         );
-        
+
         success = true;
         break; // Başarılı, döngüden çık
       } on AuthException catch (e) {
         final errorStr = e.message.toLowerCase();
-        final isRateLimitError = errorStr.contains('rate limit') ||
-                                 errorStr.contains('too many') ||
-                                 errorStr.contains('overload');
-        
+        final isRateLimitError =
+            errorStr.contains('rate limit') ||
+            errorStr.contains('too many') ||
+            errorStr.contains('overload');
+
         if (isRateLimitError && attempt < maxRetries) {
-          debugPrint('⏳ Rate limiting hatası ($attempt/$maxRetries), ${delay.inSeconds} saniye bekleniyor...');
+          debugPrint(
+            '⏳ Rate limiting hatası ($attempt/$maxRetries), ${delay.inSeconds} saniye bekleniyor...',
+          );
           await Future.delayed(delay);
           delay = delay * 2; // Bekleme süresini artır
           continue;
         }
-        
+
         // Son deneme veya rate limiting hatası değilse
         errorMessage = e.message;
         break;
       } catch (e) {
         final errorStr = e.toString().toLowerCase();
-        final isRateLimitError = errorStr.contains('rate limit') ||
-                                 errorStr.contains('too many') ||
-                                 errorStr.contains('overload');
-        
+        final isRateLimitError =
+            errorStr.contains('rate limit') ||
+            errorStr.contains('too many') ||
+            errorStr.contains('overload');
+
         if (isRateLimitError && attempt < maxRetries) {
-          debugPrint('⏳ Rate limiting hatası ($attempt/$maxRetries), ${delay.inSeconds} saniye bekleniyor...');
+          debugPrint(
+            '⏳ Rate limiting hatası ($attempt/$maxRetries), ${delay.inSeconds} saniye bekleniyor...',
+          );
           await Future.delayed(delay);
           delay = delay * 2;
           continue;
         }
-        
-        errorMessage = 'E-posta gönderilemedi. Lütfen 30 saniye bekleyip tekrar deneyin.';
+
+        errorMessage =
+            'E-posta gönderilemedi. Lütfen 30 saniye bekleyip tekrar deneyin.';
         break;
       }
     }
-    
+
     if (mounted) {
       setState(() => _isLoading = false);
       if (success) {
-        _showSuccess('Doğrulama e-postası yeniden gönderildi! Lütfen e-posta kutunuzu kontrol edin.');
+        _showSuccess(
+          'Doğrulama e-postası yeniden gönderildi! Lütfen e-posta kutunuzu kontrol edin.',
+        );
       } else if (errorMessage != null) {
         _showError(errorMessage);
       }
@@ -333,10 +353,13 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 40),
-                
+
                 // Logo / App Name
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
@@ -371,7 +394,7 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                   ),
                 ),
                 const SizedBox(height: 32),
-                
+
                 const Text(
                   'Giriş Yap',
                   style: TextStyle(
@@ -405,7 +428,9 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                           controller: _emailController,
                           hint: 'Kullanıcı adı veya E-posta',
                           icon: Icons.person_outline,
-                          validator: (v) => (v?.isEmpty ?? true) ? 'Kullanıcı adı veya e-posta gerekli' : null,
+                          validator: (v) => (v?.isEmpty ?? true)
+                              ? 'Kullanıcı adı veya e-posta gerekli'
+                              : null,
                         ),
                         const SizedBox(height: 16),
                         _buildField(
@@ -413,16 +438,27 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                           hint: 'Şifre',
                           icon: Icons.lock_outline,
                           obscure: _obscurePassword,
-                          onTap: () => setState(() => _obscurePassword = !_obscurePassword),
-                          validator: (v) => (v?.isEmpty ?? true) ? 'Şifre gerekli' : null,
+                          onTap: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          validator: (v) =>
+                              (v?.isEmpty ?? true) ? 'Şifre gerekli' : null,
                         ),
                         const SizedBox(height: 12),
-                        
+
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () => Navigator.of(context).pushNamed('/reset-password'),
-                            child: const Text('Şifremi Unuttum', style: TextStyle(color: Color(0xFF1ABC9C), fontWeight: FontWeight.w600)),
+                            onPressed: () => Navigator.of(
+                              context,
+                            ).pushNamed('/reset-password'),
+                            child: const Text(
+                              'Şifremi Unuttum',
+                              style: TextStyle(
+                                color: Color(0xFF1ABC9C),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -435,12 +471,28 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1ABC9C),
                               foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                               elevation: 0,
                             ),
                             child: _isLoading
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                : const Text('Giriş Yap', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Giriş Yap',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
                           ),
                         ),
                       ],
@@ -453,11 +505,22 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Hesabınız yok mu? ', style: TextStyle(color: Color(0xFF95A5A6))),
+                    const Text(
+                      'Hesabınız yok mu? ',
+                      style: TextStyle(color: Color(0xFF95A5A6)),
+                    ),
                     TextButton(
-                      onPressed: () => Navigator.of(context).pushReplacementNamed('/register'),
-                      style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: const Color(0xFF2C3E50)),
-                      child: const Text('Kayıt Ol', style: TextStyle(fontWeight: FontWeight.w600)),
+                      onPressed: () => Navigator.of(
+                        context,
+                      ).pushReplacementNamed('/register'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        foregroundColor: const Color(0xFF2C3E50),
+                      ),
+                      child: const Text(
+                        'Kayıt Ol',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ],
                 ),
@@ -486,14 +549,40 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFFBDC3C7)),
         prefixIcon: Icon(icon, color: const Color(0xFF1ABC9C), size: 20),
-        suffixIcon: onTap != null ? IconButton(icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 20, color: const Color(0xFF95A5A6)), onPressed: onTap) : null,
+        suffixIcon: onTap != null
+            ? IconButton(
+                icon: Icon(
+                  obscure
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  size: 20,
+                  color: const Color(0xFF95A5A6),
+                ),
+                onPressed: onTap,
+              )
+            : null,
         filled: true,
         fillColor: const Color(0xFFF8F9FA),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1)),
-        focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF1ABC9C), width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF1ABC9C), width: 1.5),
+        ),
         errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
       ),
     );

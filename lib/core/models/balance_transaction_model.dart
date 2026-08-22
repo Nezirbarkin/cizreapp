@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 /// Bakiye İşlem Türü
 enum BalanceTransactionType {
   topup,         // Bakiye yükleme
@@ -9,6 +11,10 @@ enum BalanceTransactionType {
   adReward,      // Reklam ödülü (izleyerek kazan)
   taskReward,    // Görev ödülü (görev yaparak kazan)
   courierPayment, // Paket gönderim ücreti (kurye)
+  campaignReward,          // Kampanya ödülü (2 al 1 kazan vb.)
+  ilanPublishFee,          // İlan yayınlama ücreti
+  ilanPublishRefund,       // İlan yayınlama ücreti iadesi
+  profileFeaturePurchase,  // Profil özelliği satın alma
 }
 
 /// Etiket helper'ları (Dart analyzer v6.4 syntax uyumu için ayrı extension)
@@ -33,6 +39,14 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return 'Görev Ödülü';
       case BalanceTransactionType.courierPayment:
         return 'Paket Gönderim Ücreti';
+      case BalanceTransactionType.campaignReward:
+        return 'Kampanya Ödülü';
+      case BalanceTransactionType.ilanPublishFee:
+        return 'İlan Yayınlama Ücreti';
+      case BalanceTransactionType.ilanPublishRefund:
+        return 'İlan Ücreti İadesi';
+      case BalanceTransactionType.profileFeaturePurchase:
+        return 'Profil Özelliği Satın Alma';
     }
   }
 
@@ -56,6 +70,45 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return 'task_reward';
       case BalanceTransactionType.courierPayment:
         return 'courier_payment';
+      case BalanceTransactionType.campaignReward:
+        return 'campaign_reward';
+      case BalanceTransactionType.ilanPublishFee:
+        return 'ilan_publish_fee';
+      case BalanceTransactionType.ilanPublishRefund:
+        return 'ilan_publish_refund';
+      case BalanceTransactionType.profileFeaturePurchase:
+        return 'profile_feature_purchase';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case BalanceTransactionType.topup:
+        return Icons.add_circle_rounded;
+      case BalanceTransactionType.orderPayment:
+        return Icons.shopping_cart_rounded;
+      case BalanceTransactionType.refund:
+        return Icons.replay_rounded;
+      case BalanceTransactionType.withdrawal:
+        return Icons.account_balance_wallet_rounded;
+      case BalanceTransactionType.adjustment:
+        return Icons.tune_rounded;
+      case BalanceTransactionType.commission:
+        return Icons.monetization_on_rounded;
+      case BalanceTransactionType.adReward:
+        return Icons.play_circle_outline;
+      case BalanceTransactionType.taskReward:
+        return Icons.assignment_turned_in_rounded;
+      case BalanceTransactionType.courierPayment:
+        return Icons.local_shipping_rounded;
+      case BalanceTransactionType.campaignReward:
+        return Icons.card_giftcard_rounded;
+      case BalanceTransactionType.ilanPublishFee:
+        return Icons.campaign_rounded;
+      case BalanceTransactionType.ilanPublishRefund:
+        return Icons.campaign_outlined;
+      case BalanceTransactionType.profileFeaturePurchase:
+        return Icons.workspace_premium_rounded;
     }
   }
 
@@ -65,14 +118,18 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         this == BalanceTransactionType.refund ||
         this == BalanceTransactionType.commission ||
         this == BalanceTransactionType.adReward ||
-        this == BalanceTransactionType.taskReward;
+        this == BalanceTransactionType.taskReward ||
+        this == BalanceTransactionType.campaignReward ||
+        this == BalanceTransactionType.ilanPublishRefund;
   }
 
   /// Negatif tutar mı? (ödeme, çekim)
   bool get isNegative {
     return this == BalanceTransactionType.orderPayment ||
         this == BalanceTransactionType.withdrawal ||
-        this == BalanceTransactionType.courierPayment;
+        this == BalanceTransactionType.courierPayment ||
+        this == BalanceTransactionType.ilanPublishFee ||
+        this == BalanceTransactionType.profileFeaturePurchase;
   }
 
   static BalanceTransactionType fromString(String value) {
@@ -95,6 +152,14 @@ extension BalanceTransactionTypeLabel on BalanceTransactionType {
         return BalanceTransactionType.taskReward;
       case 'courier_payment':
         return BalanceTransactionType.courierPayment;
+      case 'campaign_reward':
+        return BalanceTransactionType.campaignReward;
+      case 'ilan_publish_fee':
+        return BalanceTransactionType.ilanPublishFee;
+      case 'ilan_publish_refund':
+        return BalanceTransactionType.ilanPublishRefund;
+      case 'profile_feature_purchase':
+        return BalanceTransactionType.profileFeaturePurchase;
       default:
         return BalanceTransactionType.topup;
     }

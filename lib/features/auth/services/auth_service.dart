@@ -17,67 +17,78 @@ class AuthService {
       rethrow;
     }
   }
-  final _profileService = ProfileService();
-  final _googleSignIn = GoogleSignIn(
-    scopes: ['email', 'profile'],
-  );
 
-  /// Şifre sıfırlama isteği gönder
-  /// identifier: email veya username
-  /// Returns: başarılı ise true
-  Future<bool> requestPasswordReset(String identifier) async {
+  final _profileService = ProfileService();
+  final _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+
+  /// Şifre sıfırlama OTP kodu gönder.
+  /// identifier: email veya username.
+  /// Supabase `resetPasswordForEmail` çağrısı, "Reset Password" template'ine
+  /// bağlı olarak ya OTP ya da link gönderir. OTP akışı için template'te
+  /// `{{ .Token }}` değişkeninin kullanılmış olması gerekir; link istemiyorsak
+  /// `{{ .ConfirmationURL }}` template'ten çıkarılmalıdır.
+  /// `redirectTo` parametresi burada KULLANILMAZ: link tıklaması değil kod
+  /// girişi hedefleniyor.
+  /// Returns: başarılı ise, koda gönderilen e-posta adresi (UI'da göstermek
+  /// için). Aksi halde null.
+  Future<String?> requestPasswordReset(String identifier) async {
     String email;
 
     // Email mi username mi kontrol et
     if (identifier.contains('@')) {
-      email = identifier.trim();
+      email = identifier.trim().toLowerCase();
     } else {
       // Username ise email'i bul
       final userEmail = await _profileService.getEmailByIdentifier(identifier);
       if (userEmail == null) {
         throw Exception('Kullanıcı bulunamadı');
       }
-      email = userEmail;
+      email = userEmail.trim().toLowerCase();
     }
 
     // Rate limiting için retry mekanizması
     int maxRetries = 3;
     Duration delay = const Duration(seconds: 2);
-    
+
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // Supabase'e şifre sıfırlama isteği gönder
-        // auth-callback.html sayfasına yönlendirir, kullanıcı web'ten şifre değiştirebilir
-        await _supabase.auth.resetPasswordForEmail(
-          email,
-          redirectTo: 'https://www.cizreapp.com/auth-callback.html',
+        // Supabase'e OTP bazlı şifre sıfırlama isteği gönder.
+        // `redirectTo` YOK: kullanıcı link tıklamayacak, kodu uygulamaya
+        // elle girecek. Supabase var olmayan email için de yanıt verir
+        // (kullanıcı var/yok sızıntısını önlemek için); aynı genel mesaj
+        // UI tarafında gösterilir.
+        await _supabase.auth.resetPasswordForEmail(email);
+
+        debugPrint('✅ Şifre sıfırlama OTP kodu gönderildi: $email');
+        return email;
+      } catch (e) {
+        debugPrint(
+          '❌ Şifre sıfırlama hatası (deneme $attempt/$maxRetries): $e',
         );
 
-        debugPrint('✅ Şifre sıfırlama emaili gönderildi: $email');
-        return true;
-      } catch (e) {
-        debugPrint('❌ Şifre sıfırlama hatası (deneme $attempt/$maxRetries): $e');
-        
         // Rate limiting hatası ve son deneme değilse bekle ve tekrar dene
         final errorStr = e.toString().toLowerCase();
-        final isRateLimitError = errorStr.contains('rate limit') ||
-                                 errorStr.contains('too many') ||
-                                 errorStr.contains('overload') ||
-                                 errorStr.contains('429');
-        
+        final isRateLimitError =
+            errorStr.contains('rate limit') ||
+            errorStr.contains('too many') ||
+            errorStr.contains('overload') ||
+            errorStr.contains('429');
+
         if (isRateLimitError && attempt < maxRetries) {
-          debugPrint('⏳ Rate limiting hatası, ${delay.inSeconds} saniye bekleniyor...');
+          debugPrint(
+            '⏳ Rate limiting hatası, ${delay.inSeconds} saniye bekleniyor...',
+          );
           await Future.delayed(delay);
           // Her seferinde bekleme süresini artır
           delay = delay * 2;
           continue;
         }
-        
+
         // Son deneme veya rate limiting hatası değilse hatayı fırlat
         rethrow;
       }
     }
-    
+
     throw Exception('Şifre sıfırlama başarısız');
   }
 
@@ -89,9 +100,7 @@ class AuthService {
         throw Exception('Oturum bulunamadı');
       }
 
-      await _supabase.auth.updateUser(
-        UserAttributes(password: newPassword),
-      );
+      await _supabase.auth.updateUser(UserAttributes(password: newPassword));
 
       debugPrint('✅ Şifre güncellendi');
       return true;
@@ -107,18 +116,21 @@ class AuthService {
     required String password,
   }) async {
     try {
+      final normalizedIdentifier = identifier.trim();
       String email;
 
       // Email mi username mi kontrol et
-      if (identifier.contains('@')) {
-        email = identifier.trim();
+      if (normalizedIdentifier.contains('@')) {
+        email = normalizedIdentifier.toLowerCase();
       } else {
         // Username ise email'i bul
-        final userEmail = await _profileService.getEmailByIdentifier(identifier);
+        final userEmail = await _profileService.getEmailByIdentifier(
+          normalizedIdentifier.toLowerCase(),
+        );
         if (userEmail == null) {
           throw Exception('Kullanıcı bulunamadı');
         }
-        email = userEmail;
+        email = userEmail.trim().toLowerCase();
       }
 
       // Giriş yap
@@ -153,10 +165,7 @@ class AuthService {
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
-        data: {
-          'full_name': fullName,
-          'username': username,
-        },
+        data: {'full_name': fullName, 'username': username},
       );
 
       if (response.user != null) {
@@ -250,7 +259,9 @@ class AuthService {
       if (response.user != null) {
         String fullName = '';
         if (credential.givenName != null || credential.familyName != null) {
-          fullName = '${credential.givenName ?? ''} ${credential.familyName ?? ''}'.trim();
+          fullName =
+              '${credential.givenName ?? ''} ${credential.familyName ?? ''}'
+                  .trim();
         }
 
         await _ensureProfileExists(
@@ -297,9 +308,13 @@ class AuthService {
 
   /// Random nonce üret (Apple Sign In için)
   String _generateNonce([int length = 32]) {
-    const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
     final random = Random.secure();
-    return List.generate(length, (_) => charset[random.nextInt(charset.length)]).join();
+    return List.generate(
+      length,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
   }
 
   /// SHA256 hash (Apple Sign In nonce için)
@@ -331,15 +346,16 @@ class AuthService {
     if (message.contains('User not found')) {
       return 'Kullanıcı bulunamadı';
     }
-    
+
     // Email hataları
     if (message.contains('Invalid email')) {
       return 'Geçersiz email adresi';
     }
-    if (message.contains('User already registered') || message.contains('already been registered')) {
+    if (message.contains('User already registered') ||
+        message.contains('already been registered')) {
       return 'Bu email adresi zaten kayıtlı';
     }
-    
+
     // Şifre hataları
     if (message.contains('Password should be at least 6 characters')) {
       return 'Şifre en az 6 karakter olmalıdır';
@@ -347,7 +363,7 @@ class AuthService {
     if (message.contains('Password is too weak')) {
       return 'Şifre çok zayıf, daha güçlü bir şifre seçin';
     }
-    
+
     // Kullanıcı adı hataları
     if (message.contains('username') && message.contains('taken')) {
       return 'Bu kullanıcı adı zaten alınmış';
@@ -355,12 +371,12 @@ class AuthService {
     if (message.contains('user-friendly') || message.contains('Only letters')) {
       return 'Kullanıcı adı sadece harf, rakam, alt çizgi ve tire içerebilir';
     }
-    
+
     // Ağ hataları
     if (message.contains('Network') || message.contains('network')) {
       return 'İnternet bağlantınızı kontrol edin';
     }
-    
+
     // Genel hatalar
     if (message.contains('iptal edildi') || message.contains('cancelled')) {
       return 'İşlem iptal edildi';
@@ -377,15 +393,17 @@ class AuthService {
     if (message.contains('overload') || message.contains('too many requests')) {
       return '⏱️ Sunucu yoğun. Lütfen 1 dakika bekleyip tekrar deneyin.';
     }
-    
+
     return message;
   }
 
   /// OAuth hata mesajlarını Türkçe'ye çevir
   String translateOAuthError(String? message) {
     if (message == null) return 'Sosyal medya girişi başarısız';
-    
-    if (message.contains('popup closed') || message.contains('cancelled') || message.contains('iptal')) {
+
+    if (message.contains('popup closed') ||
+        message.contains('cancelled') ||
+        message.contains('iptal')) {
       return 'Giriş iptal edildi';
     }
     if (message.contains('access denied')) {

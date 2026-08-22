@@ -58,6 +58,10 @@ class AppAboutSettings {
   /// Admin panelinden değiştirilebilir. 1-10 arası, varsayılan 3.
   final int homeNewsLimit;
 
+  /// Anasayfada gösterilecek maksimum dükkan sayısı.
+  /// Admin panelinden değiştirilebilir. 1-50 arası, varsayılan 8.
+  final int homeShopLimit;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -99,6 +103,7 @@ class AppAboutSettings {
     this.animationTransitionDurationMs = 700,
     this.homeCategoryLimit = 4,
     this.homeNewsLimit = 3,
+    this.homeShopLimit = 8,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -154,6 +159,7 @@ class AppAboutSettings {
       animationTransitionDurationMs: json['animation_transition_duration_ms'] as int? ?? 700,
       homeCategoryLimit: json['home_category_limit'] as int? ?? 4,
       homeNewsLimit: json['home_news_limit'] as int? ?? 3,
+      homeShopLimit: json['home_shop_limit'] as int? ?? 8,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -193,6 +199,7 @@ class AppAboutSettings {
       'animation_transition_duration_ms': animationTransitionDurationMs,
       'home_category_limit': homeCategoryLimit,
       'home_news_limit': homeNewsLimit,
+      'home_shop_limit': homeShopLimit,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -235,6 +242,7 @@ class AppAboutSettings {
     int? animationTransitionDurationMs,
     int? homeCategoryLimit,
     int? homeNewsLimit,
+    int? homeShopLimit,
   }) {
     return AppAboutSettings(
       id: id,
@@ -274,6 +282,7 @@ class AppAboutSettings {
       animationTransitionDurationMs: animationTransitionDurationMs ?? this.animationTransitionDurationMs,
       homeCategoryLimit: homeCategoryLimit ?? this.homeCategoryLimit,
       homeNewsLimit: homeNewsLimit ?? this.homeNewsLimit,
+      homeShopLimit: homeShopLimit ?? this.homeShopLimit,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

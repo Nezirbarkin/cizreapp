@@ -14,7 +14,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(38);
+select plan(47);
 
 -- -----------------------------------------------------------------------------
 -- Yardımcı test fonksiyonları
@@ -396,6 +396,71 @@ select ok(
   ),
   'verify_registration_otp fonksiyonu korunuyor (bu migration kapsamı dışı)'
 );
+
+-- Kayıt doğrulaması sign-up işleminden önce anon rolüyle yapılır. Bu açık GRANT
+-- kaybolursa PostgREST fonksiyon gövdesine girmeden SQLSTATE 42501 döndürür.
+select ok(
+  has_function_privilege(
+    'anon',
+    'public.verify_registration_otp(text,text)',
+    'EXECUTE'
+  ),
+  'anon verify_registration_otp çağırabiliyor (kayıt öncesi akış)'
+);
+
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.verify_registration_otp(text,text)',
+    'EXECUTE'
+  ),
+  'authenticated verify_registration_otp çağırabiliyor (oturum kalıntısına dayanıklı akış)'
+);
+
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.verify_registration_otp(text,text)',
+    'EXECUTE'
+  ),
+  'service_role verify_registration_otp çağırabiliyor'
+);
+
+select ok(
+  not has_function_privilege(
+    'public',
+    'public.verify_registration_otp(text,text)',
+    'EXECUTE'
+  ),
+  'verify_registration_otp örtük PUBLIC erişimine kapalı'
+);
+
+select ok(
+  (
+    select p.prosecdef
+      and coalesce(
+        array_position(p.proconfig, 'search_path=public, pg_temp') is not null,
+        false
+      )
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.oid = 'public.verify_registration_otp(text,text)'::regprocedure
+  ),
+  'verify_registration_otp SECURITY DEFINER ve sabit search_path kullanıyor'
+);
+
+-- Yetkiyi yalnız katalogdan değil, gerçekten anon rolüne geçip fonksiyonu
+-- çalıştırarak da doğrula. Var olmayan OTP veri değiştirmeden negatif sonuç verir.
+set local role anon;
+select lives_ok(
+  $$select public.verify_registration_otp(
+      'pgtap-missing-registration-otp@example.invalid',
+      '000000'
+    )$$,
+  'anon verify_registration_otp çağrısı 42501 vermeden çalışıyor'
+);
+reset role;
 
 select * from finish();
 

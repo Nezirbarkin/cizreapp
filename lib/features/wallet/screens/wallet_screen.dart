@@ -9,6 +9,7 @@ import 'topup_screen.dart';
 import '../../../features/wallet/screens/transaction_history_screen.dart';
 import 'tasks_screen.dart';
 import '../widgets/watch_ad_earn_card.dart';
+import '../widgets/transaction_detail_sheet.dart';
 import 'point_history_screen.dart';
 
 /// Ana Bakiye Ekranı - Modern Tasarım
@@ -29,6 +30,7 @@ class _WalletScreenState extends State<WalletScreen> {
   String? _error;
   List<BalanceTransaction> _recentTransactions = [];
   bool _isLoadingTransactions = false;
+  bool _recentTransactionsError = false;
 
   @override
   void initState() {
@@ -48,18 +50,26 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Future<void> _loadRecentTransactions() async {
-    setState(() => _isLoadingTransactions = true);
+    setState(() {
+      _isLoadingTransactions = true;
+      _recentTransactionsError = false;
+    });
     try {
       final result = await _balanceService.getTransactionHistory(
         page: 1,
         limit: 5,
       );
+      if (!mounted) return;
       setState(() {
         _recentTransactions = result.transactions;
         _isLoadingTransactions = false;
       });
     } catch (e) {
-      setState(() => _isLoadingTransactions = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoadingTransactions = false;
+        _recentTransactionsError = true;
+      });
     }
   }
 
@@ -71,11 +81,13 @@ class _WalletScreenState extends State<WalletScreen> {
 
     try {
       final balance = await _balanceService.getBalance();
+      if (!mounted) return;
       setState(() {
         _balance = balance;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -462,7 +474,7 @@ class _WalletScreenState extends State<WalletScreen> {
             icon: Icons.arrow_downward_rounded,
             iconColor: Colors.green,
             gradient: const [Color(0xFF10B981), Color(0xFF059669)],
-            label: 'Toplam Yüklenen',
+            label: 'Toplam Gelir',
             value: '₺${balance.totalEarned.toStringAsFixed(2)}',
           ),
         ),
@@ -473,7 +485,7 @@ class _WalletScreenState extends State<WalletScreen> {
             icon: Icons.arrow_upward_rounded,
             iconColor: Colors.red,
             gradient: const [Color(0xFFEF4444), Color(0xFFDC2626)],
-            label: 'Toplam Harcama',
+            label: 'Toplam Gider',
             value: '₺${balance.totalSpent.toStringAsFixed(2)}',
           ),
         ),
@@ -729,6 +741,39 @@ class _WalletScreenState extends State<WalletScreen> {
             padding: const EdgeInsets.all(40),
             child: const Center(child: CircularProgressIndicator()),
           )
+        else if (_recentTransactionsError)
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.red.shade100),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 36,
+                  color: Colors.red.shade400,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'İşlemler yüklenemedi',
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _loadRecentTransactions,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Tekrar Dene'),
+                ),
+              ],
+            ),
+          )
         else if (_recentTransactions.isEmpty)
           Container(
             padding: const EdgeInsets.all(32),
@@ -800,6 +845,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         : null,
                   ),
                   child: ListTile(
+                    onTap: () => showTransactionDetailSheet(context, tx),
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 8,
@@ -814,14 +860,13 @@ class _WalletScreenState extends State<WalletScreen> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Icon(
-                        isPositive ? Icons.add_rounded : Icons.remove_rounded,
-                        size: 24,
+                        tx.type.icon,
+                        size: 22,
                         color: isPositive ? Colors.green : Colors.red,
                       ),
                     ),
                     title: Text(
-                      tx.description ??
-                          (isPositive ? 'Bakiye Yükleme' : 'Ödeme'),
+                      tx.type.label,
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -829,12 +874,27 @@ class _WalletScreenState extends State<WalletScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: Text(
-                      tx.createdAt.toString().substring(0, 10),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
+                    subtitle: Row(
+                      children: [
+                        Text(
+                          tx.shortDate,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                        if (tx.status != BalanceTransactionStatus.completed) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            _statusText(tx.status),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _statusColor(tx.status),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     trailing: Container(
                       padding: const EdgeInsets.symmetric(
@@ -863,5 +923,31 @@ class _WalletScreenState extends State<WalletScreen> {
           ),
       ],
     );
+  }
+
+  String _statusText(BalanceTransactionStatus status) {
+    switch (status) {
+      case BalanceTransactionStatus.pending:
+        return 'Beklemede';
+      case BalanceTransactionStatus.failed:
+        return 'Başarısız';
+      case BalanceTransactionStatus.cancelled:
+        return 'İptal';
+      case BalanceTransactionStatus.completed:
+        return 'Tamamlandı';
+    }
+  }
+
+  Color _statusColor(BalanceTransactionStatus status) {
+    switch (status) {
+      case BalanceTransactionStatus.pending:
+        return Colors.orange;
+      case BalanceTransactionStatus.failed:
+        return Colors.red;
+      case BalanceTransactionStatus.cancelled:
+        return Colors.grey;
+      case BalanceTransactionStatus.completed:
+        return Colors.green;
+    }
   }
 }

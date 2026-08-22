@@ -1,0 +1,325 @@
+﻿00:00 +0: loading C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart
+00:00 +0: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequestStatus label de─şerleri do─şru
+00:00 +1: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequestStatus dbValue enum ad─▒yla ayn─▒
+00:00 +2: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequestStatus fromString ge├ğerli de─şerleri e┼şler
+00:00 +3: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequestStatus fromString ge├ğersiz/null de─şerlerde pending d├Âner ( g├╝venli default )
+00:00 +4: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignmentStatus label de─şerleri do─şru
+00:00 +5: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignmentStatus dbValue enum ad─▒yla ayn─▒
+00:00 +6: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignmentStatus fromString ge├ğerli de─şerleri e┼şler
+00:00 +7: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignmentStatus fromString ge├ğersiz de─şerde assigned d├Âner ( g├╝venli default )
+00:00 +8: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest nested shops/profiles ile fromJson do─şru e┼şler
+00:00 +9: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest profiles full_name yoksa username, o da yoksa flat seller_name d├╝┼şer
+00:00 +10: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest shops yoksa flat shop_name kullan─▒l─▒r
+00:00 +11: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest eksik tarih alanlar─▒nda crash etmez ( now fallback )
+00:00 +12: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest eksik id/shop_id/seller_id bo┼ş stringe d├╝┼şer ( crash de─şil )
+00:00 +13: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest toJson anahtarlar─▒ db ile uyumlu ve status dbValue verir
+00:00 +14: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierRequest copyWith yaln─▒zca verilen alanlar─▒ de─şi┼ştirir
+00:00 +15: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment fromJson t├╝m alanlar─▒ do─şru e┼şler
+00:00 +16: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment fee_amount int gelirse double ├ğevrilir ( num g├╝venli cast )
+00:00 +17: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment orders bir List ( to-many join ) gelirse order null olur ( g├╝venli cast )
+00:00 +18: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment eksik id/order_id/courier_id bo┼ş stringe d├╝┼şer ( crash de─şil )
+00:00 +19: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment eksik assigned_at tarihinde now fallback ( crash de─şil )
+00:00 +20: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierAssignment toJson db alan adlar─▒ ile uyumlu
+00:00 +21: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder order_items ile fromJson do─şru e┼şler
+00:00 +22: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder order_number yoksa id prefix fallback crash etmez
+00:00 +23: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder order_number yoksa ve id 8 karakterden KISA ise RangeError f─▒rlatmaz ( regression )
+00:00 +24: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder order_items eksikse bo┼ş liste d├Âner ( crash de─şil )
+00:00 +25: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder address_display yoksa delivery_address_text fallback
+00:00 +26: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder shop_name yoksa nested shops.name fallback ( Map g├╝venli )
+00:00 +27: C:/Users/lenovo/cizreapp/test/courier/courier_models_test.dart: CourierOrder CourierOrderItem null/eksik alanlarda g├╝venli default
+00:00 +28: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: AdSettings.fromJson integer puan ve feature flag s├Âzle┼şmesini parse eder
+00:00 +29: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: AdSettings.fromJson eski TL ├Âd├╝l alanlar─▒n─▒ puana kopyalamaz
+00:00 +30: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: AdSettings.fromJson num de─şerlerini integer puan olarak parse eder
+00:00 +31: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: toJson deprecated TL reward alanlar─▒n─▒ ├╝retmez
+00:00 +32: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: copyWith puan alanlar─▒n─▒ g├╝nceller
+00:00 +33: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: Google resmi rewarded test ID sabitleri ge├ğerlidir
+00:00 +34: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: test modu reklam provas─▒ a├ğar, cohort ekonomik oturum a├ğmaz
+00:00 +35: C:/Users/lenovo/cizreapp/test/models/ad_settings_model_test.dart: test modu puan kazan─▒m─▒ kapal─▒yken g├╝venli reklam provas─▒ a├ğar
+00:02 +36: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.fromJson should create UserBalance from valid JSON
+00:02 +37: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.fromJson should use default values for missing fields
+00:02 +38: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.fromJson should handle null values in JSON
+00:02 +39: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.fromJson should convert integer to double
+00:02 +40: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.toJson should convert UserBalance to JSON correctly
+00:02 +41: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.availableBalance should calculate available balance correctly
+00:02 +42: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.availableBalance should return full balance when nothing locked
+00:02 +43: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.availableBalance should handle negative locked balance
+00:02 +44: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.isConsistent should return true for consistent balance
+00:02 +45: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.isConsistent should return true for consistent balance with small floating point error
+00:02 +46: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.isConsistent should return false for inconsistent balance
+00:02 +47: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: UserBalance Model Tests UserBalance.copyWith should create copy with modified fields
+00:02 +48: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: SellerEarningsSummary Model Tests SellerEarningsSummary.fromJson should create SellerEarningsSummary from valid JSON
+00:02 +49: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: SellerEarningsSummary Model Tests SellerEarningsSummary.fromJson should use default values for missing fields
+00:02 +50: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: SellerEarningsSummary Model Tests SellerEarningsSummary.calculateFee should calculate fee correctly
+00:02 +51: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: SellerEarningsSummary Model Tests SellerEarningsSummary.netWithdrawable should calculate net withdrawable amount correctly
+00:02 +52: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) BalanceTransaction amount validation should accept zero amount transactions (CHECK >= 0)
+00:02 +53: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) BalanceTransaction amount validation should accept positive amount transactions
+00:02 +54: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) BalanceTransaction amount validation should reject negative amount transactions
+00:02 +55: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) BalanceTransaction amount validation availableBalance calculation with zero balance
+00:02 +56: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) BalanceTransaction amount validation should handle deduction resulting in zero balance
+00:02 +57: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) Balance Transaction Types topup type should have positive amount
+00:02 +58: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) Balance Transaction Types spending type can result in zero balance
+00:02 +59: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) Balance Transaction Types refund type should be positive
+00:02 +60: C:/Users/lenovo/cizreapp/test/models/balance_model_test.dart: BalanceTransaction Amount Tests (CHECK >= 0) Balance Transaction Types withdrawal type should have positive amount
+00:03 +61: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) productDiscountPrice null ise productPrice d├Âner
+00:03 +62: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) productPrice null ise 0 d├Âner (s─▒f─▒r g├╝venlik)
+00:03 +63: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) discount_price < price ise discount_price kullan─▒l─▒r (kritik bug fix)
+00:03 +64: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) discount_price > price ise price kullan─▒l─▒r (tutars─▒z veri korumas─▒)
+00:03 +65: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) discount_price == price ise price kullan─▒l─▒r (s─▒f─▒r indirim)
+00:03 +66: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) discount_price 0 ise price kullan─▒l─▒r (pasif indirim)
+00:03 +67: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - effectivePrice (2026-07-29 FIX) hem null ise 0 d├Âner (u├ğ durum)
+00:03 +68: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemTotal (effectivePrice * quantity) indirimsiz ├╝r├╝n ├ù 3 = do─şru toplam
+00:03 +69: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemTotal (effectivePrice * quantity) indirimli ├╝r├╝n ├ù 2 = effectivePrice ├ù quantity (BUG FIX)
+00:03 +70: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemTotal (effectivePrice * quantity) quantity 0 ise 0 d├Âner
+00:03 +71: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - hasDiscount mant─▒─ş─▒ discount_price < price ÔåÆ hasDiscount true
+00:03 +72: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - hasDiscount mant─▒─ş─▒ old_price > price ÔåÆ hasDiscount true (eski yol hala ├ğal─▒┼ş─▒r)
+00:03 +73: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - hasDiscount mant─▒─ş─▒ discount yoksa hasDiscount false
+00:03 +74: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - hasDiscount mant─▒─ş─▒ price == effective_price ÔåÆ hasDiscount false
+00:03 +75: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemDiscount (g├Âsterim ama├ğl─▒ tasarruf) discount_price + old_price varsa tasarruf = (oldPrice - effective) * qty
+00:03 +76: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemDiscount (g├Âsterim ama├ğl─▒ tasarruf) discount_price yok ama old_price varsa tasarruf = (oldPrice - price) * qty
+00:03 +77: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemDiscount (g├Âsterim ama├ğl─▒ tasarruf) sadece discount_price varsa tasarruf = (price - effective) * qty
+00:03 +78: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - itemDiscount (g├Âsterim ama├ğl─▒ tasarruf) indirim yoksa tasarruf 0
+00:03 +79: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - discountPercentage discount_price: %33 (100ÔåÆ67)
+00:03 +80: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - discountPercentage old_price: %20 (100ÔåÆ80)
+00:03 +81: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - discountPercentage indirim yoksa 0
+00:03 +82: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - fromJson discount_price parse product_discount_price null olabilir
+00:03 +83: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - fromJson discount_price parse product_discount_price int olarak gelirse do─şru parse
+00:03 +84: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - fromJson discount_price parse product_discount_price double olarak gelirse do─şru parse
+00:03 +85: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - copyWith productDiscountPrice yeni discount_price ile kopyalan─▒r
+00:03 +86: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartItem - copyWith productDiscountPrice productDiscountPrice null ge├ğilirse null olur (silme)
+00:03 +87: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartSummary - indirimli sepet toplam─▒ indirimli 2 ├╝r├╝n├╝n subtotal/toplam tutar─▒ do─şru (BUG FIX)
+00:03 +88: C:/Users/lenovo/cizreapp/test/models/cart_model_test.dart: CartSummary - indirimli sepet toplam─▒ subtotal deliveryFee dahil DE─Ş─░L, total dahil
+00:04 +89: C:/Users/lenovo/cizreapp/test/models/digital_order_composition_test.dart: server composition snapshot kaynak baz─▒nda parse edilir
+00:04 +90: C:/Users/lenovo/cizreapp/test/models/digital_order_composition_test.dart: reconciliation pending iade say─▒lmaz
+00:05 +91: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrderStatus should have correct label for all statuses
+00:05 +92: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrderStatus should have correct dbValue for all statuses
+00:05 +93: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrderStatus should parse fromDbValue correctly
+00:05 +94: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrderStatus should default to pending for invalid status
+00:05 +95: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrderStatus dbValue and fromDbValue should round-trip for every status
+00:05 +96: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrder.fromJson should parse required fields correctly
+00:05 +97: C:/Users/lenovo/cizreapp/test/models/digital_order_model_test.dart: DigitalOrder Model Tests DigitalOrder.fromJson should parse optional fields when present
+00:06 +98: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderStatus should have correct label for all statuses
+00:06 +99: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderStatus should have correct dbValue for all statuses
+00:06 +100: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderStatus should parse fromString correctly
+00:06 +101: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderStatus should default to pending for invalid status
+00:06 +102: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests PaymentMethod should have correct label for all methods
+00:07 +103: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests PaymentMethod should parse fromString correctly
+00:07 +104: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests PaymentMethod should default to cash for invalid method
+00:07 +105: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests CommissionStatus should have correct label for all statuses
+00:07 +106: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests CommissionStatus should parse fromString correctly
+00:07 +107: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem should create OrderItem from JSON correctly
+00:07 +108: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem should calculate subtotal correctly
+00:07 +109: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem should use default values for missing fields
+00:07 +110: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.fromJson should create Order from valid JSON
+00:07 +111: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.fromJson should parse order items correctly
+00:07 +112: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.fromJson should parse all order statuses correctly
+00:07 +113: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.fromJson should support both subtotal and total field names
+00:07 +114: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.toJson should convert Order to JSON correctly
+00:07 +115: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order.toJson should use correct dbValue for on_the_way status
+00:07 +116: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isCompleted should return true for delivered orders
+00:07 +117: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isCompleted should return false for non-delivered orders
+00:07 +118: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isCancelled should return true for cancelled orders
+00:07 +119: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isActive should return true for pending orders
+00:07 +120: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isActive should return false for completed orders
+00:07 +121: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isActive should return false for cancelled orders
+00:07 +122: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isPaid should return true for balance payment
+00:07 +123: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isPaid should return true for online payment
+00:07 +124: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties isPaid should return false for cash payment without completion
+00:07 +125: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties canCancel should return true for pending orders
+00:07 +126: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties canCancel should return true for confirmed orders
+00:07 +127: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties canCancel should return false for preparing orders
+00:07 +128: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties hasDebt should return true when commissionDebt > 0
+00:07 +129: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties hasDebt should return false when commissionDebt is null
+00:07 +130: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties totalAdminEarnings should calculate correctly
+00:07 +131: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests Order helper properties formattedDate should return correct format
+00:07 +132: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX) OrderItem.price hem "price" hem "product_price" kolonunu destekler
+00:07 +133: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX) Sadece product_price varsa onu kullan─▒r (eski veri uyumu)
+00:07 +134: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX) subtotal = price * quantity (indirimli fiyattan)
+00:07 +135: C:/Users/lenovo/cizreapp/test/models/order_model_test.dart: Order Model Tests OrderItem - indirimli fiyat entegrasyonu (2026-07-29 FIX) OrderItem.price farkl─▒ say─▒ tiplerini destekler (int ve double)
+00:07 +136: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat isDigital getter should return true for digital product type
+00:07 +137: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat isDigital getter should return false for normal product type
+00:07 +138: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat isDigital getter hasVariants should exclude digital products
+00:07 +139: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Digital product JSON parsing should parse digital product fields from JSON
+00:07 +140: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Digital product JSON parsing should handle null digital fields gracefully
+00:08 +141: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Price validation - 0 TL deste─şi should accept zero price product
+00:08 +142: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Price validation - 0 TL deste─şi should reject negative price
+00:08 +143: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat effectivePrice calculation should return price for non-discount products
+00:08 +144: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat effectivePrice calculation should return discountPrice if set and less than price
+00:08 +145: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat effectivePrice calculation should return 0 for free product
+00:08 +146: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Digital price calculation (per 1000) unit price should be pricePer1000 / 1000
+00:08 +147: C:/Users/lenovo/cizreapp/test/models/product_model_test.dart: Product Model Tests - Dijital ├£r├╝n ve 0 TL Fiyat Digital price calculation (per 1000) should validate quantity within min/max range
+00:09 +148: C:/Users/lenovo/cizreapp/test/models/reward_points_model_test.dart: puan hesab─▒ integer de─şerlerle parse edilir
+00:09 +149: C:/Users/lenovo/cizreapp/test/models/reward_points_model_test.dart: ledger i┼şareti TL sembol├╝ i├ğermeden puan g├Âsterir
+00:09 +150: C:/Users/lenovo/cizreapp/test/models/reward_points_model_test.dart: reward session custom data ve terminal durumunu parse eder
+00:09 +151: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should create User from valid JSON
+00:09 +152: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should use default values for missing fields
+00:09 +153: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should parse all UserRole values correctly
+00:09 +154: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should parse all UserStatus values correctly
+00:09 +155: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should default to customer role for invalid role
+00:09 +156: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.fromJson should default to active status for invalid status
+00:09 +157: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.toJson should convert User to JSON correctly
+00:10 +158: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.copyWith should create copy with modified fields
+00:10 +159: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.copyWith should keep original values when not specified
+00:10 +160: C:/Users/lenovo/cizreapp/test/models/user_model_test.dart: User Model Tests User.toString should return formatted string
+00:10 +161: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:11 +162: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:11 +163: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +164: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +165: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +166: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +167: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +168: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +169: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +170: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +171: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +172: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +173: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +174: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +175: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +176: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +177: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +178: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +179: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +180: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +181: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde send-push Edge Function do─şrudan ├ğa─şr─▒s─▒ yok
+00:12 +182: C:/Users/lenovo/cizreapp/test/secure_push/push_client_calls_test.dart: lib/ i├ğinde profiles.fcm_token SELECT yok
+00:14 +183: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciLineStop Model Tests creates instance from JSON with all fields
+00:14 +184: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciLineStop Model Tests converts to SehiriciStop
+00:14 +185: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciEnums Consistency all vehicle types have labels
+00:14 +186: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciEnums Consistency all vehicle types have icons
+00:14 +187: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciEnums Consistency all trip statuses have labels
+00:14 +188: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciEnums Consistency vehicle type string conversion is reversible
+00:14 +189: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciCity Validation valid city data
+00:14 +190: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciCity Validation city zoom level is reasonable
+00:14 +191: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciLine Validation line code is not empty
+00:14 +192: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciLine Validation line name is not empty
+00:14 +193: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciLine Validation fare amount is non-negative
+00:14 +194: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciStop Validation stop coordinates are valid latitude/longitude
+00:14 +195: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciStop Validation stop name is not empty
+00:14 +196: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciActiveTrip Color Parsing valid hex color is parsed
+00:14 +197: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciActiveTrip Color Parsing invalid color defaults gracefully
+00:14 +198: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciActiveTrip Color Parsing empty color string defaults gracefully
+00:14 +199: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciActiveTrip Location Updates copyWithLocation preserves trip metadata
+00:14 +200: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: SehiriciActiveTrip Location Updates copyWithLocation with null values preserves originals
+00:14 +201: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: Data Type Conversions line fromJson handles both id and line_id
+00:14 +202: C:/Users/lenovo/cizreapp/test/sehirici/models_test.dart: Data Type Conversions trip fromJson handles both id and trip_id
+00:15 +203: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciVehicleType fromString t├╝m enum de─şerlerini do─şru e┼şler
+00:15 +204: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciVehicleType fromString bilinmeyen de─şer other d├Âner
+00:15 +205: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciVehicleType label bo┼ş de─şildir
+00:15 +206: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciTripStatus fromString do─şru e┼şler
+00:15 +207: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciTripStatus dbValue name ile ayn─▒d─▒r
+00:15 +208: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciCity.fromJson t├╝m alanlar─▒ parse eder
+00:15 +209: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciCity.fromJson eksik alanlar g├╝venli varsay─▒lan
+00:15 +210: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciLine.fromJson hat ve durak listesi parse edilir
+00:15 +211: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciLine.fromJson color hex ge├ğersizse varsay─▒lan renk d├Âner
+00:15 +212: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciLine.fromJson stops yoksa bo┼ş liste
+00:15 +213: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciActiveTrip.fromJson t├╝m alanlar parse edilir
+00:15 +214: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciActiveTrip.fromJson copyWithLocation mevcut alanlar─▒ korur
+00:15 +215: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciSettings.fromSettingsMap string "true" boolean olarak parse edilir
+00:15 +216: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciSettings.fromSettingsMap eksik anahtarlar g├╝venli varsay─▒lan
+00:15 +217: C:/Users/lenovo/cizreapp/test/sehirici/sehirici_models_test.dart: SehiriciSettings.fromSettingsMap ger├ğek boolean da kabul edilir
+00:17 +218: C:/Users/lenovo/cizreapp/test/services/ad_settings_service_test.dart: AdMob alanlar─▒n─▒ RPC parametrelerine normalize eder
+00:17 +219: C:/Users/lenovo/cizreapp/test/services/ad_settings_service_test.dart: ger├ğek enabled modda iki rewarded unit zorunludur
+00:17 +220: C:/Users/lenovo/cizreapp/test/services/ad_settings_service_test.dart: test modunda bo┼ş ger├ğek reklam birimleri kabul edilir
+00:17 +221: C:/Users/lenovo/cizreapp/test/services/ad_settings_service_test.dart: hatal─▒ AdMob kimlik bi├ğimini reddeder
+00:17 +222: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - ├ğift email fix smoke testi createOrder i├ğinde sendNewOrderEmailToSeller ├ğa─şr─▒s─▒ YOK
+00:17 +223: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - ├ğift email fix smoke testi createMultiShopOrder i├ğinde email ├ğa─şr─▒lar─▒ YOK
+00:17 +224: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - ├ğift email fix smoke testi push notification h├ól├ó ├ğa─şr─▒l─▒yor (Dart taraf─▒)
+00:17 +225: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - createMultiShopOrder discountByShop createMultiShopOrder imzas─▒nda discountByShop parametresi var
+00:17 +226: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - createMultiShopOrder discountByShop discount ByShop kullan─▒m─▒: discountByShop?[shopId] ?? 0.0
+00:17 +227: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - createOrder temel imzas─▒ OrderService s─▒n─▒f─▒ var ve createOrder public
+00:18 +228: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: OrderService - createOrder temel imzas─▒ freeOrderLimitPerUser sabit olarak 1
+00:18 +229: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: MultiShopCheckoutScreen - discountByShop aktar─▒m─▒ her ma─şazan─▒n do─şrulanm─▒┼ş indirimi kendi shopId anahtar─▒na aktar─▒l─▒r
+00:18 +230: C:/Users/lenovo/cizreapp/test/services/order_service_smoke_test.dart: MultiShopCheckoutScreen - discountByShop aktar─▒m─▒ ├Âzet yoksa bo┼ş indirim s├Âzle┼şmesi d├Âner
+00:19 +231: C:/Users/lenovo/cizreapp/test/services/order_service_test.dart: OrderService - ├£cretsiz (0 TL) sipari┼ş limiti freeOrderLimitPerUser kullan─▒c─▒ ba┼ş─▒na 1 olmal─▒
+00:19 +232: C:/Users/lenovo/cizreapp/test/services/order_service_test.dart: OrderService - ├£cretsiz (0 TL) sipari┼ş limiti limit pozitif bir de─şer olmal─▒ (0 veya negatif limit t├╝m sipari┼şleri engeller)
+00:19 +233: C:/Users/lenovo/cizreapp/test/services/reward_verification_poller_test.dart: pending durumdan credited durumuna polling yapar
+00:20 +234: C:/Users/lenovo/cizreapp/test/services/reward_verification_poller_test.dart: a─ş hatas─▒ ve timeout ekonomik ba┼şar─▒ say─▒lmaz
+00:20 +235: C:/Users/lenovo/cizreapp/test/services/reward_verification_poller_test.dart: duplicate ayr─▒ terminal durumudur
+00:21 +236: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: SMS do─şrulama kodu ÔÇö production g├╝venli─şi market/checkout_screen.dart: displayedCode kDebugMode ko┼şulunda
+00:21 +237: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: SMS do─şrulama kodu ÔÇö production g├╝venli─şi multi_shop_checkout_screen.dart: displayedCode kDebugMode ko┼şulunda
+00:21 +238: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: SMS do─şrulama kodu ÔÇö production g├╝venli─şi shop/checkout_screen.dart: displayedCode kDebugMode ko┼şulunda
+00:21 +239: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: SMS do─şrulama kodu ÔÇö production g├╝venli─şi T├╝m 3 dosyada kDebugMode import edildi
+00:21 +240: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: Sepet join yap─▒s─▒ ÔÇö discount_price entegrasyonu CartService.getCart join'inde discount_price var
+00:21 +241: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: Sepet join yap─▒s─▒ ÔÇö discount_price entegrasyonu CartService._mapToCartItem productDiscountPrice parse ediyor
+00:21 +242: C:/Users/lenovo/cizreapp/test/services/security_smoke_test.dart: Product model ÔÇö effectivePrice s├Âzle┼şmesi Product.effectivePrice discount_price < price kural─▒n─▒ uygular
+00:22 +243: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöî BA─ŞLANTI TESTLER─░ Supabase URL ve Key do─şrulama
+00:22 +243 -1: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöî BA─ŞLANTI TESTLER─░ Supabase URL ve Key do─şrulama [E]
+  Expected: <true>
+    Actual: <false>
+  Anon Key yeterli uzunlukta olmal─▒ (JWT)
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\supabase_backend_test.dart 77:7                main.<fn>.<fn>
+  
+00:22 +243 -1: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöî BA─ŞLANTI TESTLER─░ Supabase initialize
+00:22 +243 -2: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöî BA─ŞLANTI TESTLER─░ Supabase initialize [E]
+  MissingPluginException(No implementation found for method getAll on channel plugins.flutter.io/shared_preferences)
+  dart:async                                                           _Completer.completeError
+  package:shared_preferences/src/shared_preferences_legacy.dart 90:19  SharedPreferences.getInstance
+  ===== asynchronous gap ===========================
+  dart:async                                                           _CustomZone.registerBinaryCallback
+  package:shared_preferences/src/shared_preferences_legacy.dart 85:13  SharedPreferences.getInstance
+  package:supabase_flutter/src/local_storage.dart 132:46               SharedPreferencesGotrueAsyncStorage._initialize
+  package:supabase_flutter/src/local_storage.dart 122:15               new SharedPreferencesGotrueAsyncStorage
+  package:supabase_flutter/src/supabase.dart 123:27                    Supabase.initialize
+  test\supabase_backend_test.dart 82:22                                main.<fn>.<fn>
+  
+  MissingPluginException(No implementation found for method getAll on channel plugins.flutter.io/shared_preferences)
+  dart:async                                                           _Completer.completeError
+  package:shared_preferences/src/shared_preferences_legacy.dart 90:19  SharedPreferences.getInstance
+  ===== asynchronous gap ===========================
+  dart:async                                                           _CustomZone.registerBinaryCallback
+  package:shared_preferences/src/shared_preferences_legacy.dart 85:13  SharedPreferences.getInstance
+  package:supabase_flutter/src/local_storage.dart 132:46               SharedPreferencesGotrueAsyncStorage._initialize
+  package:supabase_flutter/src/local_storage.dart 122:15               new SharedPreferencesGotrueAsyncStorage
+  package:supabase_flutter/src/supabase.dart 123:27                    Supabase.initialize
+  test\supabase_backend_test.dart 82:22                                main.<fn>.<fn>
+  
+00:22 +243 -2: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôè TABLO ER─░┼Ş─░M TESTLER─░ (setUpAll)
+00:22 +243 -2: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôè TABLO ER─░┼Ş─░M TESTLER─░ categories tablosu okuma
+   ­şôï 5 kategori bulundu
+00:23 +244 -2: C:/Users/lenovo/cizreapp/test/widgets/watch_ad_earn_card_test.dart: puan─▒ para simgesi olmadan ve s─▒n─▒r metniyle g├Âsterir
+00:23 +244 -2: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôè TABLO ER─░┼Ş─░M TESTLER─░ shops tablosu public okuma
+   ­şÅ¬ 5 aktif ma─şaza bulundu
+00:23 +245 -2: C:/Users/lenovo/cizreapp/test/widgets/watch_ad_earn_card_test.dart: puan─▒ para simgesi olmadan ve s─▒n─▒r metniyle g├Âsterir
+00:24 +245 -2: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôè TABLO ER─░┼Ş─░M TESTLER─░ products tablosu public okuma
+   ­şôĞ 5 aktif ├╝r├╝n bulundu
+00:24 +246 -2: C:/Users/lenovo/cizreapp/test/widgets/watch_ad_earn_card_test.dart: puan─▒ para simgesi olmadan ve s─▒n─▒r metniyle g├Âsterir
+00:24 +246 -3: C:/Users/lenovo/cizreapp/test/widgets/watch_ad_earn_card_test.dart: puan─▒ para simgesi olmadan ve s─▒n─▒r metniyle g├Âsterir
+00:24 +246 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôè TABLO ER─░┼Ş─░M TESTLER─░ posts_with_profiles view okuma [E]
+  PostgrestException(message: permission denied for table profiles, code: 42501, details: Unauthorized, hint: null)
+  package:postgrest/src/postgrest_builder.dart 364:5   PostgrestBuilder._parseResponse
+  package:postgrest/src/postgrest_builder.dart 198:18  PostgrestBuilder._execute
+  
+00:24 +246 -3: C:/Users/lenovo/cizreapp/test/widgets/watch_ad_earn_card_test.dart: puan─▒ para simgesi olmadan ve s─▒n─▒r metniyle g├Âsterir
+00:24 +247 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ÔÜÖ´©Å RPC FONKS─░YON TESTLER─░ get_balance (auth gerekir)
+   ÔÜá´©Å Auth gerekli: PostgrestException(message: Could not find the function public.get_balance without parameters in the schema cache, code: PGRST202, details: Searched for the function public.get_balance without parameters or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache., hint: Perhaps you meant to call the function public.add_to_balance)
+00:24 +248 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ÔÜÖ´©Å RPC FONKS─░YON TESTLER─░ lookup_email_by_username
+   ­şôğ Yan─▒t: null
+00:25 +249 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ÔÜÖ´©Å RPC FONKS─░YON TESTLER─░ (tearDownAll)
+00:25 +249 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôü STORAGE TESTLER─░ (setUpAll)
+00:25 +249 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôü STORAGE TESTLER─░ avatars bucket eri┼şim
+   ­şû╝´©Å 0 avatar dosyas─▒
+00:25 +250 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôü STORAGE TESTLER─░ posts bucket eri┼şim
+   ­şôÀ 0 post medya dosyas─▒
+00:26 +251 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôü STORAGE TESTLER─░ shop-images bucket eri┼şim
+   ­şÅ¬ 0 ma─şaza g├Ârseli
+00:26 +252 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şôü STORAGE TESTLER─░ (tearDownAll)
+00:26 +252 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöÉ AUTH TESTLER─░ (setUpAll)
+00:26 +252 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöÉ AUTH TESTLER─░ Auth client eri┼şim
+00:26 +253 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöÉ AUTH TESTLER─░ Realtime client eri┼şim
+00:26 +254 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: ­şöÉ AUTH TESTLER─░ (tearDownAll)
+00:26 +254 -3: C:/Users/lenovo/cizreapp/test/supabase_backend_test.dart: (tearDownAll)
+
+======================================================================
+­şôï BACKEND TEST SONU├ç RAPORU
+======================================================================
+Ô£à Ba┼şar─▒l─▒: 0
+ÔØî Ba┼şar─▒s─▒z: 0
+ÔÅ▒´©Å Toplam s├╝re: 0ms
+======================================================================
+======================================================================
+­şÄë T├£M TESTLER BA┼ŞARILI!
+======================================================================
+00:26 +254 -3: Some tests failed.

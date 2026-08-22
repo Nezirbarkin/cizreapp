@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
@@ -25,6 +26,19 @@ class PrivacyService {
   /// Heartbeat 2 dk'da bir geldiği için 3 dk tolerans yeterli
   static const activeThreshold = Duration(minutes: 3);
 
+  /// Admin panelindeki platform kırılımı (iOS/Android/Web) için gönderilir.
+  /// `set_my_presence` RPC'si her heartbeat'te bunu profiles.platform'a yazar.
+  static String _currentPlatform() {
+    if (kIsWeb) return 'web';
+    try {
+      if (Platform.isIOS) return 'ios';
+      if (Platform.isAndroid) return 'android';
+    } catch (_) {
+      // Desteklenmeyen platform (masaüstü vb.)
+    }
+    return 'unknown';
+  }
+
   /// Kullanıcının gerçek çevrimiçi durumunu güncelle (is_online).
   /// Bu, app ön plan/arka plan geçişlerinde ve heartbeat'te yazılır.
   /// Kullanıcının *tercihi* için [updateOnlineEnabled] kullanılır.
@@ -44,7 +58,10 @@ class PrivacyService {
 
       AppLogger.debug('Updating online status to: $isOnline for user: $userId');
 
-      await supabase.rpc('set_my_presence', params: {'p_is_online': isOnline});
+      await supabase.rpc(
+        'set_my_presence',
+        params: {'p_is_online': isOnline, 'p_platform': _currentPlatform()},
+      );
 
       AppLogger.debug('Online status updated successfully');
       return true;
@@ -196,11 +213,17 @@ class PrivacyService {
       final enabled = await getOnlineEnabled();
       if (!enabled) {
         // Tercih kapalı: RPC yine çağrılır ama RPC is_online=false yazar.
-        await supabase.rpc('set_my_presence', params: {'p_is_online': false});
+        await supabase.rpc(
+          'set_my_presence',
+          params: {'p_is_online': false, 'p_platform': _currentPlatform()},
+        );
         return;
       }
 
-      await supabase.rpc('set_my_presence', params: {'p_is_online': true});
+      await supabase.rpc(
+        'set_my_presence',
+        params: {'p_is_online': true, 'p_platform': _currentPlatform()},
+      );
       AppLogger.debug('Heartbeat sent (is_online=true)');
     } catch (e) {
       AppLogger.error('Heartbeat error: $e');

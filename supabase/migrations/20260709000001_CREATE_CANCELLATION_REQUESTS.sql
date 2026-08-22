@@ -16,8 +16,8 @@
 -- Bağımlılıklar:
 --   - public.orders (payment_method text, payment_status enum('pending','paid','refunded'))
 --   - public.profiles (role text, 'admin')
---   - public.is_admin() SECURITY DEFINER fonksiyonu (20260209000004_security_fixes.sql)
---   - public.add_to_balance(...) RETURNS UUID (20260621_CREATE_BALANCE_SYSTEM.sql)
+--   - public.is_admin() SECURITY DEFINER fonksiyonu (20260209000005_security_fixes.sql)
+--   - public.add_to_balance(...) RETURNS UUID (20260621000007_CREATE_BALANCE_SYSTEM.sql)
 --   - public.restore_product_stock trigger (20260211000001_stock_management_trigger.sql)
 --   - public.notifications (type text, entity_id text)
 --   - public.update_updated_at_column() (20260207000007_create_chat_system.sql)

@@ -9,6 +9,7 @@ import '../../../core/models/post_model.dart';
 import '../services/chat_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
+import '../../../ilanlar/screens/ilan_detail_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String conversationId;
@@ -28,7 +29,8 @@ class ChatDetailScreen extends StatefulWidget {
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBindingObserver {
+class _ChatDetailScreenState extends State<ChatDetailScreen>
+    with WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -65,6 +67,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
     // Scroll pozisyonunu takip et
     _scrollController.addListener(_onScroll);
+
+    // Klavye açıldığında (input focus alınca) en alttaysak en alta kaydır
+    _messageFocusNode.addListener(() {
+      if (_messageFocusNode.hasFocus) {
+        _scrollToBottom(force: true);
+      }
+    });
   }
 
   void _onScroll() {
@@ -80,6 +89,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _chatService.markMessagesAsRead(widget.conversationId);
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Klavye açılıp kapanırken viewInsets değişir; liste viewport'u küçülüp
+    // büyüdüğünde en alttaki kullanıcı için son mesajın görünür kalmasını sağla.
+    if (!mounted) return;
+    if (_isAtBottom) {
+      _scrollToBottom(force: true);
     }
   }
 
@@ -102,7 +121,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     _deleteSub?.cancel();
     super.dispose();
   }
-  
+
   /// Yanıtlanacak mesajı ayarla
   void _setReply(Message message) {
     setState(() {
@@ -110,7 +129,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     });
     _messageFocusNode.requestFocus();
   }
-  
+
   /// Yanıtı iptal et
   void _cancelReply() {
     setState(() {
@@ -151,37 +170,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     // INSERT: yeni mesaj geldi
     _insertSub = _chatService
         .streamNewMessages(widget.conversationId)
-        .listen((msg) {
-      if (!mounted) return;
-      _addOrMerge(msg);
-    }, onError: (e, st) {
-      debugPrint('insert subscribe error: $e');
-    });
+        .listen(
+          (msg) {
+            if (!mounted) return;
+            _addOrMerge(msg);
+          },
+          onError: (e, st) {
+            debugPrint('insert subscribe error: $e');
+          },
+        );
 
     // UPDATE: is_read veya content güncellendi
     _updateSub = _chatService
         .streamMessageUpdates(widget.conversationId)
-        .listen((msg) {
-      if (!mounted) return;
-      _addOrMerge(msg);
-    }, onError: (e, st) {
-      debugPrint('update subscribe error: $e');
-    });
+        .listen(
+          (msg) {
+            if (!mounted) return;
+            _addOrMerge(msg);
+          },
+          onError: (e, st) {
+            debugPrint('update subscribe error: $e');
+          },
+        );
 
     // DELETE: mesaj silindi
     _deleteSub = _chatService
         .streamDeletedMessages(widget.conversationId)
-        .listen((deletedId) {
-      if (!mounted) return;
-      final removed = _messagesById.remove(deletedId);
-      if (removed != null) {
-        _orderedIds.remove(deletedId);
-        _keyToId.remove(_dupKey(removed));
-        setState(() {});
-      }
-    }, onError: (e, st) {
-      debugPrint('delete subscribe error: $e');
-    });
+        .listen(
+          (deletedId) {
+            if (!mounted) return;
+            final removed = _messagesById.remove(deletedId);
+            if (removed != null) {
+              _orderedIds.remove(deletedId);
+              _keyToId.remove(_dupKey(removed));
+              setState(() {});
+            }
+          },
+          onError: (e, st) {
+            debugPrint('delete subscribe error: $e');
+          },
+        );
   }
 
   /// Mailbox modelinde aynı mantıksal mesaj iki conversation'da farklı id ile
@@ -208,8 +236,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     // Aynı id zaten var mı? (RPC dönüşü + realtime INSERT aynı satır)
     final existing = _messagesById[incoming.id];
     if (existing != null) {
-      final mergedRead =
-          isMine ? (existing.isRead || incoming.isRead) : incoming.isRead;
+      final mergedRead = isMine
+          ? (existing.isRead || incoming.isRead)
+          : incoming.isRead;
       _messagesById[incoming.id] = incoming.copyWith(isRead: mergedRead);
       if (mounted) setState(() {});
       return;
@@ -237,13 +266,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
     // Debounced okundu işaretleme
     final now = DateTime.now();
-    if (_lastReadTime == null || now.difference(_lastReadTime!).inSeconds >= 2) {
+    if (_lastReadTime == null ||
+        now.difference(_lastReadTime!).inSeconds >= 2) {
       _lastReadTime = now;
       _chatService.markMessagesAsRead(widget.conversationId);
     }
   }
 
-  void _scrollToBottom() {
+  /// [force] true ise kullanıcının scroll pozisyonuna bakılmaksızın en alta
+  /// kaydırır (kendi gönderdiğimiz mesaj veya klavye açılışı gibi durumlar için).
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         if (_isInitialLoad) {
@@ -251,8 +283,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
           _isInitialLoad = false;
         } else {
-          // Sonraki mesajlarda animasyonlu scroll - sadece kullanıcı en alttaysa
-          if (_isAtBottom) {
+          // Sonraki mesajlarda animasyonlu scroll - kullanıcı en alttaysa
+          // veya force=true ise (örn. kendi gönderdiğimiz mesaj, klavye açılışı)
+          if (_isAtBottom || force) {
             _scrollController.animateTo(
               _scrollController.position.maxScrollExtent,
               duration: const Duration(milliseconds: 250),
@@ -306,13 +339,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       // Hata durumunda kullanıcıya bilgi ver
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Mesaj gönderilemedi. İnternet bağlantınızı kontrol edin.'),
+          content: Text(
+            'Mesaj gönderilemedi. İnternet bağlantınızı kontrol edin.',
+          ),
           duration: Duration(seconds: 3),
         ),
       );
     }
 
-    _scrollToBottom();
+    // Kendi gönderdiğimiz mesaj her zaman görünür olmalı (scroll pozisyonundan bağımsız)
+    _scrollToBottom(force: true);
   }
 
   @override
@@ -334,7 +370,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => UserProfileScreen(userId: widget.otherUserId),
+                builder: (context) =>
+                    UserProfileScreen(userId: widget.otherUserId),
               ),
             );
           },
@@ -343,10 +380,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               CircleAvatar(
                 radius: 18,
                 backgroundColor: Colors.white.withOpacity(0.2),
-                backgroundImage: widget.otherUserAvatar != null && widget.otherUserAvatar!.isNotEmpty
+                backgroundImage:
+                    widget.otherUserAvatar != null &&
+                        widget.otherUserAvatar!.isNotEmpty
                     ? NetworkImage(widget.otherUserAvatar!)
                     : null,
-                child: widget.otherUserAvatar == null || widget.otherUserAvatar!.isEmpty
+                child:
+                    widget.otherUserAvatar == null ||
+                        widget.otherUserAvatar!.isEmpty
                     ? Text(
                         widget.otherUserName.isNotEmpty
                             ? widget.otherUserName[0].toUpperCase()
@@ -378,8 +419,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _orderedIds.isEmpty
-                    ? _buildEmptyState()
-                    : _buildOptimizedMessageList(),
+                ? _buildEmptyState()
+                : _buildOptimizedMessageList(),
           ),
 
           // Mesaj gönderme alanı - SafeArea ile cihazın alt navigasyon barı için padding ekle
@@ -401,10 +442,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 children: [
                   // Yanıt gösterimi
                   if (_replyToMessage != null) _buildReplyPreview(),
-                  
+
                   // Mesaj gönderme alanı
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     child: Row(
                       children: [
                         Expanded(
@@ -493,7 +537,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   Widget _buildMessageItem(List<Message> messages, int index) {
     final message = messages[index];
     final isMe = message.senderId == _currentUserId;
-    final showDate = index == 0 ||
+    final showDate =
+        index == 0 ||
         !_isSameDay(messages[index - 1].createdAt, message.createdAt);
 
     return Column(
@@ -509,11 +554,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.chat_bubble_outline,
-            size: 80,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Henüz mesaj yok',
@@ -527,10 +568,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           Text(
             'İlk mesajı göndererek sohbete başlayın',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -543,8 +581,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     final turkeyDate = date.toUtc().add(turkeyOffset);
     final now = DateTime.now().toUtc().add(turkeyOffset);
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(turkeyDate.year, turkeyDate.month, turkeyDate.day);
-    
+    final messageDate = DateTime(
+      turkeyDate.year,
+      turkeyDate.month,
+      turkeyDate.day,
+    );
+
     String dateText;
     if (messageDate == today) {
       dateText = 'Bugün';
@@ -579,16 +621,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Widget _buildMessageBubble(Message message, bool isMe) {
-    // DEBUG: Okundu durumu detaylı log
-    debugPrint('🔵 _buildMessageBubble: isMe=$isMe isRead=${message.isRead} messageStatus=${message.messageStatus} senderId=${message.senderId.substring(0, 8)}...');
-    
     // PERFORMANCE: TimeOfDay yerine direkt hesaplama (daha hafif)
     final turkeyTime = message.createdAt.toUtc().add(const Duration(hours: 3));
-    final timeString = '${turkeyTime.hour.toString().padLeft(2, '0')}:${turkeyTime.minute.toString().padLeft(2, '0')}';
+    final timeString =
+        '${turkeyTime.hour.toString().padLeft(2, '0')}:${turkeyTime.minute.toString().padLeft(2, '0')}';
 
     // Paylaşılan gönderi mi kontrol et
     if (message.isSharedPost) {
       return _buildSharedPostBubble(message, isMe, timeString);
+    }
+    if (message.isSharedIlan) {
+      return _buildSharedIlanBubble(message, isMe, timeString);
     }
 
     // PERFORMANCE: MediaQuery'i bir kez al
@@ -597,7 +640,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     final bubbleColor = isMe ? Colors.deepPurple : Colors.white;
     final textColor = isMe ? Colors.white : Colors.grey[900]!;
     final timeColor = isMe ? Colors.white70 : Colors.grey[600]!;
-    
+
     // Yanıt gösterimi için
     final hasReply = message.replyToId != null;
 
@@ -607,29 +650,34 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       child: GestureDetector(
         onHorizontalDragEnd: (details) {
           // Sola doğru hızlı kaydırma = yanıtla
-          if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
+          if (details.primaryVelocity != null &&
+              details.primaryVelocity! > 300) {
             _setReply(message);
           }
         },
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth: screenWidth * 0.75,
-          ),
+          constraints: BoxConstraints(maxWidth: screenWidth * 0.75),
           decoration: BoxDecoration(
             color: bubbleColor,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
-              bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+              bottomLeft: isMe
+                  ? const Radius.circular(16)
+                  : const Radius.circular(4),
+              bottomRight: isMe
+                  ? const Radius.circular(4)
+                  : const Radius.circular(16),
             ),
             boxShadow: const [
               BoxShadow(
                 offset: Offset(0, 1),
                 blurRadius: 2,
-                color: Color(0x1A000000), // Siyah %10 opacity (withOpacity yerine)
+                color: Color(
+                  0x1A000000,
+                ), // Siyah %10 opacity (withOpacity yerine)
               ),
             ],
           ),
@@ -643,7 +691,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                   decoration: BoxDecoration(
                     border: Border(
                       left: BorderSide(
-                        color: isMe ? Colors.white54 : Colors.deepPurple.shade300,
+                        color: isMe
+                            ? Colors.white54
+                            : Colors.deepPurple.shade300,
                         width: 3,
                       ),
                     ),
@@ -678,10 +728,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               ],
               Text(
                 message.content,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: textColor,
-                ),
+                style: TextStyle(fontSize: 15, color: textColor),
               ),
               const SizedBox(height: 4),
               Row(
@@ -689,10 +736,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 children: [
                   Text(
                     timeString,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: timeColor,
-                    ),
+                    style: TextStyle(fontSize: 11, color: timeColor),
                   ),
                   if (isMe) ...[
                     const SizedBox(width: 4),
@@ -706,7 +750,117 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       ),
     );
   }
-  
+
+  Widget _buildSharedIlanBubble(Message message, bool isMe, String timeString) {
+    final imageUrl = message.sharedIlanImageUrl;
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        width: MediaQuery.of(context).size.width * .72,
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.deepPurple.withOpacity(.2)),
+          boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 4)],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => IlanDetailScreen(ilanId: message.sharedIlanId!),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (imageUrl != null && imageUrl.isNotEmpty)
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(15),
+                  ),
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    height: 125,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.campaign_outlined,
+                          size: 16,
+                          color: Colors.deepPurple,
+                        ),
+                        SizedBox(width: 5),
+                        Text(
+                          'İlan paylaşımı',
+                          style: TextStyle(
+                            color: Colors.deepPurple,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      message.sharedIlanTitle ?? 'İlan',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      message.sharedIlanPriceText ?? '',
+                      style: const TextStyle(
+                        color: Colors.deepPurple,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (message.sharedIlanLocationText?.isNotEmpty == true)
+                      Text(
+                        message.sharedIlanLocationText!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    const SizedBox(height: 7),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          timeString,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        if (isMe) ...[
+                          const SizedBox(width: 4),
+                          _buildMessageStatusIconForSharedPost(
+                            message.messageStatus,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Yanıt önizlemesi göster
   Widget _buildReplyPreview() {
     return Container(
@@ -714,10 +868,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       decoration: BoxDecoration(
         color: Colors.grey[100],
         border: Border(
-          left: BorderSide(
-            color: Colors.deepPurple.shade300,
-            width: 3,
-          ),
+          left: BorderSide(color: Colors.deepPurple.shade300, width: 3),
         ),
       ),
       child: Row(
@@ -739,10 +890,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 const SizedBox(height: 2),
                 Text(
                   _replyToMessage?.content ?? '',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[700],
-                  ),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -762,16 +910,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   /// WhatsApp benzeri mesaj durumu ikonu
   Widget _buildMessageStatusIcon(String status, {required bool isMe}) {
-    // DEBUG: Okundu durumu logla
-    debugPrint('🔔 _buildMessageStatusIcon: status=$status isMe=$isMe');
-    
     switch (status) {
       case 'failed':
-        return const Icon(
-          Icons.error_outline,
-          size: 16,
-          color: Colors.red,
-        );
+        return const Icon(Icons.error_outline, size: 16, color: Colors.red);
       case 'sending':
         return const SizedBox(
           width: 16,
@@ -782,11 +923,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           ),
         );
       case 'sent':
-        return const Icon(
-          Icons.done_all,
-          size: 16,
-          color: Colors.white70,
-        );
+        return const Icon(Icons.done_all, size: 16, color: Colors.white70);
       case 'read':
         return const Icon(
           Icons.done_all,
@@ -829,7 +966,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                     .select('*')
                     .eq('id', message.sharedPostId!)
                     .maybeSingle();
-                
+
                 if (postData != null && mounted) {
                   final post = Post.fromJson(postData);
                   Navigator.push(
@@ -849,7 +986,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             children: [
               // Gönderi başlığı
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.grey[100],
                   borderRadius: const BorderRadius.only(
@@ -859,7 +999,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.article, size: 16, color: Colors.deepPurple),
+                    const Icon(
+                      Icons.article,
+                      size: 16,
+                      color: Colors.deepPurple,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'Paylaşılan Gönderi',
@@ -889,17 +1033,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                       ),
                       const SizedBox(height: 4),
                     ],
-                    if (message.sharedPostContent != null && message.sharedPostContent!.isNotEmpty)
+                    if (message.sharedPostContent != null &&
+                        message.sharedPostContent!.isNotEmpty)
                       Text(
                         message.sharedPostContent!,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[800],
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.grey[800]),
                       ),
-                    if (message.sharedPostImageUrl != null && message.sharedPostImageUrl!.isNotEmpty) ...[
+                    if (message.sharedPostImageUrl != null &&
+                        message.sharedPostImageUrl!.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
@@ -919,20 +1062,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               ),
               // Alt bilgi (zaman + tik)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       timeString,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 4),
-                      _buildMessageStatusIconForSharedPost(message.messageStatus),
+                      _buildMessageStatusIconForSharedPost(
+                        message.messageStatus,
+                      ),
                     ],
                   ],
                 ),
@@ -948,11 +1093,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   Widget _buildMessageStatusIconForSharedPost(String status) {
     switch (status) {
       case 'failed':
-        return const Icon(
-          Icons.error_outline,
-          size: 14,
-          color: Colors.red,
-        );
+        return const Icon(Icons.error_outline, size: 14, color: Colors.red);
       case 'sending':
         return const SizedBox(
           width: 14,
@@ -963,11 +1104,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           ),
         );
       case 'sent':
-        return const Icon(
-          Icons.done_all,
-          size: 14,
-          color: Colors.grey,
-        );
+        return const Icon(Icons.done_all, size: 14, color: Colors.grey);
       case 'read':
         return const Icon(
           Icons.done_all,

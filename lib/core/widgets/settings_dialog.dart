@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
 import '../models/user_model.dart';
-import '../services/push_notification_service.dart';
+import '../navigation/app_navigator.dart';
 import '../../features/market/screens/address_management_screen.dart';
 import '../../features/market/screens/cart_screen.dart';
 import '../../features/market/screens/order_history_screen.dart';
@@ -381,20 +381,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         );
 
                         if (confirm == true) {
-                          try {
-                            // Önce FCM token'ı temizle (signOut'dan ÖNCE!)
-                            await PushNotificationService.clearTokenOnLogout();
-                            await Supabase.instance.client.auth.signOut();
-                            // Ana ekrana yönlendir (misafir modu)
-                            Navigator.of(context).pushNamedAndRemoveUntil(
-                              '/',
-                              (route) => false,
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Çıkış yapılırken hata: $e')),
-                            );
-                          }
+                          // Root navigator key ile güvenli çıkış: context
+                          // dispose olsa bile yönlendirme çalışır → siyah ekran
+                          // önlenir (bu akışta önceden mounted kontrolü yoktu).
+                          await AppNavigator.signOutAndReset('/');
                         }
                       }
                     },

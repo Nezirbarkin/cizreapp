@@ -17,6 +17,7 @@ class SehiriciProvider extends ChangeNotifier {
   final SehiriciLineService _lineService = SehiriciLineService();
   final SehiriciFavoriteService _favoriteService =
       SehiriciFavoriteService();
+  final SehiriciTripService _tripService = SehiriciTripService();
 
   // State
   SehiriciSettings _settings = const SehiriciSettings();
@@ -27,6 +28,17 @@ class SehiriciProvider extends ChangeNotifier {
   Set<String> _favoriteStopIds = {};
   bool _isLoading = false;
   String? _errorMessage;
+
+  /// Realtime aktif-sefer kanalının şu an açık olduğu şehir. Kanal yönetimi
+  /// tamamen burada toplanır — widget'lar kendi SehiriciTripService
+  /// instance'ını oluşturmaz (aksi hâlde her widget mount'unda kapatılmayan
+  /// yeni bir kanal sızdırılırdı).
+  String? _realtimeCityId;
+
+  /// Kullanıcının haritada vurgulamak istediği hat (chip ile gösterilir).
+  /// null = tüm hatlar eşit. Kullanıcı "haritada göster" ikonuna tıkladığında
+  /// setlenir, chip'in [×] butonuyla veya başka hat seçildiğinde temizlenir.
+  String? _highlightedLineId;
 
   // Getters
   SehiriciSettings get settings => _settings;
@@ -45,6 +57,18 @@ class SehiriciProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get moduleEnabled => _settings.moduleEnabled;
+  String? get highlightedLineId => _highlightedLineId;
+
+  /// Haritada bir hattı vurgula (veya null ile temizle). Aynı hat zaten
+  /// seçiliyse ikinci çağrı temizler — toggle davranışı.
+  void highlightLine(String? lineId) {
+    if (_highlightedLineId == lineId) {
+      _highlightedLineId = null;
+    } else {
+      _highlightedLineId = lineId;
+    }
+    notifyListeners();
+  }
 
   /// Uygulama açılışında çağrılır. Ayarlar + şehirleri yükler.
   Future<void> initialize() async {
@@ -58,7 +82,7 @@ class SehiriciProvider extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      _cities = await _cityService.getCities();
+      _cities = await _loadCitiesWithRetry();
       if (_selectedCityId == null &&
           _settings.defaultCityId != null &&
           _settings.defaultCityId!.isNotEmpty) {
@@ -69,6 +93,7 @@ class SehiriciProvider extends ChangeNotifier {
       }
       if (_selectedCityId != null) {
         await loadLinesAndTrips(_selectedCityId!);
+        ensureRealtimeWatching();
       }
       _favoriteStopIds =
           (await _favoriteService.getFavorites()).map((f) => f.stopId).toSet();
@@ -81,11 +106,40 @@ class SehiriciProvider extends ChangeNotifier {
     }
   }
 
+  /// Soğuk başlangıçta geçici bir ağ hatası olursa (bağlantı hazır olmadan
+  /// ilk istek atılması yaygın bir durumdur) tek seferlik başarısızlık,
+  /// modül açıkken şehir listesini kalıcı olarak boş bırakmasın diye kısa
+  /// bir yeniden deneme uygular. Gerçekten hiç şehir yoksa (idempotent)
+  /// sonuçta yine boş liste döner.
+  Future<List<SehiriciCity>> _loadCitiesWithRetry() async {
+    var cities = await _cityService.getCities();
+    for (final delay in const [
+      Duration(milliseconds: 800),
+      Duration(seconds: 2),
+    ]) {
+      if (cities.isNotEmpty) break;
+      await Future.delayed(delay);
+      cities = await _cityService.getCities(forceRefresh: true);
+    }
+    return cities;
+  }
+
+  /// Kart/ekran göründüğünde çağrılır: modül açık ama şehir listesi boşsa
+  /// (ör. initialize() ilk denemede ağ hatası aldıysa) sessizce yeniden
+  /// dener. Zaten yükleniyorsa veya dolu ise no-op.
+  Future<void> ensureFresh() async {
+    if (_isLoading) return;
+    if (_settings.moduleEnabled && _cities.isEmpty) {
+      await initialize();
+    }
+  }
+
   Future<void> selectCity(String cityId) async {
     if (_selectedCityId == cityId) return;
     _selectedCityId = cityId;
     notifyListeners();
     await loadLinesAndTrips(cityId);
+    ensureRealtimeWatching();
   }
 
   Future<void> loadLinesAndTrips(String cityId) async {
@@ -119,14 +173,39 @@ class SehiriciProvider extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────
-  // Realtime callback — SehiriciTripService.watchActiveTrips için
+  // Realtime — tek kanal burada yönetilir. Widget'lar kendi
+  // SehiriciTripService instance'ını OLUŞTURMAZ: aksi hâlde her widget
+  // mount'unda (CompactCard, StoryCard, ...) kapatılmayan yeni bir kanal
+  // sızdırılırdı. Bunun yerine ensureRealtimeWatching() çağırırlar.
   // ─────────────────────────────────────────────
+
+  /// Seçili şehir için realtime aktif-sefer kanalının açık olduğundan emin
+  /// olur. Zaten doğru şehir için açıksa no-op — birden fazla widget güvenle
+  /// tekrar tekrar çağırabilir. watchActiveTrips kendi eski kanalını zaten
+  /// kapatıyor (sehirici_trip_service.dart), bu yüzden şehir değişince tek
+  /// bir kanal kalmaya devam eder.
+  void ensureRealtimeWatching() {
+    if (!_settings.moduleEnabled) return;
+    if (_realtimeCityId == _selectedCityId) return;
+    _realtimeCityId = _selectedCityId;
+    _tripService.watchActiveTrips(
+      cityId: _selectedCityId,
+      onTripUpdate: onTripRealtimeUpdate,
+      onTripDelete: onTripRealtimeDelete,
+    );
+  }
 
   void onTripRealtimeUpdate(SehiriciActiveTrip trip) {
     final idx = _activeTrips.indexWhere((t) => t.tripId == trip.tripId);
     if (idx >= 0) {
+      // DİKKAT: listeyi YERİNDE değiştirmeyin. Tüketiciler (SehiriciLiveMap)
+      // `oldWidget.activeTrips != widget.activeTrips` kimlik karşılaştırması
+      // yapıyor; aynı List instance'ını mutasyona uğratmak bu kontrolü hep
+      // false yapıyordu ve canlı konum haritaya ancak 30 sn'lik yedek
+      // timer'da yansıyordu. Her güncellemede yeni bir liste üretiyoruz.
+      final next = List<SehiriciActiveTrip>.of(_activeTrips);
       // Eski verinin zengin alanlarını koru (line adı/kodu/renk vs.)
-      _activeTrips[idx] = _activeTrips[idx].copyWithLocation(
+      next[idx] = next[idx].copyWithLocation(
         lat: trip.currentLat,
         lng: trip.currentLng,
         heading: trip.currentHeading,
@@ -134,8 +213,20 @@ class SehiriciProvider extends ChangeNotifier {
         etaMinutes: trip.etaMinutes,
         nextStopId: trip.nextStopId,
       );
+      _activeTrips = next;
     } else {
-      _activeTrips = [..._activeTrips, trip];
+      // Yeni sefer: realtime satırında hat join'i yok (lineCode/lineName
+      // boş gelir) — zaten yüklü hat listesinden zenginleştir.
+      var newTrip = trip;
+      if (trip.lineCode.isEmpty) {
+        for (final line in _lines) {
+          if (line.id == trip.lineId) {
+            newTrip = trip.copyWithLine(line);
+            break;
+          }
+        }
+      }
+      _activeTrips = [..._activeTrips, newTrip];
     }
     notifyListeners();
   }

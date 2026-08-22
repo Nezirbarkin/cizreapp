@@ -12,6 +12,8 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/permission_service.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../chat/services/chat_service.dart';
 import '../services/post_service.dart';
@@ -23,7 +25,8 @@ import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 import 'story_viewers_screen.dart';
 import 'story_viewer_screen.dart';
-import '../../profile/screens/user_profile_screen.dart' hide HeartAnimationOverlay;
+import '../../profile/screens/user_profile_screen.dart'
+    hide HeartAnimationOverlay;
 import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/widgets/animated_app_title.dart';
@@ -34,6 +37,8 @@ import '../widgets/story_view_dialog.dart';
 import '../widgets/heart_animation_overlay.dart';
 import '../widgets/post_image_carousel.dart';
 import '../widgets/social_balance_badge.dart';
+import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
+import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key});
@@ -63,13 +68,17 @@ class _SocialScreenState extends State<SocialScreen> {
   Set<String> _savedPosts = {}; // Kaydedilen gönderiler
   int _unreadNotificationCount = 0;
   bool _isLoading = true;
+  // Feed yüklemesi başarısız olursa kullanıcı dostu hata mesajı; null = hata yok.
+  // _posts boşken bu doluysa "Henüz gönderi yok" yerine retry'lı hata durumu
+  // gösterilir (ağ kopması / izin hatası vs.).
+  String? _loadError;
 
   // Animasyon ayarları
   String _appSlogan = 'Her an her kapıda!';
   int _animationPrimaryDurationMs = 6000;
   int _animationSecondaryDurationMs = 3000;
   int _animationTransitionDurationMs = 700;
-  
+
   // Pagination variables
   int _currentPage = 0;
   static const int _pageSize = 20;
@@ -81,7 +90,7 @@ class _SocialScreenState extends State<SocialScreen> {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _loadData();
-    
+
     // ⚡ iOS PERFORMANCE: Bildirim sayısını paralel yükle
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadNotificationCount().catchError((_) {});
@@ -95,7 +104,8 @@ class _SocialScreenState extends State<SocialScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       if (_hasMore && !_isLoadingMore && !_isLoading) {
         _loadMorePosts();
       }
@@ -104,10 +114,13 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     _currentPage = 0;
     _hasMore = true;
-    
+
     // Önceki cache'leri temizle - stale data sorununu önlemek için
     _posts.clear();
     _userProfiles.clear();
@@ -126,7 +139,7 @@ class _SocialScreenState extends State<SocialScreen> {
         _storyService.getStories(),
         _storyService.getUserStories(userId),
       ]);
-      
+
       final posts = results[0] as List<Post>;
       final allStories = results[1] as List<Story>;
       final userStories = results[2] as List<Story>;
@@ -162,11 +175,12 @@ class _SocialScreenState extends State<SocialScreen> {
             }),
         // Beğeni durumlarını yükle
         posts.isNotEmpty
-            ? _postService.getLikedPostIds(userId, posts.map((p) => p.id).toList())
-                .catchError((e) {
-                  debugPrint('Beğeni durumları yüklenirken hata: $e');
-                  return <String>{};
-                })
+            ? _postService
+                  .getLikedPostIds(userId, posts.map((p) => p.id).toList())
+                  .catchError((e) {
+                    debugPrint('Beğeni durumları yüklenirken hata: $e');
+                    return <String>{};
+                  })
             : Future.value(<String>{}),
       ]);
 
@@ -177,6 +191,26 @@ class _SocialScreenState extends State<SocialScreen> {
         profiles[profileData['id']] = profileData;
         if (profileData['id'] == userId) {
           _currentUserProfile = profileData;
+        }
+      }
+
+      // 🐛 DEBUG BANNER KALDIRILDI - sorun çözüldü, banner'a gerek yok
+
+      // ✅ Orphan post fix: Profil kaydı OLMAYAN yazarlar (eski user_id'ler
+      //    silinmiş veya profiles'a hiç yazılmamış) için view'dan gelen
+      //    author_* alanlarını _userProfiles map'ine enjekte et. Aksi halde
+      //    avatar/isim/handle boş kalır ve post header'ı kaybolur.
+      for (final post in posts) {
+        if (post.userId.isEmpty) continue;
+        if (profiles.containsKey(post.userId)) continue;
+        if (!post.authorProfileExists) {
+          profiles[post.userId] = {
+            'id': post.userId,
+            'username': post.authorUsername,
+            'full_name': post.authorFullName,
+            'avatar_url': post.authorAvatarUrl,
+            '_orphan': true,
+          };
         }
       }
 
@@ -195,6 +229,8 @@ class _SocialScreenState extends State<SocialScreen> {
         _userProfiles = profiles;
         _likedPosts = likedStatus;
         _isLoading = false;
+        _loadError = null;
+        // _debugBanner zaten atandı (yukarıda) - setState rebuild tetikler
       });
 
       // Animasyon ayarlarını yükle
@@ -204,8 +240,10 @@ class _SocialScreenState extends State<SocialScreen> {
           setState(() {
             _appSlogan = appAbout.appSlogan;
             _animationPrimaryDurationMs = appAbout.animationPrimaryDurationMs;
-            _animationSecondaryDurationMs = appAbout.animationSecondaryDurationMs;
-            _animationTransitionDurationMs = appAbout.animationTransitionDurationMs;
+            _animationSecondaryDurationMs =
+                appAbout.animationSecondaryDurationMs;
+            _animationTransitionDurationMs =
+                appAbout.animationTransitionDurationMs;
           });
         }
       } catch (e) {
@@ -215,15 +253,19 @@ class _SocialScreenState extends State<SocialScreen> {
       debugPrint('❌ SocialScreen _loadData hatası: $e');
       debugPrint('Stack trace: $stackTrace');
       if (mounted) {
-        setState(() => _isLoading = false);
-        // Kullanıcı dostu hata mesajı
-        String errorMsg = 'Veriler yüklenirken bir hata oluştu';
-        if (e.toString().contains('İnternet bağlantınızı') || e.toString().contains('Bağlantı zaman aşımı')) {
-          errorMsg = e.toString().replaceAll('Exception: ', '');
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg)),
-        );
+        // Hatayı merkezi işleyiciden kullanıcı dostu mesaja çevir:
+        // ağ kopması → "İnternet bağlantınızı kontrol edin", izin hatası →
+        // "yetkiniz bulunmuyor" vb. Persistent hata durumu olarak gösterilir
+        // (aşağı doğru kaydırıp yenile veya "Tekrar Dene" butonu ile retry).
+        // FriendlyException zaten dostane mesaj taşıdığından onu koru (üzerine
+        // yazma); aksi halde handleError mesajı "Bir sorun oluştu"ya bozar.
+        final friendlyMessage = e is FriendlyException
+            ? e.message
+            : AppErrorHandler.handleError(e, stackTrace);
+        setState(() {
+          _isLoading = false;
+          _loadError = friendlyMessage;
+        });
       }
     }
   }
@@ -242,7 +284,10 @@ class _SocialScreenState extends State<SocialScreen> {
 
       _currentPage++;
       final offset = _currentPage * _pageSize;
-      final newPosts = await _postService.getFeed(limit: _pageSize, offset: offset);
+      final newPosts = await _postService.getFeed(
+        limit: _pageSize,
+        offset: offset,
+      );
 
       // Yeni profilleri yükle
       final userIds = <String>{};
@@ -269,8 +314,11 @@ class _SocialScreenState extends State<SocialScreen> {
       final likedStatus = <String, bool>{};
       if (newPosts.isNotEmpty) {
         final postIds = newPosts.map((p) => p.id).toList();
-        final likedPostIds = await _postService.getLikedPostIds(userId, postIds);
-        
+        final likedPostIds = await _postService.getLikedPostIds(
+          userId,
+          postIds,
+        );
+
         for (var post in newPosts) {
           likedStatus[post.id] = likedPostIds.contains(post.id);
         }
@@ -287,9 +335,9 @@ class _SocialScreenState extends State<SocialScreen> {
       _currentPage--; // Hata olursa sayfayı geri al
       if (mounted) {
         setState(() => _isLoadingMore = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Daha fazla gönderi yüklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(AppErrorHandler.handleError(e))));
       }
     }
   }
@@ -399,11 +447,20 @@ class _SocialScreenState extends State<SocialScreen> {
                             color: Colors.orange.shade50,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Icon(Icons.flag_rounded, color: Colors.orange.shade700),
+                          child: Icon(
+                            Icons.flag_rounded,
+                            color: Colors.orange.shade700,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         const Expanded(
-                          child: Text('Gönderiyi Şikayet Et', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          child: Text(
+                            'Gönderiyi Şikayet Et',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(context),
@@ -422,32 +479,53 @@ class _SocialScreenState extends State<SocialScreen> {
                         post.content ?? 'Görsel içerik',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    const Text('Şikayet Nedeni', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const Text(
+                      'Şikayet Nedeni',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     ...PostReportService.reportReasons.entries.map((entry) {
                       return RadioListTile<String>(
                         value: entry.key,
                         groupValue: selectedReason,
-                        onChanged: (v) => setSheetState(() => selectedReason = v),
+                        onChanged: (v) =>
+                            setSheetState(() => selectedReason = v),
                         contentPadding: EdgeInsets.zero,
                         dense: true,
-                        title: Text(entry.value, style: const TextStyle(fontSize: 14)),
+                        title: Text(
+                          entry.value,
+                          style: const TextStyle(fontSize: 14),
+                        ),
                         activeColor: Colors.orange,
                       );
                     }),
                     const SizedBox(height: 16),
-                    const Text('Açıklama (opsiyonel)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const Text(
+                      'Açıklama (opsiyonel)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: descriptionController,
                       maxLines: 3,
                       decoration: InputDecoration(
                         hintText: 'Daha fazla bilgi verin...',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         contentPadding: const EdgeInsets.all(12),
                       ),
                     ),
@@ -460,12 +538,19 @@ class _SocialScreenState extends State<SocialScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.amber.shade700,
+                            size: 20,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               'Şikayetiniz ekibimiz tarafından incelenecek.',
-                              style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.amber.shade900,
+                              ),
                             ),
                           ),
                         ],
@@ -479,7 +564,9 @@ class _SocialScreenState extends State<SocialScreen> {
                             onPressed: () => Navigator.pop(context),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                             child: const Text('İptal'),
                           ),
@@ -492,26 +579,57 @@ class _SocialScreenState extends State<SocialScreen> {
                                 ? null
                                 : () async {
                                     setSheetState(() => isSubmitting = true);
-                                    final result = await _postReportService.reportPost(
-                                      reportedPostId: post.id,
-                                      reason: selectedReason!,
-                                      description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
-                                    );
+                                    final result = await _postReportService
+                                        .reportPost(
+                                          reportedPostId: post.id,
+                                          reason: selectedReason!,
+                                          description:
+                                              descriptionController.text
+                                                  .trim()
+                                                  .isEmpty
+                                              ? null
+                                              : descriptionController.text
+                                                    .trim(),
+                                        );
                                     if (!context.mounted) return;
                                     Navigator.pop(context);
                                     if (result == 'success') {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Şikayetiniz alındı. Teşekkürler!'), backgroundColor: Colors.green),
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Şikayetiniz alındı. Teşekkürler!',
+                                          ),
+                                          backgroundColor: Colors.green,
+                                        ),
                                       );
                                     } else if (result == 'duplicate') {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Bu gönderiyi zaten şikayet etmişsiniz.'), backgroundColor: Colors.orange),
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Bu gönderiyi zaten şikayet etmişsiniz.',
+                                          ),
+                                          backgroundColor: Colors.orange,
+                                        ),
                                       );
                                     } else {
                                       // Hata detayını göster
-                                      final errorMsg = result.toString().replaceAll('error: ', '');
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Şikayet gönderilemedi: $errorMsg'), backgroundColor: Colors.red, duration: const Duration(seconds: 5)),
+                                      final errorMsg = result
+                                          .toString()
+                                          .replaceAll('error: ', '');
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Şikayet gönderilemedi: $errorMsg',
+                                          ),
+                                          backgroundColor: Colors.red,
+                                          duration: const Duration(seconds: 5),
+                                        ),
                                       );
                                     }
                                   },
@@ -519,10 +637,19 @@ class _SocialScreenState extends State<SocialScreen> {
                               backgroundColor: Colors.orange,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                             child: isSubmitting
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
                                 : const Text('Şikayet Et'),
                           ),
                         ),
@@ -544,7 +671,7 @@ class _SocialScreenState extends State<SocialScreen> {
     if (userId == null) return;
 
     final isLiked = _likedPosts[post.id] ?? false;
-    
+
     // Optimistic update - UI'ı hemen güncelle
     setState(() {
       _likedPosts[post.id] = !isLiked;
@@ -552,7 +679,9 @@ class _SocialScreenState extends State<SocialScreen> {
       final index = _posts.indexWhere((p) => p.id == post.id);
       if (index != -1) {
         _posts[index] = _posts[index].copyWith(
-          likesCount: isLiked ? _posts[index].likesCount - 1 : _posts[index].likesCount + 1,
+          likesCount: isLiked
+              ? _posts[index].likesCount - 1
+              : _posts[index].likesCount + 1,
         );
       }
     });
@@ -570,15 +699,17 @@ class _SocialScreenState extends State<SocialScreen> {
         final index = _posts.indexWhere((p) => p.id == post.id);
         if (index != -1) {
           _posts[index] = _posts[index].copyWith(
-            likesCount: isLiked ? _posts[index].likesCount + 1 : _posts[index].likesCount - 1,
+            likesCount: isLiked
+                ? _posts[index].likesCount + 1
+                : _posts[index].likesCount - 1,
           );
         }
       });
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Beğeni işlemi başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Beğeni işlemi başarısız: $e')));
       }
     }
   }
@@ -601,7 +732,7 @@ class _SocialScreenState extends State<SocialScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedPosts = prefs.getStringList('saved_posts') ?? [];
-      
+
       setState(() {
         if (_savedPosts.contains(post.id)) {
           _savedPosts.remove(post.id);
@@ -611,17 +742,21 @@ class _SocialScreenState extends State<SocialScreen> {
           savedPosts.add(post.id);
         }
       });
-      
+
       await prefs.setStringList('saved_posts', savedPosts);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _savedPosts.contains(post.id) ? 'Gönderi kaydedildi' : 'Kayıt kaldırıldı',
+              _savedPosts.contains(post.id)
+                  ? 'Gönderi kaydedildi'
+                  : 'Kayıt kaldırıldı',
             ),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -636,35 +771,39 @@ class _SocialScreenState extends State<SocialScreen> {
       // Arkadaş listesini getir
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
       if (currentUserId == null) return;
-      
+
       final friendsResponse = await Supabase.instance.client
           .from('follows')
           .select('following_id')
           .eq('follower_id', currentUserId);
-      
-      final followingIds = (friendsResponse as List).map((e) => e['following_id'] as String).toList();
-      
+
+      final followingIds = (friendsResponse as List)
+          .map((e) => e['following_id'] as String)
+          .toList();
+
       if (followingIds.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('Henüz arkadaşınız yok'),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           );
         }
         return;
       }
-      
+
       // Arkadaşların profillerini getir
       final friendsProfiles = await Supabase.instance.client
           .from('profiles')
           .select('id, username, full_name, avatar_url')
           .inFilter('id', followingIds);
-      
+
       if (!mounted) return;
-      
+
       // Arkadaş seçme dialog'u göster
       await showModalBottomSheet(
         context: context,
@@ -688,7 +827,10 @@ class _SocialScreenState extends State<SocialScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     const Icon(Icons.send, color: Colors.blue),
@@ -714,14 +856,23 @@ class _SocialScreenState extends State<SocialScreen> {
                   itemCount: friendsProfiles.length,
                   itemBuilder: (context, index) {
                     final friend = friendsProfiles[index];
-                    final friendName = friend['full_name'] ?? friend['username'] ?? 'Kullanıcı';
+                    final friendName =
+                        friend['full_name'] ??
+                        friend['username'] ??
+                        'Kullanıcı';
                     final friendAvatar = friend['avatar_url'];
-                    
+
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage: friendAvatar != null ? NetworkImage(friendAvatar) : null,
+                        backgroundImage: friendAvatar != null
+                            ? NetworkImage(friendAvatar)
+                            : null,
                         child: friendAvatar == null
-                            ? Text(friendName.isNotEmpty ? friendName.substring(0, 1).toUpperCase() : '?')
+                            ? Text(
+                                friendName.isNotEmpty
+                                    ? friendName.substring(0, 1).toUpperCase()
+                                    : '?',
+                              )
                             : null,
                       ),
                       title: Text(friendName),
@@ -750,7 +901,8 @@ class _SocialScreenState extends State<SocialScreen> {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                      'Sohbet başlatılamadı (karşı taraf mesajları kapatmış olabilir).'),
+                                    'Sohbet başlatılamadı (karşı taraf mesajları kapatmış olabilir).',
+                                  ),
                                   backgroundColor: Colors.orange,
                                 ),
                               );
@@ -776,7 +928,8 @@ class _SocialScreenState extends State<SocialScreen> {
                                 content: Text('$friendName\'e gönderildi!'),
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             );
                           } else if (mounted) {
@@ -823,11 +976,9 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _showComments(Post post) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(post: post),
-      ),
+      MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
     );
-    
+
     // ⚡ OPTİMİZE: Sadece post silinmişse veya değişmişse yenile
     // Yorumlar sadece detail screen'de görünür, ana feed'de değil
     if (result == 'deleted' || result == 'updated') {
@@ -838,9 +989,7 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _createPost() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const CreatePostScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const CreatePostScreen()),
     );
     // Gönderi oluşturduktan sonra feed'i yenile
     _loadData();
@@ -849,35 +998,40 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _sharePost(Post post) async {
     try {
       final userProfile = _userProfiles[post.userId];
-      final username = userProfile?['full_name'] ?? userProfile?['username'] ?? 'Bilinmeyen';
-      
+      // ✅ UX FIX: Paylaşım metninde de UUID kırpıntısı göstermemek için
+      //    jenerik fallback kullanıyoruz. Gerçek isim yoksa "Kullanıcı" de.
+      final hasRealName =
+          (userProfile?['full_name']?.toString().trim().isNotEmpty ?? false) ||
+          (userProfile?['username']?.toString().trim().isNotEmpty ?? false);
+      final username = hasRealName
+          ? (userProfile!['full_name']?.toString().trim().isNotEmpty == true
+                ? userProfile['full_name'].toString()
+                : userProfile['username'].toString())
+          : 'Kullanıcı';
+
       // Paylaşım metni oluştur
       final StringBuffer shareText = StringBuffer();
       shareText.writeln('📱 CizreApp\'te $username paylaştı:');
       shareText.writeln();
-      
+
       if (post.content != null && post.content!.isNotEmpty) {
         shareText.writeln(post.content!);
         shareText.writeln();
       }
-      
+
       if (post.location != null && post.location!.isNotEmpty) {
         shareText.writeln('📍 ${post.location}');
       }
-      
+
       shareText.writeln('CizreApp\'i indir ve sen de katıl! 🎉');
-      
-      await SharePlus.instance.share(
-        ShareParams(
-          text: shareText.toString(),
-        ),
-      );
+
+      await SharePlus.instance.share(ShareParams(text: shareText.toString()));
     } catch (e) {
       debugPrint('Paylaşım hatası: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Paylaşım yapılamadı')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Paylaşım yapılamadı')));
       }
     }
   }
@@ -893,93 +1047,100 @@ class _SocialScreenState extends State<SocialScreen> {
         children: [
           Column(
             children: [
-          // Özel Header (Stories dahil)
-          _buildHeader(context, primaryColor),
+              // Özel Header (Stories dahil)
+              _buildHeader(context, primaryColor),
 
-          // İçerik alanı
-          Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(40),
-                topRight: Radius.circular(40),
-              ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
+              // İçerik alanı
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(40),
+                    topRight: Radius.circular(40),
+                  ),
+                  child: Container(
+                    decoration: const BoxDecoration(color: Colors.white),
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : RefreshIndicator(
+                            onRefresh: _loadData,
+                            color: primaryColor,
+                            child: CustomScrollView(
+                              controller: _scrollController,
+                              slivers: [
+                                // Posts
+                                _posts.isEmpty
+                                    ? SliverFillRemaining(
+                                        // Hata varsa (ağ/izin) retry'lı hata durumu;
+                                        // yoksa gerçekten gönderi yok durumu.
+                                        child: _loadError != null
+                                            ? _buildErrorState(_loadError!)
+                                            : _buildEmptyState(),
+                                      )
+                                    : SliverList(
+                                        delegate: SliverChildBuilderDelegate((
+                                          context,
+                                          index,
+                                        ) {
+                                          final post = _posts[index];
+                                          return Column(
+                                            children: [
+                                              if (index == 0)
+                                                const SizedBox(height: 4),
+                                              _buildTwitterPostCard(post),
+                                              if (index < _posts.length - 1)
+                                                Divider(
+                                                  height: 1,
+                                                  thickness: 1,
+                                                  color: Colors.grey.shade200,
+                                                  indent: 72,
+                                                ),
+                                            ],
+                                          );
+                                        }, childCount: _posts.length),
+                                      ),
+                                // Loading indicator
+                                if (_isLoadingMore)
+                                  SliverToBoxAdapter(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                      ),
+                                      child: Center(
+                                        child: SizedBox(
+                                          width: 32,
+                                          height: 32,
+                                          child: CircularProgressIndicator(
+                                            color: primaryColor,
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                // No more posts indicator
+                                if (!_hasMore && _posts.isNotEmpty)
+                                  SliverToBoxAdapter(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 24,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          'Başka gönderi yok',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade500,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                  ),
                 ),
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : RefreshIndicator(
-                        onRefresh: _loadData,
-                        color: primaryColor,
-                        child: CustomScrollView(
-                          controller: _scrollController,
-                          slivers: [
-                            // Posts
-                            _posts.isEmpty
-                                ? SliverFillRemaining(
-                                    child: _buildEmptyState(),
-                                  )
-                                : SliverList(
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, index) {
-                                        final post = _posts[index];
-                                        return Column(
-                                          children: [
-                                            if (index == 0) const SizedBox(height: 4),
-                                            _buildTwitterPostCard(post),
-                                            if (index < _posts.length - 1)
-                                              Divider(
-                                                height: 1,
-                                                thickness: 1,
-                                                color: Colors.grey.shade200,
-                                                indent: 72,
-                                              ),
-                                          ],
-                                        );
-                                      },
-                                      childCount: _posts.length,
-                                    ),
-                                  ),
-                            // Loading indicator
-                            if (_isLoadingMore)
-                              SliverToBoxAdapter(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 32,
-                                      height: 32,
-                                      child: CircularProgressIndicator(
-                                        color: primaryColor,
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            // No more posts indicator
-                            if (!_hasMore && _posts.isNotEmpty)
-                              SliverToBoxAdapter(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 24),
-                                  child: Center(
-                                    child: Text(
-                                      'Başka gönderi yok',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
               ),
-            ),
-          ),
             ],
           ),
           // Yüzen + butonu (Profil ikonunun üzerinde, FloatingMessageButton gibi)
@@ -1002,11 +1163,7 @@ class _SocialScreenState extends State<SocialScreen> {
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.add,
-                  color: primaryColor,
-                  size: 28,
-                ),
+                child: Icon(Icons.add, color: primaryColor, size: 28),
               ),
             ),
           ),
@@ -1019,7 +1176,7 @@ class _SocialScreenState extends State<SocialScreen> {
     // Platform'a göre topPadding hesapla (Market Screen ile aynı)
     final screenSize = MediaQuery.of(context).size;
     final isMobileWeb = kIsWeb && screenSize.width <= 600;
-    
+
     double topPadding;
     if (isMobileWeb) {
       // Mobil web: minimal padding
@@ -1032,7 +1189,7 @@ class _SocialScreenState extends State<SocialScreen> {
       final safePadding = MediaQuery.of(context).padding.top;
       topPadding = safePadding + 4.0;
     }
-    
+
     return Container(
       padding: EdgeInsets.fromLTRB(20, topPadding, 20, 0),
       child: Column(
@@ -1136,7 +1293,9 @@ class _SocialScreenState extends State<SocialScreen> {
                                   minHeight: 13,
                                 ),
                                 child: Text(
-                                  _unreadNotificationCount > 9 ? '9+' : '$_unreadNotificationCount',
+                                  _unreadNotificationCount > 9
+                                      ? '9+'
+                                      : '$_unreadNotificationCount',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 8,
@@ -1188,7 +1347,7 @@ class _SocialScreenState extends State<SocialScreen> {
         final availableWidth = constraints.maxWidth;
         // Her story için genişlik (3 hikaye + "Hikayem" butonu = 4 item)
         final storyWidth = (availableWidth - 40) / 4; // 40 = toplam padding
-        
+
         return SizedBox(
           height: storyWidth + 30, // Story circle + isim + padding
           child: ListView.builder(
@@ -1207,8 +1366,6 @@ class _SocialScreenState extends State<SocialScreen> {
       },
     );
   }
-
-
 
   Widget _buildMyStoryButtonDynamic(double size) {
     final username = _currentUserProfile?['username'] ?? 'Sen';
@@ -1264,8 +1421,15 @@ class _SocialScreenState extends State<SocialScreen> {
                                       height: size - 4,
                                       color: Colors.grey.shade300,
                                       child: avatarUrl != null
-                                          ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
-                                          : Icon(Icons.person, size: size * 0.4, color: Colors.grey),
+                                          ? CachedNetworkImage(
+                                              imageUrl: avatarUrl,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : Icon(
+                                              Icons.person,
+                                              size: size * 0.4,
+                                              color: Colors.grey,
+                                            ),
                                     );
                                   },
                                   placeholder: (context, url) {
@@ -1277,7 +1441,10 @@ class _SocialScreenState extends State<SocialScreen> {
                                         child: SizedBox(
                                           width: size * 0.3,
                                           height: size * 0.3,
-                                          child: const CircularProgressIndicator(strokeWidth: 2),
+                                          child:
+                                              const CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
                                         ),
                                       ),
                                     );
@@ -1305,19 +1472,29 @@ class _SocialScreenState extends State<SocialScreen> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 // ignore: deprecated_member_use
-                                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withOpacity(0.1),
                               ),
                               child: avatarUrl != null
-                                  ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
+                                  ? CachedNetworkImage(
+                                      imageUrl: avatarUrl,
+                                      fit: BoxFit.cover,
+                                    )
                                   : Center(
                                       child: Text(
-                                        username.isNotEmpty && username.length >= 1
-                                            ? username.substring(0, 1).toUpperCase()
+                                        username.isNotEmpty &&
+                                                username.length >= 1
+                                            ? username
+                                                  .substring(0, 1)
+                                                  .toUpperCase()
                                             : 'S',
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: size * 0.3,
-                                          color: Theme.of(context).colorScheme.primary,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
                                         ),
                                       ),
                                     ),
@@ -1352,7 +1529,11 @@ class _SocialScreenState extends State<SocialScreen> {
             height: 14,
             child: const Text(
               'Hikayem',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1364,10 +1545,19 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Widget _buildStoryCardDynamic(Story story, double size) {
     final userProfile = _userProfiles[story.userId];
-    final username = userProfile?['username'] ?? (story.userId.length >= 8 ? story.userId.substring(0, 8) : story.userId);
-    final fullName = userProfile?['full_name'] ?? username;
+    // ✅ UX FIX: Profil kaydı OLMAYAN eski story sahipleri için UUID kırpıntısı
+    //    göstermek yerine jenerik "kullanici" fallback'i kullanıyoruz. Eski
+    //    profil kaydı silinen / hiç oluşmamış kullanıcılar için tutarlı bir
+    //    gösterim sağlar.
+    final rawUsername = userProfile?['username']?.toString().trim();
+    final hasRealUsername = rawUsername != null && rawUsername.isNotEmpty;
+    final username = hasRealUsername ? rawUsername : 'kullanici';
+    final fullName =
+        (userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)
+        ? userProfile!['full_name'].toString()
+        : username;
     final avatarUrl = userProfile?['avatar_url'];
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Column(
@@ -1381,20 +1571,28 @@ class _SocialScreenState extends State<SocialScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: story.isPinned
-                    ? const LinearGradient( // Sabitlendiyse altın rengi
-                        colors: [Color(0xFFFFD700), Color(0xFFFFA500), Color(0xFFFF8C00)],
+                    ? const LinearGradient(
+                        // Sabitlendiyse altın rengi
+                        colors: [
+                          Color(0xFFFFD700),
+                          Color(0xFFFFA500),
+                          Color(0xFFFF8C00),
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       )
                     : story.isViewedByCurrentUser
-                        ? null // İzlendiyse gradient yok (gri)
-                        : const LinearGradient( // İzlenmediyse renkli gradient
-                            colors: [Colors.purple, Colors.pink, Colors.orange],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                    ? null // İzlendiyse gradient yok (gri)
+                    : const LinearGradient(
+                        // İzlenmediyse renkli gradient
+                        colors: [Colors.purple, Colors.pink, Colors.orange],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                 color: !story.isPinned && story.isViewedByCurrentUser
-                    ? Colors.grey.shade300 // İzlendiyse gri
+                    ? Colors
+                          .grey
+                          .shade300 // İzlendiyse gri
                     : null,
               ),
               child: Padding(
@@ -1414,8 +1612,15 @@ class _SocialScreenState extends State<SocialScreen> {
                             height: size - 4,
                             color: Colors.grey.shade300,
                             child: avatarUrl != null
-                                ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
-                                : Icon(Icons.person, size: size * 0.4, color: Colors.grey),
+                                ? CachedNetworkImage(
+                                    imageUrl: avatarUrl,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Icon(
+                                    Icons.person,
+                                    size: size * 0.4,
+                                    color: Colors.grey,
+                                  ),
                           );
                         },
                         placeholder: (context, url) {
@@ -1427,7 +1632,9 @@ class _SocialScreenState extends State<SocialScreen> {
                               child: SizedBox(
                                 width: size * 0.3,
                                 height: size * 0.3,
-                                child: const CircularProgressIndicator(strokeWidth: 2),
+                                child: const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             ),
                           );
@@ -1458,7 +1665,9 @@ class _SocialScreenState extends State<SocialScreen> {
           SizedBox(
             width: size,
             child: Text(
-              fullName.length > 10 ? '${fullName.substring(0, 10)}...' : fullName,
+              fullName.length > 10
+                  ? '${fullName.substring(0, 10)}...'
+                  : fullName,
               style: const TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -1536,29 +1745,37 @@ class _SocialScreenState extends State<SocialScreen> {
 
         final Uint8List imageBytes = await media.readAsBytes();
         final String fileExt = media.name.split('.').last.toLowerCase();
-        debugPrint('Story boyutu (orijinal): ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
+        debugPrint(
+          'Story boyutu (orijinal): ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB',
+        );
 
         // Fotoğrafı yükle
-        final fileName = 'story_${userId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+        final fileName =
+            'story_${userId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
         final filePath = 'stories/$fileName';
 
-        await Supabase.instance.client.storage.from('stories').uploadBinary(
-          filePath,
-          imageBytes,
-          fileOptions: FileOptions(contentType: 'image/$fileExt'),
+        final uploadedMediaUrl = await StorageService().uploadBytes(
+          bucket: 'stories',
+          path: filePath,
+          bytes: imageBytes,
+          metadata: {'Content-Type': 'image/$fileExt'},
         );
-        mediaUrl = Supabase.instance.client.storage.from('stories').getPublicUrl(filePath);
-        
+
+        if (uploadedMediaUrl == null) {
+          throw Exception('Story fotoğrafı depolamaya yüklenemedi');
+        }
+        mediaUrl = uploadedMediaUrl;
+
         debugPrint('Story fotoğrafı yüklendi: $mediaUrl');
-        
+
         if (mounted) Navigator.pop(context); // Progress dialog'u kapat
       } else {
         // Video için progress tracking StateNotifier kullan
         if (!mounted) return;
-        
+
         // Video progress dialog'u aç
         final progressNotifier = ValueNotifier<double>(0.0);
-        
+
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -1604,15 +1821,17 @@ class _SocialScreenState extends State<SocialScreen> {
             progressNotifier.value = p;
           },
         );
-        
+
         if (mounted) Navigator.pop(context); // Progress dialog'u kapat
-        
+
         if (result == null || result['videoUrl'] == null) {
           throw Exception('Video yüklenirken hata oluştu');
         }
 
         mediaUrl = result['videoUrl']!;
-        thumbnailUrl = result['thumbnailUrl']!.isNotEmpty ? result['thumbnailUrl']! : null;
+        thumbnailUrl = result['thumbnailUrl']!.isNotEmpty
+            ? result['thumbnailUrl']!
+            : null;
         debugPrint('Video URL: $mediaUrl');
         debugPrint('Thumbnail URL: $thumbnailUrl');
       }
@@ -1632,13 +1851,17 @@ class _SocialScreenState extends State<SocialScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              mediaType == 'image' ? 'Fotoğraf hikayesi paylaşıldı!' : 'Video hikayesi paylaşıldı!',
+              mediaType == 'image'
+                  ? 'Fotoğraf hikayesi paylaşıldı!'
+                  : 'Video hikayesi paylaşıldı!',
             ),
           ),
         );
         // Verileri yeniden yükle
         await _loadData();
-        debugPrint('Veriler yenilendi, userStories count: ${_userStories.length}');
+        debugPrint(
+          'Veriler yenilendi, userStories count: ${_userStories.length}',
+        );
       }
     } catch (e) {
       debugPrint('Story yüklenirken hata: $e');
@@ -1647,13 +1870,12 @@ class _SocialScreenState extends State<SocialScreen> {
         Navigator.pop(context);
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Story yüklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Story yüklenirken hata: $e')));
       }
     }
   }
-
 
   // TODO: Story silme özelliği StoryViewerScreen'e eklenecek
   // Future<void> _deleteStory(String storyId) async {
@@ -1717,10 +1939,8 @@ class _SocialScreenState extends State<SocialScreen> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => StoryViewerScreen(
-            stories: _stories,
-            initialIndex: initialIndex,
-          ),
+          builder: (context) =>
+              StoryViewerScreen(stories: _stories, initialIndex: initialIndex),
         ),
       );
       // Verileri yenile
@@ -1736,10 +1956,8 @@ class _SocialScreenState extends State<SocialScreen> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => StoryViewerScreen(
-            stories: _userStories,
-            initialIndex: 0,
-          ),
+          builder: (context) =>
+              StoryViewerScreen(stories: _userStories, initialIndex: 0),
         ),
       );
       _loadData();
@@ -1751,11 +1969,7 @@ class _SocialScreenState extends State<SocialScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.feed_outlined,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
+          Icon(Icons.feed_outlined, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
           Text(
             'Henüz gönderi yok',
@@ -1768,33 +1982,120 @@ class _SocialScreenState extends State<SocialScreen> {
           const SizedBox(height: 8),
           Text(
             'İlk gönderiyi sen paylaş!',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),
     );
   }
 
+  /// Feed yüklemesi başarısız olursa gösterilen hata durumu.
+  /// [message] merkezi hata işleyiciden gelir (ör. "İnternet bağlantınızı
+  /// kontrol edin ve tekrar deneyin"). Aşağı çekerek yenile veya "Tekrar Dene"
+  /// butonuyla _loadData yeniden tetiklenir. "Henüz gönderi yok" yanıltıcılığı
+  /// yerine gerçek nedeni gösterir.
+  Widget _buildErrorState(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.wifi_off_rounded, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Tekrar Dene'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Yazar rolüne göre rozet rengi
+  Color _getAuthorRoleColor(AuthorRole role) {
+    switch (role) {
+      case AuthorRole.seller:
+        return const Color(0xFFE91E63); // Pembe (Satıcı)
+      case AuthorRole.courier:
+        return const Color(0xFF4CAF50); // Yeşil (Kurye)
+      case AuthorRole.driver:
+        return const Color(0xFF2196F3); // Mavi (Sürücü)
+      case AuthorRole.admin:
+        return const Color(0xFF9C27B0); // Mor (Admin)
+      default:
+        return Colors.grey;
+    }
+  }
+
   Widget _buildTwitterPostCard(Post post) {
-    final userProfile = _userProfiles[post.userId];
-    final fullName = userProfile?['full_name'] ?? userProfile?['username'] ?? 'Kullanıcı';
-    final username = userProfile?['username'] ?? post.userId.substring(0, 8);
+    // ✅ Orphan post tespiti: profiles satırı olmayan yazarlar için
+    //    avatar/isim/handle tamamen jenerik olur. post.authorProfileExists
+    //    view'dan gelir (LEFT JOIN sonucu). user_id null/boş ise de orphan
+    //    sayılır (silinmiş kullanıcı profili).
+    final isOrphanPost = !post.authorProfileExists || post.userId.isEmpty;
+
+    // ✅ Yazar bilgisi önce post modelinden alınır (view'dan geldi),
+    //    fallback olarak eski _userProfiles map'i kullanılır (geriye uyumluluk)
+    final userProfile = isOrphanPost ? null : _userProfiles[post.userId];
+    final fullName = isOrphanPost
+        ? 'Bilinmeyen Kullanıcı'
+        : firstNonEmpty([
+            post.authorFullName,
+            userProfile?['full_name']?.toString(),
+            post.authorUsername,
+            userProfile?['username']?.toString(),
+          ]);
+    // ✅ UX FIX: Profil kaydı bulunmayan (orphan) eski yazarlar için UUID kırpıntısı
+    //    (@e453djf gibi) göstermek yerine jenerik bir fallback kullanıyoruz. Eski
+    //    postlarda DB'de profiles satırı yoksa bu jenerik isim gösterilir; yeni
+    //    backfill migrasyonu çalıştırıldığında gerçek isim geri gelir.
+    final hasRealName = isOrphanPost
+        ? false
+        : (post.authorFullName?.trim().isNotEmpty ?? false) ||
+              (post.authorUsername?.trim().isNotEmpty ?? false) ||
+              ((userProfile?['full_name']?.toString().trim().isNotEmpty ??
+                  false)) ||
+              ((userProfile?['username']?.toString().trim().isNotEmpty ??
+                  false));
+    final username = isOrphanPost
+        ? 'kullanici'
+        : (hasRealName
+              ? (post.authorUsername ?? userProfile?['username'] ?? 'kullanici')
+              : 'kullanici');
     final handle = '@$username';
-    final avatarUrl = userProfile?['avatar_url'];
+    final avatarUrl = isOrphanPost
+        ? null
+        : (post.authorAvatarUrl ?? userProfile?['avatar_url']);
+    final authorRole = isOrphanPost ? AuthorRole.unknown : post.authorRole;
+    final isVerified = isOrphanPost ? false : post.authorIsVerified;
     final isLiked = _likedPosts[post.id] ?? false;
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    final isOwnPost = post.userId == currentUserId;
+    final isOwnPost = !isOrphanPost && post.userId == currentUserId;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque, // Tüm alanı tıklanabilir yap
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (context) => PostDetailScreen(post: post),
-        ),
+        MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
       ),
       onDoubleTap: () {
         _showLikeAnimation(context);
@@ -1812,24 +2113,18 @@ class _SocialScreenState extends State<SocialScreen> {
               onTap: () => _viewUserProfile(post.userId),
               child: Column(
                 children: [
-                  CircleAvatar(
+                  PrivilegedAvatar(
+                    userId: post.userId,
+                    username: username,
+                    avatarUrl: avatarUrl,
                     radius: 20,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                    child: avatarUrl == null
-                        ? Text(
-                            username.length >= 2
-                                ? username.substring(0, 2).toUpperCase()
-                                : username.toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          )
-                        : null,
+                    // Kullanıcı ikon/tikleri avatarın altında tekrar edilmez;
+                    // paylaşım başlığında ismin yanında tek kez gösterilir.
+                    showSocialPrivileges: false,
+                    onTap: () => _viewUserProfile(post.userId),
                   ),
-                  if (post.images.isNotEmpty && post.images.first.isNotEmpty) ...[
+                  if (post.images.isNotEmpty &&
+                      post.images.first.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
                       width: 2,
@@ -1858,22 +2153,68 @@ class _SocialScreenState extends State<SocialScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 2,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  Flexible(
-                                    child: Text(
-                                      fullName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15,
-                                        color: Colors.black87,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
+                                  Text(
+                                    fullName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: Colors.black87,
+                                    ),
+                                    softWrap: true,
+                                  ),
+                                  if (!isOrphanPost)
+                                    ProfilePrivilegeBadges(
+                                      userId: post.userId,
+                                      maximum: 3,
+                                    ),
+                                  // Legacy doğrulama; yeni katalog tikleri yoksa
+                                  // eski doğrulanmış hesap işareti korunur.
+                                  if (isVerified)
+                                    const Icon(
+                                      Icons.verified,
+                                      size: 14,
+                                      color: Color(0xFF1DA1F2),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Wrap(
+                                spacing: 5,
+                                runSpacing: 3,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(
+                                    handle,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade600,
                                     ),
                                   ),
-                                  if (post.adminPinned) ...[
-                                    const SizedBox(width: 4),
+                                  if (authorRole.isStaff)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _getAuthorRoleColor(authorRole),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        authorRole.displayLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  if (post.adminPinned)
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 5,
@@ -1903,23 +2244,12 @@ class _SocialScreenState extends State<SocialScreen> {
                                         ],
                                       ),
                                     ),
-                                  ],
                                 ],
-                              ),
-                              Text(
-                                handle,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
                               ),
                             ],
                           ),
                         ),
                       ),
-                      const Spacer(),
                       PopupMenuButton<String>(
                         icon: Icon(
                           Icons.more_horiz,
@@ -1939,7 +2269,11 @@ class _SocialScreenState extends State<SocialScreen> {
                               value: 'report',
                               child: Row(
                                 children: [
-                                  Icon(Icons.flag_outlined, color: Colors.orange, size: 20),
+                                  Icon(
+                                    Icons.flag_outlined,
+                                    color: Colors.orange,
+                                    size: 20,
+                                  ),
                                   SizedBox(width: 12),
                                   Text('Şikayet Et'),
                                 ],
@@ -1950,14 +2284,18 @@ class _SocialScreenState extends State<SocialScreen> {
                               value: 'delete',
                               child: Row(
                                 children: [
-                                  Icon(Icons.delete, color: Colors.red, size: 20),
+                                  Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                    size: 20,
+                                  ),
                                   SizedBox(width: 12),
                                   Text('Sil'),
                                 ],
                               ),
                             ),
                         ],
-                      )
+                      ),
                     ],
                   ),
 
@@ -1996,7 +2334,11 @@ class _SocialScreenState extends State<SocialScreen> {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
+                        Icon(
+                          Icons.location_on,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -2018,10 +2360,7 @@ class _SocialScreenState extends State<SocialScreen> {
                   // Tarih - İçerik ile aksiyon butonları arasında
                   Text(
                     _formatDate(post.createdAt),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade500,
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
                   ),
 
                   const SizedBox(height: 8),
@@ -2050,7 +2389,9 @@ class _SocialScreenState extends State<SocialScreen> {
 
                         // Like
                         _buildActionButton(
-                          icon: isLiked ? Icons.favorite : Icons.favorite_border,
+                          icon: isLiked
+                              ? Icons.favorite
+                              : Icons.favorite_border,
                           count: post.likesCount,
                           onTap: () => _toggleLike(post),
                           color: Colors.red,
@@ -2059,10 +2400,14 @@ class _SocialScreenState extends State<SocialScreen> {
 
                         // Kaydet
                         _buildActionButton(
-                          icon: _savedPosts.contains(post.id) ? Icons.bookmark : Icons.bookmark_border,
+                          icon: _savedPosts.contains(post.id)
+                              ? Icons.bookmark
+                              : Icons.bookmark_border,
                           count: null,
                           onTap: () => _savePost(post),
-                          color: _savedPosts.contains(post.id) ? Colors.orange : Colors.grey.shade600,
+                          color: _savedPosts.contains(post.id)
+                              ? Colors.orange
+                              : Colors.grey.shade600,
                           isActive: _savedPosts.contains(post.id),
                         ),
                       ],
@@ -2088,11 +2433,7 @@ class _SocialScreenState extends State<SocialScreen> {
       onTap: onTap,
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: isActive ? color : Colors.grey.shade600,
-            size: 18,
-          ),
+          Icon(icon, color: isActive ? color : Colors.grey.shade600, size: 18),
           if (count != null) ...[
             const SizedBox(width: 6),
             Text(
@@ -2115,7 +2456,7 @@ class _SocialScreenState extends State<SocialScreen> {
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
     final dateOnly = DateTime(date.year, date.month, date.day);
-    
+
     String dateStr;
     if (dateOnly == today) {
       dateStr = 'Bugün';
@@ -2123,13 +2464,27 @@ class _SocialScreenState extends State<SocialScreen> {
       dateStr = 'Dün';
     } else if (date.year == now.year) {
       // Aynı yıl ise gün ve ay göster
-      const aylar = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+      const aylar = [
+        'Oca',
+        'Şub',
+        'Mar',
+        'Nis',
+        'May',
+        'Haz',
+        'Tem',
+        'Ağu',
+        'Eyl',
+        'Eki',
+        'Kas',
+        'Ara',
+      ];
       dateStr = '${date.day} ${aylar[date.month - 1]}';
     } else {
       // Farklı yıl ise tam tarih
-      dateStr = '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+      dateStr =
+          '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
     }
-    
+
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
     return '$dateStr $hour:$minute';
@@ -2142,17 +2497,15 @@ class _SocialScreenState extends State<SocialScreen> {
     if (renderBox == null) return;
 
     final size = renderBox.size;
-    
+
     // Kalp ikonu overlay'i oluştur
     final entry = OverlayEntry(
-      builder: (context) => HeartAnimationOverlay(
-        key: UniqueKey(),
-        parentSize: size,
-      ),
+      builder: (context) =>
+          HeartAnimationOverlay(key: UniqueKey(), parentSize: size),
     );
 
     overlay.insert(entry);
-    
+
     // 1.5 saniye sonra overlay'i kaldır
     Future.delayed(const Duration(milliseconds: 1500), () {
       entry.remove();

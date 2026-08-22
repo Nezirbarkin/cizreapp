@@ -4,23 +4,25 @@ import 'package:cizreapp/sehirici/models/sehirici_models.dart';
 void main() {
   group('SehiriciVehicleType', () {
     test('fromString tüm enum değerlerini doğru eşler', () {
-      expect(SehiriciVehicleType.fromString('minibus'),
-          SehiriciVehicleType.minibus);
-      expect(SehiriciVehicleType.fromString('bus'),
-          SehiriciVehicleType.bus);
-      expect(SehiriciVehicleType.fromString('midibus'),
-          SehiriciVehicleType.midibus);
-      expect(SehiriciVehicleType.fromString('dolmus'),
-          SehiriciVehicleType.dolmus);
-      expect(SehiriciVehicleType.fromString('tram'),
-          SehiriciVehicleType.tram);
+      expect(
+        SehiriciVehicleType.fromString('minibus'),
+        SehiriciVehicleType.minibus,
+      );
+      expect(SehiriciVehicleType.fromString('bus'), SehiriciVehicleType.bus);
+      expect(
+        SehiriciVehicleType.fromString('midibus'),
+        SehiriciVehicleType.midibus,
+      );
+      expect(
+        SehiriciVehicleType.fromString('dolmus'),
+        SehiriciVehicleType.dolmus,
+      );
+      expect(SehiriciVehicleType.fromString('tram'), SehiriciVehicleType.tram);
     });
 
     test('fromString bilinmeyen değer other döner', () {
-      expect(SehiriciVehicleType.fromString('xxx'),
-          SehiriciVehicleType.other);
-      expect(SehiriciVehicleType.fromString(null),
-          SehiriciVehicleType.other);
+      expect(SehiriciVehicleType.fromString('xxx'), SehiriciVehicleType.other);
+      expect(SehiriciVehicleType.fromString(null), SehiriciVehicleType.other);
     });
 
     test('label boş değildir', () {
@@ -32,12 +34,18 @@ void main() {
 
   group('SehiriciTripStatus', () {
     test('fromString doğru eşler', () {
-      expect(SehiriciTripStatus.fromString('active'),
-          SehiriciTripStatus.active);
-      expect(SehiriciTripStatus.fromString('paused'),
-          SehiriciTripStatus.paused);
-      expect(SehiriciTripStatus.fromString('completed'),
-          SehiriciTripStatus.completed);
+      expect(
+        SehiriciTripStatus.fromString('active'),
+        SehiriciTripStatus.active,
+      );
+      expect(
+        SehiriciTripStatus.fromString('paused'),
+        SehiriciTripStatus.paused,
+      );
+      expect(
+        SehiriciTripStatus.fromString('completed'),
+        SehiriciTripStatus.completed,
+      );
     });
 
     test('dbValue name ile aynıdır', () {
@@ -181,6 +189,33 @@ void main() {
       // Line bilgisi korunmalı
       expect(updated.lineCode, '1A');
       expect(updated.lineName, 'Hat 1');
+    });
+
+    test('copyWithLine realtime INSERT ile boş gelen hat bilgisini doldurur', () {
+      final trip = SehiriciActiveTrip.fromJson({
+        'trip_id': 't1',
+        'line_id': 'l1',
+        'current_lat': 38.0,
+        'current_lng': 43.0,
+      });
+      expect(trip.lineCode, '');
+      expect(trip.lineName, '');
+
+      const line = SehiriciLine(
+        id: 'l1',
+        code: '1A',
+        name: 'Cumhuriyet Meydanı Hattı',
+        colorHex: '#FF5722',
+      );
+      final enriched = trip.copyWithLine(line);
+
+      expect(enriched.lineCode, '1A');
+      expect(enriched.lineName, 'Cumhuriyet Meydanı Hattı');
+      expect(enriched.lineColor, '#FF5722');
+      // Konum/kimlik bilgisi korunmalı
+      expect(enriched.tripId, 't1');
+      expect(enriched.currentLat, 38.0);
+      expect(enriched.currentLng, 43.0);
     });
   });
 

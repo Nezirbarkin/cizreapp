@@ -202,6 +202,48 @@ class PayoutService {
     }
   }
 
+  /// Satıcının tamamlanmış (delivered) siparişlerinin sayısını getir
+  /// Ödeme isteğinde order_count hesaplamak için kullanılır
+  Future<int> getCompletedOrderCount(String shopId) async {
+    try {
+      // Hata durumunda 0 döndür (ödeme isteğini bloklamaz)
+      final response = await _supabase
+          .from('orders')
+          .select('id')
+          .eq('shop_id', shopId)
+          .eq('status', 'delivered')
+          .count(CountOption.exact);
+      return response.count;
+    } catch (e) {
+      debugPrint('⚠️ getCompletedOrderCount hatası: $e');
+      return 0;
+    }
+  }
+
+  /// Kuryesi olmayan mağazalarda, teslim edilen siparişlerden admin
+  /// tarafından kesilen toplam teslimat ücretini getir.
+  /// (orders.admin_delivery_fee: kuryesi olan mağazalarda her zaman 0'dır,
+  /// bkz. calculate_order_commission() trigger'ı.)
+  /// Ödeme isteği oluşturulurken "detay" olarak kaydedilir.
+  Future<double> getDeliveryFeeDeductedTotal(String shopId) async {
+    try {
+      final response = await _supabase
+          .from('orders')
+          .select('admin_delivery_fee')
+          .eq('shop_id', shopId)
+          .eq('status', 'delivered');
+
+      double total = 0;
+      for (final row in response) {
+        total += (row['admin_delivery_fee'] as num?)?.toDouble() ?? 0;
+      }
+      return total;
+    } catch (e) {
+      debugPrint('⚠️ getDeliveryFeeDeductedTotal hatası: $e');
+      return 0;
+    }
+  }
+
   /// Yeni ödeme isteği oluştur
   Future<Map<String, dynamic>> createPayoutRequest({
     required String sellerId,
@@ -214,7 +256,7 @@ class PayoutService {
     try {
       // Önce net ödenebilir tutarı kontrol et
       final netPayoutAmount = await getNetPayableAmount(shopId);
-      
+
       // Komisyon borcunu kontrol et
       final commissionDebt = await getCommissionDebt(shopId);
       final hasCourier = await hasOwnCourier(shopId);
@@ -258,6 +300,21 @@ class PayoutService {
             'Ödeme isteği oluşturmak için önce IBAN bilgilerinizi girmelisiniz.');
       }
 
+      // Tamamlanmış sipariş sayısını hesapla (order_count için)
+      final orderCount = await getCompletedOrderCount(shopId);
+
+      // Kuryesi olmayan mağazalarda, alacaktan zaten düşülmüş olan teslimat
+      // ücreti kesintisini hesapla ve isteğe "detay" olarak ekle. Kuryesi olan
+      // mağazalarda admin_delivery_fee her zaman 0 olduğundan bu değer 0 çıkar.
+      final deliveryFeeDeducted =
+          hasCourier ? 0.0 : await getDeliveryFeeDeductedTotal(shopId);
+      final String? deductionDetail = deliveryFeeDeducted > 0
+          ? 'Kuryeniz olmadığı için siparişleriniz admin kuryesiyle teslim '
+              'edilir. Bu nedenle teslim edilen $orderCount siparişten toplam '
+              '₺${deliveryFeeDeducted.toStringAsFixed(2)} teslimat ücreti '
+              'kesilerek ödenebilir tutarınıza yansıtılmıştır.'
+          : null;
+
       // Ödeme isteğini oluştur
       final response = await _supabase
           .from('payout_requests')
@@ -269,7 +326,9 @@ class PayoutService {
             'commission_amount': commissionDebt, // Komisyon borcunu kaydet
             'net_receivable': netPayoutAmount, // Net ödenebilir
             'admin_credit': await getAdminCredit(shopId),
-            'order_count': 0,
+            'order_count': orderCount, // Gerçek tamamlanmış sipariş sayısı
+            'delivery_fee_deducted': deliveryFeeDeducted, // Kesilen teslimat ücreti
+            'deduction_detail': deductionDetail, // Kesinti açıklaması
             'status': 'pending',
             'iban': shopIban,
             'bank_name': shopBankName,
@@ -285,6 +344,10 @@ class PayoutService {
   }
 
   /// Ödeme isteğini iptal et (sadece pending durumundakiler)
+  ///
+  /// Not: Bu işlem payout_requests tablosunda satıcının KENDİ pending isteğini
+  /// 'cancelled' durumuna çeker. Çalışması için DB tarafında satıcıya özel UPDATE
+  /// RLS politikası gereklidir (bkz. 20260807000001_allow_seller_cancel_payout.sql).
   Future<bool> cancelPayoutRequest(String payoutRequestId) async {
     try {
       final response = await _supabase
@@ -294,7 +357,13 @@ class PayoutService {
           .eq('status', 'pending')
           .select();
 
-      return response.isNotEmpty;
+      // RLS isteği engellerse veya istek artık 'pending' değilse response boş döner.
+      // Boş dönüşü sessizce 'başarılı' saymak, kullanıcıya yanlış bilgi verir → fırlat.
+      if (response.isEmpty) {
+        throw Exception(
+            'Ödeme isteği iptal edilemedi. İstek bulunamadı, zaten işlenmiş veya iptal etme izniniz yok.');
+      }
+      return true;
     } catch (e) {
       throw Exception('Ödeme isteği iptal edilemedi: $e');
     }
@@ -315,6 +384,14 @@ class PayoutService {
             'Geçersiz IBAN formatı. IBAN \'TR\' ile başlamalı ve 26 karakter olmalıdır.');
       }
 
+      // IBAN checksum doğrulaması (ISO 13616 mod-97).
+      // Sadece format kontrolü "TR" + rastgele 24 karakteri geçerse de hatalı
+      // IBAN'lar kaydedilebiliyordu; gerçek checksum ile bunu engelle.
+      if (!_isValidIbanChecksum(cleanIban)) {
+        throw Exception(
+            'Geçersiz IBAN numarası. IBAN checksum doğrulaması başarısız — numarayı kontrol edin.');
+      }
+
       await _supabase
           .from('shops')
           .update({
@@ -326,6 +403,32 @@ class PayoutService {
     } catch (e) {
       throw Exception('IBAN bilgileri güncellenemedi: $e');
     }
+  }
+
+  /// ISO 13616 IBAN checksum doğrulaması (mod-97).
+  /// İlk 4 karakteri (ülke kodu + kontrol basamağı) sona al, harfleri sayıya
+  /// çevir (A=10 ... Z=35), elde edilen büyük sayının mod 97'si 1 olmalıdır.
+  bool _isValidIbanChecksum(String iban) {
+    if (iban.length < 5) return false;
+    final rearranged = '${iban.substring(4)}${iban.substring(0, 4)}';
+    final buffer = StringBuffer();
+    for (final unit in rearranged.codeUnits) {
+      if (unit >= 0x30 && unit <= 0x39) {
+        // '0'..'9'
+        buffer.writeCharCode(unit);
+      } else if (unit >= 0x41 && unit <= 0x5A) {
+        // 'A'..'Z' → 10..35
+        buffer.write(unit - 55);
+      } else {
+        return false; // Geçersiz karakter
+      }
+    }
+    // Büyük sayıyı basamak basamak mod 97 ile işle (BigInt gerekmez).
+    var remainder = 0;
+    for (final unit in buffer.toString().codeUnits) {
+      remainder = (remainder * 10 + (unit - 0x30)) % 97;
+    }
+    return remainder == 1;
   }
 
   /// Ödeme isteği durumunu al

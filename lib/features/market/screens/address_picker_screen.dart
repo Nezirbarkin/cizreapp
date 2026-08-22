@@ -44,6 +44,11 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
   bool _isLoadingLocation = false;
   bool _isApiKeyLoaded = false;
   bool _isGeocoding = false;
+  // Reverse geocode (tap/arama sonrası) mahalle/sokak alanlarını otomatik
+  // doldururken true → field listener forward geocode tetiklemesin. Aksi
+  // halde: tap → reverse geocode adres doldur → 800ms sonra forward geocode
+  // o mahallenin merkezine kamera zıplar → pin tap'lenen yerden kayar.
+  bool _isAutoFilling = false;
   Timer? _geocodeDebounce;
   
   // Cizre varsayılan koordinatları
@@ -131,6 +136,9 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
   }
 
   void _onAddressFieldChanged() {
+    // Reverse geocode otomatik doldurma sırasında sustur — kullanıcı tap'le-
+    // medi, alanlar otomatik doldu; forward geocode kamera zıplaması istemiyoruz.
+    if (_isAutoFilling) return;
     _geocodeDebounce?.cancel();
     _geocodeDebounce = Timer(const Duration(milliseconds: 800), _geocodeAddressFromFields);
   }
@@ -355,11 +363,19 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
           
           // Adres controller'ı güncelle
           if (mounted && fullAddress.isNotEmpty) {
+            // Reverse geocode doldururken listener'ı sustur → forward geocode
+            // kamera zıplamasını (pinin tap'lenen yerden kaymasını) engeller.
+            _isAutoFilling = true;
             setState(() {
               _selectedAddress = fullAddress;
               _addressController.text = fullAddress;
               if (neighborhood.isNotEmpty) _neighborhoodController.text = neighborhood;
               if (streetAddress.isNotEmpty) _streetController.text = streetAddress;
+            });
+            // Listener debounce 800ms; 900ms sonra flag'i temizle ki manuel
+            // düzenleme tekrar forward geocode tetikleyebilsin.
+            Future.delayed(const Duration(milliseconds: 900), () {
+              if (mounted) _isAutoFilling = false;
             });
           }
         } else {

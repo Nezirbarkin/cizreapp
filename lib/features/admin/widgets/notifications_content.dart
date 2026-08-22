@@ -67,18 +67,20 @@ class _NotificationsContentState extends State<NotificationsContent> {
         totalPending += (notif['pending_count'] as int?) ?? 0;
       }
       
-      setState(() {
-        _pushNotifications = List<Map<String, dynamic>>.from(pushResponse);
-        _totalSent = totalSent;
-        _totalDelivered = totalDelivered;
-        _totalRead = totalRead;
-        _totalFailed = totalFailed;
-        _totalPending = totalPending;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _pushNotifications = List<Map<String, dynamic>>.from(pushResponse);
+          _totalSent = totalSent;
+          _totalDelivered = totalDelivered;
+          _totalRead = totalRead;
+          _totalFailed = totalFailed;
+          _totalPending = totalPending;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Bildirimler yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

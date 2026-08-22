@@ -9,8 +9,11 @@ void main() {
       expect(OrderService.freeOrderLimitPerUser, equals(1));
     });
 
-    test('limit pozitif bir değer olmalı (0 veya negatif limit tüm siparişleri engeller)', () {
-      expect(OrderService.freeOrderLimitPerUser, greaterThan(0));
-    });
+    test(
+      'limit pozitif bir değer olmalı (0 veya negatif limit tüm siparişleri engeller)',
+      () {
+        expect(OrderService.freeOrderLimitPerUser, greaterThan(0));
+      },
+    );
   });
 }

@@ -10,7 +10,7 @@ import '../../lib/core/models/order_model.dart';
 /// Test için kullanılan mock data yardımcıları
 class TestHelpers {
   // ===== USER MOCK DATA =====
-  
+
   static Map<String, dynamic> createMockUserJson({
     String? id,
     String? email,
@@ -45,18 +45,20 @@ class TestHelpers {
     UserRole? role,
     UserStatus? status,
   }) {
-    return User.fromJson(createMockUserJson(
-      id: id,
-      email: email,
-      fullName: fullName,
-      username: username,
-      role: role?.name,
-      status: status?.name,
-    ));
+    return User.fromJson(
+      createMockUserJson(
+        id: id,
+        email: email,
+        fullName: fullName,
+        username: username,
+        role: role?.name,
+        status: status?.name,
+      ),
+    );
   }
 
   // ===== BALANCE MOCK DATA =====
-  
+
   static Map<String, dynamic> createMockBalanceJson({
     String? id,
     String? userId,
@@ -91,20 +93,22 @@ class TestHelpers {
     double? totalRefunds,
     double? totalWithdrawn,
   }) {
-    return UserBalance.fromJson(createMockBalanceJson(
-      id: id,
-      userId: userId,
-      balance: balance,
-      lockedBalance: lockedBalance,
-      totalEarned: totalEarned,
-      totalSpent: totalSpent,
-      totalRefunds: totalRefunds,
-      totalWithdrawn: totalWithdrawn,
-    ));
+    return UserBalance.fromJson(
+      createMockBalanceJson(
+        id: id,
+        userId: userId,
+        balance: balance,
+        lockedBalance: lockedBalance,
+        totalEarned: totalEarned,
+        totalSpent: totalSpent,
+        totalRefunds: totalRefunds,
+        totalWithdrawn: totalWithdrawn,
+      ),
+    );
   }
 
   // ===== ORDER MOCK DATA =====
-  
+
   static Map<String, dynamic> createMockOrderItemJson({
     String? id,
     String? orderId,
@@ -170,15 +174,17 @@ class TestHelpers {
     double? deliveryFee,
     double? totalAmount,
   }) {
-    return Order.fromJson(createMockOrderJson(
-      id: id,
-      userId: userId,
-      shopId: shopId,
-      status: status?.name,
-      paymentMethod: paymentMethod?.name,
-      subtotal: subtotal,
-      deliveryFee: deliveryFee,
-      totalAmount: totalAmount,
-    ));
+    return Order.fromJson(
+      createMockOrderJson(
+        id: id,
+        userId: userId,
+        shopId: shopId,
+        status: status?.name,
+        paymentMethod: paymentMethod?.name,
+        subtotal: subtotal,
+        deliveryFee: deliveryFee,
+        totalAmount: totalAmount,
+      ),
+    );
   }
 }

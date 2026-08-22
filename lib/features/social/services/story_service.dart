@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as path;
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/image_compression_helper.dart';
 
 class StoryService {
@@ -19,6 +21,7 @@ class StoryService {
     }
   }
   final NotificationService _notificationService = NotificationService();
+  final StorageService _storageService = StorageService();
 
   // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder
   Future<List<Story>> getStories() async {
@@ -27,63 +30,82 @@ class StoryService {
       final now = DateTime.now().toUtc();
       debugPrint('📱 getStories() çağrıldı - şu an: ${now.toIso8601String()}');
       
-      // Kullanıcının görüntülediği story'leri getir (retry ile)
-      List<String> viewedStoryIds = [];
-      List<String> likedStoryIds = [];
-      if (userId != null) {
-        try {
-          final viewedResponse = await _supabase
+      // ⚡ AÇILIŞ OPTİMİZASYONU (2026-08-14): Görüntüleme/beğeni listeleri ile
+      // aktif stories sorgusu birbirinden bağımsız. Eskiden 3 gidiş-dönüş
+      // sırayla bekleniyordu (3× RTT); şimdi üçü paralel (≈ 1× RTT).
+      // Sorguların kendisi ve filtreleri DEĞİŞMEDİ.
+      final viewsFuture = userId == null
+          ? Future.value(<String>[])
+          : _supabase
               .from('story_views')
               .select('story_id')
-              .eq('viewer_id', userId);
-          viewedStoryIds = (viewedResponse as List)
-              .map((row) => row['story_id'] as String)
-              .toList();
-          debugPrint('📱 Kullanıcı ${viewedStoryIds.length} story görüntülemiş');
-        } catch (e) {
-          debugPrint('⚠️ Story views yüklenirken hata (yoksayıldı): $e');
-        }
-        
-        // Kullanıcının beğendiği story'leri getir (retry ile)
-        try {
-          final likedResponse = await _supabase
+              .eq('viewer_id', userId)
+              .then((r) {
+                final ids = (r as List)
+                    .map((row) => row['story_id'] as String)
+                    .toList();
+                debugPrint('📱 Kullanıcı ${ids.length} story görüntülemiş');
+                return ids;
+              })
+              .catchError((e) {
+                debugPrint('⚠️ Story views yüklenirken hata (yoksayıldı): $e');
+                return <String>[];
+              });
+      final likesFuture = userId == null
+          ? Future.value(<String>[])
+          : _supabase
               .from('story_likes')
               .select('story_id')
-              .eq('user_id', userId);
-          likedStoryIds = (likedResponse as List)
-              .map((row) => row['story_id'] as String)
-              .toList();
-          debugPrint('📱 Kullanıcı ${likedStoryIds.length} story beğenmiş');
-        } catch (e) {
-          debugPrint('⚠️ Story likes yüklenirken hata (yoksayıldı): $e');
-        }
-      }
-      
+              .eq('user_id', userId)
+              .then((r) {
+                final ids = (r as List)
+                    .map((row) => row['story_id'] as String)
+                    .toList();
+                debugPrint('📱 Kullanıcı ${ids.length} story beğenmiş');
+                return ids;
+              })
+              .catchError((e) {
+                debugPrint('⚠️ Story likes yüklenirken hata (yoksayıldı): $e');
+                return <String>[];
+              });
+
       // Stories ile birlikte profil bilgilerini de çek (TEK SORGU) - retry ile
-      List? response;
-      int retryCount = 0;
-      while (retryCount < 2) {
-        try {
-          debugPrint('📱 Sorgulanıyor: admin_pinned desc, is_pinned desc, created_at desc, expires_at > ${now.toIso8601String()}');
-          response = await _supabase
-              .from('stories')
-              .select('*, profiles!stories_user_id_fkey(username, full_name, avatar_url)')
-              .gt('expires_at', now.toIso8601String())
-              .order('admin_pinned', ascending: false, nullsFirst: false)
-              .order('is_pinned', ascending: false, nullsFirst: false)
-              .order('created_at', ascending: false);
-          break; // Başarılı olursa döngüden çık
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= 2) {
-            debugPrint('❌ Stories yüklenirken hata (2 deneme sonra başarısız): $e');
-            throw Exception('Hikayeler yüklenirken hata: $e');
+      Future<List?> fetchStories() async {
+        int retryCount = 0;
+        while (retryCount < 2) {
+          try {
+            debugPrint('📱 Sorgulanıyor: admin_pinned desc, is_pinned desc, created_at desc, expires_at > ${now.toIso8601String()}');
+            return await _supabase
+                .from('stories')
+                .select('*, profiles!stories_user_id_fkey(username, full_name, avatar_url)')
+                .gt('expires_at', now.toIso8601String())
+                .order('admin_pinned', ascending: false, nullsFirst: false)
+                .order('is_pinned', ascending: false, nullsFirst: false)
+                .order('created_at', ascending: false);
+          } catch (e) {
+            retryCount++;
+            if (retryCount >= 2) {
+              debugPrint('❌ Stories yüklenirken hata (2 deneme sonra başarısız): $e');
+              throw Exception('Hikayeler yüklenirken hata: $e');
+            }
+            debugPrint('⚠️ Stories yüklenirken hata, tekrar deneniyor ($retryCount/2): $e');
+            await Future.delayed(const Duration(milliseconds: 500));
           }
-          debugPrint('⚠️ Stories yüklenirken hata, tekrar deneniyor ($retryCount/2): $e');
-          await Future.delayed(Duration(milliseconds: 500));
         }
+        // Buraya normalde ulaşılamaz (retryCount >= 2 üstte fırlatıyor);
+        // analiz memnuniyeti için koruyucu hata.
+        throw Exception('Hikayeler yüklenemedi');
       }
-      
+
+      final results = await Future.wait([
+        viewsFuture,
+        likesFuture,
+        fetchStories(),
+      ]);
+      final viewedStoryIds = results[0] as List<String>;
+      final likedStoryIds = results[1] as List<String>;
+      final response = results[2];
+
       if (response == null) {
         throw Exception('Hikayeler yüklenemedi');
       }
@@ -147,17 +169,9 @@ class StoryService {
       return stories;
     } catch (e) {
       debugPrint('❌ getStories() HATA: $e');
-      
-      // Kullanıcı dostu hata mesajı
-      String userMessage = 'Hikayeler yüklenirken bir hata oluştu';
-      
-      if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
-        userMessage = 'İnternet bağlantınızı kontrol edin';
-      } else if (e.toString().contains('TimeoutException')) {
-        userMessage = 'Bağlantı zaman aşımı. Lütfen tekrar deneyin';
-      }
-      
-      throw Exception(userMessage);
+      // Hataları merkezi işleyiciden geçir: ağ hatası → "İnternet bağlantınızı
+      // kontrol edin", vs. FriendlyException.toString() sadece temiz mesajı döndürür.
+      throw FriendlyException.from(e);
     }
   }
 
@@ -179,7 +193,7 @@ class StoryService {
       return (response as List).map((json) => Story.fromJson(json)).toList();
     } catch (e) {
       debugPrint('❌ getUserStories() HATA: $e');
-      throw Exception('Kullanıcı hikayeleri yüklenirken hata: $e');
+      throw FriendlyException.from(e);
     }
   }
 
@@ -234,16 +248,14 @@ class StoryService {
       final fileName = 'story_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
       final filePath = 'stories/$fileName';
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        imageBytes,
-        fileOptions: FileOptions(
-          contentType: 'image/$fileExtension',
-          upsert: false,
-        ),
+      final imageUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: imageBytes,
+        metadata: {'Content-Type': 'image/$fileExtension'},
       );
-      
-      final imageUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
+
+      if (imageUrl == null) return null;
       debugPrint('✅ Story image yüklendi: $imageUrl');
       
       return imageUrl;
@@ -274,12 +286,14 @@ class StoryService {
       final fileName = 'thumbnail_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final filePath = 'stories/thumbnails/$fileName';
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        uint8list,
+      final thumbnailUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: uint8list,
+        metadata: const {'Content-Type': 'image/jpeg'},
       );
-      
-      final thumbnailUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
+
+      if (thumbnailUrl == null) return null;
       debugPrint('✅ Thumbnail yüklendi: $thumbnailUrl');
       
       return thumbnailUrl;
@@ -387,18 +401,15 @@ class StoryService {
       
       if (onProgress != null) onProgress(0.50);
       
-      await _supabase.storage.from('stories').uploadBinary(
-        filePath,
-        videoBytes,
-        fileOptions: FileOptions(
-          contentType: 'video/$fileExtension',
-          upsert: false,
-        ),
+      final videoUrl = await _storageService.uploadBytes(
+        bucket: 'stories',
+        path: filePath,
+        bytes: videoBytes,
+        metadata: {'Content-Type': 'video/$fileExtension'},
       );
-      
+
+      if (videoUrl == null) return null;
       if (onProgress != null) onProgress(0.90);
-      
-      final videoUrl = _supabase.storage.from('stories').getPublicUrl(filePath);
       debugPrint('✅ Video yüklendi: $videoUrl');
       
       if (onProgress != null) onProgress(1.0);

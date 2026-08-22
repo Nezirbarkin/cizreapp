@@ -10,7 +10,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(28);
+select plan(45);
 
 -- -----------------------------------------------------------------------------
 -- Yardımcı fonksiyonlar
@@ -75,6 +75,13 @@ select ok(pg_temp.has_function('admin_resolve_package_dispute'),
   'admin_resolve_package_dispute RPC mevcut');
 select ok(pg_temp.has_function('request_courier_payout'),
   'request_courier_payout RPC mevcut');
+select is(
+  to_regprocedure('public.request_courier_payout(uuid)')::text,
+  'request_courier_payout(uuid)',
+  'request_courier_payout UUID istemci sozlesmesi mevcut');
+select ok(
+  to_regprocedure('public.request_courier_payout(text)') is null,
+  'Belirsizlik yaratacak text payout overload mevcut degil');
 select ok(pg_temp.has_function('admin_approve_courier_payout'),
   'admin_approve_courier_payout RPC mevcut');
 select ok(pg_temp.has_function('admin_reject_courier_payout'),
@@ -143,6 +150,14 @@ select ok(pg_temp.rls_revoke_check('courier_payout_requests', 'UPDATE'),
   'authenticated courier_payout_requests UPDATE yapamaz');
 select ok(pg_temp.rls_revoke_check('courier_payout_requests', 'DELETE'),
   'authenticated courier_payout_requests DELETE yapamaz');
+select ok(pg_temp.has_policy('courier_payout_items', 'SELECT', 'authenticated'),
+  'courier_payout_items SELECT policy (authenticated) mevcut');
+select ok(pg_temp.rls_revoke_check('courier_payout_items', 'INSERT'),
+  'authenticated courier_payout_items INSERT yapamaz');
+select ok(pg_temp.rls_revoke_check('courier_payout_items', 'UPDATE'),
+  'authenticated courier_payout_items UPDATE yapamaz');
+select ok(pg_temp.rls_revoke_check('courier_payout_items', 'DELETE'),
+  'authenticated courier_payout_items DELETE yapamaz');
 select ok(pg_temp.rls_revoke_check('courier_requests', 'UPDATE'),
   'authenticated courier_requests UPDATE yapamaz');
 select ok(pg_temp.rls_revoke_check('courier_requests', 'DELETE'),
@@ -176,12 +191,61 @@ select ok(to_regclass('public.courier_request_rejections') is not null,
   'courier_request_rejections tablosu mevcut');
 
 -- Unique indexler
-select ok(to_regclass('public.uq_courier_payout_items_earning_id') is not null,
-  'courier_payout_items(earning_id) UNIQUE mevcut');
+-- 20260817000018: indeks KOSULLU hale getirildi. Kosulsuz haliyle,
+-- admin_reject_courier_payout item satirlarini silmeyip yalnizca 'rejected'
+-- isaretledigi icin kurye ayni kazanclarla bir daha ASLA odeme isteyemiyordu
+-- (23505). Artik yalniz AKTIF kalemler tekil.
+select ok(to_regclass('public.uq_courier_payout_items_earning_id_active') is not null,
+  'courier_payout_items(earning_id) aktif-kalem UNIQUE mevcut');
+select ok(to_regclass('public.uq_courier_payout_items_earning_id') is null,
+  'kosulsuz eski earning_id UNIQUE indeksi kaldirildi');
+select ok(exists (
+  select 1 from pg_indexes
+  where schemaname = 'public'
+    and indexname = 'uq_courier_payout_items_earning_id_active'
+    and indexdef ilike '%where%rejected%'
+), 'aktif-kalem UNIQUE indeksi rejected kalemleri haric tutuyor');
 select ok(to_regclass('public.uq_courier_payout_one_open_per_courier') is not null,
   'courier_payout_requests açık payout partial UNIQUE mevcut');
+select ok(to_regclass('public.uq_courier_payout_courier_idempotency') is not null,
+  'courier payout kurye + idempotency UNIQUE mevcut');
 select ok(to_regclass('public.uq_courier_earnings_package_request') is not null,
   'courier_earnings(package_request_id) koşullu UNIQUE mevcut');
+
+-- -----------------------------------------------------------------------------
+-- 5) Bildirim tipi kisiti kurye zincirini kirmamali (20260817000018 regresyonu)
+-- -----------------------------------------------------------------------------
+-- notifications_type_check gecmiste sabit bir beyaz listeydi ve her yeni
+-- ozellikte guncellenmedigi icin INSERT'leri 23514 ile dusuruyordu. En son
+-- 20260801000003 listeden TUM kurye/paket tiplerini dusurmus, boylece
+-- admin_approve_courier_payout'un son adimi ('courier_payout_approved'
+-- bildirimi) patlayarak ODEME ONAYINI TAMAMEN ENGELLEMISTI.
+select ok(not exists (
+  select 1
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  join pg_attribute att on att.attrelid = rel.oid and att.attnum = any (con.conkey)
+  where nsp.nspname = 'public'
+    and rel.relname = 'notifications'
+    and con.contype = 'c'
+    and att.attname = 'type'
+    and pg_get_constraintdef(con.oid) ilike '%''like''%'
+), 'notifications.type uzerinde sabit tip beyaz listesi kalmadi');
+
+-- Kurye/paket zincirinin yazdigi her tip gercekten INSERT edilebilmeli.
+select lives_ok($$
+  insert into public.notifications (user_id, type, title, content, is_read)
+  select u.id, t.tip, 'test', 'test', false
+  from (select id from auth.users limit 1) u
+  cross join (values
+    ('courier_payout_approved'), ('courier_payout_rejected'),
+    ('courier_payout_request'),  ('courier_delivered'),
+    ('courier_assigned'),        ('new_package_request'),
+    ('package_delivered'),       ('package_route'),
+    ('package_dispute_rejected')
+  ) as t(tip)
+$$, 'kurye/paket bildirim tiplerinin tamami notifications''a yazilabiliyor');
 
 -- deduct_from_balance authenticated EXECUTE revoke
 select ok(not exists (

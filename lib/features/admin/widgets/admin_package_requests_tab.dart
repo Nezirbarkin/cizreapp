@@ -65,6 +65,7 @@ class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -87,10 +88,15 @@ class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
           .toList();
 
       if (courierIds.isNotEmpty) {
-        final couriers = await Supabase.instance.client
-            .from('profiles')
-            .select('id, full_name, phone')
-            .inFilter('id', courierIds);
+        // 20260803000006 sonrasında profiles üzerinde authenticated
+        // SELECT policy'si yok; phone sütunu revoke edildi. SECURITY
+        // DEFINER admin_get_courier_profiles RPC üzerinden alıyoruz.
+        final couriers = await Supabase.instance.client.rpc<List<dynamic>>(
+          'admin_get_courier_profiles',
+          params: {
+            'p_user_ids': courierIds,
+          },
+        );
         final courierMap = {
           for (final c in List<Map<String, dynamic>>.from(couriers))
             c['id'] as String: c,
@@ -101,11 +107,13 @@ class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _requests = requests;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -196,7 +204,7 @@ class _AdminPackageRequestsTabState extends State<AdminPackageRequestsTab> {
           ),
         );
       }
-      _load();
+      if (mounted) _load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -41,48 +41,128 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
     super.dispose();
   }
 
+  /// Birden fazla kullanicinin minimal profilini TEK RPC cagrisiyla getirir.
+  ///
+  /// admin_profiles_minimal zaten `p_user_ids uuid[]` aliyor; onceki kod her
+  /// satir icin ayri cagri yapiyordu (N+1). 40 bekleyen istekte 40  agi gidis
+  /// donusu demekti ve tek bir yavas cagri tum listeyi bekletiyordu.
+  Future<Map<String, Map<String, dynamic>>> _fetchProfiles(
+    Iterable<String> userIds,
+  ) async {
+    final ids = userIds.toSet().toList();
+    if (ids.isEmpty) return {};
+    try {
+      final resp = await _supabase.rpc<List<dynamic>>(
+        'admin_profiles_minimal',
+        params: {'p_user_ids': ids},
+      );
+      return {
+        for (final row in resp)
+          if (Map<String, dynamic>.from(row as Map)['id'] is String)
+            Map<String, dynamic>.from(row)['id'] as String:
+                Map<String, dynamic>.from(row),
+      };
+    } catch (e) {
+      AppLogger.error('admin_profiles_minimal error: $e');
+      return {};
+    }
+  }
+
   Future<void> _loadGroups() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       // RPC ile admin olarak tüm grupları getir
       final response = await _supabase.rpc('admin_get_all_groups');
+      if (!mounted) return;
       setState(() { _groups = List<Map<String, dynamic>>.from(response ?? []); _isLoading = false; });
     } catch (e) {
       AppLogger.error('Admin groups RPC error: $e');
       // Fallback: doğrudan sorgu
       try {
         final response = await _supabase.from('groups').select().order('created_at', ascending: false);
+        if (!mounted) return;
         setState(() { _groups = List<Map<String, dynamic>>.from(response); _isLoading = false; });
       } catch (e2) {
         AppLogger.error('Admin groups fallback error: $e2');
+        if (!mounted) return;
         setState(() => _isLoading = false);
+        _showError('Gruplar yüklenemedi: $e2');
       }
     }
   }
 
   Future<void> _loadJoinRequests() async {
+    if (!mounted) return;
     setState(() => _isLoadingRequests = true);
     try {
-      // Doğrudan group_join_requests tablosundan sorgula
-      final response = await _supabase.from('group_join_requests')
-          .select('*, groups(name, avatar_url, is_private)')
-          .eq('status', 'pending').order('created_at', ascending: false);
-      final list = List<Map<String, dynamic>>.from(response);
-      for (var i = 0; i < list.length; i++) {
-        try {
-          final profile = await _supabase.from('profiles')
-              .select('full_name, avatar_url, username')
-              .eq('id', list[i]['user_id']).maybeSingle();
-          list[i]['profiles'] = profile ?? {};
-        } catch (_) {
-          list[i]['profiles'] = {};
+      // Once amaca ozel RPC: grup + kullanici profilini tek sorguda dondurur,
+      // profiles/group_join_requests RLS'ine takilmaz. Onceki kod bu RPC'yi
+      // hic kullanmiyor, tabloyu dogrudan sorgulayip her satir icin ayri
+      // profil cagrisi yapiyordu.
+      List<Map<String, dynamic>> list;
+      try {
+        final resp = await _supabase.rpc<List<dynamic>>(
+          'admin_get_all_join_requests',
+        );
+        list = resp
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .where((r) => (r['status'] as String? ?? 'pending') == 'pending')
+            .map((r) => <String, dynamic>{
+                  'id': r['request_id'] ?? r['id'],
+                  'group_id': r['group_id'],
+                  'user_id': r['user_id'],
+                  'message': r['message'],
+                  'status': r['status'],
+                  'created_at': r['created_at'],
+                  'groups': {
+                    'name': r['group_name'],
+                    'avatar_url': r['group_avatar_url'],
+                    'is_private': r['group_is_private'],
+                  },
+                  'profiles': {
+                    'full_name': r['user_full_name'],
+                    'username': r['user_username'],
+                    'avatar_url': r['user_avatar_url'],
+                  },
+                })
+            .toList();
+      } catch (rpcError) {
+        AppLogger.error('admin_get_all_join_requests error: $rpcError');
+        // Fallback: tabloyu dogrudan sorgula + profilleri TEK cagrida topla.
+        final response = await _supabase.from('group_join_requests')
+            .select('*, groups(name, avatar_url, is_private)')
+            .eq('status', 'pending').order('created_at', ascending: false);
+        list = List<Map<String, dynamic>>.from(response);
+        final profiles = await _fetchProfiles(
+          list.map((r) => r['user_id'] as String?).whereType<String>(),
+        );
+        for (final row in list) {
+          row['profiles'] = profiles[row['user_id']] ?? <String, dynamic>{};
         }
       }
+      if (!mounted) return;
       setState(() { _joinRequests = list; _isLoadingRequests = false; });
     } catch (e) {
       AppLogger.error('Admin join requests error: $e');
+      if (!mounted) return;
       setState(() { _joinRequests = []; _isLoadingRequests = false; });
+      _showError('Katılma istekleri yüklenemedi: $e');
     }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showOk(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
   }
 
   List<Map<String, dynamic>> get _filteredGroups {
@@ -228,41 +308,92 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
     }
   }
 
+  /// Katilma istegini onaylar/reddeder.
+  ///
+  /// Iki hata duzeltildi:
+  ///  1. RPC'lerin `boolean` donusu yok sayiliyordu. admin_approve_join_request
+  ///     istek artik 'pending' degilse (baska bir admin islemis, kullanici
+  ///     iptal etmis) `false` doner; eski kod yine "İstek onaylandı" yazip
+  ///     listeyi yeniliyordu, admin de islemin gectigini saniyordu.
+  ///  2. Fallback dali `group_join_requests.reviewed_at` yaziyordu; boyle bir
+  ///     kolon YOK (tablo: id, group_id, user_id, message, status, created_at,
+  ///     updated_at). PostgREST PGRST204 firlatiyordu. Bu, uyeyi
+  ///     group_members'a EKLEDIKTEN ve member_count'u artirdiktan SONRA
+  ///     patladigi icin istek 'pending' kaliyordu: admin tekrar onayladiginda
+  ///     uye ikinci kez eklenmeye calisiliyor, member_count bir kez daha
+  ///     artiyordu. Fallback artik once istek durumunu yaziyor, member_count'u
+  ///     da elle degil gercek satir sayisindan hesapliyor.
   Future<void> _handleJoinRequest(String requestId, Map<String, dynamic> request, String status) async {
+    final approved = status == 'approved';
     try {
-      if (status == 'approved') {
-        // RPC ile onayla
-        await _supabase.rpc('admin_approve_join_request', params: {'p_request_id': requestId});
+      final ok = await _supabase.rpc<bool?>(
+        approved ? 'admin_approve_join_request' : 'admin_reject_join_request',
+        params: {'p_request_id': requestId},
+      );
+      if (ok == false) {
+        _showError(
+          'İstek işlenemedi: artık beklemede değil '
+          '(başka bir admin işlem yapmış olabilir).',
+        );
       } else {
-        // RPC ile reddet
-        await _supabase.rpc('admin_reject_join_request', params: {'p_request_id': requestId});
+        _showOk(approved ? 'İstek onaylandı' : 'İstek reddedildi');
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'approved' ? 'İstek onaylandı' : 'İstek reddedildi'), backgroundColor: status == 'approved' ? Colors.green : Colors.red));
       await _loadJoinRequests();
       await _loadGroups();
     } catch (e) {
       AppLogger.error('Admin handle join request error: $e');
       // Fallback: doğrudan sorgu
       try {
-        if (status == 'approved') {
-          final groupId = request['group_id'] as String;
+        final groupId = request['group_id'] as String?;
+        // Once istek durumunu yaz: bu adim ayni zamanda mukerrer onayin
+        // idempotency korumasidir.
+        await _supabase
+            .from('group_join_requests')
+            .update({'status': status})
+            .eq('id', requestId);
+        if (approved && groupId != null) {
           final userId = request['user_id'] as String;
-          await _supabase.from('group_members').insert({'group_id': groupId, 'user_id': userId, 'role': 'member'});
-          final currentGroup = await _supabase.from('groups').select('member_count').eq('id', groupId).single();
-          await _supabase.from('groups').update({'member_count': (currentGroup['member_count'] as int? ?? 0) + 1}).eq('id', groupId);
+          await _supabase.from('group_members').upsert(
+            {'group_id': groupId, 'user_id': userId, 'role': 'member'},
+            onConflict: 'group_id,user_id',
+            ignoreDuplicates: true,
+          );
+          await _syncMemberCount(groupId);
         }
-        await _supabase.from('group_join_requests').update({'status': status, 'reviewed_at': DateTime.now().toIso8601String()}).eq('id', requestId);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'approved' ? 'İstek onaylandı (fallback)' : 'İstek reddedildi (fallback)'), backgroundColor: status == 'approved' ? Colors.green : Colors.red));
+        _showOk(approved ? 'İstek onaylandı (fallback)' : 'İstek reddedildi (fallback)');
         await _loadJoinRequests();
         await _loadGroups();
       } catch (e2) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e2'), backgroundColor: Colors.red));
+        _showError('Hata: $e2');
       }
+    }
+  }
+
+  /// `groups.member_count` denormalize kolonunu gercek satir sayisiyla esitler.
+  ///
+  /// Onceki kod her yerde `mevcut + 1` / `mevcut - 1` yapiyordu; iki admin ayni
+  /// anda islem yaptiginda ya da araya bir hata girdiginde sayac kaliciolarak
+  /// kayiyordu. Sayimi kaynaktan okumak bu kaymayi hem onler hem duzeltir.
+  Future<void> _syncMemberCount(String groupId) async {
+    try {
+      final res = await _supabase
+          .from('group_members')
+          .select('id')
+          .eq('group_id', groupId)
+          .count();
+      await _supabase
+          .from('groups')
+          .update({'member_count': res.count})
+          .eq('id', groupId);
+    } catch (e) {
+      AppLogger.error('member_count senkronizasyonu basarisiz: $e');
     }
   }
 
   void _showCreateGroupDialog() {
     final nameC = TextEditingController(); final descC = TextEditingController(); bool isPrivate = false;
+    // Controller'lar dialog kapaninca serbest birakilir; onceki surumde hic
+    // dispose edilmiyorlardi (her dialog acilisi kalici leak).
     showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, ss) => AlertDialog(
       title: const Text('Yeni Grup Oluştur'),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -299,7 +430,7 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
           }
         }, child: const Text('Oluştur')),
       ],
-    )));
+    ))).whenComplete(() { nameC.dispose(); descC.dispose(); });
   }
 
   void _showEditGroupDialog(Map<String, dynamic> group) {
@@ -318,29 +449,35 @@ class _GroupsManagementContentState extends State<GroupsManagementContent> with 
         ElevatedButton(onPressed: () async {
           Navigator.pop(ctx);
           try {
-            // RPC ile güncelle
-            await _supabase.rpc('admin_update_group', params: {
+            // RPC ile güncelle. `boolean` doner: false = grup bulunamadi /
+            // guncellenmedi. Eski kod donusu yok sayip her durumda
+            // "Grup güncellendi" yaziyordu.
+            final ok = await _supabase.rpc<bool?>('admin_update_group', params: {
               'p_group_id': group['id'],
               'p_name': nameC.text.trim(),
               'p_description': descC.text.trim().isEmpty ? null : descC.text.trim(),
               'p_is_private': isPrivate,
             });
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Grup güncellendi'), backgroundColor: Colors.green));
+            if (ok == false) {
+              _showError('Grup güncellenemedi (bulunamadı).');
+            } else {
+              _showOk('Grup güncellendi');
+            }
             await _loadGroups();
           } catch (e) {
             AppLogger.error('Admin update group RPC error: $e');
             // Fallback
             try {
               await _supabase.from('groups').update({'name': nameC.text.trim(), 'description': descC.text.trim().isEmpty ? null : descC.text.trim(), 'is_private': isPrivate}).eq('id', group['id']);
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Grup güncellendi (fallback)'), backgroundColor: Colors.green));
+              _showOk('Grup güncellendi (fallback)');
               await _loadGroups();
             } catch (e2) {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e2'), backgroundColor: Colors.red));
+              _showError('Hata: $e2');
             }
           }
         }, child: const Text('Kaydet')),
       ],
-    )));
+    ))).whenComplete(() { nameC.dispose(); descC.dispose(); });
   }
 
   void _showDeleteConfirmation(Map<String, dynamic> group) {
@@ -426,10 +563,18 @@ class _MembersDialogState extends State<_MembersDialog> {
   @override
   void initState() { super.initState(); _load(); }
 
+  void _snack(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
   Future<void> _load() async {
     try {
       // RPC ile üyeleri getir
       final r = await widget.supabase.rpc('admin_get_group_members', params: {'p_group_id': widget.groupId});
+      if (!mounted) return;
       if (r != null) {
         // RPC'den gelen veriyi dönüştür
         final list = (r as List).map((m) {
@@ -450,65 +595,108 @@ class _MembersDialogState extends State<_MembersDialog> {
       try {
         final r = await widget.supabase.from('group_members').select('*').eq('group_id', widget.groupId).order('role', ascending: true);
         final list = List<Map<String, dynamic>>.from(r);
-        for (var i = 0; i < list.length; i++) {
+        // 20260803000006 sonrasında profiles üzerinde authenticated SELECT
+        // policy'si yok; SECURITY DEFINER admin_profiles_minimal RPC'si
+        // kullanilir. RPC dizi aldigi icin TEK cagri yeter (onceki kod uye
+        // basina bir cagri yapiyordu).
+        final ids = list.map((m) => m['user_id'] as String?).whereType<String>().toSet().toList();
+        var profiles = <String, Map<String, dynamic>>{};
+        if (ids.isNotEmpty) {
           try {
-            final profile = await widget.supabase.from('profiles')
-                .select('full_name, avatar_url, username')
-                .eq('id', list[i]['user_id']).maybeSingle();
-            list[i]['profiles'] = profile ?? {};
+            final resp = await widget.supabase.rpc<List<dynamic>>(
+              'admin_profiles_minimal',
+              params: {'p_user_ids': ids},
+            );
+            profiles = {
+              for (final row in resp)
+                if (Map<String, dynamic>.from(row as Map)['id'] is String)
+                  Map<String, dynamic>.from(row)['id'] as String:
+                      Map<String, dynamic>.from(row),
+            };
           } catch (_) {
-            list[i]['profiles'] = {};
+            profiles = {};
           }
         }
+        for (final m in list) {
+          m['profiles'] = profiles[m['user_id']] ?? <String, dynamic>{};
+        }
+        if (!mounted) return;
         setState(() { _members = list; _isLoading = false; });
       } catch (e2) {
+        if (!mounted) return;
         setState(() => _isLoading = false);
+        _snack('Üyeler yüklenemedi: $e2', Colors.red);
       }
+    }
+  }
+
+  /// `groups.member_count`'u gercek satir sayisindan tazeler.
+  /// Elle +1/-1 aritmetigi eszamanli iki admin isleminde kalici kayma
+  /// uretiyordu (ve hata arasina girdiginde sayac gercekten kaymis kaliyordu).
+  Future<void> _syncMemberCount() async {
+    try {
+      final res = await widget.supabase
+          .from('group_members')
+          .select('id')
+          .eq('group_id', widget.groupId)
+          .count();
+      await widget.supabase
+          .from('groups')
+          .update({'member_count': res.count})
+          .eq('id', widget.groupId);
+    } catch (_) {
+      // Sayac tazeleme kritik degil; asil islem zaten yapildi.
     }
   }
 
   Future<void> _removeMember(Map<String, dynamic> member) async {
     try {
-      // RPC ile üye çıkar
-      await widget.supabase.rpc('admin_remove_group_member', params: {
+      // RPC `boolean` doner; false = uye zaten yok / cikarilmadi.
+      final ok = await widget.supabase.rpc<bool?>('admin_remove_group_member', params: {
         'p_group_id': widget.groupId,
         'p_user_id': member['user_id'],
       });
       widget.onChanged(); await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Üye çıkarıldı'), backgroundColor: Colors.green));
+      if (ok == false) {
+        _snack('Üye çıkarılamadı (grupta bulunamadı).', Colors.red);
+      } else {
+        _snack('Üye çıkarıldı', Colors.green);
+      }
     } catch (e) {
       // Fallback
       try {
         await widget.supabase.from('group_members').delete().eq('id', member['id']);
-        final cg = await widget.supabase.from('groups').select('member_count').eq('id', widget.groupId).single();
-        final c = (cg['member_count'] as int? ?? 1) - 1;
-        await widget.supabase.from('groups').update({'member_count': c < 0 ? 0 : c}).eq('id', widget.groupId);
+        await _syncMemberCount();
         widget.onChanged(); await _load();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Üye çıkarıldı (fallback)'), backgroundColor: Colors.green));
+        _snack('Üye çıkarıldı (fallback)', Colors.green);
       } catch (e2) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e2'), backgroundColor: Colors.red));
+        _snack('Hata: $e2', Colors.red);
       }
     }
   }
 
   Future<void> _changeRole(Map<String, dynamic> member, String newRole) async {
     try {
-      // RPC ile rol değiştir
-      await widget.supabase.rpc('admin_change_member_role', params: {
+      // RPC `boolean` doner; false = satir guncellenmedi.
+      final ok = await widget.supabase.rpc<bool?>('admin_change_member_role', params: {
         'p_group_id': widget.groupId,
         'p_user_id': member['user_id'],
         'p_new_role': newRole,
       });
       await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rol: $newRole'), backgroundColor: Colors.green));
+      if (ok == false) {
+        _snack('Rol değiştirilemedi (üye bulunamadı).', Colors.red);
+      } else {
+        _snack('Rol: $newRole', Colors.green);
+      }
     } catch (e) {
       // Fallback
       try {
         await widget.supabase.from('group_members').update({'role': newRole}).eq('id', member['id']);
         await _load();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rol: $newRole (fallback)'), backgroundColor: Colors.green));
+        _snack('Rol: $newRole (fallback)', Colors.green);
       } catch (e2) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e2'), backgroundColor: Colors.red));
+        _snack('Hata: $e2', Colors.red);
       }
     }
   }
@@ -555,46 +743,99 @@ class _GroupRequestsDialogState extends State<_GroupRequestsDialog> {
   @override
   void initState() { super.initState(); _load(); }
 
+  void _snack(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
   Future<void> _load() async {
     try {
       // FK olmadığı için ayrı sorgu ile profil bilgilerini getir
       final r = await widget.supabase.from('group_join_requests').select('*').eq('group_id', widget.groupId).eq('status', 'pending').order('created_at', ascending: false);
       final list = List<Map<String, dynamic>>.from(r);
-      // Her istek için profil bilgisini getir
-      for (var i = 0; i < list.length; i++) {
+      // 20260803000006 sonrasında profiles üzerinde authenticated SELECT
+      // policy'si yok; SECURITY DEFINER admin_profiles_minimal RPC'si dizi
+      // aldigi icin TEK cagri yeter (onceki kod istek basina cagri yapiyordu).
+      final ids = list.map((m) => m['user_id'] as String?).whereType<String>().toSet().toList();
+      var profiles = <String, Map<String, dynamic>>{};
+      if (ids.isNotEmpty) {
         try {
-          final profile = await widget.supabase.from('profiles').select('full_name, avatar_url, username').eq('id', list[i]['user_id']).maybeSingle();
-          list[i]['profiles'] = profile ?? {};
+          final resp = await widget.supabase.rpc<List<dynamic>>(
+            'admin_profiles_minimal',
+            params: {'p_user_ids': ids},
+          );
+          profiles = {
+            for (final row in resp)
+              if (Map<String, dynamic>.from(row as Map)['id'] is String)
+                Map<String, dynamic>.from(row)['id'] as String:
+                    Map<String, dynamic>.from(row),
+          };
         } catch (_) {
-          list[i]['profiles'] = {};
+          profiles = {};
         }
       }
+      for (final m in list) {
+        m['profiles'] = profiles[m['user_id']] ?? <String, dynamic>{};
+      }
+      if (!mounted) return;
       setState(() { _requests = list; _isLoading = false; });
-    } catch (e) { setState(() => _isLoading = false); }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _snack('İstekler yüklenemedi: $e', Colors.red);
+    }
   }
 
+  /// Bkz. _GroupsManagementContentState._handleJoinRequest — ayni iki hata
+  /// (boolean donusun yok sayilmasi + var olmayan `reviewed_at` kolonu)
+  /// burada da vardi.
   Future<void> _handle(String requestId, String userId, String status) async {
+    final approved = status == 'approved';
     try {
-      if (status == 'approved') {
-        await widget.supabase.rpc('admin_approve_join_request', params: {'p_request_id': requestId});
-      } else {
-        await widget.supabase.rpc('admin_reject_join_request', params: {'p_request_id': requestId});
-      }
+      final ok = await widget.supabase.rpc<bool?>(
+        approved ? 'admin_approve_join_request' : 'admin_reject_join_request',
+        params: {'p_request_id': requestId},
+      );
       widget.onChanged(); await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'approved' ? 'Onaylandı' : 'Reddedildi'), backgroundColor: status == 'approved' ? Colors.green : Colors.red));
+      if (ok == false) {
+        _snack('İstek işlenemedi: artık beklemede değil.', Colors.red);
+      } else {
+        _snack(approved ? 'Onaylandı' : 'Reddedildi', approved ? Colors.green : Colors.orange);
+      }
     } catch (e) {
       // Fallback
       try {
-        if (status == 'approved') {
-          await widget.supabase.from('group_members').insert({'group_id': widget.groupId, 'user_id': userId, 'role': 'member'});
-          final cg = await widget.supabase.from('groups').select('member_count').eq('id', widget.groupId).single();
-          await widget.supabase.from('groups').update({'member_count': (cg['member_count'] as int? ?? 0) + 1}).eq('id', widget.groupId);
+        // Once istek durumu (mukerrer onaya karsi koruma), sonra uyelik.
+        await widget.supabase
+            .from('group_join_requests')
+            .update({'status': status})
+            .eq('id', requestId);
+        if (approved) {
+          await widget.supabase.from('group_members').upsert(
+            {'group_id': widget.groupId, 'user_id': userId, 'role': 'member'},
+            onConflict: 'group_id,user_id',
+            ignoreDuplicates: true,
+          );
+          try {
+            final res = await widget.supabase
+                .from('group_members')
+                .select('id')
+                .eq('group_id', widget.groupId)
+                .count();
+            await widget.supabase
+                .from('groups')
+                .update({'member_count': res.count})
+                .eq('id', widget.groupId);
+          } catch (_) {
+            // Sayac tazeleme kritik degil.
+          }
         }
-        await widget.supabase.from('group_join_requests').update({'status': status, 'reviewed_at': DateTime.now().toIso8601String()}).eq('id', requestId);
         widget.onChanged(); await _load();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'approved' ? 'Onaylandı (fallback)' : 'Reddedildi (fallback)'), backgroundColor: status == 'approved' ? Colors.green : Colors.red));
+        _snack(approved ? 'Onaylandı (fallback)' : 'Reddedildi (fallback)', approved ? Colors.green : Colors.orange);
       } catch (e2) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e2'), backgroundColor: Colors.red));
+        _snack('Hata: $e2', Colors.red);
       }
     }
   }

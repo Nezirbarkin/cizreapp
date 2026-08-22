@@ -20,6 +20,9 @@ class _MyReportsScreenState extends State<MyReportsScreen> with SingleTickerProv
   List<Map<String, dynamic>> _userReports = [];
   List<Map<String, dynamic>> _postReports = [];
   bool _isLoading = true;
+  // Realtime kanal referansları — dispose'ta removeChannel için tutulur.
+  RealtimeChannel? _userReportsChannel;
+  RealtimeChannel? _postReportsChannel;
 
   @override
   void initState() {
@@ -31,6 +34,11 @@ class _MyReportsScreenState extends State<MyReportsScreen> with SingleTickerProv
 
   @override
   void dispose() {
+    // Hayalet kanal + postgres değişiklik dinleyici sızıntısını önle:
+    // ekran her açılış/kapanışında referansları kapat.
+    final client = Supabase.instance.client;
+    if (_userReportsChannel != null) client.removeChannel(_userReportsChannel!);
+    if (_postReportsChannel != null) client.removeChannel(_postReportsChannel!);
     _tabController.dispose();
     super.dispose();
   }
@@ -55,13 +63,35 @@ class _MyReportsScreenState extends State<MyReportsScreen> with SingleTickerProv
   }
 
   void _setupRealtimeSubscription() {
+    final client = Supabase.instance.client;
+    // Yalnızca kullanıcının KENDİ şikayetleri filtrelenir (reporter_id = userId).
+    // Filtresiz olsaydı tüm şikayet değişiklikleri buraya düşerdi.
+    final userId = client.auth.currentUser?.id;
+
+    final userReportsFilter = userId == null
+        ? null
+        : PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'reporter_id',
+            value: userId,
+          );
+
+    final postReportsFilter = userId == null
+        ? null
+        : PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'reporter_id',
+            value: userId,
+          );
+
     // Kullanıcı şikayetleri için realtime
-    Supabase.instance.client
+    _userReportsChannel = client
         .channel('user_reports_changes')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'user_reports',
+          filter: userReportsFilter,
           callback: (payload) {
             debugPrint('Kullanıcı şikayeti güncellendi: $payload');
             if (mounted) {
@@ -73,12 +103,13 @@ class _MyReportsScreenState extends State<MyReportsScreen> with SingleTickerProv
         .subscribe();
 
     // Gönderi şikayetleri için realtime
-    Supabase.instance.client
+    _postReportsChannel = client
         .channel('post_reports_changes')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'post_reports',
+          filter: postReportsFilter,
           callback: (payload) {
             debugPrint('Gönderi şikayeti güncellendi: $payload');
             if (mounted) {

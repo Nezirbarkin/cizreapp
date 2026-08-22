@@ -1,7 +1,50 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+
+/// Kurye konum akışı için platforma özel ayarlar.
+///
+/// Düz [LocationSettings] ile akış, uygulama arka plana alınır alınmaz
+/// (Android'de ekran kapanınca, iOS'ta suspend olunca) susuyordu — yani
+/// kurye tam teslimat sırasında, telefon cebindeyken haritada donuyordu.
+/// Android'de foreground service bildirimi, iOS'ta background location
+/// modu ile akış sürdürülür. Manifest izinleri (FOREGROUND_SERVICE_LOCATION,
+/// ACCESS_BACKGROUND_LOCATION) zaten tanımlı.
+LocationSettings _courierLocationSettings({
+  required int distanceFilter,
+  Duration? timeLimit,
+}) {
+  if (!kIsWeb && Platform.isIOS) {
+    return AppleSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: distanceFilter,
+      timeLimit: timeLimit,
+      pauseLocationUpdatesAutomatically: false,
+      allowBackgroundLocationUpdates: true,
+      showBackgroundLocationIndicator: true,
+      activityType: ActivityType.otherNavigation,
+    );
+  }
+  if (!kIsWeb && Platform.isAndroid) {
+    return AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: distanceFilter,
+      timeLimit: timeLimit,
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationText: 'Konumunuz müşterilerle paylaşılıyor',
+        notificationTitle: 'CizreApp Kurye',
+        enableWakeLock: true,
+      ),
+    );
+  }
+  return LocationSettings(
+    accuracy: LocationAccuracy.high,
+    distanceFilter: distanceFilter,
+    timeLimit: timeLimit,
+  );
+}
 
 class CourierLocationService {
   static final CourierLocationService _instance =
@@ -15,7 +58,15 @@ class CourierLocationService {
 
   StreamSubscription<Position>? _positionStream;
   Timer? _updateTimer;
+  Timer? _streamRestartTimer;
   bool _isTracking = false;
+  bool _periodicUpdateInProgress = false;
+
+  /// `ensure_my_profile` idempotent ve yalnız eksik legacy profili tamamlıyor;
+  /// her konum yazımında (10 sn'de bir) çağrılması saf israftı — konum
+  /// başına iki ağ gidiş-dönüşü. Oturum başına bir kez yeter; konum RPC'si
+  /// "profil yok" hatası verirse aşağıda yeniden denenir.
+  bool _profileEnsured = false;
 
   bool get isTracking => _isTracking;
 
@@ -31,86 +82,156 @@ class CourierLocationService {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          debugPrint('❌ Konum izni reddedildi');
+          debugPrint('Konum izni reddedildi');
           return false;
         }
       }
 
-      // requestPermission() sonrası güncellenmiş 'permission' değerini kontrol et.
-      // (Eski kod, istekten önceki bayat değeri kontrol ediyordu.)
       if (permission == LocationPermission.deniedForever) {
-        debugPrint('❌ Konum izni kalıcı olarak reddedildi');
+        debugPrint('Konum izni kalıcı olarak reddedildi');
         return false;
       }
 
-      // İlk konumu al
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
-        ),
+      // Servis açık mı kontrol et; kapalıysa hata ver. Android'de kullanıcı
+      // GPS'i kapatırsa burada null döner ve startTracking başarısız olur.
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint('Konum servisi kapalı');
+        return false;
+      }
+
+      // İlk konumu al — kısa timeout ile. GPS daha yeni açıldıysa fix
+      // almak uzun sürebilir; burada bestForNavigation yerine high
+      // kullanıyoruz çünkü best binaların içinde kilitlenebiliyor.
+      final firstPosition = await _getPositionWithTimeout(
+        const Duration(seconds: 8),
+        accuracy: LocationAccuracy.high,
       );
+      if (firstPosition == null) {
+        debugPrint('Ilk konum alinamadi (timeout veya servis yok)');
+        return false;
+      }
 
       // İlk yazım başarısızsa "takip başladı" diye işaretleme; buton yanlış
       // başarı göstermesin. (Eksik migration/RLS burada yüzeye çıkar.)
-      final written = await _updateLocationInDatabase(position);
+      final written = await _updateLocationInDatabase(firstPosition);
       if (!written) {
-        debugPrint('❌ İlk konum veritabanına yazılamadı; takip başlatılmadı');
+        debugPrint('Ilk konum veritabanina yazilamadi; takip baslatilmadi');
         return false;
       }
 
       _isTracking = true;
 
-      // Konumu düzenli olarak güncelle
-      _updateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-        _updateLocationPeriodically();
-      });
+      // Periyodik timer — 10 saniyede bir konum al, DB'ye yaz. Akış
+      // hata verse bile timer çalışmaya devam eder; her zaman son savunma
+      // hattı olarak işlev görür.
+      _updateTimer?.cancel();
+      _updateTimer = Timer.periodic(
+        const Duration(seconds: 10),
+        (_) => _updateLocationPeriodically(),
+      );
 
-      // Gerçek zamanlı akış
-      _positionStream =
-          Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.best,
-              distanceFilter: 10, // 10 metrelik değişim
-              timeLimit: Duration(seconds: 5),
-            ),
-          ).listen(
-            (Position position) {
-              _updateLocationInDatabase(position);
-            },
-            onError: (Object error) {
-              // timeLimit veya platform hatası akışı öldürmesin; logla ve devam et.
-              // Konum hala periyodik timer ile güncellendiği için takip kesilmez.
-              debugPrint(
-                '⚠️ Kurye konum akışı hatası (timer devam ediyor): $error',
-              );
-            },
-          );
+      // Gerçek zamanlı akış — distanceFilter zaten gereksiz güncellemeyi
+      // engellediği için timeLimit koymuyoruz. Sabit kuryede GPS 5 sn'de fix
+      // veremeyip timeout/restart döngüsüne girer; bu da hareket anlık
+      // güncellemesini keser ve kurye haritada eski yerde kalır. Periyodik
+      // timer (10 sn) zaten son savunma hattı olarak çalıştığı için akışta
+      // timeLimit'e gerek yok; gerçek platform hataları onDone/onError ile
+      // yeniden başlatılır.
+      _startPositionStream();
 
-      debugPrint('✅ Kurye konum takibi başladı');
+      debugPrint('Kurye konum takibi basladi');
       return true;
     } catch (e) {
-      debugPrint('❌ Konum takibi başlama hatası: $e');
+      debugPrint('Konum takibi baslama hatasi: $e');
       _isTracking = false;
       return false;
     }
   }
 
-  bool _periodicUpdateInProgress = false;
+  /// Mevcut akışı iptal edip yeniden başlatır. Hata sonrası çağrılır.
+  void _startPositionStream() {
+    _positionStream?.cancel();
+    _positionStream = null;
+    _positionStream = Geolocator.getPositionStream(
+      // timeLimit yok: sabit kuryede GPS 5 sn'de fix veremeyip timeout/
+      // restart döngüsüne girer; hareket anlık güncellemesi kesilir ve
+      // kurye haritada eski yerde kalır. Periyodik timer son savunma.
+      locationSettings: _courierLocationSettings(distanceFilter: 10),
+    ).listen(
+      (Position position) {
+        _updateLocationInDatabase(position);
+      },
+      onError: (Object error) {
+        // timeLimit veya platform hatası akışı öldürür; 10 sn sonra
+        // yeniden başlat. Timer zaten çalıştığı için konum yayını
+        // kesilmez.
+        debugPrint('Kurye konum akisi hatasi (yeniden baslatilacak): $error');
+        _scheduleStreamRestart();
+      },
+      onDone: () {
+        debugPrint('Kurye konum akisi kapandi (yeniden baslatilacak)');
+        _scheduleStreamRestart();
+      },
+      cancelOnError: false, // iptal etme, biz kendimiz yöneteceğiz
+    );
+  }
+
+  void _scheduleStreamRestart() {
+    _streamRestartTimer?.cancel();
+    _streamRestartTimer = Timer(const Duration(seconds: 10), () {
+      if (_isTracking) {
+        _startPositionStream();
+      }
+    });
+  }
+
+  /// Timeout korumalı `getCurrentPosition`. Android'de GPS kilitlenirse
+  /// bu çağrı sonsuza kadar askıda kalabilir; burada kısa bir süre sonra
+  /// vazgeçip null dönüyoruz.
+  Future<Position?> _getPositionWithTimeout(
+    Duration timeout, {
+    LocationAccuracy accuracy = LocationAccuracy.high,
+  }) async {
+    try {
+      // Tek atımlık okuma: bilerek düz LocationSettings. Foreground service
+      // yapılandırması yalnız sürekli akışa aittir — buraya konursa her
+      // periyodik okumada kalıcı bildirim açılıp kapanırdı.
+      return await Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(
+          accuracy: accuracy,
+          distanceFilter: 0,
+          timeLimit: timeout,
+        ),
+      ).timeout(timeout + const Duration(seconds: 2));
+    } on TimeoutException {
+      debugPrint('getCurrentPosition zaman asimi');
+      return null;
+    } catch (e) {
+      debugPrint('getCurrentPosition hatasi: $e');
+      return null;
+    }
+  }
+
   Future<void> _updateLocationPeriodically() async {
     // Bir önceki periyodik güncelleme hâlâ çalışıyorsa (yavaş GPS) üst üste binme.
     if (_periodicUpdateInProgress) return;
     _periodicUpdateInProgress = true;
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
-        ),
+      final position = await _getPositionWithTimeout(
+        const Duration(seconds: 8),
+        accuracy: LocationAccuracy.high,
       );
+      if (position == null) {
+        // Konum alınamadı; bir sonraki periyotta yeniden dene. Eski
+        // konum DB'de kaldığı için müşteri haritasında kurye son bilinen
+        // yerde görünmeye devam eder.
+        debugPrint('Periyodik konum alinamadi; son bilinen konum kullaniliyor');
+        return;
+      }
       await _updateLocationInDatabase(position);
     } catch (e) {
-      debugPrint('⚠️ Konum güncelleme hatası: $e');
+      debugPrint('Konum guncelleme hatasi: $e');
     } finally {
       _periodicUpdateInProgress = false;
     }
@@ -142,39 +263,50 @@ class CourierLocationService {
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // 1) Eksik legacy profili güvenli varsayılanlarla oluştur (idempotent,
-        //    mevcutsa dokunmaz). Bu adım idempotenttir.
-        try {
-          await client.rpc('ensure_my_profile');
-        } catch (e) {
-          // ensure_my_profile yetki/auth hatası verirse yine de konum
-          // deneyebiliriz; konum RPC kendi içinde kontrol yapacak.
-          debugPrint('ℹ️ ensure_my_profile çağrısı atlandı: $e');
+        //    mevcutsa dokunmaz). Oturum başına bir kez — ya da bir önceki
+        //    konum yazımı başarısız olup buraya yeniden denemeyle
+        //    döndüysek (o zaman gerçekten profil eksik olabilir).
+        if (!_profileEnsured || attempt > 1) {
+          try {
+            await client.rpc('ensure_my_profile');
+            _profileEnsured = true;
+          } catch (e) {
+            // ensure_my_profile yetki/auth hatası verirse yine de konum
+            // deneyebiliriz; konum RPC kendi içinde kontrol yapacak.
+            debugPrint('ensure_my_profile cagrisi atlandi: $e');
+          }
         }
 
         // 2) Konumu server'a yaz. RPC çağıranın role='courier' olduğunu
-        //    doğrular; değilse 42501 SQLSTATE ile reddeder.
+        //    doğrular; değilse 42501 SQLSTATE ile reddeder. heading
+        //    (gidiş yönü, derece 0=kuzey) opsiyonel: 0 "bilinmiyor/araç
+        //    duruyor" anlamında gelebilir, sunucu olduğu gibi yazar.
         await client.rpc(
           'set_my_courier_location',
-          params: {'p_lat': position.latitude, 'p_lng': position.longitude},
+          params: {
+            'p_lat': position.latitude,
+            'p_lng': position.longitude,
+            'p_heading': position.heading,
+          },
         );
         // Hassas koordinat debug log'a yazılmaz.
-        debugPrint('📍 Konum güncellendi (deneme $attempt)');
+        debugPrint('Konum guncellendi (deneme $attempt)');
         return true;
       } on PostgrestException catch (e) {
         if (e.code == '42501') {
           // Kullanıcı courier değil: konum servisi başlatılmamalıydı.
           // Sessizce false dönmek UI tarafında butonu geri çevirmesine yol
           // açar; bu doğru davranış. (Yetkisiz çağrı loglanmaz.)
-          debugPrint('❌ set_my_courier_location: kullanıcı courier değil');
+          debugPrint('set_my_courier_location: kullanici courier degil');
           return false;
         }
         debugPrint(
-          '⚠️ Konum yazma denemesi $attempt/$maxAttempts Postgrest hatası: '
+          'Konum yazma denemesi $attempt/$maxAttempts Postgrest hatasi: '
           'code=${e.code}, message=${e.message}',
         );
       } catch (e) {
         debugPrint(
-          '⚠️ Konum yazma denemesi $attempt/$maxAttempts başarısız: $e',
+          'Konum yazma denemesi $attempt/$maxAttempts basarisiz: $e',
         );
       }
       if (attempt < maxAttempts) {
@@ -188,22 +320,19 @@ class CourierLocationService {
     _isTracking = false;
     await _positionStream?.cancel();
     _updateTimer?.cancel();
+    _streamRestartTimer?.cancel();
     _positionStream = null;
     _updateTimer = null;
-    debugPrint('✅ Kurye konum takibi durduruldu');
+    _streamRestartTimer = null;
+    _periodicUpdateInProgress = false;
+    _profileEnsured = false;
+    debugPrint('Kurye konum takibi durduruldu');
   }
 
   Future<Position?> getCurrentLocation() async {
-    try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
-        ),
-      );
-    } catch (e) {
-      debugPrint('❌ Geçerli konum alma hatası: $e');
-      return null;
-    }
+    return _getPositionWithTimeout(
+      const Duration(seconds: 8),
+      accuracy: LocationAccuracy.high,
+    );
   }
 }

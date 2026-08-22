@@ -127,7 +127,7 @@ Mevcut proje üzerinde etkilenen alanlar:
 - `lib/main.dart` — MultiProvider'a SehiriciProvider eklendi (geri uyumlu)
 - `lib/features/market/screens/market_screen.dart` — Hikaye bölümü
   altına bir `SehiriciCompactCard` eklendi (modül kapalıysa gizlenir)
-- `lib/features/admin/widgets/admin_drawer.dart` — yeni menü öğesi
+- `lib/features/admin/screens/admin_dashboard_parts/_part_drawer.dart` — yeni menü öğesi
 - `lib/features/admin/screens/admin_dashboard_screen.dart` — yeni case
 - `lib/core/widgets/settings_sidebar.dart` — yeni "Şoför Paneli" butonu
 

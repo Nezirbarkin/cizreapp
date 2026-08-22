@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -138,10 +150,10 @@ extension on _AdminDashboardScreenState {
                                   : null,
                               child: post['profiles']?['avatar_url'] == null
                                   ? Text(
-                                      (post['profiles']?['username'] as String?)
-                                              ?.substring(0, 1)
-                                              .toUpperCase() ??
-                                          '?',
+                                      AdminUserHelpers.initialOf(
+                                        post['profiles']?['username'] as String?,
+                                        post['profiles']?['full_name'] as String?,
+                                      ),
                                       style: const TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.bold,
@@ -736,12 +748,16 @@ extension on _AdminDashboardScreenState {
 
   // --- _showDeletePostDialog ---
   void _showDeletePostDialog(Map<String, dynamic> post) {
+    final content = post['content'] as String? ?? '';
+    final preview = content.length > 50
+        ? content.substring(0, 50)
+        : content;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Gönderiyi Sil'),
         content: Text(
-          'Bu gönderiyi silmek istediğinizden emin misiniz?\n\n"${(post['content'] as String).substring(0, (post['content'] as String).length > 50 ? 50 : (post['content'] as String).length)}..."\n\nBu işlem geri alınamaz.',
+          'Bu gönderiyi silmek istediğinizden emin misiniz?\n\n"$preview..."\n\nBu işlem geri alınamaz.',
         ),
         actions: [
           TextButton(

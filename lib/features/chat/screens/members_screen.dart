@@ -54,8 +54,11 @@ class _MembersScreenState extends State<MembersScreen> {
 
       // Tüm kullanıcıları getir (ghost mode dahil)
       // Sıralama: En yeni kullanıcılar önce
+      // Not: profiles tablosu RLS nedeniyle yalnız kendi satırınızı döndürür.
+      // public_profiles_chat SECURITY DEFINER view; RLS bypass ile tüm
+      // public profiller okunabilir.
       final response = await Supabase.instance.client
-          .from('profiles')
+          .from('public_profiles_chat')
           .select('id, full_name, username, avatar_url, last_seen, is_online, is_ghost_mode, created_at, bio')
           .neq('id', currentUserId)
           .order('created_at', ascending: false) // En yeni kullanıcılar önce

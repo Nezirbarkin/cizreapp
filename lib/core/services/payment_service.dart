@@ -144,14 +144,13 @@ class PaymentService {
     try {
       debugPrint('🚫 PAYMENT: Ödeme transaction iptal ediliyor...');
 
-      await _supabase
-          .from('payment_transactions')
-          .update({
-            'payment_status': 'cancelled',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', paymentTransactionId)
-          .eq('payment_status', 'pending'); // Sadece pending olanları iptal et
+      // payment_transactions artık istemciden doğrudan yazılamaz
+      // (20260817000038). Tek izinli geçiş olan pending -> cancelled bu
+      // RPC üzerinden yapılır.
+      await _supabase.rpc(
+        'cancel_my_payment_transaction',
+        params: {'p_transaction_id': paymentTransactionId},
+      );
 
       debugPrint('✅ PAYMENT: Transaction iptal edildi');
     } catch (e) {

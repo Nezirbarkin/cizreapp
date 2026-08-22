@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -11,6 +23,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'user_reports',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('🆕 Yeni şikayet eklendi: ${payload.newRecord}');
             // Badge sayısını güncelle
             setState(() {
@@ -23,6 +36,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'user_reports',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('✏️ Şikayet güncellendi: ${payload.newRecord}');
             // Status değişikliğini kontrol et ve badge'i güncelle
             final oldStatus = payload.oldRecord['status'] as String?;
@@ -55,6 +69,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'support_tickets',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('🎫 Yeni destek talebi eklendi: ${payload.newRecord}');
             // Badge sayısını güncelle
             setState(() {
@@ -67,6 +82,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'support_tickets',
           callback: (payload) {
+            if (!mounted) return;
             debugPrint('✏️ Destek talebi güncellendi: ${payload.newRecord}');
             // Status değişikliğini kontrol et ve badge'i güncelle
             final oldStatus = payload.oldRecord['status'] as String?;
@@ -97,6 +113,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'posts',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Gönderiler') {
               setState(() => _newPostsCount++);
             }
@@ -107,6 +124,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'products',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Ürünler') {
               setState(() => _newProductsCount++);
             }
@@ -117,6 +135,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'orders',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Siparişler') {
               setState(() => _newOrdersCount++);
             }
@@ -127,6 +146,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'groups',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Gruplar') {
               setState(() => _newGroupsCount++);
             }
@@ -137,6 +157,7 @@ extension on _AdminDashboardScreenState {
           schema: 'public',
           table: 'profiles',
           callback: (payload) {
+            if (!mounted) return;
             if (_selectedMenu != 'Kullanıcılar') {
               setState(() => _newUsersCount++);
             }
@@ -146,10 +167,18 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _loadRealData ---
+  //
+  // 20260803000006_secure_profiles_privileges_and_pii.sql sonrasında
+  // profiles üzerindeki authenticated SELECT policy'si kaldırıldı;
+  // support_tickets policy gövdesi de inline
+  // `SELECT role FROM profiles` içeriyordu. Tüm sorguları tek tek
+  // yapıp tek bir setState'te birleştirmek, RLS patlamasında tüm
+  // sayaçların 0 kalmasına yol açıyordu. Çözüm: SECURITY DEFINER
+  // admin_dashboard_counts() RPC üzerinden tek atomik çağrı.
   Future<void> _loadRealData() async {
-    try {
-      setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
+    try {
       final client = Supabase.instance.client;
       debugPrint('📊 Admin Dashboard veri yüklemesi başladı...');
       debugPrint('📊 Mevcut kullanıcı: ${client.auth.currentUser?.id}');
@@ -157,63 +186,25 @@ extension on _AdminDashboardScreenState {
         '📊 Mevcut kullanıcı email: ${client.auth.currentUser?.email}',
       );
 
-      // Kullanıcı sayısı - liste uzunluğu kullan
-      final usersResponse = await client.from('profiles').select('id');
-      debugPrint('📊 Kullanıcı sayısı: ${usersResponse.length}');
-
-      // Post sayısı
-      final postsResponse = await client.from('posts').select('id');
-      debugPrint('📊 Post sayısı: ${postsResponse.length}');
-
-      // Ürün sayısı
-      final productsResponse = await client.from('products').select('id');
-      debugPrint('📊 Ürün sayısı: ${productsResponse.length}');
-
-      // Sipariş sayısı
-      final ordersResponse = await client.from('orders').select('id');
-      debugPrint('📊 Sipariş sayısı: ${ordersResponse.length}');
-
-      // Şikayet sayısı - user_reports tablosu kullanıyoruz
-      final reportsResponse = await client.from('user_reports').select('id');
-      debugPrint('📊 Şikayet sayısı: ${reportsResponse.length}');
-
-      // Yanıtlanmamış şikayet sayısı
-      final unansweredData = await client
-          .from('user_reports')
-          .select('id')
-          .inFilter('status', ['pending', 'reviewing']);
-      debugPrint('📊 Yanıtlanmamış şikayet: ${unansweredData.length}');
-
-      // Gönderi şikayetleri sayısı
-      int unansweredPostReportsCount = 0;
-      try {
-        final unansweredPostReports = await client
-            .from('post_reports')
-            .select('id')
-            .inFilter('status', ['pending', 'reviewing']);
-        unansweredPostReportsCount = unansweredPostReports.length;
-      } catch (e) {
-        debugPrint('⚠️ post_reports tablosu henüz yok: $e');
-      }
-
-      // Yanıtlanmamış destek talebi sayısı
-      final unansweredTicketsData = await client
-          .from('support_tickets')
-          .select('id')
-          .eq('status', 'open');
-      debugPrint(
-        '📊 Yanıtlanmamış destek talebi: ${unansweredTicketsData.length}',
+      final rows = await client.rpc<List<dynamic>>(
+        'admin_dashboard_counts',
       );
 
+      if (rows.isEmpty) {
+        throw Exception('admin_dashboard_counts boş döndü');
+      }
+      final r = (rows.first as Map).cast<String, dynamic>();
+
+      if (!mounted) return;
       setState(() {
-        _totalUsers = usersResponse.length;
-        _totalPosts = postsResponse.length;
-        _totalProducts = productsResponse.length;
-        _totalOrders = ordersResponse.length;
-        _totalReports = reportsResponse.length;
+        _totalUsers = (r['total_users'] as num).toInt();
+        _totalPosts = (r['total_posts'] as num).toInt();
+        _totalProducts = (r['total_products'] as num).toInt();
+        _totalOrders = (r['total_orders'] as num).toInt();
+        _totalReports = (r['total_reports'] as num).toInt();
         _unansweredComplaintCount =
-            unansweredData.length + unansweredPostReportsCount;
-        _unansweredTicketCount = unansweredTicketsData.length;
+            (r['unanswered_complaints'] as num).toInt();
+        _unansweredTicketCount = (r['unanswered_tickets'] as num).toInt();
         _isLoading = false;
       });
 
@@ -224,7 +215,17 @@ extension on _AdminDashboardScreenState {
     } catch (e, stackTrace) {
       debugPrint('❌ Veriler yüklenirken hata: $e');
       debugPrint('❌ Stack trace: $stackTrace');
+      if (!mounted) return;
       setState(() => _isLoading = false);
+      // Sessiz catch→0 deseni bu bug'ı görünmez yapıyordu; hatayı
+      // artık kullanıcıya da gösteriyoruz.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dashboard verileri yüklenemedi: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 6),
+        ),
+      );
     }
   }
 
@@ -235,8 +236,12 @@ extension on _AdminDashboardScreenState {
         return _buildDashboardContent();
       case 'Kullanıcılar':
         return _buildUsersContent();
+      case 'Kullanıcı Özellikleri':
+        return const UserFeaturesAdminContent();
       case 'Gönderiler':
         return _buildPostsContent();
+      case 'İlanlar & Kategoriler':
+        return const IlanAdminContent();
       case 'Haberler':
         return const NewsManagementContent();
       case 'Ürünler':
@@ -278,10 +283,12 @@ extension on _AdminDashboardScreenState {
         return const GroupsManagementContent();
       case 'Bildirimler':
         return const NotificationsContentV2();
+      // NOT: 'Gönderi Şikayetleri' case'i kaldirildi. _selectedMenu bu degeri
+      // hicbir yerde almiyordu (drawer'da karsiligi yok), yani case olu koddu.
+      // Gonderi sikayetleri zaten Sikayetler sayfasinin alt bolumunde
+      // listeleniyor (_part_reports.dart).
       case 'Şikayetler':
         return _buildReportsContent();
-      case 'Gönderi Şikayetleri':
-        return _buildPostReportsContent();
       case 'Destek Talepleri':
         return _buildSupportTicketsContent();
       case 'Ödemeler':

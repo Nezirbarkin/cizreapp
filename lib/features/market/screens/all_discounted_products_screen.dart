@@ -7,6 +7,7 @@ import '../../../core/models/product_model.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../widgets/flash_aware_price_row.dart';
@@ -20,10 +21,12 @@ class AllDiscountedProductsScreen extends StatefulWidget {
   const AllDiscountedProductsScreen({super.key, required this.products});
 
   @override
-  State<AllDiscountedProductsScreen> createState() => _AllDiscountedProductsScreenState();
+  State<AllDiscountedProductsScreen> createState() =>
+      _AllDiscountedProductsScreenState();
 }
 
-class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScreen> {
+class _AllDiscountedProductsScreenState
+    extends State<AllDiscountedProductsScreen> {
   final FavoriteService _favoriteService = FavoriteService();
   final CartService _cartService = CartService();
   final ShopService _shopService = ShopService();
@@ -213,9 +216,9 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
     } catch (e) {
       if (mounted) {
         setState(() => _addingToCart.remove(product.id));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sepete eklenirken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sepete eklenirken hata: $e')));
       }
     }
   }
@@ -239,7 +242,10 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
           });
         }
       } else {
-        await _cartService.updateQuantity(cartItemId: cartItem.id, quantity: newQuantity);
+        await _cartService.updateQuantity(
+          cartItemId: cartItem.id,
+          quantity: newQuantity,
+        );
         if (mounted) {
           setState(() {
             _cartQuantities[product.id] = newQuantity;
@@ -248,9 +254,9 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
       }
     }
   }
@@ -285,7 +291,11 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.local_offer_outlined, size: 64, color: Colors.grey),
+                  Icon(
+                    Icons.local_offer_outlined,
+                    size: 64,
+                    color: Colors.grey,
+                  ),
                   SizedBox(height: 16),
                   Text(
                     'İndirimli ürün bulunmuyor',
@@ -361,14 +371,22 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                           ? CachedNetworkImage(
                               imageUrl: product.images.first,
                               fit: BoxFit.cover,
+                              memCacheWidth: 400,
                               errorWidget: (context, url, error) {
                                 return const Center(
-                                  child: Icon(Icons.image_not_supported, size: 24),
+                                  child: Icon(
+                                    Icons.image_not_supported,
+                                    size: 24,
+                                  ),
                                 );
                               },
                             )
                           : const Center(
-                              child: Icon(Icons.shopping_bag, size: 24, color: Colors.grey),
+                              child: Icon(
+                                Icons.shopping_bag,
+                                size: 24,
+                                color: Colors.grey,
+                              ),
                             ),
                     ),
                   ),
@@ -384,13 +402,24 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                       left: 4,
                       child: CampaignBadge(),
                     ),
+                  // Satıcı rozetleri + ücretsiz kargo. Kampanya rozeti alt
+                  // sol köşeyi kullandığı için o varken bir kat yukarı kayar.
+                  Positioned(
+                    bottom: product.isBuy2Get1BalanceCampaign ? 22 : 4,
+                    left: 4,
+                    right: 4,
+                    child: ProductCardTagStrip(product: product),
+                  ),
                   // Sabitlenmiş badge (satıcı tarafından) - indirim varsa sağda
                   if (product.sellerPinned)
                     Positioned(
                       top: 4,
                       left: product.hasDiscount ? 52 : 4,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.amber.shade700,
                           borderRadius: BorderRadius.circular(4),
@@ -407,11 +436,7 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                     ),
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: closedBadge,
-                    ),
+                    Positioned(top: 4, right: 4, child: closedBadge),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -432,7 +457,7 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                 ],
               ),
             ),
-            
+
             // Ürün bilgileri
             Padding(
               padding: const EdgeInsets.only(left: 4, right: 4, top: 4),
@@ -454,9 +479,9 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 2),
-                  
+
                   // Fiyat (flaş indirim bilinçli)
                   SizedBox(
                     height: 14,
@@ -474,9 +499,9 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 4),
-                  
+
                   // Buton
                   SizedBox(
                     width: double.infinity,
@@ -487,15 +512,21 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                               if (!isOrderable)
                                 Expanded(
                                   child: Text(
-                                    _globalOrdersEnabled ? 'Geçici Kapalı' : 'Kapalı',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                    _globalOrdersEnabled
+                                        ? 'Geçici Kapalı'
+                                        : 'Kapalı',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
                                 )
                               else
                                 const Spacer(),
                               AddToCartFab(
                                 isLoading: isAdding,
-                                onPressed: (isAdding || !isInStock || !isOrderable)
+                                onPressed:
+                                    (isAdding || !isInStock || !isOrderable)
                                     ? null
                                     : () => _addToCart(product),
                               ),
@@ -511,7 +542,10 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                                 // Azalt butonu
                                 InkWell(
                                   onTap: isInStock
-                                      ? () => _updateQuantity(product, cartQuantity - 1)
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity - 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -539,8 +573,16 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                                 ),
                                 // Artır butonu
                                 InkWell(
-                                  onTap: (isInStock && isOrderable && (product.isDigital || cartQuantity < product.stockQuantity))
-                                      ? () => _updateQuantity(product, cartQuantity + 1)
+                                  onTap:
+                                      (isInStock &&
+                                          isOrderable &&
+                                          (product.isDigital ||
+                                              cartQuantity <
+                                                  product.stockQuantity))
+                                      ? () => _updateQuantity(
+                                          product,
+                                          cartQuantity + 1,
+                                        )
                                       : null,
                                   child: SizedBox(
                                     width: 32,
@@ -548,7 +590,11 @@ class _AllDiscountedProductsScreenState extends State<AllDiscountedProductsScree
                                     child: Icon(
                                       Icons.add,
                                       size: 14,
-                                      color: (isInStock && (product.isDigital || cartQuantity < product.stockQuantity))
+                                      color:
+                                          (isInStock &&
+                                              (product.isDigital ||
+                                                  cartQuantity <
+                                                      product.stockQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

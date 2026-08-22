@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/balance_transaction_model.dart';
 import '../../../core/services/balance_service.dart';
+import '../widgets/transaction_detail_sheet.dart';
 
 /// İşlem Geçmişi Ekranı - Modern Tasarım
 class TransactionHistoryScreen extends StatefulWidget {
@@ -12,9 +13,12 @@ class TransactionHistoryScreen extends StatefulWidget {
 
 class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   final BalanceService _balanceService = BalanceService();
-  
+  final ScrollController _scrollController = ScrollController();
+
   List<BalanceTransaction> _transactions = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _loadMoreFailed = false;
   bool _hasMore = true;
   int _page = 1;
   String? _error;
@@ -24,6 +28,21 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   void initState() {
     super.initState();
     _loadTransactions();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMore();
+    }
   }
 
   Future<void> _loadTransactions({bool refresh = false}) async {
@@ -32,7 +51,14 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
         _page = 1;
         _transactions = [];
         _isLoading = true;
+        _hasMore = true;
+        _loadMoreFailed = false;
         _error = null;
+      });
+    } else {
+      setState(() {
+        _isLoadingMore = true;
+        _loadMoreFailed = false;
       });
     }
 
@@ -43,6 +69,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
         type: _filterType,
       );
 
+      if (!mounted) return;
       setState(() {
         if (refresh) {
           _transactions = page.transactions;
@@ -51,19 +78,30 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
         }
         _hasMore = page.hasMore;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
         _isLoading = false;
+        _isLoadingMore = false;
+        if (refresh || _transactions.isEmpty) {
+          _error = e.toString();
+        } else {
+          _loadMoreFailed = true;
+        }
       });
     }
   }
 
   Future<void> _loadMore() async {
-    if (!_hasMore || _isLoading) return;
+    if (!_hasMore || _isLoading || _isLoadingMore || _loadMoreFailed) return;
     _page++;
     await _loadTransactions();
+  }
+
+  void _retryLoadMore() {
+    _loadMore();
   }
 
   Future<void> _refresh() async {
@@ -115,6 +153,42 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                 PopupMenuItem(
                   value: 'refund',
                   child: _buildFilterItem('refund', 'İadeler', Icons.replay_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'withdrawal',
+                  child: _buildFilterItem('withdrawal', 'Çekimler', Icons.account_balance_wallet_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'commission',
+                  child: _buildFilterItem('commission', 'Komisyonlar', Icons.monetization_on_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'ad_reward',
+                  child: _buildFilterItem('ad_reward', 'Reklam Ödülleri', Icons.play_circle_outline),
+                ),
+                PopupMenuItem(
+                  value: 'task_reward',
+                  child: _buildFilterItem('task_reward', 'Görev Ödülleri', Icons.assignment_turned_in_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'courier_payment',
+                  child: _buildFilterItem('courier_payment', 'Kurye Ücretleri', Icons.local_shipping_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'campaign_reward',
+                  child: _buildFilterItem('campaign_reward', 'Kampanya Ödülleri', Icons.card_giftcard_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'ilan_publish_fee',
+                  child: _buildFilterItem('ilan_publish_fee', 'İlan Ücretleri', Icons.campaign_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'profile_feature_purchase',
+                  child: _buildFilterItem('profile_feature_purchase', 'Profil Özellikleri', Icons.workspace_premium_rounded),
+                ),
+                PopupMenuItem(
+                  value: 'adjustment',
+                  child: _buildFilterItem('adjustment', 'Düzeltmeler', Icons.tune_rounded),
                 ),
               ],
             ),
@@ -257,11 +331,23 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        itemCount: _transactions.length + (_hasMore ? 1 : 0),
+        itemCount: _transactions.length + ((_hasMore || _loadMoreFailed) ? 1 : 0),
         itemBuilder: (context, index) {
           if (index >= _transactions.length) {
-            _loadMore();
+            if (_loadMoreFailed) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: _retryLoadMore,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Tekrar dene'),
+                  ),
+                ),
+              );
+            }
             return const Padding(
               padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
@@ -283,7 +369,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   Widget _buildTransactionCard(BalanceTransaction transaction) {
     final isPositive = transaction.isPositive;
     final amountColor = isPositive ? Colors.green : Colors.red;
-    final icon = _getTransactionIcon(transaction.type);
+    final icon = transaction.type.icon;
     final hasBankInfo = transaction.bankName != null || transaction.bankAccountName != null;
 
     return Container(
@@ -298,7 +384,13 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
           ),
         ],
       ),
-      child: Column(
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => showTransactionDetailSheet(context, transaction),
+          child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(18),
@@ -449,6 +541,8 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
             ),
           ],
         ],
+          ),
+        ),
       ),
     );
   }
@@ -535,26 +629,4 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     );
   }
 
-  IconData _getTransactionIcon(BalanceTransactionType type) {
-    switch (type) {
-      case BalanceTransactionType.topup:
-        return Icons.add_circle_rounded;
-      case BalanceTransactionType.orderPayment:
-        return Icons.shopping_cart_rounded;
-      case BalanceTransactionType.refund:
-        return Icons.replay_rounded;
-      case BalanceTransactionType.withdrawal:
-        return Icons.account_balance_wallet_rounded;
-      case BalanceTransactionType.adjustment:
-        return Icons.tune_rounded;
-      case BalanceTransactionType.commission:
-        return Icons.monetization_on_rounded;
-      case BalanceTransactionType.adReward:
-        return Icons.play_circle_outline;
-      case BalanceTransactionType.taskReward:
-        return Icons.assignment_turned_in_rounded;
-      case BalanceTransactionType.courierPayment:
-        return Icons.local_shipping_rounded;
-    }
-  }
 }

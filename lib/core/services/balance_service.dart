@@ -224,29 +224,6 @@ class BalanceService {
     }
   }
 
-  /// Satıcı kazanç özetini getir
-  Future<SellerEarningsSummary?> getSellerEarnings() async {
-    try {
-      debugPrint('💰 BALANCE: Satıcı kazanç özeti getiriliyor...');
-
-      final response = await _supabase.functions.invoke('get-seller-earnings');
-
-      if (response.status != 200) {
-        final error = response.data['error'] ?? 'Kazanç alınamadı';
-        throw Exception(error);
-      }
-
-      if (response.data['earnings_summary'] == null) {
-        return null;
-      }
-
-      return SellerEarningsSummary.fromJson(response.data['earnings_summary']);
-    } catch (e) {
-      debugPrint('❌ BALANCE: Kazanç getirme hatası - $e');
-      throw FriendlyException.from(e);
-    }
-  }
-
   /// Bakiye kontrolü (yeterli mi?)
   Future<bool> hasEnoughBalance(double amount) async {
     try {

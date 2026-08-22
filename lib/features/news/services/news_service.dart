@@ -195,6 +195,7 @@ class NewsService {
     required String content,
     String? summary,
     String? thumbnailUrl,
+    String? videoUrl,
     String? categoryId,
     String? institutionId,
     bool isFeatured = false,
@@ -228,6 +229,7 @@ class NewsService {
             'content': content,
             'summary': summary,
             'thumbnail_url': thumbnailUrl,
+            'video_url': videoUrl,
             'category_id': categoryId,
             'institution_id': institutionId,
             'author_id': user.id,
@@ -271,6 +273,7 @@ class NewsService {
     String? content,
     String? summary,
     String? thumbnailUrl,
+    String? videoUrl,
     String? categoryId,
     String? institutionId,
     bool? isFeatured,
@@ -281,6 +284,7 @@ class NewsService {
     double? longitude,
     DateTime? publishedAt,
     bool clearThumbnail = false,
+    bool clearVideo = false,
   }) async {
     try {
       final updateData = <String, dynamic>{};
@@ -292,6 +296,11 @@ class NewsService {
         updateData['thumbnail_url'] = null;
       } else if (thumbnailUrl != null) {
         updateData['thumbnail_url'] = thumbnailUrl;
+      }
+      if (clearVideo) {
+        updateData['video_url'] = null;
+      } else if (videoUrl != null) {
+        updateData['video_url'] = videoUrl;
       }
       if (categoryId != null) updateData['category_id'] = categoryId;
       if (institutionId != null) updateData['institution_id'] = institutionId;
@@ -368,6 +377,59 @@ class NewsService {
     }
   }
 
+  /// Web ve mobilde seçilen byte verisini haber galerisine yükler.
+  Future<NewsImageModel?> uploadNewsImageBytes({
+    required String newsId,
+    required Uint8List bytes,
+    required String extension,
+    String? caption,
+    int sortOrder = 0,
+  }) async {
+    try {
+      final timestamp = DateTime.now().microsecondsSinceEpoch;
+      final normalizedExtension = extension.toLowerCase();
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) return null;
+      final path = '$userId/galleries/$newsId/$timestamp.$normalizedExtension';
+      final imageUrl = await _storageService.uploadBytes(
+        bytes: bytes,
+        bucket: 'news-images',
+        path: path,
+        metadata: {'contentType': _imageContentType(normalizedExtension)},
+      );
+      if (imageUrl == null) return null;
+
+      final data = await _client
+          .from('news_images')
+          .insert({
+            'news_id': newsId,
+            'image_url': imageUrl,
+            'caption': caption,
+            'sort_order': sortOrder,
+            'file_size': bytes.length,
+          })
+          .select()
+          .single();
+      return NewsImageModel.fromJson(Map<String, dynamic>.from(data));
+    } catch (e) {
+      debugPrint('Haber galeri görseli yükleme hatası: $e');
+      return null;
+    }
+  }
+
+  String _imageContentType(String extension) {
+    switch (extension) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
   /// Birden fazla görsel yükle
   Future<List<NewsImageModel>> uploadMultipleImages({
     required String newsId,
@@ -416,11 +478,17 @@ class NewsService {
   /// Storage'dan dosya sil
   Future<void> _deleteFromStorage(String url) async {
     try {
-      // URL'den path'i çıkar
+      // Hem Supabase hem de S3 URL'lerinde nesne yolu bu klasörden başlar.
       final uri = Uri.parse(url);
-      final path = uri.pathSegments.last;
+      final segments = uri.pathSegments;
+      final newsImagesIndex = segments.indexOf('news-images');
+      if (newsImagesIndex < 0 || newsImagesIndex == segments.length - 1) {
+        debugPrint('Storage yolu çözümlenemedi: $url');
+        return;
+      }
+      final path = segments.sublist(newsImagesIndex + 1).join('/');
 
-      await _client.storage.from('news-images').remove([path]);
+      await _storageService.deleteFile(bucket: 'news-images', path: path);
     } catch (e) {
       debugPrint('Storage silme hatası: $e');
     }

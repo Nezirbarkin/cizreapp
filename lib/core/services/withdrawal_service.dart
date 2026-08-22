@@ -15,58 +15,6 @@ class WithdrawalService {
     }
   }
 
-  /// Çekim talebi oluştur
-  Future<WithdrawalRequestResult> requestWithdrawal({
-    required double amount,
-    required String bankName,
-    required String iban,
-    String? bankAccountName,
-    String? bankAccountNumber,
-  }) async {
-    try {
-      debugPrint('💸 WITHDRAWAL: Çekim talebi oluşturuluyor...');
-      debugPrint('  └─ amount: $amount');
-      debugPrint('  └─ bank: $bankName');
-
-      final response = await _supabase.functions.invoke(
-        'request-withdrawal',
-        body: {
-          'amount': amount,
-          'bank_name': bankName,
-          'iban': iban,
-          'bank_account_name': bankAccountName,
-          'bank_account_number': bankAccountNumber,
-        },
-      );
-
-      if (response.status != 200) {
-        final error = response.data['error'] ?? 'Çekim talebi oluşturulamadı';
-        throw Exception(error);
-      }
-
-      final data = response.data;
-
-      if (data['status'] != 'success') {
-        throw Exception(data['error'] ?? 'İşlem başarısız');
-      }
-
-      debugPrint('✅ WITHDRAWAL: Çekim talebi oluşturuldu');
-      debugPrint('  └─ withdrawal_id: ${data['withdrawal_id']}');
-      debugPrint('  └─ net_amount: ${data['net_amount']}');
-
-      return WithdrawalRequestResult(
-        withdrawalId: data['withdrawal_id'],
-        amount: (data['amount'] as num).toDouble(),
-        fee: (data['fee'] as num).toDouble(),
-        netAmount: (data['net_amount'] as num).toDouble(),
-        status: data['status'],
-      );
-    } catch (e) {
-      debugPrint('❌ WITHDRAWAL: Çekim talebi hatası - $e');
-      throw FriendlyException.from(e);
-    }
-  }
-
   /// Admin: Çekim talebini işle (onayla/reddet)
   Future<void> processWithdrawal({
     required String withdrawalId,
@@ -133,9 +81,11 @@ class WithdrawalService {
     }
   }
 
-  /// Admin: Tüm çekim taleplerini getir
+  /// Admin: Tüm çekim taleplerini getir.
+  /// `statuses` birden fazla durum içerebilir (ör. ['processing', 'completed']);
+  /// tek durum filtrelemek için tek elemanlı liste verin.
   Future<List<WithdrawalWithSeller>> getAllWithdrawals({
-    String? status,
+    List<String>? statuses,
     int limit = 50,
   }) async {
     try {
@@ -150,14 +100,14 @@ class WithdrawalService {
           .order('created_at', ascending: false)
           .limit(limit);
 
-      if (status != null) {
+      if (statuses != null && statuses.isNotEmpty) {
         query = _supabase
             .from('seller_withdrawals')
             .select('''
               *,
               profiles: seller_id (full_name, phone)
             ''')
-            .eq('status', status)
+            .inFilter('status', statuses)
             .order('created_at', ascending: false)
             .limit(limit);
       }
@@ -228,22 +178,5 @@ class WithdrawalWithSeller {
     required this.withdrawal,
     this.sellerName,
     this.sellerPhone,
-  });
-}
-
-/// Çekim talebi sonucu
-class WithdrawalRequestResult {
-  final String withdrawalId;
-  final double amount;
-  final double fee;
-  final double netAmount;
-  final String status;
-
-  WithdrawalRequestResult({
-    required this.withdrawalId,
-    required this.amount,
-    required this.fee,
-    required this.netAmount,
-    required this.status,
   });
 }

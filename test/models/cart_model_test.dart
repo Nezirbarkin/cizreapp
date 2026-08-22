@@ -39,37 +39,43 @@ void main() {
       expect(item.effectivePrice, 0.0);
     });
 
-    test('discount_price < price ise discount_price kullanılır (kritik bug fix)', () {
-      final item = CartItem(
-        id: 'c3',
-        userId: 'u1',
-        productId: 'p3',
-        quantity: 1,
-        createdAt: DateTime(2026, 7, 29),
-        updatedAt: DateTime(2026, 7, 29),
-        productPrice: 150.0,
-        productOldPrice: 200.0,
-        productDiscountPrice: 90.0, // %40 indirim
-      );
-      // Eski bug: 150.0 dönerdi (price alınırdı)
-      // Yeni davranış: 90.0 (discount_price öncelikli)
-      expect(item.effectivePrice, 90.0);
-    });
+    test(
+      'discount_price < price ise discount_price kullanılır (kritik bug fix)',
+      () {
+        final item = CartItem(
+          id: 'c3',
+          userId: 'u1',
+          productId: 'p3',
+          quantity: 1,
+          createdAt: DateTime(2026, 7, 29),
+          updatedAt: DateTime(2026, 7, 29),
+          productPrice: 150.0,
+          productOldPrice: 200.0,
+          productDiscountPrice: 90.0, // %40 indirim
+        );
+        // Eski bug: 150.0 dönerdi (price alınırdı)
+        // Yeni davranış: 90.0 (discount_price öncelikli)
+        expect(item.effectivePrice, 90.0);
+      },
+    );
 
-    test('discount_price > price ise price kullanılır (tutarsız veri koruması)', () {
-      final item = CartItem(
-        id: 'c4',
-        userId: 'u1',
-        productId: 'p4',
-        quantity: 1,
-        createdAt: DateTime(2026, 7, 29),
-        updatedAt: DateTime(2026, 7, 29),
-        productPrice: 50.0,
-        productDiscountPrice: 75.0, // anlamsız: discount > price
-      );
-      // discount_price, price'tan büyükse price kullan (eski mantık)
-      expect(item.effectivePrice, 50.0);
-    });
+    test(
+      'discount_price > price ise price kullanılır (tutarsız veri koruması)',
+      () {
+        final item = CartItem(
+          id: 'c4',
+          userId: 'u1',
+          productId: 'p4',
+          quantity: 1,
+          createdAt: DateTime(2026, 7, 29),
+          updatedAt: DateTime(2026, 7, 29),
+          productPrice: 50.0,
+          productDiscountPrice: 75.0, // anlamsız: discount > price
+        );
+        // discount_price, price'tan büyükse price kullan (eski mantık)
+        expect(item.effectivePrice, 50.0);
+      },
+    );
 
     test('discount_price == price ise price kullanılır (sıfır indirim)', () {
       final item = CartItem(
@@ -220,54 +226,63 @@ void main() {
   });
 
   group('CartItem - itemDiscount (gösterim amaçlı tasarruf)', () {
-    test('discount_price + old_price varsa tasarruf = (oldPrice - effective) * qty', () {
-      final item = CartItem(
-        id: 's1',
-        userId: 'u1',
-        productId: 'p1',
-        quantity: 2,
-        createdAt: DateTime(2026, 7, 29),
-        updatedAt: DateTime(2026, 7, 29),
-        productPrice: 200.0,
-        productOldPrice: 250.0,
-        productDiscountPrice: 120.0,
-      );
-      // effectivePrice = 120, oldPrice = 250 (en yüksek gösterilen fiyat)
-      // tasarruf = (250 - 120) * 2 = 260
-      expect(item.itemDiscount, 260.0);
-    });
+    test(
+      'discount_price + old_price varsa tasarruf = (oldPrice - effective) * qty',
+      () {
+        final item = CartItem(
+          id: 's1',
+          userId: 'u1',
+          productId: 'p1',
+          quantity: 2,
+          createdAt: DateTime(2026, 7, 29),
+          updatedAt: DateTime(2026, 7, 29),
+          productPrice: 200.0,
+          productOldPrice: 250.0,
+          productDiscountPrice: 120.0,
+        );
+        // effectivePrice = 120, oldPrice = 250 (en yüksek gösterilen fiyat)
+        // tasarruf = (250 - 120) * 2 = 260
+        expect(item.itemDiscount, 260.0);
+      },
+    );
 
-    test('discount_price yok ama old_price varsa tasarruf = (oldPrice - price) * qty', () {
-      final item = CartItem(
-        id: 's2',
-        userId: 'u1',
-        productId: 'p2',
-        quantity: 1,
-        createdAt: DateTime(2026, 7, 29),
-        updatedAt: DateTime(2026, 7, 29),
-        productPrice: 80.0,
-        productOldPrice: 100.0,
-        productDiscountPrice: null,
-      );
-      expect(item.itemDiscount, 20.0);
-    });
+    test(
+      'discount_price yok ama old_price varsa tasarruf = (oldPrice - price) * qty',
+      () {
+        final item = CartItem(
+          id: 's2',
+          userId: 'u1',
+          productId: 'p2',
+          quantity: 1,
+          createdAt: DateTime(2026, 7, 29),
+          updatedAt: DateTime(2026, 7, 29),
+          productPrice: 80.0,
+          productOldPrice: 100.0,
+          productDiscountPrice: null,
+        );
+        expect(item.itemDiscount, 20.0);
+      },
+    );
 
-    test('sadece discount_price varsa tasarruf = (price - effective) * qty', () {
-      final item = CartItem(
-        id: 's2b',
-        userId: 'u1',
-        productId: 'p2b',
-        quantity: 1,
-        createdAt: DateTime(2026, 7, 29),
-        updatedAt: DateTime(2026, 7, 29),
-        productPrice: 100.0,
-        productOldPrice: null,
-        productDiscountPrice: 70.0,
-      );
-      // effectivePrice = 70, price = 100, oldPrice = null
-      // tasarruf = (100 - 70) * 1 = 30
-      expect(item.itemDiscount, 30.0);
-    });
+    test(
+      'sadece discount_price varsa tasarruf = (price - effective) * qty',
+      () {
+        final item = CartItem(
+          id: 's2b',
+          userId: 'u1',
+          productId: 'p2b',
+          quantity: 1,
+          createdAt: DateTime(2026, 7, 29),
+          updatedAt: DateTime(2026, 7, 29),
+          productPrice: 100.0,
+          productOldPrice: null,
+          productDiscountPrice: 70.0,
+        );
+        // effectivePrice = 70, price = 100, oldPrice = null
+        // tasarruf = (100 - 70) * 1 = 30
+        expect(item.itemDiscount, 30.0);
+      },
+    );
 
     test('indirim yoksa tasarruf 0', () {
       final item = CartItem(

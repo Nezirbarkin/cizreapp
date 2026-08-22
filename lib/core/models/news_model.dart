@@ -8,6 +8,7 @@ class NewsModel {
   final String content;
   final String? summary;
   final String? thumbnailUrl;
+  final String? videoUrl;
   final String? categoryId;
   final String? categoryName;
   final String? institutionId;
@@ -39,6 +40,7 @@ class NewsModel {
     required this.content,
     this.summary,
     this.thumbnailUrl,
+    this.videoUrl,
     this.categoryId,
     this.categoryName,
     this.institutionId,
@@ -72,10 +74,15 @@ class NewsModel {
       content: json['content'] as String,
       summary: json['summary'] as String?,
       thumbnailUrl: json['thumbnail_url'] as String?,
+      videoUrl: json['video_url'] as String?,
       categoryId: json['category_id'] as String?,
-      categoryName: (json['news_categories']?['name'] ?? json['category_name']) as String?,
+      categoryName:
+          (json['news_categories']?['name'] ?? json['category_name'])
+              as String?,
       institutionId: json['institution_id'] as String?,
-      institutionName: (json['institutions']?['name'] ?? json['institution_name']) as String?,
+      institutionName:
+          (json['institutions']?['name'] ?? json['institution_name'])
+              as String?,
       institutionLogoUrl: json['institutions']?['logo_url'] as String?,
       authorId: json['author_id'] as String?,
       authorName: json['author_name'] as String?,
@@ -97,8 +104,8 @@ class NewsModel {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       images: json['news_images'] != null
           ? (json['news_images'] as List)
-              .map((e) => NewsImageModel.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map((e) => NewsImageModel.fromJson(e as Map<String, dynamic>))
+                .toList()
           : [],
       isLikedByUser: json['is_liked_by_user'] as bool?,
     );
@@ -112,6 +119,7 @@ class NewsModel {
       'content': content,
       'summary': summary,
       'thumbnail_url': thumbnailUrl,
+      'video_url': videoUrl,
       'category_id': categoryId,
       'institution_id': institutionId,
       'author_id': authorId,
@@ -134,6 +142,7 @@ class NewsModel {
     String? content,
     String? summary,
     String? thumbnailUrl,
+    String? videoUrl,
     String? categoryId,
     String? categoryName,
     String? institutionId,
@@ -165,6 +174,7 @@ class NewsModel {
       content: content ?? this.content,
       summary: summary ?? this.summary,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      videoUrl: videoUrl ?? this.videoUrl,
       categoryId: categoryId ?? this.categoryId,
       categoryName: categoryName ?? this.categoryName,
       institutionId: institutionId ?? this.institutionId,
@@ -328,8 +338,10 @@ class NewsCommentModel {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       replies: json['replies'] != null
           ? (json['replies'] as List)
-              .map((e) => NewsCommentModel.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (e) => NewsCommentModel.fromJson(e as Map<String, dynamic>),
+                )
+                .toList()
           : [],
       isLikedByUser: json['is_liked_by_user'] as bool?,
     );

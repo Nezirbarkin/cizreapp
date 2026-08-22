@@ -1,7 +1,7 @@
 // ignore_for_file: avoid_print, deprecated_member_use, use_build_context_synchronously
 
 import 'dart:async';
-import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' show PointerDeviceKind, PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
@@ -17,6 +17,7 @@ import 'sehirici/providers/sehirici_location_provider.dart';
 import 'core/services/verification_service.dart';
 import 'core/services/payment_service.dart';
 import 'core/services/ad_consent_service.dart';
+import 'core/navigation/app_navigator.dart';
 import 'firebase_options.dart';
 // ignore: unused_import
 import 'features/market/providers/cart_provider.dart';
@@ -44,6 +45,7 @@ import 'core/services/push_notification_service.dart';
 import 'core/services/cache_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/analytics_service.dart';
+import 'core/utils/app_logger.dart';
 import 'core/services/performance_monitoring_service.dart';
 import 'core/services/cleanup_service.dart';
 import 'core/services/storage_service.dart';
@@ -92,7 +94,27 @@ void main() async {
   // Global error handler
   FlutterError.onError = (details) {
     log('🔴 FlutterError: ${details.exception}');
-    print('Stack: ${details.stack}');
+    final stack = details.stack;
+    if (stack != null) {
+      log('Stack: ${stack.toString().split("\n").take(20).join("\n")}');
+    } else {
+      log('Stack: null (RenderFlex overflow gibi layout hatalarında olabilir)');
+    }
+    final ctx = details.context;
+    if (ctx != null) {
+      try {
+        log('Context: ${ctx.toStringDeep(minLevel: DiagnosticLevel.fine)}');
+      } catch (e) {
+        log('Context okunamadı: $e');
+      }
+    }
+    // Merkezi kayda da gonder (kanca Supabase hazir olunca baglanir; o ana
+    // kadar bu cagri sessizce yok sayilir).
+    AppLogger.error(
+      'FlutterError: ${details.library ?? 'widgets'}',
+      error: details.exception,
+      stackTrace: stack,
+    );
   };
 
   // Supabase durumunu takip et
@@ -196,6 +218,22 @@ void main() async {
       log('⚠️ Initialization error: $e');
     }
 
+    // Hata loglarini merkezi analitige bagla. Supabase hazir olmadan
+    // baglamiyoruz; insert zaten oturum gerektiriyor ve erken baglamak
+    // yalnizca bosa giden denemeler uretirdi.
+    if (supabaseInitialized) {
+      AnalyticsService.attachToLogger();
+
+      // Yakalanmamis Flutter/isolate hatalari da merkezi kayda dussun; daha
+      // once yalnizca konsola yazildiklari icin admin panelindeki "Son Hatalar"
+      // ve "Hata Tipi Dagilimi" kartlari kalici olarak bos kaliyordu.
+      PlatformDispatcher.instance.onError = (error, stack) {
+        AppLogger.error('Uncaught async error', error: error, stackTrace: stack);
+        return true; // hata yutuldu, uygulama devam etsin
+      };
+      log('✅ Merkezi hata kaydı etkin');
+    }
+
     // AdMob SDK başlat (ödüllü reklam - web'de desteklenmiyor)
     // ÖNEMLİ: GDPR/CCPA (UMP) onayı ve iOS ATT izni, AdMob SDK'sı
     // başlatılmadan ÖNCE istenmeli (Google AdMob EU User Consent Policy).
@@ -284,7 +322,9 @@ class CizreApp extends StatefulWidget {
 class _CizreAppState extends State<CizreApp> {
   StreamSubscription<AuthState>? _authStateSubscription; // Nullable yap, Supabase başarısız olursa hata vermesin
   StreamSubscription<Uri>? _appLinksSubscription; // Web için nullable
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  // Root navigator key global olarak app_navigator.dart'ta tutulur; böylece
+  // context'ten bağımsız (ör. oturum kapatma) güvenli yönlendirmeler yapılabilir.
+  final GlobalKey<NavigatorState> _navigatorKey = appNavigatorKey;
   
   /// Web'de profil/shop URL'sine doğrudan gidildiyse true
   bool get _isWebProfileRoute {
@@ -354,16 +394,21 @@ class _CizreAppState extends State<CizreApp> {
         return;
       }
       
-      // Password Recovery Event - Şifre yenileme linki tıklandığında
+      // NOT: passwordRecovery event'i artık kullanılmıyor. Şifre sıfırlama
+      // akışı OTP bazlı çalışıyor (reset_password_screen.dart):
+      //   1) Email'e 6 haneli kod gider.
+      //   2) Kullanıcı kodu uygulamaya girer.
+      //   3) verifyOTP(OtpType.recovery) → recovery session oluşur.
+      // Bu yüzden AuthChangeEvent.passwordRecovery event'i tetiklenmez ve
+      // burada bir yönlendirme yapılmasına gerek yoktur. Eski davranış
+      // tamamen kaldırıldı; ileride eski linkler gelirse uygulama
+      // passwordRecovery event'ini ignore eder (kullanıcı reset ekranına
+      // elle gidip OTP ile devam edebilir).
       if (event == AuthChangeEvent.passwordRecovery) {
-        print('🔑 Password Recovery detected! Navigating to reset-confirm screen...');
-        // Kısa bir gecikme ile route'ı değiştir (MaterialApp tamamen oluşması için)
-        Future.delayed(const Duration(milliseconds: 500), () {
-          final navigatorState = _navigatorKey.currentState;
-          if (navigatorState != null && mounted) {
-            navigatorState.pushReplacementNamed('/reset-password-confirm');
-          }
-        });
+        if (kDebugMode) {
+          debugPrint('⚠️ passwordRecovery event tetiklendi ama OTP akışı '
+              'kullanılıyor; yönlendirme yapılmıyor.');
+        }
       }
       
       // Email Confirmation Event - Email doğrulama linki tıklandığında
@@ -527,7 +572,7 @@ class _CizreAppState extends State<CizreApp> {
     Future.delayed(const Duration(seconds: 2), () => _checkUrl());
   }
   
-  void _checkUrl() {
+  Future<void> _checkUrl() async {
     if (!mounted) return;
 
     // URL'deki hash fragment'ını kontrol et
@@ -548,21 +593,32 @@ class _CizreAppState extends State<CizreApp> {
         debugPrint('   type: $type, hasAccessToken: $hasAccessToken');
       }
 
-      // Şifre yenileme linki (type=recovery)
+      // Eski davranış: type=recovery geldiğinde Supabase bir session
+      // oluşturmuştu ve biz de kullanıcıyı `/reset-password-confirm`
+      // ekranına atıyorduk. Yeni akış OTP tabanlı: kullanıcıya link
+      // gönderilmiyor, kodu uygulamaya giriyor. Bu nedenle Supabase
+      // recovery session'ı oluşturmaz; hasAccessToken da null olur.
+      // Yine de birisi eski davranıştan kalan bir link tıklarsa,
+      // kullanıcıyı OTP ekranına yönlendirip yeni akışa yönlendiriyoruz.
       if (type == 'recovery' || hasAccessToken) {
         if (kDebugMode) {
-          debugPrint('🔑 Web şifre yenileme linki algılandı!');
+          debugPrint('🔑 Web üzerinden eski formatta recovery linki '
+              'algılandı; yeni OTP akışına yönlendiriliyor.');
         }
 
-        // Şifre yenileme onay ekranına yönlendir
+        // Kullanıcıyı OTP şifre sıfırlama ekranına yönlendir.
+        // Eğer recovery session oluşmuşsa (eski davranış), signOut ile
+        // session'ı temizleyip OTP akışını zorluyoruz.
+        try {
+          if (Supabase.instance.client.auth.currentSession != null) {
+            await Supabase.instance.client.auth.signOut();
+          }
+        } catch (_) {}
+
         final navigatorState = _navigatorKey.currentState;
         if (navigatorState != null && mounted) {
-          if (kDebugMode) {
-            debugPrint('🔄 /reset-password-confirm ekranına yönlendiriliyor...');
-          }
-          // Mevcut tüm route'ları temizle ve şifre sıfırlama ekranını aç
           navigatorState.pushNamedAndRemoveUntil(
-            '/reset-password-confirm',
+            '/reset-password',
             (route) => false,
           );
         }
@@ -570,30 +626,37 @@ class _CizreAppState extends State<CizreApp> {
     }
   }
 
-  void _handleDeepLink(Uri uri) {
+  Future<void> _handleDeepLink(Uri uri) async {
     if (kDebugMode) {
       debugPrint('🔗 Deep link işleniyor (hassas veri gizlendi)');
       debugPrint('   scheme: ${uri.scheme}, host: ${uri.host}, path: ${uri.path}');
     }
 
-    // Şifre sıfırlama linki - cizreapp://reset-password?token=xxx
+    // Eski davranış: cizreapp://reset-password?token=xxx linkleri link
+    // bazlı akışa yönlendiriyordu. Yeni akış OTP: link geldiğinde
+    // kullanıcıyı OTP ekranına yönlendiriyoruz ve (varsa) recovery
+    // session'ı sonlandırıyoruz; kullanıcı email'e gelen kodu girerek
+    // yeni akışa devam edecek.
     if (uri.scheme == 'cizreapp' && uri.host == 'reset-password') {
-      final token = uri.queryParameters['token'];
       if (kDebugMode) {
-        debugPrint('🔑 Şifre sıfırlama linki alındı, hasToken: ${token != null && token.isNotEmpty}');
+        debugPrint('🔑 Eski formatta reset-password deep link alındı; '
+            'OTP akışına yönlendiriliyor.');
       }
 
-      // Şifre sıfırlama ekranına yönlendir
+      try {
+        if (Supabase.instance.client.auth.currentSession != null) {
+          await Supabase.instance.client.auth.signOut();
+        }
+      } catch (_) {}
+
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
           final navigatorState = _navigatorKey.currentState;
           if (navigatorState != null) {
-            // Token varsa, şifre onay ekranına; yoksa sıfırlama ekranına
-            if (token != null && token.isNotEmpty) {
-              navigatorState.pushReplacementNamed('/reset-password-confirm');
-            } else {
-              navigatorState.pushReplacementNamed('/reset-password');
-            }
+            navigatorState.pushNamedAndRemoveUntil(
+              '/reset-password',
+              (route) => false,
+            );
           }
         }
       });

@@ -636,6 +636,9 @@ class _NewsScreenState extends State<NewsScreen> {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      // Hero (tam genişlik ~300px) ve liste tile (~132px) ortak kullanır;
+      // 600px bitmap sınırı her ikisinde de kaliteyi koruyup belleği düşürür.
+      memCacheWidth: 600,
       placeholder: (_, __) => placeholder,
       errorWidget: (_, __, ___) => placeholder,
     );

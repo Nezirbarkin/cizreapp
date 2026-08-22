@@ -122,8 +122,11 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
       final Map<String, Map<String, dynamic>> groupedNotifications = {};
 
       for (var notif in allNotifications) {
-        final key =
-            '${notif['title']}|${notif['content']}|${notif['created_at'].toString().substring(0, 16)}';
+        final createdAtStr = notif['created_at']?.toString() ?? '';
+        final createdAtKey = createdAtStr.length >= 16
+            ? createdAtStr.substring(0, 16)
+            : createdAtStr;
+        final key = '${notif['title']}|${notif['content']}|$createdAtKey';
 
         if (groupedNotifications.containsKey(key)) {
           final isBroadcast = notif['_is_broadcast'] == true;
@@ -180,23 +183,25 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
         totalPending += group['pending_count'] as int;
       }
 
-      setState(() {
-        _pushNotifications = groupedNotifications.values.toList()
-          ..sort((a, b) {
-            final aDate = a['created_at'] as String;
-            final bDate = b['created_at'] as String;
-            return bDate.compareTo(aDate);
-          });
-        _totalSent = totalSent;
-        _totalDelivered = totalSent;
-        _totalRead = totalRead;
-        _totalFailed = 0;
-        _totalPending = totalPending;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _pushNotifications = groupedNotifications.values.toList()
+            ..sort((a, b) {
+              final aDate = a['created_at'] as String;
+              final bDate = b['created_at'] as String;
+              return bDate.compareTo(aDate);
+            });
+          _totalSent = totalSent;
+          _totalDelivered = totalSent;
+          _totalRead = totalRead;
+          _totalFailed = 0;
+          _totalPending = totalPending;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Bildirimler yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -1585,23 +1590,25 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                           // Hedef kitle büyüklüğünü kullanıcıya raporlamak için
                           int audienceSize = 0;
                           try {
-                            List<dynamic> response;
-                            if (targetAudience == 'customers') {
-                              response = await _client
-                                  .from('profiles')
-                                  .select('id')
-                                  .eq('role', 'customer');
-                            } else if (targetAudience == 'sellers') {
-                              response = await _client
-                                  .from('profiles')
-                                  .select('id')
-                                  .eq('role', 'seller');
-                            } else {
-                              response = await _client
-                                  .from('profiles')
-                                  .select('id');
-                            }
-                            audienceSize = response.length;
+                            // 20260803000006 sonrasında profiles üzerinde
+                            // authenticated SELECT policy'si yok; SECURITY
+                            // DEFINER admin_list_users RPC üzerinden alıyoruz.
+                            // RPC p_limit max 100; count için listenin tamamı
+                            // yeterli sayılır. Gerçek hedef kitle büyüklüğü
+                            // zaten broadcast RPC'si tarafından doğru raporlanır.
+                            final pRole = targetAudience == 'customers'
+                                ? 'customer'
+                                : targetAudience == 'sellers'
+                                    ? 'seller'
+                                    : null;
+                            final resp = await _client.rpc<List<dynamic>>(
+                              'admin_list_users',
+                              params: {
+                                'p_role': pRole,
+                                'p_limit': 100,
+                              },
+                            );
+                            audienceSize = resp.length;
                           } catch (e) {
                             debugPrint('Kullanıcı listesi alınamadı: $e');
                           }
@@ -1665,11 +1672,14 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
     setDialogState(() => isLoadingUsers = true);
 
     try {
-      final response = await _client
-          .from('profiles')
-          .select('id, username, full_name, avatar_url')
-          .order('created_at', ascending: false)
-          .limit(100);
+      // 20260803000006 sonrasında profiles üzerinde authenticated
+      // SELECT policy'si yok; SECURITY DEFINER admin_list_users
+      // RPC üzerinden alıyoruz. RPC, id/username/full_name/avatar_url
+      // döndürür; UI tarafında ihtiyaç duyulan sütunlarla uyumlu.
+      final response = await _client.rpc<List<dynamic>>(
+        'admin_list_users',
+        params: {'p_limit': 100},
+      );
 
       setDialogState(() {
         usersList = List<Map<String, dynamic>>.from(response);

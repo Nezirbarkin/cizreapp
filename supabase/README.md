@@ -2,12 +2,35 @@
 
 Bu dizin, CizreApp'in Supabase (Postgres + Auth + Storage + Realtime + Edge Functions) altyapisini yonetir.
 
+> ## ⚠️ `supabase db push` SU AN GUVENLI DEGIL
+>
+> **Tespit tarihi:** 2026-08-05 — bkz. [`diagnostics/`](diagnostics/)
+>
+> `supabase_migrations.schema_migrations` defterinde **13 kayit** var; en yenisi
+> `20240123000009` (Ocak 2024). Ikisi (`0`, `09`) gecerli surum numarasi bile degil.
+> Oysa canli veritabaninda 2026'nin tum isleri duruyor.
+>
+> Yani **~320 migration canliya elle uygulanmis, deftere hic yazilmamis.**
+>
+> Bunun sonucu: `supabase db push` defterde olmayan her dosyayi uygulamaya
+> calisir — zaten uygulanmis ~320 dosyayi yeniden calistirmayi dener.
+> Ayrica repoda **23 grup cift versiyon prefix'i (56 dosya)** var; ayni
+> `version` degeri `schema_migrations` icinde birden fazla satir olamaz.
+>
+> **Defter gercekle hizalanana kadar `db push` calistirma.** Migration'lari
+> bugune kadarki gibi Supabase SQL Editor'den elle uygula.
+>
+> En yikici iki dosya onlem olarak [`deferred/`](deferred/) altina tasindi.
+
 ## Dizin Yapisi
 
 ```
 supabase/
-├── migrations/             # 314 aktif SQL: 292 standard + 22 legacy adli
+├── migrations/             # 331 aktif SQL: 309 standard + 22 legacy adli
 │   └── ...                # Yerel kaynak envanteri; remote-applied kaniti degil
+├── deferred/               # Gecerli ama HENUZ uygulanamaz migration'lar
+│   └── ...                # Flutter cutover'i beklerler; bkz. deferred/README.md
+├── diagnostics/            # Salt-okunur durum tespiti sorgulari
 ├── archive/                # Arsivlenmis SQL'ler (calistirilmamali)
 │   ├── 2025-q1/           # 2025-2026 erken donem fix'leri
 │   ├── 2026-q2/           # 2026 Nisan-Haziran eski dosyalar

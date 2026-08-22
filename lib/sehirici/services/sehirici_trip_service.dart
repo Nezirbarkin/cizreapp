@@ -111,20 +111,29 @@ class SehiriciTripService {
     }
   }
 
-  // ─────────────────────────────────────────────
+  // ───���─────────────────────────────────────────
   // Realtime: Aktif seferleri canlı izle (kullanıcı tarafı)
   // ─────────────────────────────────────────────
 
-  RealtimeChannel? _channel;
+  // DİKKAT: aktif sefer ve konum yolu ayrı kanallarda tutulur. Eskiden tek
+  // `_channel` alanını paylaştıkları için watchActiveTrips/watchTripPaths
+  // birbirini unsubscribe ediyordu (kanal clobber bug'ı).
+  RealtimeChannel? _activeTripsChannel;
+  RealtimeChannel? _tripPathsChannel;
 
   /// Belirli bir şehrin aktif seferlerini realtime dinler.
-  /// Eski channel varsa kapatır.
+  /// Eski aktif-sefer kanalı varsa kapatır.
+  ///
+  /// [onTripDelete] yalnızca satır silindiğinde değil, sefer *sonlandığında*
+  /// (status 'completed'/'cancelled'/'planned' olduğunda) da çağrılır: seferler
+  /// DB'den silinmez, status'ü değiştirilir. Eskiden bu olaylar sessizce
+  /// yutuluyordu (`return`) ve biten araç haritada sonsuza kadar asılı kalıyordu.
   RealtimeChannel watchActiveTrips({
     String? cityId,
     required void Function(SehiriciActiveTrip trip) onTripUpdate,
     required void Function(String tripId) onTripDelete,
   }) {
-    _channel?.unsubscribe();
+    _activeTripsChannel?.unsubscribe();
 
     final ch = _client.channel('sehirici_active_trips_${cityId ?? 'all'}');
 
@@ -141,7 +150,13 @@ class SehiriciTripService {
           }
           final newRow = payload.newRecord;
           final status = newRow['status'] as String?;
-          if (status != 'active' && status != 'paused') return;
+          if (status != 'active' && status != 'paused') {
+            // Sefer bitti/iptal edildi: satır silinmediği için DELETE olayı
+            // gelmez. Haritadan/listeden düşmesi için kaldırma olarak yay.
+            final id = newRow['id'] as String?;
+            if (id != null) onTripDelete(id);
+            return;
+          }
           onTripUpdate(SehiriciActiveTrip(
             tripId: newRow['id'] as String,
             lineId: newRow['line_id'] as String,
@@ -163,13 +178,15 @@ class SehiriciTripService {
     );
 
     ch.subscribe();
-    _channel = ch;
+    _activeTripsChannel = ch;
     return ch;
   }
 
   void stopWatching() {
-    _channel?.unsubscribe();
-    _channel = null;
+    _activeTripsChannel?.unsubscribe();
+    _tripPathsChannel?.unsubscribe();
+    _activeTripsChannel = null;
+    _tripPathsChannel = null;
   }
 
   // ─────────────────────────────────────────────
@@ -198,15 +215,23 @@ class SehiriciTripService {
     }
   }
 
+  /// Aynı anda birden fazla [SehiriciLiveMap] mount olabildiği için (ana
+  /// akıştaki compact kart + story kart + hatlar ekranı) kanal adı örnek
+  /// başına benzersiz olmalı. Sabit "sehirici_trip_paths" adıyla, tek soket
+  /// üzerinden aynı topic'e ikinci kez katılma denemesi Phoenix tarafında
+  /// reddediliyor ve ikinci haritanın canlı yol polyline'ı hiç güncellenmiyordu.
+  static int _tripPathsChannelSeq = 0;
+
   /// Birden fazla aktif seferin konum geçmişini realtime dinler.
   /// Yeni nokta geldiğinde `onPoint(tripId, lat, lng)` çağrılır.
-  /// Eski channel varsa kapatır.
+  /// Eski konum-geçmişi kanalını kapatır (aktif-sefer kanalını BOZMAZ).
   RealtimeChannel watchTripPaths({
     required void Function(String tripId, double lat, double lng) onPoint,
   }) {
-    _channel?.unsubscribe();
+    _tripPathsChannel?.unsubscribe();
 
-    final ch = _client.channel('sehirici_trip_paths');
+    final ch =
+        _client.channel('sehirici_trip_paths_${_tripPathsChannelSeq++}');
 
     ch.onPostgresChanges(
       event: PostgresChangeEvent.insert,
@@ -228,7 +253,7 @@ class SehiriciTripService {
     );
 
     ch.subscribe();
-    _channel = ch;
+    _tripPathsChannel = ch;
     return ch;
   }
 }

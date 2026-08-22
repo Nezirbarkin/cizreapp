@@ -82,14 +82,15 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
       
       // Sahip bilgilerini ayrı sorgu ile al (foreign key join yerine daha güvenilir)
       if (ownerId != null) {
-        final ownerResponse = await _supabase
-            .from('profiles')
-            .select('full_name, email, phone')
-            .eq('id', ownerId)
-            .maybeSingle();
-        
-        if (ownerResponse != null) {
-          _shopOwner = Map<String, dynamic>.from(ownerResponse);
+        // 20260803000006 sonrasında profiles üzerinde authenticated
+        // SELECT policy'si yok; email/phone sütunları revoke edildi.
+        // SECURITY DEFINER admin_get_owner_profile RPC üzerinden alıyoruz.
+        final ownerResp = await _supabase.rpc<List<dynamic>>(
+          'admin_get_owner_profile',
+          params: {'p_user_id': ownerId},
+        );
+        if (ownerResp.isNotEmpty) {
+          _shopOwner = Map<String, dynamic>.from(ownerResp.first);
         }
       }
 
@@ -145,10 +146,10 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
       });
       _shopNetEarnings = _totalRevenue - _adminCommission;
 
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       debugPrint('Dükkan verileri yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -274,11 +275,10 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           .update({'hide_customer_info': newValue})
           .eq('id', widget.shopId);
 
-      setState(() {
-        _hideCustomerInfo = newValue;
-      });
-
       if (mounted) {
+        setState(() {
+          _hideCustomerInfo = newValue;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(newValue
@@ -333,17 +333,23 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
     final totalPaid = (_shop!['total_paid'] as num?)?.toDouble() ?? 0;
 
     // GERÇEK NET KAZANÇ HESAPLAMALARI
-    // Kuryeli: Kapıda topladığı + Admin'den alacağı - Komisyon borcu - Ödenen
-    // Kuryesiz: Admin'den alacağı - Ödenen
+    // `admin_credit`/`commission_debt` her zaman GÜNCEL (henüz ödenmemiş)
+    // bakiyeyi tutar: sipariş teslim edildikçe artar, "Ödeme Yapıldı"/
+    // "Alacak-Verecek Kapat" aksiyonlarıyla 0'a döner ve o an `total_paid`'e
+    // eklenir (bkz. _part_shops.dart). Yani `total_paid` KÜMÜLATİF bir
+    // sayaçtır ve zaten `admin_credit`'e yansımaz — burada ayrıca
+    // düşülürse her ödemeden sonra bakiye yapay şekilde eksiye kayar.
+    // Kuryeli: Kapıda topladığı + Admin'den alacağı - Komisyon borcu
+    // Kuryesiz: Admin'den alacağı - Komisyon borcu
     double netBalance;
     double totalEarnings;
 
     if (hasCourier) {
       totalEarnings = cashRevenue + onlineRevenue;
-      netBalance = cashRevenue + adminCredit - commissionDebt - totalPaid;
+      netBalance = cashRevenue + adminCredit - commissionDebt;
     } else {
       totalEarnings = onlineRevenue;
-      netBalance = adminCredit - totalPaid;
+      netBalance = adminCredit - commissionDebt;
     }
 
     return Scaffold(

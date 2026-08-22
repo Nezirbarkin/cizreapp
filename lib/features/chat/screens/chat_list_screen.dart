@@ -21,7 +21,8 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProviderStateMixin {
+class _ChatListScreenState extends State<ChatListScreen>
+    with SingleTickerProviderStateMixin {
   final ChatService _chatService = ChatService();
   final GroupChatService _groupChatService = GroupChatService();
   List<Conversation> _conversations = [];
@@ -59,12 +60,15 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
   }
 
   void _subscribeOnlinePresence() {
-    _onlineSub = PresenceService.instance.onlineUsersStream.listen((ids) {
-      if (!mounted) return;
-      setState(() => _onlineIds = ids.toSet());
-    }, onError: (e) {
-      debugPrint('online presence stream error: $e');
-    });
+    _onlineSub = PresenceService.instance.onlineUsersStream.listen(
+      (ids) {
+        if (!mounted) return;
+        setState(() => _onlineIds = ids.toSet());
+      },
+      onError: (e) {
+        debugPrint('online presence stream error: $e');
+      },
+    );
   }
 
   Future<void> _loadGroupUnreadCount() async {
@@ -121,7 +125,8 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
           final response = await Supabase.instance.client
               .from('profiles')
               .select(
-                  'id, full_name, avatar_url, last_seen, is_online, is_ghost_mode, is_online_enabled')
+                'id, full_name, avatar_url, last_seen, is_online, is_ghost_mode, is_online_enabled',
+              )
               .neq('id', currentUserId)
               .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
               .limit(50);
@@ -186,7 +191,11 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
         dbOnlineOnly.shuffle();
         inactiveUsers.shuffle();
 
-        final sortedUsers = [...presenceOnline, ...dbOnlineOnly, ...inactiveUsers];
+        final sortedUsers = [
+          ...presenceOnline,
+          ...dbOnlineOnly,
+          ...inactiveUsers,
+        ];
 
         setState(() {
           _activeUsers = sortedUsers;
@@ -226,7 +235,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
     final totalUnread = _unreadCount + _groupUnreadCount;
-    
+
     return Scaffold(
       backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
       appBar: AppBar(
@@ -250,15 +259,24 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                   if (_unreadCount > 0) ...[
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: const BoxDecoration(
                         color: Colors.red,
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
                       child: Text(
                         _unreadCount > 9 ? '9+' : '$_unreadCount',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -274,15 +292,24 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                   if (_groupUnreadCount > 0) ...[
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: const BoxDecoration(
                         color: Colors.red,
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
                       child: Text(
                         _groupUnreadCount > 9 ? '9+' : '$_groupUnreadCount',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -299,9 +326,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const MembersScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const MembersScreen()),
               );
             },
             tooltip: 'Arkadaş Ekle',
@@ -327,7 +352,10 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                 label: Text('$totalUnread'),
                 backgroundColor: Colors.white,
                 textColor: theme.primaryColor,
-                child: const Icon(Icons.notifications_outlined, color: Colors.white),
+                child: const Icon(
+                  Icons.notifications_outlined,
+                  color: Colors.white,
+                ),
               ),
             ),
           const SizedBox(width: 8),
@@ -349,7 +377,8 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     // Aktif kullanıcılar bölümü: aşağı kaydırınca AnimatedSize ile kapanır,
     // en üste dönünce geri gelir. Fonksiyonların davranışı bozulmaz; sadece
     // görünürlük state'i değişir.
-    final showHeader = _showActiveUsersHeader &&
+    final showHeader =
+        _showActiveUsersHeader &&
         !_isLoadingActiveUsers &&
         _activeUsers.isNotEmpty;
 
@@ -389,8 +418,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             : dbActive;
                         return RepaintBoundary(
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
                             child: GestureDetector(
                               onTap: userId != null
                                   ? () => _openUserProfile(userId)
@@ -404,12 +432,15 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                                     children: [
                                       CircleAvatar(
                                         radius: 26,
-                                        backgroundColor:
-                                            Colors.deepPurple[100],
-                                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                        backgroundColor: Colors.deepPurple[100],
+                                        backgroundImage:
+                                            avatarUrl != null &&
+                                                avatarUrl.isNotEmpty
                                             ? NetworkImage(avatarUrl)
                                             : null,
-                                        child: (avatarUrl == null || avatarUrl.isEmpty)
+                                        child:
+                                            (avatarUrl == null ||
+                                                avatarUrl.isEmpty)
                                             ? Text(
                                                 fullName.isNotEmpty
                                                     ? fullName[0].toUpperCase()
@@ -417,8 +448,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                                                 style: TextStyle(
                                                   fontSize: 20,
                                                   fontWeight: FontWeight.bold,
-                                                  color: Colors
-                                                      .deepPurple[700],
+                                                  color: Colors.deepPurple[700],
                                                 ),
                                               )
                                             : null,
@@ -435,8 +465,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                                               shape: BoxShape.circle,
                                               border: Border.fromBorderSide(
                                                 BorderSide(
-                                                    color: Colors.white,
-                                                    width: 2),
+                                                  color: Colors.white,
+                                                  width: 2,
+                                                ),
                                               ),
                                             ),
                                           ),
@@ -491,21 +522,20 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _conversations.isEmpty
-                    ? _buildEmptyState()
-                    : RefreshIndicator(
-                        onRefresh: _refreshConversations,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _conversations.length,
-                          cacheExtent: 400.0,
-                          itemBuilder: (context, index) {
-                            return RepaintBoundary(
-                              child:
-                                  _buildConversationTile(_conversations[index]),
-                            );
-                          },
-                        ),
-                      ),
+                ? _buildEmptyState()
+                : RefreshIndicator(
+                    onRefresh: _refreshConversations,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: _conversations.length,
+                      cacheExtent: 400.0,
+                      itemBuilder: (context, index) {
+                        return RepaintBoundary(
+                          child: _buildConversationTile(_conversations[index]),
+                        );
+                      },
+                    ),
+                  ),
           ),
         ),
       ],
@@ -517,11 +547,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.chat_bubble_outline,
-            size: 80,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Henüz mesajınız yok',
@@ -535,10 +561,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
           Text(
             'Başka kullanıcılarla sohbet etmek için\nonların profiline gidin',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -555,20 +578,24 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     // Gerçek aktiflik kontrolü: presence stream VEYA (is_online VE last_seen son 3 dk)
     final otherId = otherUser?['id'] as String?;
     final isOnPresence = otherId != null && _onlineIds.contains(otherId);
-    final isDbTrulyActive = PrivacyService.isUserTrulyActive(isOtherUserOnline, otherUserLastSeen);
+    final isDbTrulyActive = PrivacyService.isUserTrulyActive(
+      isOtherUserOnline,
+      otherUserLastSeen,
+    );
     final isOtherUserTrulyActive = isOnPresence || isDbTrulyActive;
-    
+
     // Son mesajı formatla - eğer paylaşılan gönderi ise özel metin göster
     String lastMessage = conversation.lastMessage ?? 'Henüz mesaj yok';
     if (lastMessage.startsWith('SHARED_POST:')) {
       lastMessage = '📤 Gönderi paylaştı';
+    } else if (lastMessage.startsWith('SHARED_ILAN:')) {
+      lastMessage = '📣 İlan paylaştı';
     }
-    
+
     final time = _formatTime(conversation.lastMessageTime);
     final hasUnread = conversation.unreadCount > 0;
     final lastMessageByMe = conversation.lastMessageByMe;
     final lastMessageRead = conversation.lastMessageRead;
-    
 
     return InkWell(
       onTap: () async {
@@ -606,59 +633,69 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
               GestureDetector(
                 onTap: otherId != null ? () => _openUserProfile(otherId) : null,
                 child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: hasUnread ? Colors.red[100] : Colors.deepPurple[100],
-                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                    child: (avatarUrl == null || avatarUrl.isEmpty)
-                        ? Text(
-                            fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: hasUnread ? Colors.red[700] : Colors.deepPurple[700],
-                            ),
-                          )
-                        : null,
-                  ),
-                  // Çevrimiçi göstergesi (sağ alt köşe)
-                  if (isOtherUserTrulyActive)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: hasUnread
+                          ? Colors.red[100]
+                          : Colors.deepPurple[100],
+                      backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: (avatarUrl == null || avatarUrl.isEmpty)
+                          ? Text(
+                              fullName.isNotEmpty
+                                  ? fullName[0].toUpperCase()
+                                  : '?',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: hasUnread
+                                    ? Colors.red[700]
+                                    : Colors.deepPurple[700],
+                              ),
+                            )
+                          : null,
                     ),
-                  // Okunmamış mesaj sayısı (sağ üst köşe)
-                  if (hasUnread)
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          conversation.unreadCount > 9 ? '9+' : '${conversation.unreadCount}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                    // Çevrimiçi göstergesi (sağ alt köşe)
+                    if (isOtherUserTrulyActive)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                    // Okunmamış mesaj sayısı (sağ üst köşe)
+                    if (hasUnread)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            conversation.unreadCount > 9
+                                ? '9+'
+                                : '${conversation.unreadCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
@@ -676,7 +713,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: hasUnread ? Colors.red[900] : Colors.grey[900],
+                              color: hasUnread
+                                  ? Colors.red[900]
+                                  : Colors.grey[900],
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -687,8 +726,12 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             time,
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
-                              color: hasUnread ? Colors.red[700] : Colors.grey[600],
+                              fontWeight: hasUnread
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: hasUnread
+                                  ? Colors.red[700]
+                                  : Colors.grey[600],
                             ),
                           ),
                       ],
@@ -703,8 +746,12 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 14,
-                              color: hasUnread ? Colors.red[800] : Colors.grey[600],
-                              fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+                              color: hasUnread
+                                  ? Colors.red[800]
+                                  : Colors.grey[600],
+                              fontWeight: hasUnread
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                         ),
@@ -714,7 +761,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                           Icon(
                             lastMessageRead ? Icons.done_all : Icons.done,
                             size: 14,
-                            color: lastMessageRead ? Colors.blue[300] : Colors.grey[400],
+                            color: lastMessageRead
+                                ? Colors.blue[300]
+                                : Colors.grey[400],
                           ),
                         ],
                       ],
@@ -794,7 +843,8 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
         messenger.showSnackBar(
           SnackBar(
             content: const Text(
-                'Sohbet silinemedi (yetkiniz olmayabilir veya zaten silinmiş)'),
+              'Sohbet silinemedi (yetkiniz olmayabilir veya zaten silinmiş)',
+            ),
             backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
           ),
@@ -815,13 +865,13 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
 
   String? _formatTime(DateTime? time) {
     if (time == null) return null;
-    
+
     // Türkiye saati (UTC+3)
     final turkeyTimeZone = Duration(hours: 3);
     final localTime = time.toUtc().add(turkeyTimeZone);
     final now = DateTime.now().toUtc().add(turkeyTimeZone);
     final difference = now.difference(localTime);
-    
+
     if (difference.inMinutes < 1) {
       return 'Az önce';
     } else if (difference.inHours < 1) {
@@ -866,16 +916,20 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     return PrivacyService.isUserTrulyActive(isOnline, lastSeen);
   }
 
-  Future<void> _startChat(Map<String, dynamic> user, String fullName, String? avatarUrl) async {
+  Future<void> _startChat(
+    Map<String, dynamic> user,
+    String fullName,
+    String? avatarUrl,
+  ) async {
     final userId = user['id'] as String;
-    
+
     // Kullanıcının mesaj alma özelliğini kontrol et
     final targetProfile = await Supabase.instance.client
         .from('profiles')
         .select('messages_enabled')
         .eq('id', userId)
         .maybeSingle();
-    
+
     if (targetProfile != null && targetProfile['messages_enabled'] == false) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -888,9 +942,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       }
       return;
     }
-    
+
     final conversation = await _chatService.getOrCreateConversation(userId);
-    
+
     if (conversation != null && mounted) {
       Navigator.push(
         context,
@@ -906,9 +960,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       // Listeyi yenile
       _loadConversations();
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Konuşma başlatılamadı')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Konuşma başlatılamadı')));
     }
   }
 

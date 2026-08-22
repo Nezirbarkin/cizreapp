@@ -3,8 +3,13 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../models/sehirici_models.dart';
+import '../providers/sehirici_provider.dart';
 import '../services/sehirici_line_service.dart';
+import 'sehirici_line_route_draw_dialog.dart';
+import 'sehirici_location_picker_dialog.dart';
 
 /// Bir hatta durak ekleme/çıkarma/sıralama ekranı.
 /// Basit mantık: solda "Hatta eklenen duraklar" (sıralı, sürükle-bırak),
@@ -152,40 +157,203 @@ class _SehiriciLineStopsEditorDialogState
     setState(() => _selected.add(stop));
   }
 
+  /// Haritaya güzergâh boyunca dokunarak YENİ duraklar oluşturur ve hepsini
+  /// sırasıyla bu hatta ekler.
+  ///
+  /// Mevcut "Durak Ekle" akışı yalnız şehirde ZATEN VAR OLAN duraklardan
+  /// seçtiriyordu; yeni bir hat kurarken önce Duraklar sekmesine gidip
+  /// durakları tek tek form doldurarak yaratmak gerekiyordu. Bu kısayol o
+  /// gidiş-gelişi kaldırır.
+  Future<void> _showCreateStopsOnMap() async {
+    if (_saving || _autoSaving) return;
+
+    SehiriciCity? city;
+    for (final c in context.read<SehiriciProvider>().cities) {
+      if (c.id == widget.cityId) {
+        city = c;
+        break;
+      }
+    }
+    // Hatta durak varsa haritayı oradan aç — admin güzergâhı görsün.
+    final startLat = _selected.isNotEmpty
+        ? _selected.last.lat
+        : (city?.centerLat ?? (_allStops.isNotEmpty ? _allStops.first.lat : 41.0082));
+    final startLng = _selected.isNotEmpty
+        ? _selected.last.lng
+        : (city?.centerLng ?? (_allStops.isNotEmpty ? _allStops.first.lng : 28.9784));
+
+    final picked = await SehiriciLocationPickerDialog.pickMultiple(
+      context,
+      initialLat: startLat,
+      initialLng: startLng,
+      initialZoom: (city?.zoomLevel ?? 14).toDouble(),
+      existingStops: _allStops,
+    );
+    if (!mounted || picked == null || picked.isEmpty) return;
+
+    setState(() => _autoSaving = true);
+    final created = <SehiriciStop>[];
+    final failed = <String>[];
+    for (final p in picked) {
+      final id = const Uuid().v4();
+      final ok = await _service.upsertStop(
+        id: id,
+        cityId: widget.cityId,
+        name: p.name.trim(),
+        lat: p.position.latitude,
+        lng: p.position.longitude,
+      );
+      if (ok) {
+        created.add(SehiriciStop(
+          id: id,
+          name: p.name.trim(),
+          lat: p.position.latitude,
+          lng: p.position.longitude,
+        ));
+      } else {
+        failed.add(p.name.trim());
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _allStops = [..._allStops, ...created];
+      _selected = [..._selected, ...created];
+      _autoSaving = false;
+    });
+
+    // Yeni duraklar hatta sırasıyla yazılsın (mesafe/süre de hesaplanır).
+    if (created.isNotEmpty) {
+      await _autoSave();
+      if (!mounted) return;
+      context.read<SehiriciProvider>().invalidateAllCaches();
+    }
+
+    if (failed.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${created.length} durak eklendi, ${failed.length} tanesi '
+            'eklenemedi: ${failed.join(", ")}',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  }
+
   void _removeStop(int index) {
     setState(() => _selected.removeAt(index));
   }
 
+  /// Durak seçim listesi: birden çok durak işaretlenip tek seferde eklenebilir.
   void _showAddStopPicker() {
     final available = _availableToAdd;
     if (available.isEmpty) {
+      // Çıkmaz sokak bırakma: buradan doğrudan harita akışına geçilebilir.
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Eklenecek başka durak yok — önce Duraklar sekmesinden yeni durak oluşturun')),
+        SnackBar(
+          content: const Text('Eklenecek hazır durak yok'),
+          action: SnackBarAction(
+            label: 'Haritadan Oluştur',
+            onPressed: _showCreateStopsOnMap,
+          ),
+          duration: const Duration(seconds: 5),
+        ),
       );
       return;
     }
+    final selectedIds = <String>{};
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: SizedBox(
-          height: 400,
-          child: ListView.builder(
-            itemCount: available.length,
-            itemBuilder: (c, i) {
-              final s = available[i];
-              return ListTile(
-                leading: const Icon(Icons.location_on_outlined),
-                title: Text(s.name),
-                subtitle: s.address != null ? Text(s.address!) : null,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _addStop(s);
-                },
-              );
-            },
-          ),
-        ),
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return SafeArea(
+            child: SizedBox(
+              height: 480,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedIds.isEmpty
+                                ? 'Eklenecek durakları seçin'
+                                : '${selectedIds.length} durak seçildi',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        if (selectedIds.isNotEmpty)
+                          TextButton(
+                            onPressed: () => setSheetState(selectedIds.clear),
+                            child: const Text('Temizle'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: available.length,
+                      itemBuilder: (c, i) {
+                        final s = available[i];
+                        final isSelected = selectedIds.contains(s.id);
+                        return CheckboxListTile(
+                          value: isSelected,
+                          onChanged: (v) {
+                            setSheetState(() {
+                              if (v == true) {
+                                selectedIds.add(s.id);
+                              } else {
+                                selectedIds.remove(s.id);
+                              }
+                            });
+                          },
+                          controlAffinity: ListTileControlAffinity.leading,
+                          secondary: const Icon(Icons.location_on_outlined),
+                          title: Text(s.name),
+                          subtitle: s.address != null ? Text(s.address!) : null,
+                        );
+                      },
+                    ),
+                  ),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: selectedIds.isEmpty
+                              ? null
+                              : () {
+                                  final toAdd = available
+                                      .where((s) => selectedIds.contains(s.id))
+                                      .toList();
+                                  Navigator.pop(ctx);
+                                  setState(() => _selected.addAll(toAdd));
+                                  _autoSave();
+                                },
+                          icon: const Icon(Icons.add),
+                          label: Text(
+                            selectedIds.isEmpty
+                                ? 'Ekle'
+                                : '${selectedIds.length} Durağı Ekle',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -357,6 +525,63 @@ class _SehiriciLineStopsEditorDialogState
                           onPressed: _showAddStopPicker,
                           icon: const Icon(Icons.add_location_alt_outlined),
                           label: const Text('Durak Ekle'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: (_saving || _autoSaving)
+                              ? null
+                              : _showCreateStopsOnMap,
+                          icon: const Icon(Icons.map_outlined, size: 18),
+                          label: const Text('Haritadan Yeni'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.teal.shade700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: (_saving || _autoSaving)
+                              ? null
+                              : () async {
+                                  // Dialog kendi içinde durakları çekip
+                                  // md5 imzayı hesaplar; biz sadece
+                                  // mevcut çizimi (varsa) aktarıyoruz.
+                                  final lineForDraw = SehiriciLine(
+                                    id: widget.line.id,
+                                    code: widget.line.code,
+                                    name: widget.line.name,
+                                    colorHex: widget.line.colorHex,
+                                    vehicleType: widget.line.vehicleType,
+                                    roadPolyline: widget.line.roadPolyline,
+                                  );
+                                  final saved = await showDialog<bool>(
+                                    context: context,
+                                    builder: (_) =>
+                                        SehiriciLineRouteDrawDialog(
+                                            line: lineForDraw),
+                                  );
+                                  if (saved == true && mounted) {
+                                    context
+                                        .read<SehiriciProvider>()
+                                        .invalidateAllCaches();
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                      const SnackBar(
+                                        content:
+                                            Text('Yol rotası güncellendi'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  }
+                                },
+                          icon: const Icon(Icons.draw, size: 18),
+                          label: const Text('Rota Çiz'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),

@@ -1,7 +1,12 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/sehirici_models.dart';
+import '../utils/sehirici_route_geometry.dart';
 
 /// Hatlar ve duraklar servisi.
 class SehiriciLineService {
@@ -199,6 +204,10 @@ class SehiriciLineService {
         'p_lat': lat,
         'p_lng': lng,
         'p_is_active': isActive,
+        // BUG FIX: `address` parametre olarak alınıyordu ama RPC'ye hiç
+        // gönderilmiyordu — admin panelindeki "Adres" alanı sessizce
+        // kayboluyordu. RPC'ye p_address 20260819000004 ile eklendi.
+        'p_address': address,
       });
       clearCache();
       return true;
@@ -277,6 +286,220 @@ class SehiriciLineService {
     } catch (e) {
       debugPrint('setLineStops hata: $e');
       return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // Yol-takip eden rota önbelleği (admin tarafından elle çizilir)
+  // ─────────────────────────────────────────────
+
+  /// Durak sırasına karşılık gelen imzayı (stop_id'lerin stop_order'a göre
+  /// virgülle birleştirilmiş hâlinin md5'i) üretir. RPC tarafında da
+  /// aynı hesaplama yapıldığı için birebir aynı sonucu verir.
+  /// Static: instance durumu kullanmaz, böylece Supabase başlatılmadan
+  /// test edilebilir.
+  static String computeStopsSignature(List<SehiriciLineStop> stopsInOrder) {
+    final joined = stopsInOrder.map((s) => s.stopId).join(',');
+    return md5.convert(utf8.encode(joined)).toString();
+  }
+
+  /// Admin'in elle çizdiği (veya OSRM'den gelen) yol-takip eden rotayı
+  /// `sehirici_lines.route_polyline` JSONB alanına yazar. `source` sadece
+  /// metadata — model bu alanı kullanmıyor, sadece noktaları okuyor.
+  /// Returns: başarılıysa true, durak imzası uyuşmazsa veya hata olursa false.
+  Future<bool> cacheRoutePolyline({
+    required String lineId,
+    required List<SehiriciLineStop> lineStopsInOrder,
+    required List<List<double>> points,
+    String source = 'manual',
+  }) async {
+    if (points.length < 2) {
+      debugPrint('cacheRoutePolyline: en az 2 nokta gerekli');
+      return false;
+    }
+    try {
+      final signature = computeStopsSignature(lineStopsInOrder);
+      await _client.rpc('cache_sehirici_route_polyline', params: {
+        'p_line_id': lineId,
+        'p_stops_signature': signature,
+        'p_polyline': {
+          'points': points,
+          'stops_signature': signature,
+          'source': source,
+          'cached_at': DateTime.now().toIso8601String(),
+        },
+      });
+      clearCache();
+      return true;
+    } catch (e) {
+      debugPrint('cacheRoutePolyline hata: $e');
+      return false;
+    }
+  }
+
+  /// route_polyline alanını temizler (admin "rotayı sil" derse).
+  Future<bool> clearRoutePolyline(String lineId) async {
+    try {
+      // Mevcut RPC sadece INSERT/UPDATE yapıyor, null geçemeyiz.
+      // RLS bypass için aynı RPC'yi boş nokta listesi ile çağırmak
+      // imzayı da bozar — bunun yerine doğrudan UPDATE (admin RLS'i var).
+      // Önce durak imzasını al:
+      final stops = await getLineStops(lineId);
+      if (stops.isEmpty) {
+        // Durak yoksa imza üretilemez; sadece UPDATE dene
+        await _client
+            .from('sehirici_lines')
+            .update({'route_polyline': null}).eq('id', lineId);
+        clearCache();
+        return true;
+      }
+      final signature = computeStopsSignature(stops);
+      await _client.rpc('cache_sehirici_route_polyline', params: {
+        'p_line_id': lineId,
+        'p_stops_signature': signature,
+        'p_polyline': {
+          'points': <List<double>>[],
+          'stops_signature': signature,
+          'source': 'cleared',
+          'cached_at': DateTime.now().toIso8601String(),
+        },
+      });
+      clearCache();
+      return true;
+    } catch (e) {
+      debugPrint('clearRoutePolyline hata: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // Toplu rota bakımı (admin ayarlar sekmesi)
+  // ─────────────────────────────────────────────
+
+  /// Kayıtlı rotası olan tüm hatları (şehirden bağımsız) döner.
+  /// Yalnız toplu bakım işlemleri için — normal akış şehir bazlı okur.
+  Future<List<({String id, String code, String name, List<LatLng> points})>>
+      getLinesWithRoute() async {
+    try {
+      final response = await _client
+          .from('sehirici_lines')
+          .select('id,code,name,route_polyline')
+          .not('route_polyline', 'is', null)
+          .order('code', ascending: true);
+
+      final out = <({String id, String code, String name, List<LatLng> points})>[];
+      for (final row in (response as List).cast<Map<String, dynamic>>()) {
+        final raw = row['route_polyline'];
+        if (raw is! Map) continue;
+        final pts = raw['points'];
+        if (pts is! List) continue;
+        final points = pts
+            .whereType<List>()
+            .where((p) => p.length == 2)
+            .map((p) => LatLng(
+                  (p[0] as num).toDouble(),
+                  (p[1] as num).toDouble(),
+                ))
+            .toList();
+        if (points.isEmpty) continue; // 'cleared' kaydı — rotası yok sayılır
+        out.add((
+          id: row['id'] as String,
+          code: row['code'] as String? ?? '',
+          name: row['name'] as String? ?? '',
+          points: points,
+        ));
+      }
+      return out;
+    } catch (e) {
+      debugPrint('getLinesWithRoute hata: $e');
+      return const [];
+    }
+  }
+
+  /// Kayıtlı rotası olan TÜM hatların rotasını siler.
+  /// Returns: (silinen hat sayısı, başarısız hat sayısı).
+  Future<({int cleared, int failed})> clearAllRoutePolylines() async {
+    final lines = await getLinesWithRoute();
+    var cleared = 0;
+    var failed = 0;
+    for (final line in lines) {
+      if (await clearRoutePolyline(line.id)) {
+        cleared++;
+      } else {
+        failed++;
+      }
+    }
+    clearCache();
+    return (cleared: cleared, failed: failed);
+  }
+
+  /// Kayıtlı rotaları [sanitizeRoutePolyline] ile temizleyip geri yazar.
+  ///
+  /// Rota silinmez — yalnız GPS gürültüsü (üst üste binen noktalar ve
+  /// "git-gel" yapan aykırı fixler) ayıklanır. Nokta sayısı değişmeyen
+  /// hatlar zaten temiz demektir; boşuna yazma yapılmaz.
+  ///
+  /// Returns: her hat için (kod, önceki nokta, sonraki nokta) raporu.
+  Future<List<({String code, int before, int after, bool saved})>>
+      sanitizeAllRoutePolylines() async {
+    final lines = await getLinesWithRoute();
+    final report = <({String code, int before, int after, bool saved})>[];
+
+    for (final line in lines) {
+      final cleaned = sanitizeRoutePolyline(line.points);
+      // Temizlik bir şey değiştirmediyse ya da rotayı yok ettiyse dokunma:
+      // 2 noktanın altına düşen bir sonuç kaydedilirse hat rotasız kalır.
+      if (cleaned.length == line.points.length || cleaned.length < 2) {
+        report.add((
+          code: line.code,
+          before: line.points.length,
+          after: line.points.length,
+          saved: false,
+        ));
+        continue;
+      }
+
+      final stops = await getLineStops(line.id);
+      final saved = await cacheRoutePolyline(
+        lineId: line.id,
+        lineStopsInOrder: stops,
+        points: cleaned
+            .map((p) => <double>[p.latitude, p.longitude])
+            .toList(growable: false),
+        source: 'admin_sanitized',
+      );
+      report.add((
+        code: line.code,
+        before: line.points.length,
+        after: cleaned.length,
+        saved: saved,
+      ));
+    }
+    clearCache();
+    return report;
+  }
+
+  /// Hattın en son 'completed' seferine ait GPS noktalarını zaman sırasına
+  /// göre döner. Admin draw aracı "Son Seferden Öner" akışı için kullanır —
+  /// noktaları Douglas-Peucker ile sadeleştirip `route_polyline` olarak
+  /// yazabilir. Hata veya sonuç yoksa boş liste döner.
+  Future<List<LatLng>> getLatestCompletedTripPath(String lineId) async {
+    try {
+      final response = await _client.rpc(
+        'get_sehirici_latest_completed_trip_path',
+        params: {'p_line_id': lineId},
+      );
+      if (response is! List) return const [];
+      return response
+          .cast<Map<String, dynamic>>()
+          .map((r) => LatLng(
+                (r['lat'] as num).toDouble(),
+                (r['lng'] as num).toDouble(),
+              ))
+          .toList();
+    } catch (e) {
+      debugPrint('getLatestCompletedTripPath hata: $e');
+      return const [];
     }
   }
 }

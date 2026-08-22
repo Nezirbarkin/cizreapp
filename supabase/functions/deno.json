@@ -1,7 +1,8 @@
 {
   "tasks": {
     "dev": "deno run --allow-env --allow-net --allow-read supabase/functions/send-push-notification/index.ts",
-    "test:reward": "deno test _shared/*_test.ts"
+    "test:reward": "deno test _shared/*_test.ts",
+    "test:push": "deno test _shared/push_delivery_policy_test.ts"
   },
   "imports": {
     "std/": "https://deno.land/std@0.168.0/",

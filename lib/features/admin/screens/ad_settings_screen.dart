@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/models/admin_reward_overview_model.dart';
 import '../../../core/models/ad_settings_model.dart';
 import '../../../core/services/ad_settings_service.dart';
+import '../widgets/reward_points_overview_section.dart';
 
 class AdminAdSettingsScreen extends StatefulWidget {
   const AdminAdSettingsScreen({super.key});
@@ -39,7 +40,6 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
   bool _adminReportingEnabled = false;
   bool _loading = true;
   bool _saving = false;
-  bool _loadingOverview = true;
 
   @override
   void initState() {
@@ -96,9 +96,15 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
             (settings.maxViewsPerHour == 0 ? 3 : settings.maxViewsPerHour)
                 .toString();
         _cooldownController.text = settings.cooldownSeconds.toString();
+        _appIdAndroidController.text =
+            settings.admobAppIdAndroid ?? _appIdAndroidController.text;
+        _appIdIosController.text =
+            settings.admobAppIdIos ?? _appIdIosController.text;
         _rewardedUnitAndroidController.text =
-            settings.admobRewardedUnitIdAndroid ?? '';
-        _rewardedUnitIosController.text = settings.admobRewardedUnitIdIos ?? '';
+            settings.admobRewardedUnitIdAndroid ??
+            _rewardedUnitAndroidController.text;
+        _rewardedUnitIosController.text =
+            settings.admobRewardedUnitIdIos ?? _rewardedUnitIosController.text;
         _loading = false;
       });
     } catch (error) {
@@ -115,18 +121,22 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
       setState(() {
         _overview = overview;
         final config = overview.config;
-        _appIdAndroidController.text = config.admobAppIdAndroid ?? '';
-        _appIdIosController.text = config.admobAppIdIos ?? '';
+        _appIdAndroidController.text =
+            config.admobAppIdAndroid ?? _appIdAndroidController.text;
+        _appIdIosController.text =
+            config.admobAppIdIos ?? _appIdIosController.text;
         _rewardedUnitAndroidController.text =
             config.admobRewardedUnitIdAndroid ??
             _rewardedUnitAndroidController.text;
         _rewardedUnitIosController.text =
             config.admobRewardedUnitIdIos ?? _rewardedUnitIosController.text;
-        _loadingOverview = false;
       });
-    } catch (_) {
+    } catch (error) {
       // Rapor yüklenemezse form yine de kullanılabilir.
-      if (mounted) setState(() => _loadingOverview = false);
+      debugPrint(
+        '[AdminAdSettings] overview_load_failed '
+        'errorType=${error.runtimeType} error=$error',
+      );
     }
   }
 
@@ -170,8 +180,20 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
     }
     setState(() => _saving = true);
     try {
-      await _service.updateRewardPointsConfig(update);
+      final saved = await _service.updateRewardPointsConfig(update);
       if (!mounted) return;
+      setState(() {
+        _settings = saved;
+        _appIdAndroidController.text =
+            saved.admobAppIdAndroid ?? _appIdAndroidController.text;
+        _appIdIosController.text =
+            saved.admobAppIdIos ?? _appIdIosController.text;
+        _rewardedUnitAndroidController.text =
+            saved.admobRewardedUnitIdAndroid ??
+            _rewardedUnitAndroidController.text;
+        _rewardedUnitIosController.text =
+            saved.admobRewardedUnitIdIos ?? _rewardedUnitIosController.text;
+      });
       _reasonController.clear();
       _snack('Reklam ve puan ayarları güvenli biçimde kaydedildi.');
       await _load();
@@ -205,7 +227,6 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
                 : () async {
                     setState(() {
                       _loading = true;
-                      _loadingOverview = true;
                     });
                     await Future.wait([_load(), _loadOverview()]);
                   },
@@ -254,13 +275,9 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
                     const SizedBox(height: 16),
                     _readinessCard(),
                     const SizedBox(height: 16),
-                    _todayCard(),
-                    const SizedBox(height: 16),
                     _saveCard(),
                     const SizedBox(height: 16),
-                    _recentEventsCard(),
-                    const SizedBox(height: 16),
-                    _topEarnersCard(),
+                    const RewardPointsOverviewSection(),
                   ],
                 ),
               ),
@@ -721,11 +738,16 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
   }
 
   Widget _readinessCard() {
-    final lastCallback = _overview == null || _overview!.recent.isEmpty
-        ? 'Henüz görünür doğrulanmış callback yok'
-        : DateFormat(
-            'dd.MM.yyyy HH:mm',
-          ).format(_overview!.recent.first.creditedAt ?? DateTime.now());
+    String lastCallback;
+    if (_overview == null || _overview!.recent.isEmpty) {
+      lastCallback = 'Henüz görünür doğrulanmış callback yok';
+    } else {
+      final firstEvent = _overview!.recent.first;
+      final creditedAt = firstEvent.creditedAt;
+      lastCallback = creditedAt == null
+          ? 'Beklemede (henüz SSV doğrulanmadı)'
+          : DateFormat('dd.MM.yyyy HH:mm').format(creditedAt);
+    }
     return Card(
       color: (_productionReady ? Colors.green : Colors.orange).shade50,
       child: Padding(
@@ -800,145 +822,11 @@ class _AdminAdSettingsScreenState extends State<AdminAdSettingsScreen> {
       const SizedBox(height: 8),
       const Text(
         'AdMob App ID ve rewarded unit ID\'leri native build config / dart-define '
-        've Edge Function Secrets üzerinden yönetilir. Burada yalnızız okunabilir '
+        've Edge Function Secrets üzerinden yönetilir. Burada yalnızca okunabilir '
         'durum gösterilir; anahtarlar uygulamaya açılmaz.',
         style: TextStyle(fontSize: 11),
       ),
     ]);
-  }
-
-  Widget _todayCard() {
-    final today = _overview?.today;
-    if (today == null) {
-      return _section('Bugünkü Kazanımlar', const [Text('Rapor yüklenemedi.')]);
-    }
-    final budgetPct = (today.budgetUsedFraction * 100).toStringAsFixed(1);
-    return _section('Bugünkü Kazanımlar', [
-      Row(
-        children: [
-          Expanded(
-            child: _metricTile(
-              'Verilen puan',
-              '${today.grantedPoints}',
-              Icons.stars_rounded,
-              Colors.amber,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _metricTile(
-              'İzleme',
-              '${today.grantCount}',
-              Icons.play_circle_rounded,
-              Colors.blue,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _metricTile(
-              'Kullanıcı',
-              '${today.distinctUsers}',
-              Icons.people_rounded,
-              Colors.green,
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
-      _infoRow(
-        'Günlük bütçe kullanımı',
-        '${today.grantedPoints} / ${today.maxDailyRewardPoints} puan (%$budgetPct)',
-      ),
-      _infoRow('Kalan günlük bütçe', '${today.remainingPoints} puan'),
-    ]);
-  }
-
-  Widget _recentEventsCard() {
-    if (_loadingOverview) {
-      return _section('Son Doğrulanmış Puan Olayları', const [
-        Center(child: CircularProgressIndicator()),
-      ]);
-    }
-    final events = _overview?.recent ?? const <AdminRewardRecentSession>[];
-    return _section('Son Doğrulanmış Puan Olayları', [
-      if (events.isEmpty)
-        const Text('Henüz doğrulanmış puan olayı yok.')
-      else
-        ...events.map(
-          (event) => ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.verified, color: Colors.green),
-            title: Text(
-              event.creditedPoints == null
-                  ? event.fullName ?? 'Kullanıcı'
-                  : '+${event.creditedPoints} puan — ${event.fullName ?? 'Kullanıcı'}',
-            ),
-            subtitle: Text(
-              '${event.email ?? '-'} · '
-              '${event.creditedAt == null ? '-' : DateFormat('dd.MM.yyyy HH:mm').format(event.creditedAt!)}',
-            ),
-            trailing: Text(event.status),
-          ),
-        ),
-    ]);
-  }
-
-  Widget _topEarnersCard() {
-    if (_loadingOverview) {
-      return _section('En Çok Puan Kazananlar', const [
-        Center(child: CircularProgressIndicator()),
-      ]);
-    }
-    final earners = _overview?.topEarners ?? const <AdminRewardTopEarner>[];
-    return _section('En Çok Puan Kazananlar', [
-      if (earners.isEmpty)
-        const Text('Henüz puan kazanan yok.')
-      else
-        ...earners.asMap().entries.map((entry) {
-          final index = entry.key;
-          final earner = entry.value;
-          return ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              backgroundColor: Colors.amber.shade100,
-              child: Text('${index + 1}'),
-            ),
-            title: Text(earner.fullName ?? 'Kullanıcı'),
-            subtitle: Text(
-              '${earner.email ?? '-'} · ${earner.sessionCount} izleme',
-            ),
-            trailing: Text(
-              '${earner.totalPoints} puan',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          );
-        }),
-    ]);
-  }
-
-  Widget _metricTile(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          Text(
-            label,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _infoRow(String label, String value) {

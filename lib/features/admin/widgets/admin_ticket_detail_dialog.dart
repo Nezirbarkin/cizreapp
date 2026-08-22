@@ -61,6 +61,7 @@ class AdminTicketDetailDialogState extends State<AdminTicketDetailDialog> {
             value: ticketId,
           ),
           callback: (payload) {
+            if (!mounted) return;
             final newMessage = payload.newRecord;
             setState(() {
               _messages.add(newMessage);
@@ -81,14 +82,16 @@ class AdminTicketDetailDialogState extends State<AdminTicketDetailDialog> {
           .eq('ticket_id', ticketId)
           .order('created_at', ascending: true);
       
-      setState(() {
-        _messages = List<Map<String, dynamic>>.from(response);
-        _isLoading = false;
-      });
-      _scrollToBottom();
+      if (mounted) {
+        setState(() {
+          _messages = List<Map<String, dynamic>>.from(response);
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
     } catch (e) {
       debugPrint('Mesajlar yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -207,11 +210,12 @@ class AdminTicketDetailDialogState extends State<AdminTicketDetailDialog> {
           .from('support_tickets')
           .update({'status': newStatus, 'updated_at': DateTime.now().toIso8601String()})
           .eq('id', widget.ticket['id']);
-      
+
+      if (!mounted) return;
       setState(() {
         _selectedStatus = newStatus;
       });
-      
+
       // Kullanıcıya bildirim gönder
       if (widget.ticket['user_id'] != null) {
         await Supabase.instance.client.from('notifications').insert({

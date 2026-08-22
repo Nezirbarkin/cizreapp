@@ -1,9 +1,12 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
+import '../../../core/services/analytics_service.dart';
 import '../../../core/services/post_view_service.dart';
 import '../../../core/widgets/mention_autocomplete_field.dart';
 import '../../../core/widgets/skeleton_loader.dart';
@@ -27,6 +30,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostReportService _postReportService = PostReportService();
   final _profileService = ProfileService();
   final _postViewService = PostViewService();
+  final _analyticsService = AnalyticsService();
+  // Admin > Loglar'daki "Ort. Goruntuleme (ms)" karti bu olcume dayaniyor;
+  // sure hic gonderilmedigi surece kart kalici olarak 0 gosteriyordu.
+  final Stopwatch _viewStopwatch = Stopwatch();
   final _commentController = TextEditingController();
   List<PostComment> _comments = [];
   Map<String, Map<String, dynamic>> _userProfiles = {};
@@ -39,22 +46,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _viewStopwatch.start();
     _loadData();
     _loadCurrentUserProfile();
     _trackPostView();
     _loadLikeStatus();
   }
 
+  // initState'ten tetiklenen bu istekler ekran kapandiktan sonra donebiliyor;
+  // mounted kontrolu olmadan "setState() called after dispose()" firlatiyordu
+  // (merkezi hata kaydi acildiktan sonra ilk yakalanan hatalardan biri buydu).
   Future<void> _loadLikeStatus() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId != null) {
       try {
         final isLiked = await _postService.hasUserLiked(widget.post.id, userId);
+        if (!mounted) return;
         setState(() {
           _isLiked = isLiked;
           _likesCount = widget.post.likesCount;
         });
       } catch (e) {
+        if (!mounted) return;
         setState(() {
           _likesCount = widget.post.likesCount;
         });
@@ -93,6 +106,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       }
     } catch (e) {
       // Hata olursa liked durumunu geri al
+      if (!mounted) return;
       setState(() {
         _isLiked = wasLiked;
       });
@@ -272,8 +286,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   void dispose() {
+    _reportViewDuration();
     _commentController.dispose();
     super.dispose();
+  }
+
+  /// Ekranda gecirilen sureyi merkezi analitige yazar.
+  /// Cok kisa dokunuslar (yanlislikla acilip kapanan ekran) ortalamayi
+  /// bozmasin diye 500 ms altindaki goruntulemeler atlanir.
+  void _reportViewDuration() {
+    if (!_viewStopwatch.isRunning) return;
+    _viewStopwatch.stop();
+    final elapsedMs = _viewStopwatch.elapsedMilliseconds;
+    if (elapsedMs < 500) return;
+    // dispose() icinde await edemeyiz; hata yutulur, ekran kapanisi beklemez.
+    unawaited(
+      _analyticsService.trackPostView(widget.post.id, duration: elapsedMs),
+    );
   }
 
   Future<void> _loadCurrentUserProfile() async {
@@ -281,6 +310,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (userId != null) {
       try {
         final profile = await _profileService.getUserProfile(userId);
+        if (!mounted) return;
         setState(() {
           _currentUserProfile = profile;
         });
@@ -294,42 +324,66 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Yorumları ve profilleri paralel yükle
-      final results = await Future.wait([
-        _postService.getComments(widget.post.id),
-        _profileService.getUserProfile(widget.post.userId),
-      ]);
+      // Yorumları yükle (profil hatası yorum yüklemeyi bozmamalı)
+      final List<PostComment> comments;
+      try {
+        comments = await _postService.getComments(widget.post.id);
+      } catch (e) {
+        // Yorum yükleme hatası kritik; üst katmana ilet
+        rethrow;
+      }
 
-      final comments = results[0] as List<PostComment>;
-      final postAuthorProfile = results[1] as Map<String, dynamic>;
-      
       // Tüm yorum yapan kullanıcıların profillerini yükle
       final userIds = <String>{widget.post.userId};
       for (var comment in comments) {
         userIds.add(comment.userId);
       }
 
-      // Batch profile fetch
-      final profiles = <String, Map<String, dynamic>>{
-        widget.post.userId: postAuthorProfile
-      };
-      
+      // Batch profile fetch - profil bulunamasa bile yorumlar gösterilsin
+      final profiles = <String, Map<String, dynamic>>{};
+
+      // Gönderi sahibinin profilini yükle (yoksa placeholder kullan)
+      try {
+        final postAuthorProfile =
+            await _profileService.getUserProfile(widget.post.userId);
+        profiles[widget.post.userId] = postAuthorProfile;
+      } catch (e) {
+        // Gönderi sahibi profili bulunamadıysa placeholder kullan
+        // (silinmiş kullanıcı, henüz profil oluşturulmamış, vb.)
+        profiles[widget.post.userId] = {
+          'id': widget.post.userId,
+          'username': 'silinmis_kullanici',
+          'full_name': 'Silinmiş Kullanıcı',
+          'avatar_url': null,
+          'bio': null,
+        };
+      }
+
       for (var id in userIds) {
         if (id == widget.post.userId) continue; // Zaten yüklendi
         try {
           final profile = await _profileService.getUserProfile(id);
           profiles[id] = profile;
         } catch (e) {
-          // Profil yüklenemezse default data kullan
+          // Profil yüklenemezse placeholder kullan
+          profiles[id] = {
+            'id': id,
+            'username': 'silinmis_kullanici',
+            'full_name': 'Silinmiş Kullanıcı',
+            'avatar_url': null,
+            'bio': null,
+          };
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _comments = comments;
         _userProfiles = profiles;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -363,7 +417,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         );
       }
     } finally {
-      setState(() => _isCommenting = false);
+      if (mounted) {
+        setState(() => _isCommenting = false);
+      }
     }
   }
 
@@ -382,7 +438,31 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Post Header
-                  ListTile(
+                  // ✅ Yazar bilgisi önce post modelinden alınır (view'dan geldi),
+                  //    fallback olarak _userProfiles map'i kullanılır (geriye uyumluluk).
+                  //    social_screen.dart _buildTwitterPostCard ile aynı öncelik zinciri.
+                  Builder(builder: (context) {
+                    final userProfile = _userProfiles[widget.post.userId];
+                    final fullName = firstNonEmpty([
+                      widget.post.authorFullName,
+                      userProfile?['full_name']?.toString(),
+                      widget.post.authorUsername,
+                      userProfile?['username']?.toString(),
+                    ]);
+                    // ✅ UX FIX: Orphan post yazarları için UUID kırpıntısı
+                    //    göstermek yerine jenerik "kullanici" fallback'i.
+                    final hasRealName =
+                        (widget.post.authorFullName?.trim().isNotEmpty ?? false) ||
+                            (widget.post.authorUsername?.trim().isNotEmpty ?? false) ||
+                            ((userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)) ||
+                            ((userProfile?['username']?.toString().trim().isNotEmpty ?? false));
+                    final username = hasRealName
+                        ? (widget.post.authorUsername ??
+                            userProfile?['username'] ??
+                            'kullanici')
+                        : 'kullanici';
+                    final avatarUrl = widget.post.authorAvatarUrl ?? userProfile?['avatar_url'];
+                    return ListTile(
                     onTap: () {
                       // Kullanıcıya tıklayınca profil ekranına git
                       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
@@ -400,33 +480,32 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     },
                     leading: CircleAvatar(
                       radius: 20,
-                      backgroundImage: _userProfiles[widget.post.userId]?['avatar_url'] != null
-                          ? NetworkImage(_userProfiles[widget.post.userId]!['avatar_url'])
+                      backgroundImage: avatarUrl != null
+                          ? NetworkImage(avatarUrl)
                           : null,
-                      child: _userProfiles[widget.post.userId]?['avatar_url'] == null
+                      child: avatarUrl == null
                           ? Text(
                               () {
-                                final username = _userProfiles[widget.post.userId]?['username'] ?? 'U';
-                                return username.length >= 2
-                                    ? username.substring(0, 2).toUpperCase()
-                                    : username.toUpperCase();
+                                final u = username;
+                                return u.length >= 2
+                                    ? u.substring(0, 2).toUpperCase()
+                                    : u.toUpperCase();
                               }(),
                               style: const TextStyle(fontSize: 14),
                             )
                           : null,
                     ),
                     title: Text(
-                      _userProfiles[widget.post.userId]?['full_name'] ??
-                      _userProfiles[widget.post.userId]?['username'] ??
-                      'Kullanıcı',
+                      fullName,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      '@${_userProfiles[widget.post.userId]?['username'] ?? 'user'} • ${_formatDate(widget.post.createdAt)}',
+                      '@$username • ${_formatDate(widget.post.createdAt)}',
                       style: const TextStyle(fontSize: 12),
                     ),
                     trailing: Icon(Icons.chevron_right, size: 18, color: Colors.grey),
-                  ),
+                    );
+                  }),
 
                   // Content
                   if (widget.post.content != null && widget.post.content!.isNotEmpty)
@@ -574,9 +653,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       itemBuilder: (context, index) {
                         final comment = _comments[index];
                         final userProfile = _userProfiles[comment.userId];
-                        final userId = comment.userId;
-                        final username = userProfile?['username'] ?? userId.substring(0, userId.length >= 8 ? 8 : userId.length);
-                        final fullName = userProfile?['full_name'] ?? username;
+                        // ✅ UX FIX: Orphan yorum yazarları için UUID kırpıntısı
+                        //    göstermek yerine jenerik "kullanici" fallback'i.
+                        final rawCommentUsername =
+                            userProfile?['username']?.toString().trim();
+                        final hasRealCommentUsername =
+                            rawCommentUsername != null && rawCommentUsername.isNotEmpty;
+                        final username =
+                            hasRealCommentUsername ? rawCommentUsername : 'kullanici';
+                        final fullName =
+                            (userProfile?['full_name']?.toString().trim().isNotEmpty ??
+                                    false)
+                                ? userProfile!['full_name'].toString()
+                                : username;
                         final avatarUrl = userProfile?['avatar_url'];
                         
                         return ListTile(

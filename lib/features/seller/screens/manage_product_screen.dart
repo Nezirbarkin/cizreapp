@@ -66,6 +66,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   bool _hasDiscount = false;
   bool _hasBuy2Get1BalanceCampaign = false;
 
+  // ── Ek özellikler (rozet / hazırlık süresi / kargo / adet limiti) ──────────
+  final Set<String> _selectedBadges = {};
+  final TextEditingController _prepMinController = TextEditingController();
+  final TextEditingController _prepMaxController = TextEditingController();
+  final TextEditingController _shippingFeeController = TextEditingController();
+  bool _freeShipping = false;
+  final TextEditingController _minOrderQtyController = TextEditingController();
+  final TextEditingController _maxOrderQtyController = TextEditingController();
+
+  /// Ürünler ekranındaki toplu indirimden gelen `discount_price`. Bu formda
+  /// düzenlenmez; satıcı yalnızca görür ve isterse kaldırır. Sıfırlanınca
+  /// kayıtta kolon temizlenir.
+  double? _bulkDiscountPrice;
+
   // Varyant state
   String _productType = 'normal';
   final List<String> _availableSizes = [
@@ -107,6 +121,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   List<SmmProviderServiceInfo> _smmProviderServices = [];
   String? _selectedSmmServiceKey;
   bool _isLoadingSmmServices = false;
+  // Seçili servis için sağlayıcının bildirdiği miktar aralığı; min/max alanlarını otomatik
+  // doldurmak ve satıcının aralık dışına çıkmasını engellemek için tutulur.
+  int? _serviceLimitMin;
+  int? _serviceLimitMax;
   bool _isPointsEligible = false;
 
   // Renk picker için global key
@@ -161,6 +179,21 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _maxOrdersPerUserController.text =
           widget.product!.maxOrdersPerUser?.toString() ?? '';
       _isPointsEligible = widget.product!.isPointsEligible;
+
+      // Ek özellikler
+      _selectedBadges.addAll(widget.product!.badges);
+      _prepMinController.text =
+          widget.product!.prepTimeMinDays?.toString() ?? '';
+      _prepMaxController.text =
+          widget.product!.prepTimeMaxDays?.toString() ?? '';
+      _shippingFeeController.text =
+          widget.product!.shippingFee?.toStringAsFixed(2) ?? '';
+      _freeShipping = widget.product!.freeShipping;
+      _minOrderQtyController.text =
+          widget.product!.minOrderQuantity?.toString() ?? '';
+      _maxOrderQtyController.text =
+          widget.product!.maxOrderQuantity?.toString() ?? '';
+      _bulkDiscountPrice = widget.product!.discountPrice;
     }
 
     _loadCategories();
@@ -216,9 +249,28 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       final services = await _smmService.getProviderServices(
         _selectedSmmProviderId!,
       );
+      // Ürün düzenlenirken zaten bir servis ID'si varsa, listede eşleşen servisi seçili
+      // göster ve sağlayıcının güncel aralığını uygula (fiyat/açıklama gibi satıcının
+      // elle düzenlediği alanlara dokunulmaz).
+      final currentServiceId = _smmServiceIdController.text.trim();
+      SmmProviderServiceInfo? matched;
+      for (final s in services) {
+        if (s.service == currentServiceId) {
+          matched = s;
+          break;
+        }
+      }
       setState(() {
         _smmProviderServices = services;
-        _selectedSmmServiceKey = null;
+        _selectedSmmServiceKey = matched?.service;
+        _serviceLimitMin = matched?.min;
+        _serviceLimitMax = matched?.max;
+        if (matched?.min != null) {
+          _minQuantityController.text = matched!.min.toString();
+        }
+        if (matched?.max != null) {
+          _maxQuantityController.text = matched!.max.toString();
+        }
       });
       if (services.isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -240,6 +292,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     setState(() {
       _selectedSmmServiceKey = service.service;
       _smmServiceIdController.text = service.service;
+      _serviceLimitMin = service.min;
+      _serviceLimitMax = service.max;
       if (service.rate != null)
         _pricePer1000Controller.text = service.rate.toString();
       if (service.min != null)
@@ -298,6 +352,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _minQuantityController.dispose();
     _maxQuantityController.dispose();
     _maxOrdersPerUserController.dispose();
+    _prepMinController.dispose();
+    _prepMaxController.dispose();
+    _shippingFeeController.dispose();
+    _minOrderQtyController.dispose();
+    _maxOrderQtyController.dispose();
     super.dispose();
   }
 
@@ -480,6 +539,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     setState(() => _colors.removeAt(index));
   }
 
+  /// Boş/geçersiz metni null'a çeviren yardımcılar — "alan boş = özellik yok"
+  /// anlamına geldiği için tryParse hatası da null olarak ele alınır.
+  int? _intOrNull(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return null;
+    return int.tryParse(t);
+  }
+
+  double? _doubleOrNull(String text) {
+    final t = text.trim().replaceAll(',', '.');
+    if (t.isEmpty) return null;
+    return double.tryParse(t);
+  }
+
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -556,6 +629,22 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         );
         return;
       }
+      // Sağlayıcının aralığı biliniyorsa dışına çıkılmasına izin verilmez; aksi halde
+      // müşteri geçerli görünen bir miktar girer ama sipariş sağlayıcıda reddedilir.
+      final limitMin = _serviceLimitMin;
+      final limitMax = _serviceLimitMax;
+      if ((limitMin != null && minQuantity < limitMin) ||
+          (limitMax != null && maxQuantity > limitMax)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Miktar aralığı sağlayıcı sınırları içinde olmalı '
+              '(${limitMin ?? '-'} - ${limitMax ?? '-'})',
+            ),
+          ),
+        );
+        return;
+      }
       if (_maxOrdersPerUserController.text.trim().isNotEmpty) {
         maxOrdersPerUser = int.tryParse(
           _maxOrdersPerUserController.text.trim(),
@@ -573,10 +662,49 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
     }
 
+    // Ek özellik validasyonu (fiziksel ürünler için)
+    final prepMin = _intOrNull(_prepMinController.text);
+    final prepMax = _intOrNull(_prepMaxController.text);
+    final shippingFee = _productType == 'digital'
+        ? null
+        : _doubleOrNull(_shippingFeeController.text);
+    final minOrderQty = _productType == 'digital'
+        ? null
+        : _intOrNull(_minOrderQtyController.text);
+    final maxOrderQty = _productType == 'digital'
+        ? null
+        : _intOrNull(_maxOrderQtyController.text);
+
+    if (prepMin != null && prepMax != null && prepMax < prepMin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Hazırlık süresinde en fazla gün, en az günden küçük olamaz',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (minOrderQty != null &&
+        maxOrderQty != null &&
+        maxOrderQty < minOrderQty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Maksimum sipariş adedi, minimumdan küçük olamaz'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       final userId = _supabase.auth.currentUser?.id;
+      // ignore: avoid_print
+      print(
+        'SAVE START currentUser=$userId sessionExists=${_supabase.auth.currentSession != null}',
+      );
       if (userId == null) throw Exception('Kullanıcı oturumu bulunamadı');
 
       final shopResponse = await _supabase
@@ -590,6 +718,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
 
       final shopId = shopResponse['id'] as String;
+      // ignore: avoid_print
+      print(
+        'addProduct DEBUG userId=$userId shopId=$shopId productType=$_productType',
+      );
 
       if (_productType == 'digital') {
         await _supabase
@@ -652,6 +784,13 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           campaignType: _hasBuy2Get1BalanceCampaign
               ? 'buy2_get1_balance'
               : null,
+          badges: _selectedBadges.toList(),
+          prepTimeMinDays: prepMin,
+          prepTimeMaxDays: prepMax,
+          shippingFee: _freeShipping ? null : shippingFee,
+          freeShipping: _productType == 'digital' ? false : _freeShipping,
+          minOrderQuantity: minOrderQty,
+          maxOrderQuantity: maxOrderQty,
         );
 
         if (mounted) {
@@ -694,6 +833,18 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ? 'buy2_get1_balance'
               : null,
           clearCampaignType: !_hasBuy2Get1BalanceCampaign,
+          badges: _selectedBadges.toList(),
+          prepTimeMinDays: prepMin,
+          prepTimeMaxDays: prepMax,
+          shippingFee: _freeShipping ? null : shippingFee,
+          freeShipping: _productType == 'digital' ? false : _freeShipping,
+          minOrderQuantity: minOrderQty,
+          maxOrderQuantity: maxOrderQty,
+          // Toplu indirim satıcı tarafından kaldırıldıysa ya da yeni fiyat
+          // indirimli fiyatın altına indiyse kolonu temizle; aksi halde ürün
+          // "indirimli" görünüp aslında daha pahalı satılırdı.
+          clearDiscountPrice:
+              _bulkDiscountPrice == null || _bulkDiscountPrice! >= price,
         );
 
         if (mounted) {
@@ -706,11 +857,16 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           Navigator.pop(context, true);
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       debugPrint('Ürün kaydetme hatası: $e');
+      debugPrint('STACK: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+          ),
         );
       }
     } finally {
@@ -749,6 +905,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   _buildVariantSection(),
                   const SizedBox(height: 24),
                   if (_productType != 'digital') _buildPricingSection(),
+                  const SizedBox(height: 24),
+                  _buildExtrasSection(),
                   const SizedBox(height: 32),
                   _buildSaveButton(),
                 ],
@@ -1225,6 +1383,15 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   ),
                 ],
               ),
+              if (_serviceLimitMin != null || _serviceLimitMax != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Sağlayıcı sınırı: ${_serviceLimitMin ?? '-'} - ${_serviceLimitMax ?? '-'}. '
+                  'Bu aralık servis listesi çekildiğinde otomatik doldurulur ve '
+                  'saatlik senkronizasyonda sağlayıcıya göre güncellenir.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
               const SizedBox(height: 16),
               TextFormField(
                 controller: _maxOrdersPerUserController,
@@ -1587,6 +1754,268 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               activeTrackColor: Colors.green.shade200,
               activeThumbColor: Colors.green.shade700,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Rozetler, hazırlık süresi, ürüne özel kargo ve sipariş adedi limitleri.
+  /// Hepsi opsiyoneldir — boş bırakılırsa ürün eskisi gibi davranır.
+  Widget _buildExtrasSection() {
+    final isDigital = _productType == 'digital';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ek Özellikler',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Tümü opsiyoneldir. Boş bıraktığınız alanlar ürün sayfasında '
+                'hiç gösterilmez.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ),
+            const Divider(height: 24),
+
+            // ── Rozetler ────────────────────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Rozetler',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  '${_selectedBadges.length}/${ProductBadge.maxPerProduct}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ProductBadge.all.map((badge) {
+                final isSelected = _selectedBadges.contains(badge.key);
+                final atLimit =
+                    !isSelected &&
+                    _selectedBadges.length >= ProductBadge.maxPerProduct;
+
+                return FilterChip(
+                  avatar: Icon(
+                    badge.icon,
+                    size: 16,
+                    color: atLimit ? Colors.grey : badge.color,
+                  ),
+                  label: Text(badge.label),
+                  selected: isSelected,
+                  onSelected: atLimit
+                      ? null
+                      : (v) => setState(() {
+                          if (v) {
+                            _selectedBadges.add(badge.key);
+                          } else {
+                            _selectedBadges.remove(badge.key);
+                          }
+                        }),
+                  selectedColor: badge.color.withValues(alpha: 0.18),
+                  checkmarkColor: badge.color,
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── Hazırlık süresi ─────────────────────────────────────────────
+            const Text(
+              'Hazırlık Süresi',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Siparişi kaç iş günü içinde kargoya vereceğinizi belirtin. '
+              'Ürün sayfasında müşteriye gösterilir.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _prepMinController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'En az (gün)',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _prepMaxController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'En fazla (gün)',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // ── Kargo ve adet limitleri (dijital ürünlerde geçersiz) ────────
+            if (!isDigital) ...[
+              const SizedBox(height: 24),
+              const Text(
+                'Kargo',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Boş bırakılırsa mağaza kargo ücretiniz geçerli olur. Ücret '
+                'girerseniz bu ürün sepetteyken mağaza ücreti yerine bu tutar '
+                'uygulanır.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Bu ürün ücretsiz kargo'),
+                subtitle: const Text(
+                  'Sepetteki tüm ürünler ücretsiz kargo ise kargo bedeli alınmaz',
+                ),
+                value: _freeShipping,
+                onChanged: (v) => setState(() => _freeShipping = v),
+                activeTrackColor: Colors.green.shade200,
+                activeThumbColor: Colors.green.shade700,
+              ),
+              if (!_freeShipping)
+                TextFormField(
+                  controller: _shippingFeeController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*[.,]?\d{0,2}'),
+                    ),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Ürüne özel kargo ücreti (opsiyonel)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.local_shipping_outlined),
+                    suffixText: '₺',
+                    isDense: true,
+                  ),
+                ),
+
+              const SizedBox(height: 24),
+              const Text(
+                'Sipariş Adedi Limiti',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Toptan satış ya da stok koruma için sipariş başına adet '
+                'sınırı koyabilirsiniz. Limit ödeme adımında da doğrulanır.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _minOrderQtyController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'En az adet',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _maxOrderQtyController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'En fazla adet',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            // ── Toplu indirim bilgisi ───────────────────────────────────────
+            if (_bulkDiscountPrice != null) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.local_offer,
+                      color: Colors.orange.shade700,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Toplu indirim uygulanmış: '
+                            '₺${_bulkDiscountPrice!.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              color: Colors.orange.shade900,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            'Ürün bu fiyattan satılıyor. Kaldırırsanız normal '
+                            'fiyatına döner.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          setState(() => _bulkDiscountPrice = null),
+                      child: const Text('Kaldır'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

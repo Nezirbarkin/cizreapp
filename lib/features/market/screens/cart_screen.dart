@@ -970,7 +970,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       _buildModernQuantityButton(
                         icon: Icons.remove_rounded,
                         onTap: () {
-                          if (item.quantity > 1) {
+                          // Satıcı minimum adet koyduysa onun altına inmek
+                          // yerine ürün sepetten çıkarılır.
+                          if (item.canRemoveOne) {
                             cartProvider.updateQuantity(item.id, item.quantity - 1);
                           } else {
                             cartProvider.removeFromCart(item.id);
@@ -998,10 +1000,37 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     ],
                   ),
                 ),
+
+                // Satıcı adet limitine uymayan satır için uyarı — ödeme
+                // adımında sunucu reddedeceği için burada erken uyarıyoruz.
+                if (item.quantityLimitWarning != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 14,
+                          color: Colors.orange.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            item.quantityLimitWarning!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
-          
+
           // Sil butonu
           IconButton(
             padding: EdgeInsets.zero,

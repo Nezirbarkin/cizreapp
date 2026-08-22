@@ -24,14 +24,13 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   final Set<Polyline> _polylines = {};
   bool _isLoading = true;
   bool _loadFailed = false;
-  bool _isConfirmingDelivery = false;
 
   Position? _userLocation;
   Map<String, dynamic>? _courierLocation;
   Map<String, dynamic>? _packageData;
 
-  StreamSubscription? _courierLocationStream;
-  StreamSubscription? _userLocationStream;
+  StreamSubscription<List<Map<String, dynamic>>>? _requestStatusStream;
+  Timer? _courierPollTimer;
   Timer? _locationUpdateTimer;
 
   static const double _cizreLatitude = 37.3255;
@@ -49,7 +48,9 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
       setState(() => _isLoading = false);
       // Veriler yüklendiğinde marker'ları hemen çiz ki harita açılışta boş kalmasın.
       _updateMarkers();
-      _startLocationTracking();
+      _startCourierLocationPolling();
+      _listenToRequestStatus();
+      _startUserLocationTimer();
     }
   }
 
@@ -113,14 +114,6 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
         _packageData = data;
         _loadFailed = false;
       });
-
-      // Kurye atamasını yükle
-      final courierId = data['courier_id'] as String?;
-      if (courierId != null && courierId.isNotEmpty) {
-        _listenToCourierLocation(courierId);
-      } else {
-        debugPrint('Henüz kurye atanmamış');
-      }
     } catch (e) {
       debugPrint('❌ Paket verisi yükleme hatası: $e');
       if (mounted) {
@@ -132,98 +125,81 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     }
   }
 
-  void _listenToCourierLocation(String courierId) {
-    // Önceki aboneliği iptal etmeden üzerine yazmak eski kuryenin konumunu
-    // göstermeye devam ettirir (kurye değişince eski stream hâlâ setState eder).
-    _courierLocationStream?.cancel();
-    _courierLocationStream = Supabase.instance.client
-        .from('profiles')
+  /// 2026-08-09: Kurye canlı konumunu RLS-güvenli RPC ile periyodik çeker.
+  ///
+  /// profiles.last_known_* istemciye grant edilmediği için eski kodun
+  /// `profiles.stream(eq id courierId)` çağrısı RLS altında sessizce boş
+  /// dönüyordu — kurye marker'ı hiç çıkmıyordu. get_assigned_courier_location
+  /// RPC (SECURITY DEFINER) yalnız gönderici/atanmış kurye/admin'e ~1m
+  /// yuvarlanmış koordinatı döner; gizlilik (ghost/offline/private) altında
+  /// NULL döner. Aynı RPC request status'u da döndürdüğü için teslim
+  /// durumunu buradan yansıtırız.
+  void _startCourierLocationPolling() {
+    _pollCourierLocation(); // açılışta hemen ilk değer
+    _courierPollTimer?.cancel();
+    _courierPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _pollCourierLocation();
+    });
+  }
+
+  Future<void> _pollCourierLocation() async {
+    try {
+      final res = await Supabase.instance.client.rpc<List<dynamic>>(
+        'get_assigned_courier_location',
+        params: {'p_request_id': widget.packageId},
+      );
+      // RPC tek satır döner (kurye yoksa NULL'lu satır); boş listeye karşı koru.
+      final Map<String, dynamic>? row =
+          res.isNotEmpty ? res.first as Map<String, dynamic> : null;
+      if (row == null || !mounted) return;
+
+      final status = row['r_request_status'] as String?;
+      final courierId = row['r_courier_id'] as String?;
+
+      setState(() {
+        // Status'u RPC'den yansı: kurye teslim onayı istediğinde anlık görünsün.
+        if (status != null && _packageData != null) {
+          _packageData = {..._packageData!, 'status': status};
+        }
+        if (courierId != null) {
+          _courierLocation = {
+            'id': courierId,
+            'full_name': row['r_full_name'],
+            'lat': (row['r_lat'] as num?)?.toDouble(),
+            'lng': (row['r_lng'] as num?)?.toDouble(),
+          };
+        } else {
+          _courierLocation = null;
+        }
+      });
+      _updateMarkers();
+    } catch (e) {
+      debugPrint('Kurye konum RPC hatası: $e');
+    }
+  }
+
+  /// Göndericinin KENDİ courier_requests satırı (RLS: sender_id=auth.uid())
+  /// üzerinden realtime — güvenli. Kurye durumu değiştirince (accepted →
+  /// delivery_pending_confirmation → delivered) anında kurye konum RPC'sini
+  /// yeniden çeker; polling'i beklemeden UI güncellenir. Kuryenin profiles
+  /// satırı grant dışı olduğu için konum realtime'i RPC üzerinden olmaz; bu
+  /// abonelik yalnızca "değişiklik oldu, yeniden çek" sinyali verir.
+  void _listenToRequestStatus() {
+    _requestStatusStream = Supabase.instance.client
+        .from('courier_requests')
         .stream(primaryKey: ['id'])
-        .eq('id', courierId)
-        .listen((data) {
-          if (data.isNotEmpty) {
-            final courier = data[0];
-            if (mounted) {
-              setState(() {
-                _courierLocation = {
-                  'id': courier['id'],
-                  'full_name': courier['full_name'],
-                  'lat': (courier['last_known_lat'] as num?)?.toDouble(),
-                  'lng': (courier['last_known_lng'] as num?)?.toDouble(),
-                };
-              });
-              _updateMarkers();
-            }
+        .eq('id', widget.packageId)
+        .listen((rows) {
+          if (rows.isNotEmpty) {
+            _pollCourierLocation();
           }
         });
   }
 
-  /// 2026-08-03: Gönderici kendi paketinin teslimatını onaylar. Sunucu
-  /// (confirm_package_delivery RPC) atomik olarak status='delivered' yapar,
-  /// courier_earnings + delivered_count artırır, kuryeye bildirim gönderir.
-  Future<void> _confirmDelivery() async {
-    if (_isConfirmingDelivery) return;
-    if (_packageData?['id'] == null) return;
-    if (!mounted) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Teslimat Onayı'),
-        content: const Text(
-          'Paketin alıcısına ulaştığını onaylıyor musunuz? Bu işlem geri alınamaz.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Vazgeç'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Onayla'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    setState(() => _isConfirmingDelivery = true);
-    try {
-      await Supabase.instance.client.rpc(
-        'confirm_package_delivery',
-        params: {'p_request_id': _packageData!['id']},
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Teslimat onaylandı'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      // Yerel state'i de güncelle ki status göstergesi doğru olsun
-      setState(() {
-        _packageData = {..._packageData!, 'status': 'delivered'};
-      });
-    } catch (e) {
-      debugPrint('Teslimat onaylama hatası: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      if (mounted) setState(() => _isConfirmingDelivery = false);
-    }
-  }
-
-  void _startLocationTracking() {
+  void _startUserLocationTimer() {
     _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _updateUserLocation();
     });
-
-    if (_packageData?['courier_id'] != null) {
-      _loadPackageData();
-    }
   }
 
   Future<void> _updateUserLocation() async {
@@ -595,7 +571,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Kurye yola çıktı, konum bekleniyor...',
+                                    'Kurye yola çıktı, paketinizi alıyor...',
                                     style: TextStyle(
                                       color: Colors.blue.shade700,
                                       fontSize: 13,
@@ -604,47 +580,23 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            // 2026-08-03: Gönderici, kurye onay isteği gelmeden
-                            // de teslimatı doğrulayabilir (accepted durumunda).
-                            // Sunucu tarafında courier_id ve status kontrol edilir.
+                          ] else if (_packageData?['status'] == 'delivered') ...[
                             Center(
-                              child: ElevatedButton.icon(
-                                onPressed: _isConfirmingDelivery
-                                    ? null
-                                    : _confirmDelivery,
-                                icon: const Icon(Icons.check_circle_outline),
-                                label: const Text('Teslimatı Onayla'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green.shade600,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ] else if (_packageData?['status'] ==
-                              'delivery_pending_confirmation') ...[
-                            Center(
-                              child: Column(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    'Kurye teslimat onayı istiyor',
-                                    style: TextStyle(
-                                      color: Colors.indigo,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                  Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green.shade700,
+                                    size: 20,
                                   ),
-                                  const SizedBox(height: 8),
-                                  ElevatedButton.icon(
-                                    onPressed: _isConfirmingDelivery
-                                        ? null
-                                        : _confirmDelivery,
-                                    icon: const Icon(Icons.check_circle),
-                                    label: const Text(
-                                      'Teslim Edildi olarak işaretle',
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green.shade700,
-                                      foregroundColor: Colors.white,
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Paketiniz teslim edildi',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
@@ -673,9 +625,9 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
 
   @override
   void dispose() {
-    _courierLocationStream?.cancel();
-    _userLocationStream?.cancel();
+    _courierPollTimer?.cancel();
     _locationUpdateTimer?.cancel();
+    _requestStatusStream?.cancel();
     // mounted, dispose sırasında her zaman false olurdu; bu yüzden eski kod
     // map controller'ı hiç dispose etmiyordu. nullable + try/catch ile güvenli dispose.
     try {

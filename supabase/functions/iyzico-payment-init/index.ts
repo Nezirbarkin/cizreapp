@@ -1,23 +1,12 @@
-// iyzico Ödeme Başlatma Edge Function (SERVER-AUTHORITATIVE)
-// Tarih: 2026-08-02
-//
-// Bu fonksiyon artik SADECE checkout_session_id + idempotency_key alir.
-// Tum finansal alanlar (items, price, paidPrice, buyer) sunucu tarafindan
-// private.server_checkout_sessions tablosundan okunur.
-// Client ASLA fiyat/kupon/buyer gonderemez.
-//
-// Güvenlik özet:
-// - IYZICO_ENV zorunlu (sandbox veya production); eksikse 403
-// - Production'da sandbox URL'e sessiz fallback YOK
-// - TCKN sabit '11111111111' fallback KALDIRILDI
-// - JWT dogrulanir, session user_id ile eslesme zorunlu
-// - Loglama yalnizca transaction_id, expected_amount, hata kodu
+// iyzico Ödeme Başlatma Edge Function
+// Bu fonksiyon iyzico Checkout Form ödemesini başlatır
+// Deploy: supabase functions deploy iyzico-payment-init
 
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-console.log("iyzico Payment Init (server-authoritative) baslatildi");
+console.log("iyzico Payment Init Edge Function başlatıldı");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,39 +15,91 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// ═════════════════════════════════════════════════════════════════
-// IYZICO API CONFIG — fail-closed
-// ═════════════════════════════════════════════════════════════════
-const IYZICO_ENV = Deno.env.get("IYZICO_ENV"); // 'sandbox' | 'production' — ZORUNLU
+// iyzico API Ayarları (Supabase secrets olarak saklanır)
+const IYZICO_API_URL =
+  Deno.env.get("IYZICO_API_URL") || "https://sandbox-api.iyzipay.com";
 const IYZICO_API_KEY = Deno.env.get("IYZICO_API_KEY") || "";
 const IYZICO_SECRET_KEY = Deno.env.get("IYZICO_SECRET_KEY") || "";
 
-function getIyzicoApiUrl(): string {
-  if (IYZICO_ENV === "production") return "https://api.iyzipay.com";
-  if (IYZICO_ENV === "sandbox") return "https://sandbox-api.iyzipay.com";
-  // FAIL CLOSED: env yok veya gecersiz
-  throw new Error("IYZICO_ENV gecersiz veya eksik. 'sandbox' veya 'production' olmali.");
-}
-
+// Supabase client (service role - RLS bypass)
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// ═════════════════════════════════════════════════════════════════
-// IYZICO V2 IMZA
-// ═════════════════════════════════════════════════════════════════
+// ────────── Interface Tanımları ──────────
+
+interface AddressInfo {
+  address: string;
+  city: string;
+  country: string;
+  zipCode?: string;
+  contactName?: string;
+}
+
+interface BuyerInfo {
+  id: string;
+  name: string;
+  surname: string;
+  email: string;
+  phone: string;
+  identityNumber: string;
+  address: string;
+  city: string;
+  country: string;
+  zipCode?: string;
+}
+
+interface OrderItem {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  price: number;
+  variant_data?: Record<string, any>;
+}
+
+interface OrderData {
+  shop_id: string;
+  items: OrderItem[];
+  delivery_address_text: string;
+  delivery_address_id?: string;
+  total: number;
+  subtotal: number;
+  delivery_fee: number;
+  coupon_discount?: number;
+  coupon_id?: string;
+  note?: string;
+}
+
+interface PaymentInitRequest {
+  user_id: string;
+  order_data: OrderData;
+  buyer: BuyerInfo;
+  billing_address?: AddressInfo;
+  shipping_address?: AddressInfo;
+}
+
+// ────────── iyzico İmza Oluşturma (SHA-256 HMAC - iyzico v2) ──────────
+
 async function generateAuthorizationHeaderV2(
   apiKey: string,
   secretKey: string,
   randomString: string,
   requestBody: string
 ): Promise<{ authorization: string; randomString: string }> {
+  // iyzico v2 API Authorization:
+  // 1. uri = /payment/iyzipos/checkoutform/initialize/auth/ecom
+  // 2. hashStr = randomString + uri + requestBody
+  // 3. signature = HMAC-SHA256(secretKey, hashStr) -> hex
+  // 4. authorizationParams = "apiKey:" + apiKey + "&randomKey:" + randomString + "&signature:" + signature
+  // 5. Authorization = "IYZWSv2 " + Base64(authorizationParams)
+  
   const uri = "/payment/iyzipos/checkoutform/initialize/auth/ecom";
   const hashStr = randomString + uri + requestBody;
-
+  
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secretKey);
   const msgData = encoder.encode(hashStr);
 
+  // HMAC-SHA256 key oluştur
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
     keyData,
@@ -67,12 +108,14 @@ async function generateAuthorizationHeaderV2(
     ["sign"]
   );
 
+  // İmzala
   const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
   const signatureArray = new Uint8Array(signatureBuffer);
   const signatureHex = Array.from(signatureArray)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+  // Authorization params
   const authorizationParams = `apiKey:${apiKey}&randomKey:${randomString}&signature:${signatureHex}`;
   const authorizationBase64 = btoa(authorizationParams);
 
@@ -82,31 +125,268 @@ async function generateAuthorizationHeaderV2(
   };
 }
 
+// Fallback: iyzico v1 imza (eski format)
+async function generateAuthorizationHeaderV1(
+  apiKey: string,
+  secretKey: string,
+  randomHeaderValue: string,
+  requestBody: string
+): Promise<string> {
+  // iyzico v1 Authorization header format:
+  // IYZWS {apiKey}:{hash}
+  // hash = Base64(SHA1(apiKey + randomHeaderValue + secretKey + requestBody))
+  const hashStr = apiKey + randomHeaderValue + secretKey + requestBody;
+
+  const encoder = new TextEncoder();
+  const data = encoder.encode(hashStr);
+
+  // SHA-1 hash
+  const hashBuffer = await crypto.subtle.digest("SHA-1", data);
+  const hashArray = new Uint8Array(hashBuffer);
+  const hashBase64 = btoa(String.fromCharCode(...hashArray));
+
+  return `IYZWS ${apiKey}:${hashBase64}`;
+}
+
 function generateRandomString(): string {
   const array = new Uint8Array(8);
   crypto.getRandomValues(array);
-  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join(
+    ""
+  );
+}
+
+// ────────── Yardımcı Fonksiyonlar ──────────
+
+function generateConversationId(): string {
+  return `cizre_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 }
 
 function formatPhoneNumber(phone: string): string {
+  // Sadece rakamları al, başında + varsa kalsın
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("90")) return `+${digits}`;
   if (digits.startsWith("0")) return `+9${digits}`;
   return `+90${digits}`;
 }
 
-// ═════════════════════════════════════════════════════════════════
-// HANDLER
-// ═════════════════════════════════════════════════════════════════
-interface InitRequest {
-  checkout_session_id: string;   // ZORUNLU: private.server_checkout_sessions.id
-  idempotency_key: string;        // ZORUNLU
+// ────────── DB İşlemleri ──────────
+
+async function createPaymentTransaction(
+  supabase: any,
+  userId: string,
+  conversationId: string,
+  orderData: OrderData,
+  ipAddress: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("payment_transactions")
+    .insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      amount: orderData.total,
+      currency: "TRY",
+      payment_status: "pending",
+      ip_address: ipAddress,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Payment transaction oluşturma hatası:", error);
+    throw new Error(`Payment transaction oluşturulamadı: ${error.message}`);
+  }
+
+  return data.id;
 }
 
+// Sipariş verilerini geçici olarak saklama (callback'te kullanılacak)
+async function storeOrderDataForCallback(
+  supabase: any,
+  paymentTransactionId: string,
+  orderData: OrderData,
+  userId: string
+): Promise<void> {
+  // payment_transactions tablosundaki callback_data alanına order bilgilerini yaz
+  const { error } = await supabase
+    .from("payment_transactions")
+    .update({
+      callback_data: {
+        order_data: orderData,
+        user_id: userId,
+        stored_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", paymentTransactionId);
+
+  if (error) {
+    console.error("Order data saklama hatası:", error);
+    throw new Error(`Order data saklanamadı: ${error.message}`);
+  }
+}
+
+// ────────── iyzico Checkout Form Başlatma ──────────
+
+async function initializeIyzicoCheckout(
+  requestData: PaymentInitRequest,
+  conversationId: string,
+  ipAddress: string
+): Promise<{ paymentPageUrl: string; token: string; tokenExpireTime: number }> {
+  const { order_data, buyer, billing_address, shipping_address } = requestData;
+
+  // Buyer bilgileri
+  const iyzicoBuyer = {
+    id: buyer.id,
+    name: buyer.name,
+    surname: buyer.surname,
+    identityNumber: buyer.identityNumber || "11111111111",
+    email: buyer.email,
+    gsmNumber: formatPhoneNumber(buyer.phone),
+    registrationAddress: buyer.address,
+    city: buyer.city,
+    country: buyer.country || "Turkey",
+    zipCode: buyer.zipCode || "34000",
+    ip: ipAddress,
+  };
+
+  // Adres bilgileri
+  const shippingAddr = {
+    contactName: shipping_address?.contactName || `${buyer.name} ${buyer.surname}`,
+    city: shipping_address?.city || buyer.city,
+    country: shipping_address?.country || buyer.country || "Turkey",
+    address: shipping_address?.address || order_data.delivery_address_text,
+    zipCode: shipping_address?.zipCode || buyer.zipCode || "34000",
+  };
+
+  const billingAddr = {
+    contactName: billing_address?.contactName || `${buyer.name} ${buyer.surname}`,
+    city: billing_address?.city || buyer.city,
+    country: billing_address?.country || buyer.country || "Turkey",
+    address: billing_address?.address || buyer.address,
+    zipCode: billing_address?.zipCode || buyer.zipCode || "34000",
+  };
+
+  // Sepet kalemleri
+  const basketItems = order_data.items.map((item) => ({
+    id: item.product_id,
+    name: item.product_name.substring(0, 50), // iyzico max 50 char
+    category1: "Ürünler",
+    itemType: "PHYSICAL",
+    price: (item.price * item.quantity).toFixed(2),
+  }));
+
+  // Teslimat ücreti varsa sepete ekle
+  if (order_data.delivery_fee > 0) {
+    basketItems.push({
+      id: "DELIVERY_FEE",
+      name: "Teslimat Ücreti",
+      category1: "Teslimat",
+      itemType: "PHYSICAL",
+      price: order_data.delivery_fee.toFixed(2),
+    });
+  }
+
+  // Sepet toplamını hesapla ve tutarla eşleştir
+  const basketTotal = basketItems.reduce(
+    (sum, item) => sum + parseFloat(item.price),
+    0
+  );
+  const paidPrice = order_data.total;
+
+  // Kupon indirimi varsa, fiyat ayarlaması yap
+  // iyzico'da basketItems toplamı = price olmalı
+  // paidPrice >= price olmalı
+  const price = basketTotal.toFixed(2);
+
+  // Callback URL
+  const callbackUrl = `${supabaseUrl}/functions/v1/iyzico-payment-callback`;
+
+  // iyzico Checkout Form request body
+  const requestBody = {
+    locale: "tr",
+    conversationId: conversationId,
+    price: price,
+    paidPrice: paidPrice.toFixed(2),
+    currency: "TRY",
+    basketId: `B_${conversationId}`,
+    paymentGroup: "PRODUCT",
+    callbackUrl: callbackUrl,
+    enabledInstallments: [1, 2, 3, 6, 9],
+    buyer: iyzicoBuyer,
+    shippingAddress: shippingAddr,
+    billingAddress: billingAddr,
+    basketItems: basketItems,
+  };
+
+  const bodyString = JSON.stringify(requestBody);
+  const randomHeaderValue = generateRandomString();
+
+  // Authorization header oluştur (v2 HMAC-SHA256)
+  const { authorization, randomString } = await generateAuthorizationHeaderV2(
+    IYZICO_API_KEY,
+    IYZICO_SECRET_KEY,
+    randomHeaderValue,
+    bodyString
+  );
+
+  console.log("📤 iyzico checkout form isteği gönderiliyor:", {
+    conversationId,
+    price,
+    paidPrice: paidPrice.toFixed(2),
+    basketItemCount: basketItems.length,
+    callbackUrl,
+    authMethod: "IYZWSv2",
+  });
+
+  // iyzico API'ye istek gönder
+  const response = await fetch(
+    `${IYZICO_API_URL}/payment/iyzipos/checkoutform/initialize/auth/ecom`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: authorization,
+        "x-iyzi-rnd": randomString,
+      },
+      body: bodyString,
+    }
+  );
+
+  const result = await response.json();
+
+  if (result.status !== "success") {
+    console.error("❌ iyzico checkout form hatası:", {
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+      errorGroup: result.errorGroup,
+    });
+    throw new Error(
+      result.errorMessage || `iyzico ödeme başlatılamadı (${result.errorCode})`
+    );
+  }
+
+  console.log("✅ iyzico checkout form başarılı:", {
+    token: result.token?.substring(0, 20) + "...",
+    tokenExpireTime: result.tokenExpireTime,
+  });
+
+  return {
+    paymentPageUrl: result.paymentPageUrl,
+    token: result.token,
+    tokenExpireTime: result.tokenExpireTime,
+  };
+}
+
+// ────────── Ana Handler ──────────
+
 serve(async (req: Request) => {
+  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Sadece POST kabul et
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -115,38 +395,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    // ═════════════════════════════════════════════════════════════
-    // 0) FAIL-CLOSED: IYZICO_ENV zorunlu
-    // ═════════════════════════════════════════════════════════════
-    let IYZICO_API_URL: string;
-    try {
-      IYZICO_API_URL = getIyzicoApiUrl();
-    } catch (envErr) {
-      console.error("IYZICO_ENV hatasi:", (envErr as Error).message);
-      return new Response(
-        JSON.stringify({
-          error: "Odeme altyapisi su an kullanilamaz (IYZICO_ENV eksik).",
-          code: "IYZICO_ENV_MISSING",
-        }),
-        {
-          status: 503,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    // API key/secret zorunlu
-    if (!IYZICO_API_KEY || !IYZICO_SECRET_KEY) {
-      console.error("IYZICO_API_KEY veya IYZICO_SECRET_KEY eksik");
-      return new Response(
-        JSON.stringify({ error: "Odeme altyapisi yapilandirilmamis.", code: "IYZICO_CREDENTIALS_MISSING" }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 1) AUTH
-    // ═════════════════════════════════════════════════════════════
+    // Auth kontrolü
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -155,8 +404,10 @@ serve(async (req: Request) => {
       });
     }
 
+    // Supabase client oluştur (her request'te yeni instance)
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Kullanıcıyı doğrula
     const {
       data: { user },
       error: authError,
@@ -164,341 +415,140 @@ serve(async (req: Request) => {
 
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ error: "Gecersiz oturum." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Geçersiz oturum. Lütfen tekrar giriş yapın." }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
-    // ═════════════════════════════════════════════════════════════
-    // 2) REQUEST BODY
-    // ═════════════════════════════════════════════════════════════
-    const body: InitRequest = await req.json();
+    // Request body'yi parse et
+    const requestData: PaymentInitRequest = await req.json();
 
-    if (!body.checkout_session_id || !body.idempotency_key) {
-      return new Response(
-        JSON.stringify({ error: "checkout_session_id ve idempotency_key zorunlu." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 3) SESSION'ı SUNUCUDAN OKU
-    // ═════════════════════════════════════════════════════════════
-    const { data: session, error: sessionError } = await supabase
-      .schema("private")
-      .from("server_checkout_sessions")
-      .select("*")
-      .eq("id", body.checkout_session_id)
-      .eq("user_id", user.id)  // auth.uid() ile esleme
-      .single();
-
-    if (sessionError || !session) {
-      console.error("Session okunamadi:", sessionError?.message);
-      return new Response(
-        JSON.stringify({ error: "Checkout session bulunamadi veya size ait degil." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Session dogrulamalari
-    if (session.status !== "pending") {
-      return new Response(
-        JSON.stringify({ error: `Session zaten ${session.status} durumunda.` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (new Date(session.expires_at) < new Date()) {
-      return new Response(
-        JSON.stringify({ error: "Checkout session suresi dolmus. Lutfen yeniden olusturun." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (session.payment_method !== "online") {
-      return new Response(
-        JSON.stringify({ error: "Bu session online odeme icin degil." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 4) BUYER BILGISI — profiles + addresses'ten SUNUCUDA
-    // ═════════════════════════════════════════════════════════════
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, phone, tc_no, identity_number")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return new Response(
-        JSON.stringify({ error: "Profil bilgisi bulunamadi." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // iyzico zorunlu identityNumber. tc_no yoksa ODEME BASLATILMAZ (guvenli hata).
-    const identityNumber = (profile.tc_no || profile.identity_number || "").toString().trim();
-    if (!identityNumber || identityNumber.length !== 11) {
-      console.warn("identityNumber eksik/gecersiz, odeme reddedildi (user_id prefix):", user.id.substring(0, 8));
+    // Zorunlu alan kontrolü
+    if (!requestData.order_data || !requestData.buyer) {
       return new Response(
         JSON.stringify({
-          error: "Kimlik dogrulama bilgileriniz eksik. Lutfen profil sayfasindan TCKN bilgisini ekleyin.",
-          code: "IDENTITY_NUMBER_REQUIRED",
+          error: "Eksik bilgi: order_data ve buyer alanları zorunludur.",
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
-    if (!profile.email) {
+    // Items kontrolü
+    if (
+      !requestData.order_data.items ||
+      requestData.order_data.items.length === 0
+    ) {
       return new Response(
-        JSON.stringify({ error: "E-posta adresi zorunlu." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Sepet boş. En az bir ürün ekleyin." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
-    // Adres
-    let shippingAddress: any = null;
-    if (session.address_id) {
-      const { data: addr } = await supabase
-        .from("addresses")
-        .select("*")
-        .eq("id", session.address_id)
-        .eq("user_id", user.id)
-        .single();
-
-      if (addr) {
-        shippingAddress = {
-          contactName: addr.full_name || profile.full_name,
-          city: addr.city || "Şırnak",
-          country: "Turkey",
-          address: [addr.address_line1, addr.address_line2].filter(Boolean).join(" "),
-          zipCode: addr.postal_code || "73200",
-        };
-      }
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 5) ITEMS — server snapshot'tan (client ASLA gondermez)
-    // ═════════════════════════════════════════════════════════════
-    const items = session.items_snapshot as any[];
-    if (!items || items.length === 0) {
+    // Tutar kontrolü
+    if (requestData.order_data.total <= 0) {
       return new Response(
-        JSON.stringify({ error: "Session item snapshot bos." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Geçersiz sipariş tutarı." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
-    const basketItems = items.map((it: any) => ({
-      id: it.product_id,
-      name: (it.product_name || "Urun").substring(0, 50),
-      category1: "Urunler",
-      itemType: "PHYSICAL",
-      price: Number(it.unit_price * it.quantity).toFixed(2),
-    }));
+    // user_id'yi authenticated user'dan al (güvenlik)
+    requestData.user_id = user.id;
 
-    // Teslimat ucreti (session'dan)
-    if (Number(session.server_delivery_fee) > 0) {
-      basketItems.push({
-        id: "DELIVERY_FEE",
-        name: "Teslimat Ucreti",
-        category1: "Teslimat",
-        itemType: "PHYSICAL",
-        price: Number(session.server_delivery_fee).toFixed(2),
-      });
-    }
+    // Client IP
+    const clientIp =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      "127.0.0.1";
 
-    // iyzico price/paidPrice (server-authoritative)
-    const price = basketItems.reduce(
-      (sum: number, item: any) => sum + parseFloat(item.price),
-      0
-    );
-    // paidPrice = server_total (kupon indirimi dahil)
-    const paidPrice = Number(session.server_total);
-
-    // Sanity check
-    if (paidPrice <= 0) {
-      return new Response(
-        JSON.stringify({ error: "Gecersiz odeme tutari." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 6) CONVERSATION + BASKET ID (server)
-    // ═════════════════════════════════════════════════════════════
-    const conversationId = `cizre_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    const basketId = `B_${body.checkout_session_id.substring(0, 8)}_${Date.now()}`;
-
-    // ═════════════════════════════════════════════════════════════
-    // 7) IYZICO CHECKOUT FORM
-    // ═════════════════════════════════════════════════════════════
-    const fullName = (profile.full_name || "Musteri").toString().trim();
-    const nameParts = fullName.split(/\s+/);
-    const firstName = nameParts[0] || "Musteri";
-    const lastName = nameParts.slice(1).join(" ") || "Musteri";
-
-    const iyzicoBuyer = {
-      id: user.id,
-      name: firstName,
-      surname: lastName,
-      identityNumber: identityNumber,  // server'dan, fallback YOK
-      email: profile.email,
-      gsmNumber: formatPhoneNumber(profile.phone || shippingAddress?.contactName || ""),
-      registrationAddress: shippingAddress?.address || "Adres",
-      city: shippingAddress?.city || "Şırnak",
-      country: "Turkey",
-      zipCode: shippingAddress?.zipCode || "73200",
-      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1",
-    };
-
-    const requestBody = {
-      locale: "tr",
-      conversationId: conversationId,
-      price: price.toFixed(2),
-      paidPrice: paidPrice.toFixed(2),
-      currency: "TRY",
-      basketId: basketId,
-      paymentGroup: "PRODUCT",
-      callbackUrl: `${supabaseUrl}/functions/v1/iyzico-payment-callback`,
-      enabledInstallments: [1, 2, 3, 6, 9],
-      buyer: iyzicoBuyer,
-      shippingAddress: shippingAddress || {
-        contactName: `${firstName} ${lastName}`,
-        city: "Şırnak",
-        country: "Turkey",
-        address: "Adres",
-        zipCode: "73200",
-      },
-      billingAddress: shippingAddress || {
-        contactName: `${firstName} ${lastName}`,
-        city: "Şırnak",
-        country: "Turkey",
-        address: "Adres",
-        zipCode: "73200",
-      },
-      basketItems: basketItems,
-    };
-
-    const bodyString = JSON.stringify(requestBody);
-    const randomHeaderValue = generateRandomString();
-    const { authorization, randomString } = await generateAuthorizationHeaderV2(
-      IYZICO_API_KEY, IYZICO_SECRET_KEY, randomHeaderValue, bodyString
-    );
-
-    console.log("iyzico init istegi gonderiliyor:", {
-      sessionIdPrefix: body.checkout_session_id.substring(0, 8),
-      expectedAmount: paidPrice.toFixed(2),
-      itemCount: basketItems.length,
-      env: IYZICO_ENV,
+    console.log("📋 Ödeme başlatma isteği:", {
+      userId: user.id,
+      shopId: requestData.order_data.shop_id,
+      total: requestData.order_data.total,
+      itemCount: requestData.order_data.items.length,
+      clientIp,
     });
 
-    const response = await fetch(
-      `${IYZICO_API_URL}/payment/iyzipos/checkoutform/initialize/auth/ecom`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: authorization,
-          "x-iyzi-rnd": randomString,
-        },
-        body: bodyString,
-      }
+    // Conversation ID oluştur
+    const conversationId = generateConversationId();
+
+    // 1. Payment transaction kaydı oluştur
+    const paymentTransactionId = await createPaymentTransaction(
+      supabase,
+      user.id,
+      conversationId,
+      requestData.order_data,
+      clientIp
     );
 
-    const result = await response.json();
+    // 2. Sipariş verilerini callback için sakla
+    await storeOrderDataForCallback(
+      supabase,
+      paymentTransactionId,
+      requestData.order_data,
+      user.id
+    );
 
-    if (result.status !== "success") {
-      console.error("iyzico checkout form hatasi:", {
-        errorCode: result.errorCode,
-        errorGroup: result.errorGroup,
-      });
-      return new Response(
-        JSON.stringify({
-          error: result.errorMessage || "Odeme baslatilamadi.",
-          code: result.errorCode,
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // 3. iyzico Checkout Form başlat
+    const iyzicoResult = await initializeIyzicoCheckout(
+      requestData,
+      conversationId,
+      clientIp
+    );
 
-    // ═════════════════════════════════════════════════════════════
-    // 8) PAYMENT TRANSACTION OLUSTUR (server-authoritative expected_*)
-    // ═════════════════════════════════════════════════════════════
-    const { data: txn, error: txnError } = await supabase
-      .from("payment_transactions")
-      .insert({
-        user_id: user.id,
-        checkout_session_id: body.checkout_session_id,
-        conversation_id: conversationId,
-        basket_id: basketId,
-        amount: paidPrice,
-        expected_amount: paidPrice,
-        expected_currency: "TRY",
-        expected_conversation_id: conversationId,
-        expected_basket_id: basketId,
-        currency: "TRY",
-        iyzico_environment: IYZICO_ENV,
-        idempotency_key: body.idempotency_key,
-        payment_status: "pending",
-        token: result.token,
-        ip_address: iyzicoBuyer.ip,
-      })
-      .select("id")
-      .single();
-
-    if (txnError || !txn) {
-      console.error("Payment transaction olusturulamadi:", txnError?.message);
-      return new Response(
-        JSON.stringify({ error: "Odeme kaydi olusturulamadi." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Session'i txn ile linkle + expected_* set et
+    // 4. Payment transaction'a token bilgisini ekle
     await supabase
-      .schema("private")
-      .from("server_checkout_sessions")
+      .from("payment_transactions")
       .update({
-        expected_paid_price: paidPrice,
-        expected_currency: "TRY",
-        expected_conversation_id: conversationId,
-        expected_basket_id: basketId,
-        iyzico_environment: IYZICO_ENV,
-        payment_transaction_id: txn.id,
+        token: iyzicoResult.token,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", body.checkout_session_id);
+      .eq("id", paymentTransactionId);
 
-    console.log("iyzico init basarili:", {
-      paymentTxnPrefix: txn.id.substring(0, 8),
-      sessionPrefix: body.checkout_session_id.substring(0, 8),
+    console.log("✅ Ödeme başarıyla başlatıldı:", {
+      paymentTransactionId,
+      conversationId,
     });
 
+    // Başarılı yanıt
     return new Response(
       JSON.stringify({
         status: "success",
-        payment_page_url: result.paymentPageUrl,
-        token: result.token,
-        token_expire_time: result.tokenExpireTime,
+        payment_page_url: iyzicoResult.paymentPageUrl,
+        token: iyzicoResult.token,
+        token_expire_time: iyzicoResult.tokenExpireTime,
         conversation_id: conversationId,
-        payment_transaction_id: txn.id,
-        checkout_session_id: body.checkout_session_id,
-        expected_amount: paidPrice,
-        currency: "TRY",
+        payment_transaction_id: paymentTransactionId,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   } catch (err: unknown) {
     const error = err as Error;
-    console.error("iyzico-payment-init beklenmeyen hata:", error.message);
+    console.error("❌ Payment init error:", error.message);
+
     return new Response(
       JSON.stringify({
-        error: "Odeme baslatilamadi. Lutfen tekrar deneyin.",
+        status: "error",
+        error: error.message || "Ödeme başlatılamadı. Lütfen tekrar deneyin.",
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   }
 });

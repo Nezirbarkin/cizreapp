@@ -38,7 +38,7 @@ Mevcut uygulama, sipariş oluşturma ve ödeme akışlarında **client-authorita
 
 **`supabase/functions/use-balance-for-order/index.ts:44-93`** → `amount` ve `order_total` client'tan alınıyor. Bakiye düşümü ile sipariş güncellemesi ayrı sorgular; sipariş güncellenemezse bakiye iade edilmeye çalışılıyor (gerçek transaction değil, ardışık RPC + manuel iade).
 
-**`supabase/migrations/20260801000001_complete_online_payment_coupon_id.sql:103-170`** → Online ödeme tamamlandığında `INSERT INTO orders (...) VALUES (v_total, v_subtotal, ...)` direkt `callback_data` üzerinden yapılıyor. `callback_data` ise init sırasında client'ın gönderdiği veriyle doluyor.
+**`supabase/migrations/20260801000002_complete_online_payment_coupon_id.sql:103-170`** → Online ödeme tamamlandığında `INSERT INTO orders (...) VALUES (v_total, v_subtotal, ...)` direkt `callback_data` üzerinden yapılıyor. `callback_data` ise init sırasında client'ın gönderdiği veriyle doluyor.
 
 ---
 
@@ -217,9 +217,9 @@ private.server_checkout_audit  -- şüpheli eşleşmeler, sadece admin SELECT
 
 | Dosya | Amaç |
 |---|---|
-| `supabase/migrations/20260802000005_server_authoritative_checkout_schema.sql` | `private` şema, `server_checkout_sessions`, `server_checkout_session_items`, `flash_sale_reservations` tabloları, yeni kolonlar (orders/payment_transactions) |
-| `supabase/migrations/20260802000006_prepare_checkout_session_rpc.sql` | `prepare_checkout_session` RPC'si — server-side quote builder |
-| `supabase/migrations/20260802000007_commit_cod_and_balance_orders.sql` | `commit_cod_order`, `commit_balance_order` RPC'leri |
+| `supabase/migrations/20260802000006_server_authoritative_checkout_schema.sql` | `private` şema, `server_checkout_sessions`, `server_checkout_session_items`, `flash_sale_reservations` tabloları, yeni kolonlar (orders/payment_transactions) |
+| `supabase/migrations/20260802000007_prepare_checkout_session_rpc.sql` | `prepare_checkout_session` RPC'si — server-side quote builder |
+| `supabase/migrations/20260802000008_commit_cod_and_balance_orders.sql` | `commit_cod_order`, `commit_balance_order` RPC'leri |
 | `supabase/migrations/20260802000008_revoke_legacy_checkout_writes.sql` | Eski `create_order_with_items` DROP, `orders`/`order_items`/`coupon_usages`/`payment_transactions` RLS INSERT/UPDATE authenticated REVOKE, eski `claim_flash_sale`/`release_flash_sale` GRANT revoke |
 | `supabase/migrations/20260802000009_lock_payment_finalizer_to_backend.sql` | `complete_online_payment` ve `atomic_finalize_payment_transaction` private şemaya taşı, GRANT sadece service_role |
 | `supabase/migrations/20260802000010_state_machine_order_status.sql` | `transition_order_status` SECURITY DEFINER RPC — durum geçişleri allowlist ile |
@@ -576,9 +576,9 @@ supabase secrets set IYZICO_ENV=production  # 'sandbox' ASLA
 
 Aşağıdaki sıra ile uygulanır. Her adımda migration → RPC test → Edge Function → Flutter adımı ayrı ayrı doğrulanabilir.
 
-1. `supabase/migrations/20260802000005_server_authoritative_checkout_schema.sql` (private şema, yeni tablolar)
-2. `supabase/migrations/20260802000006_prepare_checkout_session_rpc.sql`
-3. `supabase/migrations/20260802000007_commit_cod_and_balance_orders.sql`
+1. `supabase/migrations/20260802000006_server_authoritative_checkout_schema.sql` (private şema, yeni tablolar)
+2. `supabase/migrations/20260802000007_prepare_checkout_session_rpc.sql`
+3. `supabase/migrations/20260802000008_commit_cod_and_balance_orders.sql`
 4. `supabase/migrations/20260802000013_coupon_limit_enforcement_strict.sql`
 5. `supabase/migrations/20260802000009_lock_payment_finalizer_to_backend.sql` (yeni init/callback RPC'lerini kullanır)
 6. `supabase/functions/iyzico-payment-init/index.ts` (yeni — sadece checkout_session_id alır)

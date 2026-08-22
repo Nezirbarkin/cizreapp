@@ -10,6 +10,7 @@ class CartItem {
   final String? productName;
   final double? productPrice;
   final double? productOldPrice;
+
   /// İndirimli fiyat (DB `products.discount_price` kolonu). Sepet join'inde
   /// `effectivePrice` mantığıyla birlikte kullanılır — aksi halde kullanıcı
   /// detayda gördüğü indirimli fiyatı sepete eklediğinde indirimsiz fiyat
@@ -28,6 +29,17 @@ class CartItem {
   /// `cart.flash_price`). null = ürün flaş satışta değildi.
   final String? flashSaleId;
   final double? flashPrice;
+
+  /// Ürüne özel kargo alanları (DB `products.shipping_fee` / `free_shipping`).
+  /// Sepetteki kargo ücretini sunucudaki kuralla aynı şekilde göstermek için
+  /// join'de çekilir — aksi halde kullanıcı sepette bir ücret görüp ödemede
+  /// başka bir ücretle karşılaşırdı.
+  final double? productShippingFee;
+  final bool productFreeShipping;
+
+  /// Satıcının koyduğu sipariş adedi sınırları (DB `products.*_order_quantity`).
+  final int? productMinOrderQuantity;
+  final int? productMaxOrderQuantity;
 
   CartItem({
     required this.id,
@@ -48,6 +60,10 @@ class CartItem {
     this.variantData,
     this.flashSaleId,
     this.flashPrice,
+    this.productShippingFee,
+    this.productFreeShipping = false,
+    this.productMinOrderQuantity,
+    this.productMaxOrderQuantity,
   });
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
@@ -76,6 +92,12 @@ class CartItem {
       variantData: json['variant_data'] as Map<String, dynamic>?,
       flashSaleId: json['flash_sale_id'] as String?,
       flashPrice: (json['flash_price'] as num?)?.toDouble(),
+      productShippingFee: (json['product_shipping_fee'] as num?)?.toDouble(),
+      productFreeShipping: json['product_free_shipping'] as bool? ?? false,
+      productMinOrderQuantity: (json['product_min_order_quantity'] as num?)
+          ?.toInt(),
+      productMaxOrderQuantity: (json['product_max_order_quantity'] as num?)
+          ?.toInt(),
     );
   }
 
@@ -116,7 +138,8 @@ class CartItem {
   }
 
   /// Flaş satıştan mı geldi?
-  bool get isFlashSaleItem => flashSaleId != null && flashPrice != null && flashPrice! > 0;
+  bool get isFlashSaleItem =>
+      flashSaleId != null && flashPrice != null && flashPrice! > 0;
 
   double get itemTotal {
     return effectivePrice * quantity;
@@ -142,7 +165,9 @@ class CartItem {
 
   bool get hasDiscount {
     final unit = effectivePrice;
-    if (isFlashSaleItem && productPrice != null && productPrice! > unit) return true;
+    if (isFlashSaleItem && productPrice != null && productPrice! > unit) {
+      return true;
+    }
     if (productOldPrice != null && productOldPrice! > unit) return true;
     if (productPrice != null && productPrice! > unit) return true;
     return false;
@@ -162,12 +187,54 @@ class CartItem {
     return 0;
   }
 
+  /// Satıcının koyduğu en az sipariş adedi (yoksa 1).
+  int get minOrderQuantity =>
+      (productMinOrderQuantity != null && productMinOrderQuantity! > 0)
+      ? productMinOrderQuantity!
+      : 1;
+
+  /// Stok ve satıcı limitinin küçüğü; ikisi de yoksa null.
+  int? get maxOrderQuantity {
+    final sellerMax =
+        (productMaxOrderQuantity != null && productMaxOrderQuantity! > 0)
+        ? productMaxOrderQuantity
+        : null;
+    final stock = stockQuantity;
+    if (sellerMax == null) return stock;
+    if (stock == null) return sellerMax;
+    return sellerMax < stock ? sellerMax : stock;
+  }
+
   bool get canAddMore {
-    return stockQuantity == null || quantity < stockQuantity!;
+    final max = maxOrderQuantity;
+    return max == null || quantity < max;
+  }
+
+  /// Miktar satıcının koyduğu alt sınırın altına inebilir mi?
+  bool get canRemoveOne => quantity > minOrderQuantity;
+
+  /// Sepetteki adet satıcının kurallarına uyuyor mu? Uymuyorsa ödeme
+  /// adımında sunucu reddeder, bu yüzden kullanıcıyı önceden uyarıyoruz.
+  bool get violatesQuantityLimits {
+    final max = productMaxOrderQuantity;
+    if (quantity < minOrderQuantity) return true;
+    if (max != null && max > 0 && quantity > max) return true;
+    return false;
+  }
+
+  /// Uyarı metni (limit ihlali yoksa null).
+  String? get quantityLimitWarning {
+    if (!violatesQuantityLimits) return null;
+    final max = productMaxOrderQuantity;
+    if (quantity < minOrderQuantity) {
+      return 'Bu üründen en az $minOrderQuantity adet alınmalı';
+    }
+    return 'Bu üründen en fazla $max adet alınabilir';
   }
 
   bool get isInStock {
-    return (isAvailable ?? false) && (stockQuantity == null || stockQuantity! > 0);
+    return (isAvailable ?? false) &&
+        (stockQuantity == null || stockQuantity! > 0);
   }
 
   // Copy with
@@ -190,6 +257,10 @@ class CartItem {
     Map<String, dynamic>? variantData,
     String? flashSaleId,
     double? flashPrice,
+    double? productShippingFee,
+    bool? productFreeShipping,
+    int? productMinOrderQuantity,
+    int? productMaxOrderQuantity,
   }) {
     return CartItem(
       id: id ?? this.id,
@@ -210,6 +281,12 @@ class CartItem {
       variantData: variantData ?? this.variantData,
       flashSaleId: flashSaleId ?? this.flashSaleId,
       flashPrice: flashPrice ?? this.flashPrice,
+      productShippingFee: productShippingFee ?? this.productShippingFee,
+      productFreeShipping: productFreeShipping ?? this.productFreeShipping,
+      productMinOrderQuantity:
+          productMinOrderQuantity ?? this.productMinOrderQuantity,
+      productMaxOrderQuantity:
+          productMaxOrderQuantity ?? this.productMaxOrderQuantity,
     );
   }
 
@@ -247,20 +324,14 @@ class CartSummary {
     double deliveryFee = 0,
     double couponDiscount = 0,
   }) {
-    final subtotal = items.fold<double>(
-      0,
-      (sum, item) => sum + item.itemTotal,
-    );
+    final subtotal = items.fold<double>(0, (sum, item) => sum + item.itemTotal);
 
     final discount = items.fold<double>(
       0,
       (sum, item) => sum + item.itemDiscount,
     );
 
-    final totalItems = items.fold<int>(
-      0,
-      (sum, item) => sum + item.quantity,
-    );
+    final totalItems = items.fold<int>(0, (sum, item) => sum + item.quantity);
 
     // Not: `subtotal` zaten indirimli productPrice üzerinden hesaplanır
     // (CartItem.itemTotal = productPrice * quantity). `discount` alanı
@@ -269,8 +340,7 @@ class CartSummary {
     //
     // Kupon indirimi (`couponDiscount`) ise product indiriminden bağımsız
     // olarak toplamdan düşülür.
-    final clampedCoupon =
-        couponDiscount.clamp(0.0, subtotal).toDouble();
+    final clampedCoupon = couponDiscount.clamp(0.0, subtotal).toDouble();
     final total = subtotal - clampedCoupon + deliveryFee;
 
     return CartSummary(
@@ -290,7 +360,7 @@ class CartSummary {
   // Dükkan bazında gruplama
   Map<String, List<CartItem>> get groupedByShop {
     final Map<String, List<CartItem>> grouped = {};
-    
+
     for (var item in items) {
       final shopId = item.shopId ?? 'unknown';
       if (!grouped.containsKey(shopId)) {
@@ -298,7 +368,7 @@ class CartSummary {
       }
       grouped[shopId]!.add(item);
     }
-    
+
     return grouped;
   }
 

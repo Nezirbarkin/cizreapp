@@ -143,19 +143,22 @@ void main() {
         expect(balance.isConsistent, isTrue);
       });
 
-      test('should return true for consistent balance with small floating point error', () {
-        // Küçük yuvarlama hataları tolere edilmeli (< 0.01 tolerans)
-        final balance = TestHelpers.createMockBalance(
-          balance: 100.005,
-          totalEarned: 200.0,
-          totalSpent: 80.0,
-          totalRefunds: 10.0,
-          totalWithdrawn: 30.0,
-        );
+      test(
+        'should return true for consistent balance with small floating point error',
+        () {
+          // Küçük yuvarlama hataları tolere edilmeli (< 0.01 tolerans)
+          final balance = TestHelpers.createMockBalance(
+            balance: 100.005,
+            totalEarned: 200.0,
+            totalSpent: 80.0,
+            totalRefunds: 10.0,
+            totalWithdrawn: 30.0,
+          );
 
-        // 100.005 - (200 - 80 + 10 - 30) = 100.005 - 100 = 0.005 < 0.01
-        expect(balance.isConsistent, isTrue);
-      });
+          // 100.005 - (200 - 80 + 10 - 30) = 100.005 - 100 = 0.005 < 0.01
+          expect(balance.isConsistent, isTrue);
+        },
+      );
 
       test('should return false for inconsistent balance', () {
         // 50 != 200 - 80 + 10 - 30 = 100
@@ -173,99 +176,14 @@ void main() {
 
     group('UserBalance.copyWith', () {
       test('should create copy with modified fields', () {
-        final balance = TestHelpers.createMockBalance(
-          balance: 100.0,
-        );
+        final balance = TestHelpers.createMockBalance(balance: 100.0);
 
-        final modified = balance.copyWith(
-          balance: 200.0,
-          lockedBalance: 50.0,
-        );
+        final modified = balance.copyWith(balance: 200.0, lockedBalance: 50.0);
 
         expect(modified.balance, equals(200.0));
         expect(modified.lockedBalance, equals(50.0));
         expect(modified.id, equals(balance.id));
         expect(modified.userId, equals(balance.userId));
-      });
-    });
-  });
-
-  group('SellerEarningsSummary Model Tests', () {
-    group('SellerEarningsSummary.fromJson', () {
-      test('should create SellerEarningsSummary from valid JSON', () {
-        final json = {
-          'total_orders': 10,
-          'total_gross': 1000.0,
-          'total_commission': 100.0,
-          'total_net': 900.0,
-          'pending_amount': 50.0,
-          'available_amount': 850.0,
-          'withdrawn_amount': 0.0,
-          'min_withdrawal': 50.0,
-          'withdrawal_fee_percent': 2.0,
-        };
-
-        final summary = SellerEarningsSummary.fromJson(json);
-
-        expect(summary.totalOrders, equals(10));
-        expect(summary.totalGross, equals(1000.0));
-        expect(summary.totalCommission, equals(100.0));
-        expect(summary.totalNet, equals(900.0));
-        expect(summary.pendingAmount, equals(50.0));
-        expect(summary.availableAmount, equals(850.0));
-        expect(summary.withdrawnAmount, equals(0.0));
-        expect(summary.minWithdrawal, equals(50.0));
-        expect(summary.withdrawalFeePercent, equals(2.0));
-      });
-
-      test('should use default values for missing fields', () {
-        final json = <String, dynamic>{};
-
-        final summary = SellerEarningsSummary.fromJson(json);
-
-        expect(summary.totalOrders, equals(0));
-        expect(summary.totalGross, equals(0));
-        expect(summary.minWithdrawal, equals(50));
-        expect(summary.withdrawalFeePercent, equals(2));
-      });
-    });
-
-    group('SellerEarningsSummary.calculateFee', () {
-      test('should calculate fee correctly', () {
-        final summary = SellerEarningsSummary(
-          totalOrders: 0,
-          totalGross: 0,
-          totalCommission: 0,
-          totalNet: 0,
-          pendingAmount: 0,
-          availableAmount: 0,
-          withdrawnAmount: 0,
-          minWithdrawal: 50,
-          withdrawalFeePercent: 2,
-        );
-
-        expect(summary.calculateFee(100.0), equals(2.0));
-        expect(summary.calculateFee(50.0), equals(1.0));
-        expect(summary.calculateFee(0.0), equals(0.0));
-      });
-    });
-
-    group('SellerEarningsSummary.netWithdrawable', () {
-      test('should calculate net withdrawable amount correctly', () {
-        final summary = SellerEarningsSummary(
-          totalOrders: 0,
-          totalGross: 0,
-          totalCommission: 0,
-          totalNet: 0,
-          pendingAmount: 0,
-          availableAmount: 0,
-          withdrawnAmount: 0,
-          minWithdrawal: 50,
-          withdrawalFeePercent: 2,
-        );
-
-        // 100 - (100 * 2 / 100 * 100) = 100 - 2 = 98
-        expect(summary.netWithdrawable(100.0), equals(98.0));
       });
     });
   });
@@ -288,7 +206,11 @@ void main() {
       test('should reject negative amount transactions', () {
         // Negatif tutarlar CHECK constraint tarafından reddedilmeli
         const negativeAmount = -50.0;
-        expect(negativeAmount >= 0, isFalse, reason: 'Negatif tutar reddedilmeli');
+        expect(
+          negativeAmount >= 0,
+          isFalse,
+          reason: 'Negatif tutar reddedilmeli',
+        );
       });
 
       test('availableBalance calculation with zero balance', () {

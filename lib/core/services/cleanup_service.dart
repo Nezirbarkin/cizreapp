@@ -48,9 +48,9 @@ class CleanupService {
   /// 30 günden eski analytics verilerini temizle
   Future<void> _cleanupOldAnalytics() async {
     try {
-      final sizeBefore = _analyticsService.eventCount;
+      final sizeBefore = _analyticsService.localEventCount;
       await _analyticsService.clearOldEvents(daysToKeep: 30);
-      final sizeAfter = _analyticsService.eventCount;
+      final sizeAfter = _analyticsService.localEventCount;
       final cleaned = sizeBefore - sizeAfter;
 
       if (cleaned > 0) {
@@ -104,7 +104,7 @@ class CleanupService {
   Map<String, int> getStorageStats() {
     return {
       'cache_size': _cacheService.cacheSize,
-      'analytics_count': _analyticsService.eventCount,
+      'analytics_count': _analyticsService.localEventCount,
     };
   }
 }

@@ -458,6 +458,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
       String? newAvatarUrl;
       String? newCoverUrl;
+      String? uploadError;
 
       // Avatar yükle (XFile ile - Web ve Mobile uyumlu)
       if (_avatarXFile != null) {
@@ -469,6 +470,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           setState(() => _currentAvatarUrl = newAvatarUrl);
         } else {
           debugPrint('❌ Avatar yüklenemedi');
+          uploadError = 'avatar';
         }
       }
 
@@ -482,6 +484,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           setState(() => _currentCoverUrl = newCoverUrl);
         } else {
           debugPrint('❌ Kapak yüklenemedi');
+          uploadError = uploadError == 'avatar' ? 'both' : 'cover';
+        }
+      }
+
+      // Kullanıcıya anlamlı geri bildirim: yükleme başarısızsa Snackbar göster.
+      // Çözüm: dosya boyutunu düşür, bağlantıyı kontrol et veya tekrar dene.
+      if (uploadError != null) {
+        if (mounted) {
+          final String message = uploadError == 'both'
+              ? 'Profil ve kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
+              : uploadError == 'avatar'
+                  ? 'Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
+                  : 'Kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.orange.shade700,
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'Tekrar Dene',
+                textColor: Colors.white,
+                onPressed: _saveProfile,
+              ),
+            ),
+          );
         }
       }
 

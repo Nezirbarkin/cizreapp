@@ -30,7 +30,7 @@ class ProfileService {
 
       // Profil bulunamadıysa hata fırlat
       if (response == null) {
-        throw Exception('Profil bulunamadı.');
+        throw Exception('Profil bulunamadı. userId=$userId');
       }
       return response;
     } catch (e) {
@@ -176,12 +176,15 @@ class ProfileService {
   }
 
   // Kullanıcı ara (isim veya kullanıcı adı ile)
+  // Not: profiles tablosu RLS nedeniyle yalnız kendi satırınızı döndürür.
+  // public_profiles_safe SECURITY DEFINER modda olduğu için tüm public
+  // profiller buradan okunabilir.
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
     try {
       if (query.trim().isEmpty) return [];
 
       final response = await _supabase
-          .from('profiles')
+          .from('public_profiles_safe')
           .select('id, username, full_name, avatar_url, bio')
           .or('username.ilike.%$query%,full_name.ilike.%$query%')
           .limit(20);
@@ -496,9 +499,10 @@ class ProfileService {
       // Username ise server-side RPC ile email'i al
       final email = await _supabase.rpc<String>(
         'lookup_email_by_username',
-        params: {'p_username': identifier},
+        params: {'p_username': identifier.trim().toLowerCase()},
       );
-      return email;
+      final normalizedEmail = email.trim().toLowerCase();
+      return normalizedEmail.isEmpty ? null : normalizedEmail;
     } catch (e) {
       debugPrint('❌ Email lookup hatası: $e');
       return null;
@@ -528,16 +532,23 @@ class ProfileService {
   // ============================================
 
   /// XFile'dan profil fotoğrafı yükle (Web ve Mobile uyumlu)
-  /// Bu metod hem web hem mobile'da çalışır
+  /// Bu metod hem web hem mobile'da çalışır.
+  ///
+  /// RLS davranışı: bucket_id = 'avatars' ise authenticated INSERT kabul edilir
+  /// (20260206000001_create_avatar_cover_buckets.sql). Bucket MİMARİSİ:
+  /// dosya adı `avatar_<userId>-<ts>.jpg` → kullanıcı kendi klasörüne yazar;
+  /// Supabase storage allowed_mime_types `image/jpeg|image/png|image/webp`
+  /// kabul eder. contentType burada açıkça set edilmezse storage bazı
+  /// bucket konfiglerinde "0 byte / mime uyumsuz" olarak reddedebilir.
   Future<String?> uploadProfilePhotoXFile(XFile xFile) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
-        debugPrint('❌ Avatar - Kullanıcı ID boş');
+        debugPrint('❌ Avatar - Kullanıcı ID boş (auth.currentUser null)');
         return null;
       }
 
-      debugPrint('📤 Avatar XFile yükleniyor...');
+      debugPrint('📤 Avatar XFile yükleniyor... userId=$userId');
 
       // Resmi sıkıştır
       final compressedBytes =
@@ -552,16 +563,14 @@ class ProfileService {
       final fileName =
           'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      // Dosyayı yükle (byte array ile)
-      final uploadResponse = await _supabase.storage
-          .from('avatars')
-          .uploadBinary(
-            fileName,
-            imageBytes,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
-          );
-
-      debugPrint('✅ Dosya yüklendi: $uploadResponse');
+      // contentType ve upsert birlikte; storage RLS'in bucket-level kontrolü
+      // için yeterli. allowed_mime_types filtrelemesini de geçer.
+      await _uploadWithRetry(
+        bucket: 'avatars',
+        objectPath: fileName,
+        bytes: imageBytes,
+        contentType: 'image/jpeg',
+      );
 
       // Public URL al
       final url = _supabase.storage.from('avatars').getPublicUrl(fileName);
@@ -574,7 +583,14 @@ class ProfileService {
         params: {'p_avatar_url': url},
       );
 
+      debugPrint('✅ Avatar yüklendi ve profile bağlandı');
       return url;
+    } on StorageException catch (e) {
+      debugPrint(
+        '❌ Profil fotoğrafı StorageException: '
+        'status=${e.statusCode} msg=${e.message}',
+      );
+      return null;
     } catch (e) {
       debugPrint('❌ Profil fotoğrafı yüklenemedi (XFile): $e');
       return null;
@@ -587,11 +603,11 @@ class ProfileService {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
-        debugPrint('❌ Kapak - Kullanıcı ID boş');
+        debugPrint('❌ Kapak - Kullanıcı ID boş (auth.currentUser null)');
         return null;
       }
 
-      debugPrint('📤 Kapak XFile yükleniyor...');
+      debugPrint('📤 Kapak XFile yükleniyor... userId=$userId');
 
       // Resmi sıkıştır
       final compressedBytes =
@@ -606,16 +622,12 @@ class ProfileService {
       final fileName =
           'cover_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      // Dosyayı yükle (byte array ile)
-      final uploadResponse = await _supabase.storage
-          .from('covers')
-          .uploadBinary(
-            fileName,
-            imageBytes,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
-          );
-
-      debugPrint('✅ Dosya yüklendi: $uploadResponse');
+      await _uploadWithRetry(
+        bucket: 'covers',
+        objectPath: fileName,
+        bytes: imageBytes,
+        contentType: 'image/jpeg',
+      );
 
       // Public URL al
       final url = _supabase.storage.from('covers').getPublicUrl(fileName);
@@ -628,10 +640,59 @@ class ProfileService {
         params: {'p_cover_url': url},
       );
 
+      debugPrint('✅ Kapak yüklendi ve profile bağlandı');
       return url;
+    } on StorageException catch (e) {
+      debugPrint(
+        '❌ Kapak fotoğrafı StorageException: '
+        'status=${e.statusCode} msg=${e.message}',
+      );
+      return null;
     } catch (e) {
       debugPrint('❌ Kapak fotoğrafı yüklenemedi (XFile): $e');
       return null;
+    }
+  }
+
+  /// Storage yükleme yardımcısı:
+  /// - contentType açıkça set edilir (bucket allowed_mime_types uyumu için)
+  /// - 403 RLS hatası alındığında 1 kez upsert:false ile tekrar denenir
+  ///   (mevcut dosya varken RLS UPDATE'i reddediyor olabilir; INSERT ile yeni
+  ///   nesne oluşturmak çoğu zaman çözümdür).
+  /// - Hâlâ başarısızsa StorageException fırlatır, üst katman loglayıp
+  ///   kullanıcıya hata mesajı gösterir.
+  Future<void> _uploadWithRetry({
+    required String bucket,
+    required String objectPath,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    Future<void> attempt({required bool upsert}) async {
+      await _supabase.storage
+          .from(bucket)
+          .uploadBinary(
+            objectPath,
+            bytes,
+            fileOptions: FileOptions(
+              cacheControl: '3600',
+              upsert: upsert,
+              contentType: contentType,
+            ),
+          );
+    }
+
+    try {
+      await attempt(upsert: true);
+    } on StorageException catch (e) {
+      // 403 (RLS) veya 409 (Conflict) durumlarında upsert=false ile dene
+      if (e.statusCode == '403' || e.statusCode == '409') {
+        debugPrint(
+          '⚠️ Storage upload RLS/Conflict (${e.statusCode}), upsert=false ile tekrar deneniyor...',
+        );
+        await attempt(upsert: false);
+      } else {
+        rethrow;
+      }
     }
   }
 }

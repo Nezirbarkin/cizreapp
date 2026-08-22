@@ -14,13 +14,22 @@
 //   - FCM token'ı, service account, OAuth header, kullanıcı notification
 //     data değerlerini LOGLMAZ.
 //
+// TETİKLEYİCİLER: (1) notification_outbox INSERT'ünde pg_net poke trigger'ı
+// (anlık teslim, 20260817000002) ve (2) dakikalık pg_cron job'ı (yedek
+// süpürücü). claim->işle döngüsü kuyruğu tek çağrıda boşaltmaya çalışır.
+//
 // Auth: Kullanıcı JWT'si yok. Secret header (INTERNAL_WORKER_SECRET)
 // veya Authorization: Bearer <secret> zorunlu. CORS yok; istemci
 // çağırmaz.
 // =====================================================
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getAdminClient } from '../_shared/client.ts'
+import {
+  buildFcmMessage,
+  classifyFcmFailure,
+  isPushEnabledForType,
+} from '../_shared/push_delivery_policy.ts'
 
 const FIREBASE_SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 
@@ -137,12 +146,16 @@ async function getAccessToken(serviceAccount: any): Promise<string> {
     }),
   })
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to get access token: ${error}`)
+    await response.text()
+    // OAuth yanıtı credential ayrıntısı içerebilir; log zincirine taşımıyoruz.
+    throw new Error(`Firebase OAuth request failed (${response.status})`)
   }
   const data = await response.json()
   cachedAccessToken = data.access_token
   tokenExpiry = Date.now() + (data.expires_in - 300) * 1000
+  if (!cachedAccessToken) {
+    throw new Error('Firebase OAuth response missing access token')
+  }
   return cachedAccessToken
 }
 
@@ -163,25 +176,7 @@ async function sendFcm(
   data: Record<string, string>,
 ): Promise<FcmResult> {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
-  const message = {
-    notification: { title, body },
-    data,
-    android: {
-      priority: 'high' as const,
-      notification: {
-        sound: 'default' as const,
-        channel_id: 'high_importance_channel' as const,
-      },
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: 'default' as const,
-          badge: 1,
-        },
-      },
-    },
-  }
+  const message = buildFcmMessage(token, title, body, data)
 
   const response = await fetch(url, {
     method: 'POST',
@@ -189,15 +184,19 @@ async function sendFcm(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message, token }),
+    // FCM HTTP v1 sözleşmesinde hedef token `message.token` içinde olmalıdır.
+    body: JSON.stringify({ message }),
   })
 
   if (!response.ok) {
     const errorText = await response.text()
-    const unregistered = errorText.includes('UNREGISTERED') ||
-      errorText.includes('NOT_FOUND') ||
-      errorText.includes('INVALID_ARGUMENT')
-    return { success: false, unregistered, error: errorText }
+    const failure = classifyFcmFailure(response.status, errorText)
+    return {
+      success: false,
+      unregistered: failure.unregistered,
+      // FCM yanıtının tamamı outbox/log'a yazılmaz.
+      error: failure.safeError,
+    }
   }
   return { success: true, unregistered: false }
 }
@@ -240,6 +239,72 @@ async function cleanupInvalidToken(supabase: any, token: string) {
     .eq('token', token)
 }
 
+async function getUserPushPreferences(
+  supabase: any,
+  userId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+  // Tablo/kolon geçişlerinde push'u tümden kesmemek için yalnız açıkça false
+  // olan tercihler engellenir; sorgu hatası fail-open ve içeriksizdir.
+  if (error) return null
+  return data as Record<string, unknown> | null
+}
+
+// Toplu yükleme: claim edilen tüm kullanıcıların preferences + token'larını
+// 3 sorguda çeker (eski hali: kullanıcı başına 3 sorgu = 25 claim için 75).
+async function batchLoadUserContext(
+  supabase: any,
+  userIds: string[],
+): Promise<{
+  prefMap: Map<string, Record<string, unknown> | null>
+  tokenMap: Map<string, Set<string>>
+}> {
+  const distinctIds = [...new Set(userIds.filter(Boolean))]
+  const prefMap = new Map<string, Record<string, unknown> | null>()
+  const tokenMap = new Map<string, Set<string>>()
+
+  // Preferences
+  const { data: prefs } = await supabase
+    .from('notification_preferences')
+    .select('*')
+    .in('user_id', distinctIds)
+  for (const p of prefs ?? []) {
+    if (p?.user_id) prefMap.set(p.user_id, p as Record<string, unknown>)
+  }
+
+  // profiles.fcm_token
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, fcm_token')
+    .in('id', distinctIds)
+  for (const pr of profiles ?? []) {
+    if (pr?.fcm_token) {
+      let set = tokenMap.get(pr.id)
+      if (!set) { set = new Set<string>(); tokenMap.set(pr.id, set) }
+      set.add(pr.fcm_token)
+    }
+  }
+
+  // notification_tokens
+  const { data: ntok } = await supabase
+    .from('notification_tokens')
+    .select('user_id, token')
+    .in('user_id', distinctIds)
+  for (const t of ntok ?? []) {
+    if (t?.token) {
+      let set = tokenMap.get(t.user_id)
+      if (!set) { set = new Set<string>(); tokenMap.set(t.user_id, set) }
+      set.add(t.token)
+    }
+  }
+
+  return { prefMap, tokenMap }
+}
+
 // -------- Main worker --------
 
 const WORKER_ID = `worker-${crypto.randomUUID()}`
@@ -277,144 +342,181 @@ serve(async (req: Request) => {
     )
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey)
-  const serviceAccount = JSON.parse(firebaseJson)
-  const projectId = serviceAccount.project_id
-
   try {
+    const supabase = getAdminClient()
+    const serviceAccount = JSON.parse(firebaseJson)
+    const projectId = serviceAccount?.project_id
+    if (!projectId || !serviceAccount?.client_email || !serviceAccount?.private_key) {
+      throw new Error('Firebase service account is invalid')
+    }
+
     // 1) Eski processing kayıtlarını serbest bırak
     await supabase.rpc('release_stale_outbox', {
       p_max_age: '5 minutes',
     })
 
-    // 2) Outbox'tan atomik claim
-    const { data: rows, error: claimError } = await supabase.rpc(
-      'claim_notification_outbox',
-      { p_limit: CLAIM_LIMIT, p_worker_id: WORKER_ID },
-    )
-
-    if (claimError) {
-      return new Response(
-        JSON.stringify({ error: 'Claim failed' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
-      )
+    // Access token lazy alınır: kuyruk boşsa OAuth isteği yapılmaz. Outbox'a
+    // her INSERT'te poke trigger'ı bu worker'ı çağırdığı için worker artık
+    // sıklıkla boş tetiklenebilir.
+    let accessToken: string | null = null
+    const ensureAccessToken = async (): Promise<string> => {
+      accessToken ??= await getAccessToken(serviceAccount)
+      return accessToken
     }
 
-    const claims = (rows ?? []) as ClaimResult[]
-    if (claims.length === 0) {
-      return new Response(
-        JSON.stringify({ processed: 0 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }
-
-    const accessToken = await getAccessToken(serviceAccount)
     let sent = 0
     let failed = 0
     let dead = 0
     let unregisteredCleaned = 0
+    let preferenceSkipped = 0
+    let processed = 0
+    let batches = 0
+    // Tek çağrıda en fazla bu kadar batch işlenir; kalanı sonraki poke/cron
+    // vuruşunda devralınır (broadcast'lerde süre sınırına takılmamak için).
+    const MAX_BATCHES = 10
 
-    for (const row of claims) {
-      // Token'ları al
-      const tokens = await getUserTokens(supabase, row.user_id)
-      if (tokens.length === 0) {
-        // Kullanıcının token'ı yok → sent olarak işaretle
-        // (outbox'a alındı; teslim adresi yok; tekrar denenmenin anlamı yok)
-        await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
-        sent++
-        continue
+    // 2) claim -> işle döngüsü. Anlık poke ve dakikalık cron aynı worker'ı
+    // çağırabildiğinden tek batch'le yetinmeyip kuyruğu boşaltana kadar
+    // devam edilir (her batch 25 kayıt, SKIP LOCKED ile çift gönderim yok).
+    while (batches < MAX_BATCHES) {
+      const { data: rows, error: claimError } = await supabase.rpc(
+        'claim_notification_outbox',
+        { p_limit: CLAIM_LIMIT, p_worker_id: WORKER_ID },
+      )
+
+      if (claimError) {
+        return new Response(
+          JSON.stringify({ error: 'Claim failed' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        )
       }
 
-      const data: Record<string, string> = {
-        notification_id: row.notification_id,
-        type: row.type,
-        entity_id: row.entity_id ?? '',
-      }
-      // metadata varsa data'ya düzleştir (string-only FCM data)
-      const meta = row.notification_metadata
-      if (meta && typeof meta === 'object') {
-        for (const [k, v] of Object.entries(meta)) {
-          if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-            data[`meta_${k}`] = String(v)
-          }
+      const claims = (rows ?? []) as ClaimResult[]
+      if (claims.length === 0) break
+      batches++
+      processed += claims.length
+
+      // Tüm claim edilen kullanıcıların preferences + token'larını 3 sorguda
+      // toplu yükle (loop içinde kullanıcı başına 3 sorgu yerine).
+      const { prefMap, tokenMap } = await batchLoadUserContext(
+        supabase,
+        claims.map((c) => c.user_id),
+      )
+
+      for (const row of claims) {
+        // In-app notification kaydı korunur; kullanıcı bu türü kapattıysa yalnız
+        // cihaz push teslimatı atlanır.
+        const preferences = prefMap.get(row.user_id) ?? null
+        if (!isPushEnabledForType(preferences, row.type)) {
+          await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
+          preferenceSkipped++
+          continue
         }
-      }
 
-      let anySuccess = false
-      let allUnregistered = true
-      let lastError: string | null = null
-      let cleanedAny = false
+        // Token'ları al
+        const tokenSet = tokenMap.get(row.user_id)
+        const tokens = tokenSet ? [...tokenSet] : []
+        if (tokens.length === 0) {
+          // Kullanıcının token'ı yok → sent olarak işaretle
+          // (outbox'a alındı; teslim adresi yok; tekrar denenmenin anlamı yok)
+          await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
+          sent++
+          continue
+        }
 
-      for (const token of tokens) {
-        try {
-          const result = await sendFcm(
-            accessToken,
-            projectId,
-            token,
-            row.title,
-            row.content,
-            data,
-          )
-          if (result.success) {
-            anySuccess = true
-            allUnregistered = false
-          } else {
-            lastError = result.error ?? 'unknown FCM error'
-            if (result.unregistered) {
-              await cleanupInvalidToken(supabase, token)
-              cleanedAny = true
-              unregisteredCleaned++
-            } else {
-              allUnregistered = false
+        const data: Record<string, string> = {
+          notification_id: row.notification_id,
+          type: row.type,
+          entity_id: row.entity_id ?? '',
+        }
+        // metadata varsa data'ya düzleştir (string-only FCM data)
+        const meta = row.notification_metadata
+        if (meta && typeof meta === 'object') {
+          for (const [k, v] of Object.entries(meta)) {
+            if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+              data[`meta_${k}`] = String(v)
             }
           }
-        } catch (err) {
-          lastError = err instanceof Error ? err.message : 'fetch failed'
-          allUnregistered = false
         }
-      }
 
-      if (anySuccess) {
-        await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
-        sent++
-      } else if (allUnregistered) {
-        // Tüm token'lar unregistered; kullanıcıya artık ulaşılamaz.
-        // Sent olarak işaretle (başarısız değil; teslim adresi yok).
-        await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
-        sent++
-      } else {
-        const { data: failedRow } = await supabase.rpc('mark_outbox_failed', {
-          p_outbox_id: row.outbox_id,
-          p_error: lastError ?? 'unknown',
-          p_max_attempts: MAX_ATTEMPTS,
-        })
-        // dead olup olmadığını anlamak için tekrar oku
-        const { data: status } = await supabase
-          .from('notification_outbox')
-          .select('status')
-          .eq('id', row.outbox_id)
-          .maybeSingle()
-        if (status?.status === 'dead') dead++
-        else failed++
-      }
+        let anySuccess = false
+        let allUnregistered = true
+        let lastError: string | null = null
+        let cleanedAny = false
 
-      // Hassas içerik loglanmaz; yalnızca uuid ve status.
-      console.log(
-        `outbox=${row.outbox_id} status=processed attempts=${row.attempt_number}`,
-      )
-      if (cleanedAny) {
-        // Token loglanmaz.
-        console.log(`outbox=${row.outbox_id} cleaned_invalid_token=true`)
+        for (const token of tokens) {
+          try {
+            const result = await sendFcm(
+              await ensureAccessToken(),
+              projectId,
+              token,
+              row.title,
+              row.content,
+              data,
+            )
+            if (result.success) {
+              anySuccess = true
+              allUnregistered = false
+            } else {
+              lastError = result.error ?? 'unknown FCM error'
+              if (result.unregistered) {
+                await cleanupInvalidToken(supabase, token)
+                cleanedAny = true
+                unregisteredCleaned++
+              } else {
+                allUnregistered = false
+              }
+            }
+          } catch (err) {
+            lastError = err instanceof Error ? err.message : 'fetch failed'
+            allUnregistered = false
+          }
+        }
+
+        if (anySuccess) {
+          await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
+          sent++
+        } else if (allUnregistered) {
+          // Tüm token'lar unregistered; kullanıcıya artık ulaşılamaz.
+          // Sent olarak işaretle (başarısız değil; teslim adresi yok).
+          await supabase.rpc('mark_outbox_sent', { p_outbox_id: row.outbox_id })
+          sent++
+        } else {
+          await supabase.rpc('mark_outbox_failed', {
+            p_outbox_id: row.outbox_id,
+            p_error: lastError ?? 'unknown',
+            p_max_attempts: MAX_ATTEMPTS,
+          })
+          // dead olup olmadığını anlamak için tekrar oku
+          const { data: status } = await supabase
+            .from('notification_outbox')
+            .select('status')
+            .eq('id', row.outbox_id)
+            .maybeSingle()
+          if (status?.status === 'dead') dead++
+          else failed++
+        }
+
+        // Hassas içerik loglanmaz; yalnızca uuid ve status.
+        console.log(
+          `outbox=${row.outbox_id} status=processed attempts=${row.attempt_number}`,
+        )
+        if (cleanedAny) {
+          // Token loglanmaz.
+          console.log(`outbox=${row.outbox_id} cleaned_invalid_token=true`)
+        }
       }
     }
 
     return new Response(
       JSON.stringify({
-        processed: claims.length,
+        processed,
+        batches,
         sent,
         failed,
         dead,
         unregistered_cleaned: unregisteredCleaned,
+        preference_skipped: preferenceSkipped,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )

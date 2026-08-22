@@ -6,6 +6,8 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        - firebase_ios
       vars:
         BUNDLE_ID: com.cizreapp.app
         TEAM_ID: 7RY64FSMUS
@@ -27,6 +29,9 @@ workflows:
       - name: Set up provisioning profiles
         script: |
           app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE
+      - name: Set up Firebase config
+        script: |
+          echo $GOOGLE_SERVICE_INFO_PLIST | base64 --decode > ios/Runner/GoogleService-Info.plist
       - name: Build iOS IPA
         script: |
           flutter build ipa --release --export-options-plist=ios/Flutter/ExportOptions.plist

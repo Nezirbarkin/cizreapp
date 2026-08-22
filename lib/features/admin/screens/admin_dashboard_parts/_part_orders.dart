@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -64,6 +76,7 @@ extension on _AdminDashboardScreenState {
               break;
             case 'preparing':
             case 'confirmed':
+            case 'ready':
             case 'on_the_way':
               processingOrders++;
               break;
@@ -457,10 +470,10 @@ extension on _AdminDashboardScreenState {
                         : null,
                     child: profile?['avatar_url'] == null
                         ? Text(
-                            (profile?['username'] as String?)
-                                    ?.substring(0, 1)
-                                    .toUpperCase() ??
-                                '?',
+                            AdminUserHelpers.initialOf(
+                              profile?['username'] as String?,
+                              profile?['full_name'] as String?,
+                            ),
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -1012,10 +1025,26 @@ extension on _AdminDashboardScreenState {
         icon = Icons.pending_actions;
         label = 'Bekliyor';
         break;
+      case 'confirmed':
+        color = Colors.blue;
+        icon = Icons.thumb_up_alt_outlined;
+        label = 'Onaylandı';
+        break;
       case 'processing':
+      case 'preparing':
         color = Colors.blue;
         icon = Icons.autorenew;
         label = 'İşleniyor';
+        break;
+      case 'ready':
+        color = Colors.purple;
+        icon = Icons.inventory_2_outlined;
+        label = 'Hazır';
+        break;
+      case 'on_the_way':
+        color = Colors.indigo;
+        icon = Icons.local_shipping_outlined;
+        label = 'Yolda';
         break;
       case 'completed':
       case 'delivered':
@@ -1157,10 +1186,10 @@ extension on _AdminDashboardScreenState {
                               : null,
                           child: profile?['avatar_url'] == null
                               ? Text(
-                                  (profile?['username'] as String?)
-                                          ?.substring(0, 1)
-                                          .toUpperCase() ??
-                                      '?',
+                                  AdminUserHelpers.initialOf(
+                                    profile?['username'] as String?,
+                                    profile?['full_name'] as String?,
+                                  ),
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
@@ -1722,7 +1751,7 @@ extension on _AdminDashboardScreenState {
 
                   if (mounted) {
                     Navigator.pop(context);
-                    setState(() {});
+                    setState(() => order['status'] = selectedStatus);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(

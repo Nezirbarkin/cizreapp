@@ -97,6 +97,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
 
       if (shopResponse == null) {
         debugPrint('🔴 [_loadDashboardData] HATA: Satıcıya ait mağaza yok! userId=$userId');
+        if (!mounted) return;
         setState(() {
           _stats = {'hasShop': false};
           _isLoading = false;
@@ -207,6 +208,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
       if (_availablePayout < 0) _availablePayout = 0;
       debugPrint('🔵 [_loadDashboardData] Kullanılabilir ödeme: $_availablePayout');
 
+      if (!mounted) return;
       setState(() {
         _stats = {
           'hasShop': true,
@@ -232,7 +234,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
     } catch (e, stack) {
       debugPrint('🔴 [_loadDashboardData] CATCH BLOĞU - HATA: $e');
       debugPrint('🔴 [_loadDashboardData] STACK TRACE: $stack');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -1419,6 +1421,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
     final statusColor = PayoutService.getStatusColorValue(status);
     final statusText = PayoutService.getStatusText(status);
     final amount = (payout['total_amount'] as num?)?.toDouble() ?? 0.0;
+    final deliveryFeeDeducted =
+        (payout['delivery_fee_deducted'] as num?)?.toDouble() ?? 0.0;
+    final deductionDetail = payout['deduction_detail'] as String?;
 
     String? rejectionReason;
     if (status == 'rejected' && payout['rejection_reason'] != null) {
@@ -1466,6 +1471,30 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
               _buildPayoutInfoRow('İnceleme Tarihi', _formatDate(payout['reviewed_at'])),
             if (payout['paid_at'] != null)
               _buildPayoutInfoRow('Ödeme Tarihi', _formatDate(payout['paid_at'])),
+            if (deliveryFeeDeducted > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.local_shipping, size: 18, color: Colors.orange.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        deductionDetail ??
+                            'Teslimat ücreti kesintisi: ₺${deliveryFeeDeducted.toStringAsFixed(2)}',
+                        style: TextStyle(color: Colors.orange.shade700, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (rejectionReason != null) ...[
               const SizedBox(height: 12),
               Container(
@@ -1850,9 +1879,40 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 16),
-              
+
+              if (!_hasOwnCourier) ...[
+                // Kuryesi olmayan satıcılar için teslimat ücreti kesintisi bilgisi
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.local_shipping, color: Colors.orange.shade700, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Kuryeniz olmadığı için teslimat ücretleri, admin tarafından '
+                          'siparişlerden zaten kesilmiş olarak bu tutara yansımıştır. '
+                          'İsteği oluşturduğunuzda kesinti detayını görebilirsiniz.',
+                          style: TextStyle(
+                            color: Colors.orange.shade900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
               // Bilgilendirme mesajı
               Container(
                 padding: const EdgeInsets.all(12),

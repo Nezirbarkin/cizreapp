@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:hive/hive.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
 
 /// Analytics veri modeli - Basit sınıf (Hive annotation olmadan)
@@ -27,13 +30,21 @@ class AnalyticsEvent {
     'duration': duration,
   };
 
-  factory AnalyticsEvent.fromJson(Map<String, dynamic> json) => AnalyticsEvent(
-    eventType: json['eventType'] as String,
-    entityId: json['entityId'] as String?,
-    timestamp: DateTime.parse(json['timestamp'] as String),
-    metadata: json['metadata'] as Map<String, dynamic>?,
-    duration: json['duration'] as int?,
-  );
+  factory AnalyticsEvent.fromJson(Map<String, dynamic> json) {
+    // Hive'dan dönen metadata _Map<dynamic, dynamic> olabilir, güvenli çevir
+    Map<String, dynamic>? meta;
+    final rawMeta = json['metadata'];
+    if (rawMeta is Map) {
+      meta = rawMeta.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return AnalyticsEvent(
+      eventType: json['eventType'] as String,
+      entityId: json['entityId'] as String?,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+      metadata: meta,
+      duration: json['duration'] as int?,
+    );
+  }
 }
 
 /// Analytics servis - Kullanıcı davranışlarını takip eder
@@ -44,6 +55,74 @@ class AnalyticsService {
 
   static const String _boxName = 'analytics_events';
   static Box? _box; // Generic Box (AnalyticsEvent olmadan) - nullable
+
+  // --- Hata akisi korumalari ---------------------------------------------
+  // AppLogger.error uygulamanin her yerinden cagriliyor. Kancayi filtresiz
+  // baglarsak (a) tek bir dongusel hata tabloyu doldurur, (b) merkezi yazimin
+  // kendi hatasi tekrar AppLogger.error'a dusup sonsuz dongu yapar.
+  static const Duration _errorDedupeWindow = Duration(minutes: 5);
+  static const int _maxErrorEventsPerRun = 50;
+  final Map<String, DateTime> _recentErrorKeys = {};
+  int _errorEventsThisRun = 0;
+  bool _errorSinkBusy = false;
+
+  /// AppLogger.error/fatal cagrilarini merkezi analitige baglar.
+  /// `main.dart` icinde, Supabase hazir olduktan sonra bir kez cagrilir.
+  static void attachToLogger() {
+    final instance = AnalyticsService();
+    AppLogger.errorSink = instance._onLoggedError;
+  }
+
+  void _onLoggedError(String message, String? details) {
+    // Merkezi yazim sirasinda olusan hatanin kendisini tekrar yazmaya
+    // calismamak icin re-entrancy kilidi.
+    if (_errorSinkBusy) return;
+    if (_errorEventsThisRun >= _maxErrorEventsPerRun) return;
+
+    final type = _normalizeErrorType(message);
+    final key = '$type|${_truncate(details ?? '', 120)}';
+    final now = DateTime.now();
+    final lastSeen = _recentErrorKeys[key];
+    if (lastSeen != null && now.difference(lastSeen) < _errorDedupeWindow) {
+      return;
+    }
+    _recentErrorKeys[key] = now;
+    if (_recentErrorKeys.length > 200) {
+      _recentErrorKeys.removeWhere(
+        (_, seenAt) => now.difference(seenAt) >= _errorDedupeWindow,
+      );
+    }
+    _errorEventsThisRun++;
+
+    _errorSinkBusy = true;
+    // Loglama cagrisini bloklamamak icin bekletmiyoruz.
+    unawaited(
+      trackError(type, details: details).whenComplete(() {
+        _errorSinkBusy = false;
+      }),
+    );
+  }
+
+  /// Log mesajindan gruplanabilir bir hata tipi uretir.
+  ///
+  /// Ham mesaj ("❌ Feed loading error: SocketException(...)") tipe cevrilmezse
+  /// `errorTypeCounts` her satiri ayri bir tip sayar ve dagilim kartı
+  /// okunamaz hale gelir.
+  static String _normalizeErrorType(String message) {
+    var text = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // Bastaki emoji/isaretleri at.
+    text = text.replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
+    final colon = text.indexOf(':');
+    if (colon >= 8) {
+      text = text.substring(0, colon);
+    }
+    text = text.trim();
+    if (text.isEmpty) text = 'Bilinmeyen';
+    return _truncate(text, 80);
+  }
+
+  static String _truncate(String value, int maxLength) =>
+      value.length <= maxLength ? value : value.substring(0, maxLength);
 
   /// Analytics servisini başlat
   static Future<void> initialize() async {
@@ -69,33 +148,59 @@ class AnalyticsService {
     Map<String, dynamic>? metadata,
     int? duration,
   }) async {
-    if (_box == null) return;
+    final event = AnalyticsEvent(
+      eventType: eventType,
+      entityId: entityId,
+      timestamp: DateTime.now(),
+      metadata: metadata,
+      duration: duration,
+    );
+
+    // Merkezi kayıt gerçek admin verisinin kaynağıdır. Yerel Hive yalnızca
+    // çevrimdışı/geriye dönük cihaz içi analitik için tutulur.
     try {
-      final event = AnalyticsEvent(
-        eventType: eventType,
-        entityId: entityId,
-        timestamp: DateTime.now(),
-        metadata: metadata,
-        duration: duration,
-      );
-      await _box!.add(event.toJson()); // JSON olarak kaydet
-      AppLogger.debug('📊 Event tracked: $eventType');
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId != null) {
+        await client.from('app_analytics_events').insert({
+          'user_id': userId,
+          'event_type': eventType,
+          'entity_id': entityId,
+          'metadata': metadata ?? <String, dynamic>{},
+          'duration_ms': duration,
+        });
+      }
     } catch (e) {
-      AppLogger.error('Track event error: $e');
+      // Bilerek AppLogger.error DEGIL: errorSink bu cagriyi tekrar merkezi
+      // yazima sokar ve baglanti kopukken sonsuz dongu olusur.
+      AppLogger.warning('Remote analytics event error: $e');
     }
+
+    if (_box != null) {
+      try {
+        await _box!.add(event.toJson());
+      } catch (e) {
+        AppLogger.error('Local analytics event error: $e');
+      }
+    }
+    AppLogger.debug('📊 Event tracked: $eventType');
   }
 
   /// Box'tan event'leri AnalyticsEvent'e dönüştür
   List<AnalyticsEvent> _getEvents() {
     if (_box == null) return [];
-    try {
-      return _box!.values
-          .map((e) => AnalyticsEvent.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    } catch (e) {
-      AppLogger.error('Get events error: $e');
-      return [];
+    final out = <AnalyticsEvent>[];
+    for (final raw in _box!.values) {
+      try {
+        // Hive generic Box döndürdüğü için dış map dynamic key olabilir
+        final m = Map<String, dynamic>.from(raw as Map);
+        out.add(AnalyticsEvent.fromJson(m));
+      } catch (e) {
+        // Tek bir bozuk kayıt tüm listeyi yutmasın
+        AppLogger.error('Skip malformed analytics event: $e');
+      }
     }
+    return out;
   }
 
   /// Post görüntülenme
@@ -115,11 +220,10 @@ class AnalyticsService {
       trackEvent(eventType: 'share', entityId: postId);
 
   /// Hata kaydet
-  Future<void> trackError(String errorType, {String? details}) =>
-      trackEvent(
-        eventType: 'error',
-        metadata: {'type': errorType, 'details': details},
-      );
+  Future<void> trackError(String errorType, {String? details}) => trackEvent(
+    eventType: 'error',
+    metadata: {'type': errorType, 'details': details},
+  );
 
   /// En çok görüntülenen postlar
   Map<String, int> getMostViewedPosts({int limit = 10}) {
@@ -137,9 +241,7 @@ class AnalyticsService {
       final sorted = counts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
 
-      return Map<String, int>.fromEntries(
-        sorted.take(limit),
-      );
+      return Map<String, int>.fromEntries(sorted.take(limit));
     } catch (e) {
       AppLogger.error('Get most viewed posts error: $e');
       return {};
@@ -213,8 +315,10 @@ class AnalyticsService {
 
       if (viewEvents.isEmpty) return 0;
 
-      final totalDuration =
-          viewEvents.fold<int>(0, (sum, e) => sum + (e.duration!));
+      final totalDuration = viewEvents.fold<int>(
+        0,
+        (sum, e) => sum + (e.duration!),
+      );
       return (totalDuration / viewEvents.length).round();
     } catch (e) {
       AppLogger.error('Get average post view duration error: $e');
@@ -226,11 +330,8 @@ class AnalyticsService {
   List<AnalyticsEvent> getLastSevenDaysEvents() {
     try {
       final events = _getEvents();
-      final sevenDaysAgo =
-          DateTime.now().subtract(const Duration(days: 7));
-      return events
-          .where((e) => e.timestamp.isAfter(sevenDaysAgo))
-          .toList()
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      return events.where((e) => e.timestamp.isAfter(sevenDaysAgo)).toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     } catch (e) {
       AppLogger.error('Get last 7 days events error: $e');
@@ -242,9 +343,7 @@ class AnalyticsService {
   List<AnalyticsEvent> getErrors({int limit = 50}) {
     try {
       final events = _getEvents();
-      final errors = events
-          .where((e) => e.eventType == 'error')
-          .toList()
+      final errors = events.where((e) => e.eventType == 'error').toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
       return errors.take(limit).toList();
@@ -258,8 +357,7 @@ class AnalyticsService {
   Future<void> clearOldEvents({int daysToKeep = 30}) async {
     if (_box == null) return;
     try {
-      final cutoffDate =
-          DateTime.now().subtract(Duration(days: daysToKeep));
+      final cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
       final keysToDelete = <int>[];
 
       for (var i = 0; i < _box!.length; i++) {
@@ -267,13 +365,16 @@ class AnalyticsService {
         if (event != null) {
           try {
             final analyticsEvent = AnalyticsEvent.fromJson(
-              Map<String, dynamic>.from(event as Map)
+              Map<String, dynamic>.from(event as Map),
             );
             if (analyticsEvent.timestamp.isBefore(cutoffDate)) {
               keysToDelete.add(i);
             }
           } catch (e) {
             // Geçersiz veri, sil
+            AppLogger.error(
+              'Skip malformed analytics event during cleanup: $e',
+            );
             keysToDelete.add(i);
           }
         }
@@ -283,24 +384,37 @@ class AnalyticsService {
         await _box!.deleteAt(key);
       }
 
-      AppLogger.debug(
-          '🧹 Cleared ${keysToDelete.length} old analytics events');
+      AppLogger.debug('🧹 Cleared ${keysToDelete.length} old analytics events');
     } catch (e) {
       AppLogger.error('Clear old events error: $e');
     }
   }
 
-  /// Tüm veriler temizle
+  /// Sadece bu cihazdaki yerel Hive kayitlarini temizler.
+  /// Merkezi (admin panelinde gorunen) veri icin [purgeRemoteEvents] kullanin.
   Future<void> clearAllEvents() async {
     if (_box == null) return;
     try {
       await _box!.clear();
-      AppLogger.info('🧹 All analytics events cleared');
+      AppLogger.info('🧹 All local analytics events cleared');
     } catch (e) {
       AppLogger.error('Clear all events error: $e');
     }
   }
 
-  /// Toplam event sayısı
-  int get eventCount => _box?.length ?? 0;
+  /// Merkezi analitik kayitlarini siler (yalnizca admin; RPC tarafinda
+  /// `private.current_user_is_admin()` ile dogrulanir). Silinen satir sayisini
+  /// dondurur. [olderThanDays] null ise tum tablo temizlenir.
+  Future<int> purgeRemoteEvents({int? olderThanDays}) async {
+    final raw = await Supabase.instance.client.rpc<dynamic>(
+      'admin_purge_analytics_events',
+      params: {'p_older_than_days': olderThanDays},
+    );
+    return raw is num ? raw.toInt() : int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
+  /// Yalnizca bu cihazdaki yerel event sayisi. Admin panelinde toplam etkinlik
+  /// gostermek icin kullanmayin - merkezi sayim `admin_logs_data` RPC'sinden
+  /// `totalEvents` alanindan gelir.
+  int get localEventCount => _box?.length ?? 0;
 }

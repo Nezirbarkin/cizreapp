@@ -39,7 +39,7 @@ Bu ekranlarda **sıfır** ödeme yöntemi filtresi yok; tüm yöntemler her zama
 - `balance_enabled` (bakiye sistemi — ZATEN VAR)
 - EKSİK: sipariş ödeme yöntemi toggle'ları (`order_cod_enabled`, `order_card_on_delivery_enabled`, `order_balance_enabled`)
 
-`payment_method` enum (supabase_schema.sql:151 + 20260623_ADD_PAYMENT_METHOD_BALANCE.sql:21): `('cash', 'card_on_delivery', 'online', 'balance')`.
+`payment_method` enum (supabase_schema.sql:151 + 20260623000000_ADD_PAYMENT_METHOD_BALANCE.sql:21): `('cash', 'card_on_delivery', 'online', 'balance')`.
 
 ### 1.5 RLS / Güvenlik Notları (PROJE_HAVIZA_RLS.md)
 - `app_about_settings` UPDATE sadece admin (mevcut policy). Yeni kolonlar aynı policy'den yararlanır — yeni policy GEREKMEZ.

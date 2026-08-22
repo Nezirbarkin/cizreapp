@@ -10,21 +10,28 @@ class Message {
   final bool isRead;
   final DateTime createdAt;
   final DateTime updatedAt;
-  
+
   // Mesaj durumu (local state - veritabanında tutulmaz)
   final bool isFailed;
   final bool isSending;
-  
+
   // Yanıt (reply) özelliği için
   final String? replyToId;
   final String? replyToContent;
   final String? replyToSenderName;
-  
+
   // Gönderi paylaşımı için ekstra alanlar (content içinden parse edilir)
   String? sharedPostId;
   String? sharedPostContent;
   String? sharedPostImageUrl;
   String? sharedPostAuthorName;
+
+  // İlan paylaşımı için ekstra alanlar (content içinden parse edilir)
+  String? sharedIlanId;
+  String? sharedIlanTitle;
+  String? sharedIlanPriceText;
+  String? sharedIlanLocationText;
+  String? sharedIlanImageUrl;
 
   Message({
     required this.id,
@@ -43,6 +50,11 @@ class Message {
     this.sharedPostContent,
     this.sharedPostImageUrl,
     this.sharedPostAuthorName,
+    this.sharedIlanId,
+    this.sharedIlanTitle,
+    this.sharedIlanPriceText,
+    this.sharedIlanLocationText,
+    this.sharedIlanImageUrl,
   });
 
   /// WhatsApp benzeri mesaj durumu
@@ -64,6 +76,11 @@ class Message {
     String? sharedPostContent;
     String? sharedPostImageUrl;
     String? sharedPostAuthorName;
+    String? sharedIlanId;
+    String? sharedIlanTitle;
+    String? sharedIlanPriceText;
+    String? sharedIlanLocationText;
+    String? sharedIlanImageUrl;
 
     // Content'in gönderi paylaşımı olup olmadığını kontrol et
     if (content.startsWith('SHARED_POST:')) {
@@ -82,6 +99,20 @@ class Message {
       }
     }
 
+    if (content.startsWith('SHARED_ILAN:')) {
+      try {
+        final jsonStr = content.substring('SHARED_ILAN:'.length);
+        final ilanData = json.decode(jsonStr) as Map<String, dynamic>;
+        sharedIlanId = ilanData['ilanId'] as String?;
+        sharedIlanTitle = ilanData['title'] as String?;
+        sharedIlanPriceText = ilanData['priceText'] as String?;
+        sharedIlanLocationText = ilanData['locationText'] as String?;
+        sharedIlanImageUrl = ilanData['imageUrl'] as String?;
+      } catch (e, stack) {
+        print('❌ ERROR Message.fromMap - SharedIlan parse failed: $e\n$stack');
+      }
+    }
+
     final createdAtStr = map['created_at'] as String?;
     if (createdAtStr == null) {
       throw FormatException('created_at missing for message ${map['id']}');
@@ -89,7 +120,9 @@ class Message {
 
     final createdAt = DateTime.parse(createdAtStr);
     final updatedAtStr = map['updated_at'] as String?;
-    final updatedAt = updatedAtStr != null ? DateTime.parse(updatedAtStr) : createdAt;
+    final updatedAt = updatedAtStr != null
+        ? DateTime.parse(updatedAtStr)
+        : createdAt;
 
     return Message(
       id: map['id'] as String,
@@ -106,11 +139,17 @@ class Message {
       sharedPostContent: sharedPostContent,
       sharedPostImageUrl: sharedPostImageUrl,
       sharedPostAuthorName: sharedPostAuthorName,
+      sharedIlanId: sharedIlanId,
+      sharedIlanTitle: sharedIlanTitle,
+      sharedIlanPriceText: sharedIlanPriceText,
+      sharedIlanLocationText: sharedIlanLocationText,
+      sharedIlanImageUrl: sharedIlanImageUrl,
     );
   }
-  
+
   // Gönderi paylaşımı mı kontrol et
   bool get isSharedPost => sharedPostId != null;
+  bool get isSharedIlan => sharedIlanId != null;
 
   Message copyWith({
     String? id,
@@ -129,6 +168,11 @@ class Message {
     String? sharedPostContent,
     String? sharedPostImageUrl,
     String? sharedPostAuthorName,
+    String? sharedIlanId,
+    String? sharedIlanTitle,
+    String? sharedIlanPriceText,
+    String? sharedIlanLocationText,
+    String? sharedIlanImageUrl,
   }) {
     return Message(
       id: id ?? this.id,
@@ -147,6 +191,12 @@ class Message {
       sharedPostContent: sharedPostContent ?? this.sharedPostContent,
       sharedPostImageUrl: sharedPostImageUrl ?? this.sharedPostImageUrl,
       sharedPostAuthorName: sharedPostAuthorName ?? this.sharedPostAuthorName,
+      sharedIlanId: sharedIlanId ?? this.sharedIlanId,
+      sharedIlanTitle: sharedIlanTitle ?? this.sharedIlanTitle,
+      sharedIlanPriceText: sharedIlanPriceText ?? this.sharedIlanPriceText,
+      sharedIlanLocationText:
+          sharedIlanLocationText ?? this.sharedIlanLocationText,
+      sharedIlanImageUrl: sharedIlanImageUrl ?? this.sharedIlanImageUrl,
     );
   }
 

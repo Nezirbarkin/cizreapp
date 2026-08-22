@@ -1,3 +1,15 @@
+// Bu dosya `part of admin_dashboard_screen.dart` oldugu icin ana dosyadaki
+// ignore_for_file direktifleri buraya UYGULANMAZ; her part kendi listesini
+// tasimak zorundadir.
+//
+// invalid_use_of_protected_member: bu part'lar `extension on
+// _AdminDashboardScreenState` deseniyle yazildi; setState/mounted analiz
+// acisindan sinif disindan cagrilmis gorunur ama calisma zamaninda
+// State'in kendi uyesidir. Tek gercek false positive budur ve yalniz o
+// susturulur - dosyalarin analizden komple cikarilmasi (analysis_options
+// exclude) dead_code/tip hatalarini da gizliyordu.
+// ignore_for_file: invalid_use_of_protected_member
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 part of '../admin_dashboard_screen.dart';
 
 extension on _AdminDashboardScreenState {
@@ -32,6 +44,19 @@ extension on _AdminDashboardScreenState {
 
           const SizedBox(height: 24),
 
+          // Fatura Entegrasyonu Bölümü
+          const Text(
+            'Fatura Entegrasyonu',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          _buildInvoiceProviderCard(),
+
+          const SizedBox(height: 16),
+          _buildPendingInvoicesCard(),
+
+          const SizedBox(height: 24),
+
           // Sistem Ayarları
           const Text(
             'Sistem Ayarları',
@@ -60,16 +85,24 @@ extension on _AdminDashboardScreenState {
                   },
                 ),
                 const Divider(height: 1),
+                // Bu dugme yalnizca yerel Hive kutusunu siliyordu ama
+                // "Analytics temizlendi" diyerek merkezi veriyi de silmis gibi
+                // gorunuyordu. Merkezi silme icin Analitik sekmesindeki
+                // onayli akis kullanilir.
                 ListTile(
                   leading: const Icon(Icons.delete_forever),
-                  title: const Text('Tüm Analytics Temizle'),
-                  subtitle: const Text('Tüm analitik verilerini sil'),
+                  title: const Text('Bu Cihazdaki Analytics Kaydını Temizle'),
+                  subtitle: const Text(
+                    'Sadece yerel kopya; sunucudaki veriye dokunmaz',
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
                     await _analyticsService.clearAllEvents();
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Analytics temizlendi')),
+                        const SnackBar(
+                          content: Text('Cihazdaki analytics kaydı temizlendi'),
+                        ),
                       );
                     }
                   },
@@ -733,124 +766,268 @@ extension on _AdminDashboardScreenState {
     );
   }
 
-  // --- _showSendNotificationDialog ---
-  void _showSendNotificationDialog() {
-    final titleController = TextEditingController();
-    final bodyController = TextEditingController();
-    String targetAudience = 'all';
+  // NOT: Buradaki eski _showSendNotificationDialog (hedef kitle filtresini
+  // uygulamayan, doğrudan notifications tablosuna yazan) kaldırıldı —
+  // hiçbir buton bu metodu çağırmıyordu (ölü kod) ve zaten doğru/güncel
+  // uygulaması NotificationsContentV2._showSendNotificationDialog'da
+  // (admin_broadcast_notification / admin_send_personal_notification RPC'leri
+  // ile, hedef kitleyi sunucu tarafında uygulayan) mevcut.
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Bildirim Gönder'),
-          content: SingleChildScrollView(
+  // --- _buildInvoiceProviderCard ---
+  // Aktif e-fatura sağlayıcısını (Nilvera/Paraşüt) ve ortamını (test/canlı)
+  // seçer. API anahtarları burada girilmez — Supabase secrets üzerinden
+  // ayarlanır (bkz. supabase/functions/_shared/invoice_providers).
+  Widget _buildInvoiceProviderCard() {
+    return FutureBuilder<Map<String, String>>(
+      future: _loadInvoiceSettings(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            elevation: 1,
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        final settings = snapshot.data ?? {};
+        final activeProvider = settings['invoice_active_provider'] ?? 'none';
+        final environment = settings['invoice_environment'] ?? 'test';
+
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Başlık',
-                    border: OutlineInputBorder(),
-                  ),
+                const Text(
+                  'Aktif Sağlayıcı',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: bodyController,
-                  decoration: const InputDecoration(
-                    labelText: 'Mesaj',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: targetAudience,
+                  initialValue: activeProvider,
                   decoration: const InputDecoration(
-                    labelText: 'Hedef Kitle',
                     border: OutlineInputBorder(),
+                    isDense: true,
                   ),
                   items: const [
-                    DropdownMenuItem(
-                      value: 'all',
-                      child: Text('Tüm Kullanıcılar'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'customers',
-                      child: Text('Müşteriler'),
-                    ),
-                    DropdownMenuItem(value: 'admins', child: Text('Adminler')),
+                    DropdownMenuItem(value: 'none', child: Text('Yok')),
+                    DropdownMenuItem(value: 'nilvera', child: Text('Nilvera')),
+                    DropdownMenuItem(value: 'parasut', child: Text('Paraşüt')),
                   ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => targetAudience = value);
-                    }
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await _updateInvoiceSetting(
+                      'invoice_active_provider',
+                      value,
+                    );
                   },
                 ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Ortam',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: environment,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'test', child: Text('Test')),
+                    DropdownMenuItem(value: 'live', child: Text('Canlı')),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await _updateInvoiceSetting('invoice_environment', value);
+                  },
+                ),
+                if (environment == 'live')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.red.shade700,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Canlı ortam seçili: onaylanan faturalar gerçek GİB gönderimi olarak işlenir.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.red.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (titleController.text.isEmpty ||
-                    bodyController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Tüm alanları doldurun')),
-                  );
-                  return;
-                }
-
-                try {
-                  // Bulk notification için tüm kullanıcılara gönder
-                  final usersResponse = await Supabase.instance.client
-                      .from('profiles')
-                      .select('id');
-
-                  if (usersResponse.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Kullanıcı bulunamadı')),
-                    );
-                    return;
-                  }
-
-                  for (var user in usersResponse) {
-                    await Supabase.instance.client.from('notifications').insert(
-                      {
-                        'user_id': user['id'],
-                        'type': 'shop', // Admin notification type
-                        'title': titleController.text.trim(),
-                        'content': bodyController.text.trim(),
-                        'is_read': false,
-                      },
-                    );
-                  }
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Bildirim gönderildi')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Hata: $e')));
-                  }
-                }
-              },
-              child: const Text('Gönder'),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  Future<Map<String, String>> _loadInvoiceSettings() async {
+    final rows = await Supabase.instance.client
+        .from('system_settings')
+        .select('key, value')
+        .inFilter('key', ['invoice_active_provider', 'invoice_environment']);
+    return {
+      for (final row in rows) row['key'] as String: row['value'] as String,
+    };
+  }
+
+  Future<void> _updateInvoiceSetting(String key, String value) async {
+    try {
+      await Supabase.instance.client
+          .from('system_settings')
+          .update({'value': value})
+          .eq('key', key);
+      setState(() {});
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Ayar güncellendi')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // --- _buildPendingInvoicesCard ---
+  // Teslim edilmiş siparişler için otomatik oluşan fatura taslaklarını
+  // listeler. Gönderim yalnızca burada "Onayla ve Gönder" ile tetiklenir —
+  // hiçbir taslak admin onayı olmadan GİB'e gitmez.
+  Widget _buildPendingInvoicesCard() {
+    return FutureBuilder<List<InvoiceModel>>(
+      future: _loadDraftInvoices(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            elevation: 1,
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        final invoices = snapshot.data ?? [];
+
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bekleyen Fatura Taslakları (${invoices.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (invoices.isEmpty)
+                  const Text(
+                    'Bekleyen taslak yok.',
+                    style: TextStyle(color: Colors.grey),
+                  )
+                else
+                  ...invoices.map((invoice) {
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        'Sipariş #${invoice.orderId.substring(0, 8)}',
+                      ),
+                      subtitle: Text(
+                        '₺${invoice.grossAmount?.toStringAsFixed(2) ?? '-'} · durum: ${invoice.status}'
+                        '${invoice.errorMessage != null ? '\n${invoice.errorMessage}' : ''}',
+                      ),
+                      isThreeLine: invoice.errorMessage != null,
+                      trailing: ElevatedButton(
+                        onPressed: () => _approveInvoice(invoice.id),
+                        style: invoice.status == 'error'
+                            ? ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                              )
+                            : null,
+                        child: Text(
+                          invoice.status == 'error'
+                              ? 'Tekrar Dene'
+                              : 'Onayla ve Gönder',
+                        ),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<List<InvoiceModel>> _loadDraftInvoices() async {
+    final rows = await Supabase.instance.client
+        .from('invoices')
+        .select()
+        .inFilter('status', ['draft', 'error'])
+        .order('created_at', ascending: true)
+        .limit(50);
+    return List<Map<String, dynamic>>.from(
+      rows,
+    ).map(InvoiceModel.fromJson).toList();
+  }
+
+  Future<void> _approveInvoice(String invoiceId) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'approve_invoice_and_enqueue',
+        params: {'p_invoice_id': invoiceId},
+      );
+      setState(() {});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Fatura kuyruğa alındı'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }
