@@ -267,10 +267,12 @@ void main() async {
 
         try {
           final permissionService = PermissionService();
-          // Konum izni başlangıçta istenmez — kullanıcı konum butonuna
-          // bastığında ayrıca talep edilecek (haritaya girilince otomatik
-          // sorulmaz, sadece buton tetikler).
-          permissionService.checkAndRequestAllPermissionsExceptLocation().then((permissionResults) {
+          // Konum izni burada İSTENMEZ. Kullanıcı konum gerektiren bir
+          // özelliği (adres seçme, kurye/şoför takibi, "konumuma git") ilk
+          // kez kullandığında, o özelliğin bağlamında ve önce Prominent
+          // Disclosure ekranı gösterilerek istenir —
+          // LocationDisclosureService.ensure.
+          permissionService.checkAndRequestAllPermissions().then((permissionResults) {
             log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
             for (final entry in permissionResults.entries) {
               if (entry.value.isPermanentlyDenied) {

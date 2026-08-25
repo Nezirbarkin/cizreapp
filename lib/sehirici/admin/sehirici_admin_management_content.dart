@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../core/services/location_disclosure_service.dart';
 import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
 import '../services/sehirici_city_service.dart';
@@ -1160,26 +1161,17 @@ class _StopsTabState extends State<_StopsTab> {
         return null;
       }
 
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Konum izni reddedildi.')),
-            );
-          }
-          return null;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
+      // Prominent Disclosure + sistem izni (admin, durak/hat noktasını
+      // bulunduğu yerden işaretliyor — tek seferlik konum okuması).
+      if (!mounted) return null;
+      final allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.nearby,
+      );
+      if (!allowed) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                  'Konum izni kalıcı olarak reddedildi. Ayarlardan izin verin.'),
-            ),
+            const SnackBar(content: Text('Konum izni verilmedi.')),
           );
         }
         return null;

@@ -5,6 +5,12 @@ import 'package:permission_handler/permission_handler.dart';
 
 /// Uygulama izinlerini yöneten servis
 /// Uygulama açıldığında gerekli izinleri kontrol eder ve talep eder
+///
+/// KONUM İZNİ BU SERVİSTE YOKTUR ve buraya eklenmemelidir. Google Play'in
+/// Prominent Disclosure şartı, konum verisi toplanmadan önce uygulama içi bir
+/// açıklama ekranı gösterilmesini zorunlu kılar; toplu izin talebi bunu
+/// yapamaz. Konum, kullanıldığı özelliğin bağlamında
+/// [LocationDisclosureService.ensure] üzerinden istenir.
 class PermissionService {
   /// Singleton instance
   static final PermissionService _instance = PermissionService._internal();
@@ -24,8 +30,6 @@ class PermissionService {
         'CizreApp\'in cihazınızdaki fotoğraflara ve dosyalara erişmesi gerekiyor; böylece medya içeriklerinizi yükleyebilir ve paylaşabilirsiniz.',
     Permission.notification:
         'CizreApp, size önemli bildirimler gönderebilmek için bildirim iznine ihtiyaç duyar; böylece yeni mesajlarınızdan, sipariş durumlarından ve güncellemelerden haberdar olabilirsiniz.',
-    Permission.location:
-        'CizreApp, yakınınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece çevrenizdeki satıcıları ve fırsatları keşfedebilirsiniz.',
     Permission.microphone:
         'CizreApp\'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.',
   };
@@ -36,7 +40,6 @@ class PermissionService {
     Permission.photos: 'Fotoğraf Galerisi',
     Permission.storage: 'Depolama',
     Permission.notification: 'Bildirimler',
-    Permission.location: 'Konum',
     Permission.microphone: 'Mikrofon',
   };
 
@@ -46,7 +49,6 @@ class PermissionService {
     Permission.photos: Icons.photo_library,
     Permission.storage: Icons.folder,
     Permission.notification: Icons.notifications,
-    Permission.location: Icons.location_on,
     Permission.microphone: Icons.mic,
   };
 
@@ -65,8 +67,15 @@ class PermissionService {
     return _permissionIcons[permission] ?? Icons.security;
   }
 
-  /// Tüm gerekli izinleri kontrol et ve talep et
-  /// Bu metod uygulama açıldığında çağrılmalı
+  /// Medya ve bildirim izinlerini kontrol eder ve gerekiyorsa talep eder.
+  ///
+  /// Konum BİLEREK dahil değildir: bu metot hem uygulama açılışında hem de
+  /// galeriden fotoğraf seçilirken çağrılıyor ve konumu da listeye alması,
+  /// kullanıcıya profil fotoğrafı seçerken hiçbir açıklama olmadan konum izni
+  /// dialogu göstermesine yol açıyordu — Google Play'in Prominent Disclosure
+  /// şartının doğrudan ihlali. Konum artık yalnız
+  /// [LocationDisclosureService.ensure] üzerinden, kullanıldığı özelliğin
+  /// bağlamında ve açıklama ekranı gösterildikten sonra istenir.
   Future<Map<String, PermissionResult>> checkAndRequestAllPermissions() async {
     if (kIsWeb) {
       debugPrint('🔐 Web platformunda izin kontrolü atlanıyor');
@@ -87,30 +96,7 @@ class PermissionService {
     // Bildirim izni
     results['notifications'] = await _checkPermission(Permission.notification, 'Bildirimler');
 
-    // Konum izni (opsiyonel - satıcılar için)
-    results['location'] = await _checkPermission(Permission.location, 'Konum');
-
     debugPrint('🔐 İzin durumu: $results');
-    return results;
-  }
-
-  /// Uygulama açılışında KONUM HARİÇ tüm izinleri kontrol et ve talep et.
-  /// Konum izni kullanıcı konum butonuna bastığında ayrıca istenecek —
-  /// haritaya girilir girilmez otomatik sorulmaz.
-  Future<Map<String, PermissionResult>> checkAndRequestAllPermissionsExceptLocation() async {
-    if (kIsWeb) {
-      debugPrint('🔐 Web platformunda izin kontrolü atlanıyor');
-      return {};
-    }
-
-    final results = <String, PermissionResult>{};
-
-    results['camera'] = await _checkPermission(Permission.camera, 'Kamera');
-    results['photos'] = await _checkPermission(Permission.photos, 'Fotoğraf Galerisi');
-    results['storage'] = await _checkPermission(Permission.storage, 'Depolama');
-    results['notifications'] = await _checkPermission(Permission.notification, 'Bildirimler');
-
-    debugPrint('🔐 İzin durumu (konum hariç): $results');
     return results;
   }
 
@@ -215,12 +201,6 @@ class PermissionService {
   /// Bildirim izni verildi mi?
   Future<bool> isNotificationsGranted() async {
     final status = await getPermissionStatus(Permission.notification);
-    return status.isGranted || status.isLimited;
-  }
-
-  /// Konum izni verildi mi?
-  Future<bool> isLocationGranted() async {
-    final status = await getPermissionStatus(Permission.location);
     return status.isGranted || status.isLimited;
   }
 

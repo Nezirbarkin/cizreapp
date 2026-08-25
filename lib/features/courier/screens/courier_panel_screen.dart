@@ -10,6 +10,7 @@ import '../../../core/models/courier_assignment_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/services/courier_location_service.dart';
+import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/privacy_service.dart';
 import '../../../core/services/email_service.dart';
@@ -536,8 +537,9 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
   /// Kurye konum paylaşımını açar/kapatır. Açıkken CourierLocationService
   /// kuryenin konumunu (last_known_lat/lng) periyodik olarak veritabanına
   /// yazar; böylece kullanıcıların "Yakın Kuryeler" haritasında moto ikonuyla
-  /// görünür. Konum izni servisin içinde istenir; izin yoksa başlatma sessizce
-  /// başarısız olur ve durum butona yansır.
+  /// görünür. Konum izni, paylaşım açılmadan önce burada — Prominent
+  /// Disclosure ekranı gösterilerek — alınır; izin yoksa başlatma yapılmaz ve
+  /// durum butona yansır.
   Future<void> _toggleLocationSharing() async {
     final service = CourierLocationService();
     if (service.isTracking) {
@@ -555,10 +557,20 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
       return;
     }
 
-    // Paylaşımı başlat (konum izni servisin içinde istenir/ kontrol edilir).
+    // Önce uygulama içi açıklama + sistem izni. Reddedilirse hiçbir konum
+    // API'si çağrılmaz.
+    final allowed = await LocationDisclosureService.ensure(
+      context,
+      LocationPurpose.courierTracking,
+    );
+    if (!allowed) {
+      if (mounted) setState(() => _isLocationSharing = false);
+      return;
+    }
+
     // startTracking yalnızca ilk konum veritabanına yazılırsa true döner;
-    // aksi halde (izin yok, eksik sütun, RLS, ağ hatası) false döner ve
-    // buton "paylaşılıyor" diye yanıltıcı görünmez.
+    // aksi halde (eksik sütun, RLS, ağ hatası) false döner ve buton
+    // "paylaşılıyor" diye yanıltıcı görünmez.
     final started = await service.startTracking();
     if (mounted) {
       setState(() => _isLocationSharing = started);

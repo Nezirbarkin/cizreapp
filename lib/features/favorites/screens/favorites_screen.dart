@@ -354,9 +354,17 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: CampaignBadge(),
+                    ),
                   // Satıcı rozetleri + ücretsiz kargo
+                  // Kampanya rozeti alt sol köşeyi kullandığı için o varken
+                  // bir kat yukarı kayar.
                   Positioned(
-                    bottom: 8,
+                    bottom: product.isBuy2Get1BalanceCampaign ? 26 : 8,
                     left: 8,
                     right: 8,
                     child: ProductCardTagStrip(product: product),

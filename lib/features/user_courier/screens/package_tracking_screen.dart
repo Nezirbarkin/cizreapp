@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/location_disclosure_service.dart';
 
 class PackageTrackingScreen extends StatefulWidget {
   final String packageId;
@@ -56,15 +57,16 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
 
   Future<void> _getUserLocation() async {
     try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final result = await Geolocator.requestPermission();
-        if (result == LocationPermission.denied ||
-            result == LocationPermission.deniedForever) {
-          // İzin yoksa da harita boş kalmasın: Cizre merkezini kullan.
-          _applyFallbackLocation();
-          return;
-        }
+      // Prominent Disclosure + sistem izni. Reddedilirse harita boş kalmasın:
+      // Cizre merkezi kullanılır.
+      if (!mounted) return;
+      final allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.nearby,
+      );
+      if (!allowed) {
+        _applyFallbackLocation();
+        return;
       }
 
       if (!mounted) return;

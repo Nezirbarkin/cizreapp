@@ -117,17 +117,15 @@ class SehiriciLocationTracker {
       onPositionWritten = keepCallback;
     }
 
-    // Konum izni kontrol
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        debugPrint('Şehirici konum izni reddedildi');
-        return;
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      debugPrint('Şehirici konum izni kalıcı reddedildi');
+    // İzin burada İSTENMEZ, yalnız doğrulanır. Google Play'in Prominent
+    // Disclosure şartı, konum toplanmadan önce uygulama içi açıklamanın
+    // gösterilmesini zorunlu kılar; açıklama ekranı context gerektirdiği için
+    // izin akışı UI katmanındadır (LocationDisclosureService.ensure →
+    // LocationPurpose.driverTrip). Servis izinsiz çağrılırsa durur.
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      debugPrint('Şehirici konum izni yok; takip başlatılmadı ($permission)');
       return;
     }
 

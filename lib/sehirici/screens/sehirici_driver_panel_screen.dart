@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
+import '../../core/services/location_disclosure_service.dart';
 import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
 import '../services/sehirici_driver_service.dart';
@@ -264,6 +265,20 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     }
     final line = await _resolveDriverLine();
     if (line == null) return;
+
+    // Otomasyon GPS'i sürekli dinler; başlatmadan önce Prominent Disclosure
+    // ekranı + sistem izni. Onay ve izin zaten varsa hiçbir şey gösterilmez,
+    // bu yüzden lifecycle resume'dan gelen çağrılarda da güvenle çalışır.
+    if (!mounted) return;
+    final allowed = await LocationDisclosureService.ensure(
+      context,
+      LocationPurpose.driverTrip,
+    );
+    if (!allowed) {
+      await controller.stop();
+      return;
+    }
+
     controller.onTripAutoStarted = () {
       if (mounted) _load();
     };
@@ -283,14 +298,16 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     if (_driverProfile == null) return;
     setState(() => _busy = true);
     try {
-      // Konum izni kontrolü
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _showError('Konum izni verin.');
-          return;
-        }
+      // Prominent Disclosure + sistem izni. Reddedilirse sefer başlatılmaz
+      // ve hiçbir konum API'si çağrılmaz.
+      if (!mounted) return;
+      final allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.driverTrip,
+      );
+      if (!allowed) {
+        _showError('Sefer başlatmak için konum izni gerekiyor.');
+        return;
       }
 
       // Soğuk GPS'te zaman sınırsız getCurrentPosition "Başlat" butonunu

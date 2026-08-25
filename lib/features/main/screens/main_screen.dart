@@ -36,6 +36,7 @@ import '../../news/services/news_service.dart';
 import '../../news/screens/news_detail_screen.dart';
 import '../../market/services/flash_sale_service.dart';
 import '../../market/widgets/flash_aware_price_row.dart';
+import '../../../shared/widgets/flash_discount_badge.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -1216,9 +1217,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
                     Positioned(top: 4, right: 4, child: closedBadge),
+                  if (product.isBuy2Get1BalanceCampaign)
+                    const Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: CampaignBadge(),
+                    ),
                   // Satıcı rozetleri + ücretsiz kargo - alt sol
+                  // Kampanya rozeti alt sol köşeyi kullandığı için o varken
+                  // bir kat yukarı kayar.
                   Positioned(
-                    bottom: 4,
+                    bottom: product.isBuy2Get1BalanceCampaign ? 22 : 4,
                     left: 4,
                     right: 4,
                     child: ProductCardTagStrip(product: product),

@@ -155,6 +155,17 @@ extension on _AdminDashboardScreenState {
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
+          table: 'digital_orders',
+          callback: (payload) {
+            if (!mounted) return;
+            if (_selectedMenu != 'SMM Sağlayıcıları') {
+              setState(() => _newDigitalOrdersCount++);
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
           table: 'profiles',
           callback: (payload) {
             if (!mounted) return;
@@ -202,6 +213,14 @@ extension on _AdminDashboardScreenState {
         _totalProducts = (r['total_products'] as num).toInt();
         _totalOrders = (r['total_orders'] as num).toInt();
         _totalReports = (r['total_reports'] as num).toInt();
+        _totalRevenue = (r['total_revenue'] as num?)?.toDouble() ?? 0;
+        _totalAdminCommission =
+            (r['total_admin_commission'] as num?)?.toDouble() ?? 0;
+        _totalDigitalOrders = (r['total_digital_orders'] as num?)?.toInt() ?? 0;
+        _totalDigitalRevenue =
+            (r['total_digital_revenue'] as num?)?.toDouble() ?? 0;
+        _totalCouriers = (r['total_couriers'] as num?)?.toInt() ?? 0;
+        _onlineCouriers = (r['online_couriers'] as num?)?.toInt() ?? 0;
         _unansweredComplaintCount =
             (r['unanswered_complaints'] as num).toInt();
         _unansweredTicketCount = (r['unanswered_tickets'] as num).toInt();

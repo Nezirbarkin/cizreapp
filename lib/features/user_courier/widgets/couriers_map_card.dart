@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/courier_stream_service.dart';
+import '../../../core/services/location_disclosure_service.dart';
 import '../screens/couriers_map_full_screen.dart';
 
 class CouriersMapCard extends StatefulWidget {
@@ -100,9 +101,12 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
 
   Future<void> _getUserLocation() async {
     try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        await Geolocator.requestPermission();
+      // Kart, "Paket Gönder" ekranına gömülü olarak açılır; burada izin
+      // İSTENMEZ. Kullanıcı konumunu daha önce (Prominent Disclosure ekranını
+      // görüp kabul ederek) paylaşmayı seçtiyse harita ona göre ortalanır,
+      // aksi halde aşağıdaki catch dalındaki Cizre merkezi kullanılır.
+      if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
+        throw StateError('konum izni yok');
       }
 
       final position = await Geolocator.getCurrentPosition(

@@ -151,8 +151,12 @@ extension on _AdminDashboardScreenState {
                     icon: Icons.smart_toy_rounded,
                     title: 'SMM Sağlayıcıları',
                     isSelected: _selectedMenu == 'SMM Sağlayıcıları',
+                    badgeCount: _newDigitalOrdersCount,
                     onTap: () {
-                      setState(() => _selectedMenu = 'SMM Sağlayıcıları');
+                      setState(() {
+                        _selectedMenu = 'SMM Sağlayıcıları';
+                        _newDigitalOrdersCount = 0;
+                      });
                       Navigator.pop(context);
                     },
                   ),

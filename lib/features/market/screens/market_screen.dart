@@ -732,10 +732,12 @@ class _MarketScreenState extends State<MarketScreen> {
           ),
 
           // Moto kurye iconu (sohbet ikonunun üstünde) - sadece aktif olduğunda göster
+          // Web ve mobilde sohbet ikonuyla aynı boşluğu koruması için
+          // FloatingMessageButton'ın bottom + yüksekliğine (56) göre hesaplanır.
           if (_courierServiceActive)
             Positioned(
-              right: 20,
-              bottom: 210,
+              right: kIsWeb ? 28 : 20,
+              bottom: kIsWeb ? 170 : 210,
               child: FloatingActionButton(
                 backgroundColor: const Color(0xFFFF6B00),
                 elevation: 8,

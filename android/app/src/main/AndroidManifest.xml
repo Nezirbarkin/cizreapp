@@ -31,10 +31,14 @@
         android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission
         android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- Şehiriçi otomatik sefer: arka plan konum + foreground service
-         (geolocator kendi service'ını manifest merge ile bildirir). -->
-    <uses-permission
-        android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <!-- Kurye/şoför canlı takibi foreground service üzerinden yürür
+         (geolocator kendi GeolocatorLocationService'ını foregroundServiceType
+         ="location" ile manifest merge'e ekler). Bu senaryoda konum yalnız
+         servis çalışırken ve kalıcı bildirim görünürken alındığı için
+         ACCESS_BACKGROUND_LOCATION GEREKMİYOR — bilinçli olarak
+         bildirilmiyor. Uygulama hiçbir yerde LocationPermission.always
+         talep etmez; izin eklemek Play'in "Prominent Disclosure / arka plan
+         konum beyanı" incelemesini gereksiz yere tetikler. -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission

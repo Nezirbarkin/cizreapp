@@ -14,6 +14,7 @@ import '../services/sehirici_line_service.dart';
 import '../services/sehirici_trip_service.dart';
 import '../utils/sehirici_route_geometry.dart';
 import '../../core/services/courier_stream_service.dart';
+import '../../core/services/location_disclosure_service.dart';
 
 /// Şehir içi servis canlı harita widget'ı.
 /// Aktif seferleri ve durakları harita üzerinde gösterir.
@@ -294,13 +295,10 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
       final serviceOn = await Geolocator.isLocationServiceEnabled();
       if (!serviceOn) return;
 
-      // 2) Mevcut izin durumunu kontrol et. Sadece daha önce verilmiş
-      //    izinlerde otomatik konum al — denied ise sessizce geç (kullanıcı
-      //    zaten reddetmiş, tekrar sormak rahatsız eder).
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.unableToDetermine) {
+      // 2) Sadece kullanıcı açıklama ekranını görüp kabul etmiş VE sistem
+      //    izni duruyorsa otomatik konum al. Aksi halde sessizce geç —
+      //    harita açılışında ne açıklama ekranı ne sistem dialogu çıkar.
+      if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
         return;
       }
 
@@ -371,7 +369,7 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap> with TickerProviderSt
   /// [source] SnackBar mesajlarında aksiyonun ne olduğunu belirtir
   /// (örn. "Konumuma git", "Hattı seç").
   Future<bool> _ensureUserLocation({String source = 'konum'}) async {
-    final result = await SehiriciUserLocation.requestCurrent();
+    final result = await SehiriciUserLocation.requestCurrent(context);
     if (!mounted) return false;
     final newPos = result.position;
 
@@ -2373,7 +2371,8 @@ class SehiriciUserLocation {
   /// - [denied]: kullanıcı bu seferlik reddetti (tekrar sorulabilir).
   /// - [permanentlyDenied]: kalıcı red — ayarlardan açılmalı.
   /// - [serviceOff]: cihazın konum servisi kapalı.
-  static Future<({Position? position, _LocationOutcome outcome})> requestCurrent() async {
+  static Future<({Position? position, _LocationOutcome outcome})>
+      requestCurrent(BuildContext context) async {
     try {
       // 1) Konum servisi açık mı?
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -2381,21 +2380,17 @@ class SehiriciUserLocation {
         return (position: null, outcome: _LocationOutcome.serviceOff);
       }
 
-      // 2) Mevcut izin durumunu kontrol et
-      var permission = await Geolocator.checkPermission();
-
-      // 3) Hiç sorulmamışsa veya reddedilmişse ŞİMDİ sor.
-      //    Bu metot sadece kullanıcının butona basmasıyla tetiklenir;
-      //    harita açılışında çağrılmaz.
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+      // 2) Prominent Disclosure ekranı + sistem izni. Bu metot sadece
+      //    kullanıcının butona basmasıyla tetiklenir; harita açılışında
+      //    çağrılmaz. Onay ve izin zaten varsa hiçbir ekran gösterilmez.
+      if (!context.mounted) {
+        return (position: null, outcome: _LocationOutcome.denied);
       }
-
-      if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.unableToDetermine) {
-        return (position: null, outcome: _LocationOutcome.permanentlyDenied);
-      }
-      if (permission == LocationPermission.denied) {
+      final allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.nearby,
+      );
+      if (!allowed) {
         return (position: null, outcome: _LocationOutcome.denied);
       }
 

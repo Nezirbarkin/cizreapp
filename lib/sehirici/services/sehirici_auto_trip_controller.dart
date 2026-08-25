@@ -84,9 +84,13 @@ class SehiriciAutoTripController {
       workEnd: workEnd,
     );
 
-    // Konum izni (arka plan dahil). Reddedilirse yine de deneyelim — ön plan
-    // içinde çalışır.
-    await _ensurePermission();
+    // İzin, otomasyonu açan panel tarafından Prominent Disclosure ekranıyla
+    // birlikte alınmış olmalı. Yoksa otomasyon başlatılmaz.
+    if (!await _hasPermission()) {
+      debugPrint('[AutoTrip] konum izni yok; otomasyon başlatılmadı');
+      _phase = SehiriciAutoTripPhase.stopped;
+      return;
+    }
 
     // Devam eden aktif sefer varsa onun üzerinden driving'e geç.
     final active = await _tripService.getDriverActiveTrip(driverId);
@@ -284,16 +288,21 @@ class SehiriciAutoTripController {
     return out;
   }
 
-  Future<void> _ensurePermission() async {
+  /// İzin burada İSTENMEZ, yalnız doğrulanır. Google Play'in Prominent
+  /// Disclosure şartı, konum toplanmadan önce uygulama içi açıklamanın
+  /// gösterilmesini zorunlu kılar; açıklama ekranı context gerektirdiği için
+  /// izin akışı otomasyonu açan panelde yürütülür
+  /// (LocationDisclosureService.ensure → LocationPurpose.driverTrip).
+  /// İzin yoksa otomasyon hiç başlatılmaz — aksi halde watching fazı sessizce
+  /// GPS dinlemeye çalışırdı.
+  Future<bool> _hasPermission() async {
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      // Arka plan izni (Android "Her zaman izin ver" / iOS) kullanıcı tarafından
-      // sistem ayarlarından verilir; burada while-in-use talep ederiz.
+      final permission = await Geolocator.checkPermission();
+      return permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
     } catch (e) {
       debugPrint('[AutoTrip] izin kontrolü hatası: $e');
+      return false;
     }
   }
 }

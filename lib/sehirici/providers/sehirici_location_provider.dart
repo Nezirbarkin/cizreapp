@@ -31,20 +31,15 @@ class SehiriciLocationProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      // Konum iznini kontrol et
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _errorMessage = 'Konum izni reddedildi';
-          _isTracking = false;
-          notifyListeners();
-          return false;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        _errorMessage = 'Konum izni kalıcı olarak reddedildi';
+      // İzin burada İSTENMEZ, yalnız doğrulanır. Google Play'in Prominent
+      // Disclosure şartı, konum toplanmadan önce uygulama içi açıklamanın
+      // gösterilmesini zorunlu kılar; açıklama ekranı context gerektirdiği
+      // için izin akışı UI katmanındadır (LocationDisclosureService.ensure →
+      // LocationPurpose.driverTrip). Provider izinsiz çağrılırsa durur.
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.always &&
+          permission != LocationPermission.whileInUse) {
+        _errorMessage = 'Konum izni yok';
         _isTracking = false;
         notifyListeners();
         return false;

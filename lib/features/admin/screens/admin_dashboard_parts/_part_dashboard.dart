@@ -33,6 +33,10 @@ extension on _AdminDashboardScreenState {
 
             // İstatistik Kartları Grid
             _buildStatsGrid(),
+            const SizedBox(height: 16),
+
+            // Gelir & Kurye Özeti
+            _buildRevenueCourierCard(),
             const SizedBox(height: 24),
 
             // Network Status
@@ -344,6 +348,145 @@ extension on _AdminDashboardScreenState {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // --- _buildRevenueCourierCard ---
+  Widget _buildRevenueCourierCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.payments_rounded,
+                    color: Colors.green.shade600,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Gelir & Kurye Özeti',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildMiniStat(
+                    label: 'Toplam Gelir',
+                    value: '₺${_totalRevenue.toStringAsFixed(2)}',
+                    color: Colors.green,
+                    onTap: () =>
+                        setState(() => _selectedMenu = 'Siparişler'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildMiniStat(
+                    label: 'Admin Komisyonu',
+                    value: '₺${_totalAdminCommission.toStringAsFixed(2)}',
+                    color: Colors.teal,
+                    onTap: () =>
+                        setState(() => _selectedMenu = 'Siparişler'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildMiniStat(
+                    label: 'Dijital Sipariş Geliri',
+                    value:
+                        '₺${_totalDigitalRevenue.toStringAsFixed(2)} · $_totalDigitalOrders adet',
+                    color: Colors.indigo,
+                    onTap: () => setState(
+                      () => _selectedMenu = 'SMM Sağlayıcıları',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildMiniStat(
+                    label: 'Kuryeler',
+                    value: '$_onlineCouriers / $_totalCouriers çevrimiçi',
+                    color: Colors.orange,
+                    onTap: () =>
+                        setState(() => _selectedMenu = 'Kurye Yönetimi'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- _buildMiniStat ---
+  Widget _buildMiniStat({
+    required String label,
+    required String value,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
