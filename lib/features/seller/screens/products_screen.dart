@@ -423,6 +423,56 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
+  /// Toplu "2 Al Biri Bakiye" kampanyasını seçili tüm ürünlerden kaldırır.
+  Future<void> _confirmBulkClearCampaign() async {
+    final targets = _discountableSelection
+        .where((p) => p.isBuy2Get1BalanceCampaign)
+        .toList();
+
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seçili ürünlerde kaldırılacak "2 Al Biri Bakiye" kampanyası yok',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kampanyayı Kaldır'),
+        content: Text(
+          '${targets.length} üründeki "2 Al Biri Bakiye" kampanyası '
+          'kaldırılacak. Devam edilsin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kaldır'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await _runBulkAction(
+      action: () => _productService.bulkSetCampaignType(
+        productIds: targets.map((p) => p.id).toList(),
+        campaignType: null,
+      ),
+      skipped: targets.length,
+      successLabel: 'üründe kampanya kaldırıldı',
+    );
+  }
+
   Future<void> _showBulkBadgeDialog() async {
     final targets = _selectedProducts;
     if (targets.isEmpty) return;
@@ -722,6 +772,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final withDiscount = _discountableSelection
         .where((p) => p.discountPrice != null)
         .length;
+    final withCampaign = _discountableSelection
+        .where((p) => p.isBuy2Get1BalanceCampaign)
+        .length;
 
     return SafeArea(
       child: Container(
@@ -793,6 +846,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       : _confirmBulkClearDiscount,
                   tooltip: 'İndirimi kaldır',
                   icon: const Icon(Icons.money_off),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.shade50,
+                    foregroundColor: Colors.red.shade700,
+                    padding: const EdgeInsets.all(14),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: (withCampaign == 0 || _isBulkWorking)
+                      ? null
+                      : _confirmBulkClearCampaign,
+                  tooltip: '"2 Al Biri Bakiye" kampanyasını kaldır',
+                  icon: const Icon(Icons.campaign_outlined),
                   style: IconButton.styleFrom(
                     backgroundColor: Colors.red.shade50,
                     foregroundColor: Colors.red.shade700,
