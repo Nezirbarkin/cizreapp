@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../../core/models/address_model.dart';
+import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/maps_api_key_service.dart';
 
 /// Harita üzerinden adres seçme ekranı (Google Maps ile)
@@ -218,25 +219,20 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
     setState(() => _isLoadingLocation = true);
     
     try {
-      // Konum izni kontrolü
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Konum izni reddedildi')),
-            );
-          }
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
+      // Prominent Disclosure + sistem izni. Kullanıcı reddederse konum
+      // alınmaz; haritada adresi elle seçmeye devam edebilir.
+      if (!mounted) return;
+      final allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.nearby,
+      );
+      if (!allowed) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Konum izni kalıcı olarak reddedildi. Ayarlardan açın.'),
+              content: Text(
+                'Konum izni verilmedi — adresi haritadan elle seçebilirsiniz.',
+              ),
             ),
           );
         }

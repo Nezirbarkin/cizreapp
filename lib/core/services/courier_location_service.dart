@@ -78,17 +78,16 @@ class CourierLocationService {
     if (_isTracking) return true;
 
     try {
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          debugPrint('Konum izni reddedildi');
-          return false;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        debugPrint('Konum izni kalıcı olarak reddedildi');
+      // İzin burada İSTENMEZ, yalnız doğrulanır. Google Play'in Prominent
+      // Disclosure şartı, konum toplanmadan önce uygulama içi açıklamanın
+      // gösterilmesini zorunlu kılar; açıklama ekranı context gerektirdiği
+      // için izin akışı UI katmanındadır
+      // (LocationDisclosureService.ensure → LocationPurpose.courierTracking).
+      // Servis, izinsiz çağrılırsa sessizce konum toplamak yerine durur.
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.always &&
+          permission != LocationPermission.whileInUse) {
+        debugPrint('Konum izni yok; takip başlatılmadı ($permission)');
         return false;
       }
 

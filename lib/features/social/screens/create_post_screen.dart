@@ -400,14 +400,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
 
-            // Klavye açıldığında butonun altta kalması için ekstra boşluk
-            const SizedBox(height: 80),
           ],
         ),
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            16 + MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: ElevatedButton(
             onPressed: _isPosting ? null : _createPost,
             style: ElevatedButton.styleFrom(

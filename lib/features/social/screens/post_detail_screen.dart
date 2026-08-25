@@ -15,6 +15,8 @@ import '../services/post_service.dart';
 import '../services/post_report_service.dart';
 import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
+import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final Post post;
@@ -423,6 +425,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  /// Yazar rolüne göre rozet rengi (social_screen.dart ile aynı renkler).
+  Color _getAuthorRoleColor(AuthorRole role) {
+    switch (role) {
+      case AuthorRole.seller:
+        return const Color(0xFFE91E63); // Pembe (Satıcı)
+      case AuthorRole.courier:
+        return const Color(0xFF4CAF50); // Yeşil (Kurye)
+      case AuthorRole.driver:
+        return const Color(0xFF2196F3); // Mavi (Sürücü)
+      case AuthorRole.admin:
+        return const Color(0xFF9C27B0); // Mor (Admin)
+      default:
+        return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -442,29 +460,43 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   //    fallback olarak _userProfiles map'i kullanılır (geriye uyumluluk).
                   //    social_screen.dart _buildTwitterPostCard ile aynı öncelik zinciri.
                   Builder(builder: (context) {
-                    final userProfile = _userProfiles[widget.post.userId];
-                    final fullName = firstNonEmpty([
-                      widget.post.authorFullName,
-                      userProfile?['full_name']?.toString(),
-                      widget.post.authorUsername,
-                      userProfile?['username']?.toString(),
-                    ]);
+                    // ✅ Orphan post tespiti: social_screen.dart _buildTwitterPostCard
+                    //    ile aynı mantık (profiles satırı olmayan yazarlar).
+                    final isOrphanPost = !widget.post.authorProfileExists ||
+                        widget.post.userId.isEmpty;
+                    final userProfile =
+                        isOrphanPost ? null : _userProfiles[widget.post.userId];
+                    final fullName = isOrphanPost
+                        ? 'Bilinmeyen Kullanıcı'
+                        : firstNonEmpty([
+                            widget.post.authorFullName,
+                            userProfile?['full_name']?.toString(),
+                            widget.post.authorUsername,
+                            userProfile?['username']?.toString(),
+                          ]);
                     // ✅ UX FIX: Orphan post yazarları için UUID kırpıntısı
                     //    göstermek yerine jenerik "kullanici" fallback'i.
-                    final hasRealName =
-                        (widget.post.authorFullName?.trim().isNotEmpty ?? false) ||
+                    final hasRealName = isOrphanPost
+                        ? false
+                        : (widget.post.authorFullName?.trim().isNotEmpty ?? false) ||
                             (widget.post.authorUsername?.trim().isNotEmpty ?? false) ||
                             ((userProfile?['full_name']?.toString().trim().isNotEmpty ?? false)) ||
                             ((userProfile?['username']?.toString().trim().isNotEmpty ?? false));
-                    final username = hasRealName
-                        ? (widget.post.authorUsername ??
-                            userProfile?['username'] ??
-                            'kullanici')
-                        : 'kullanici';
-                    final avatarUrl = widget.post.authorAvatarUrl ?? userProfile?['avatar_url'];
-                    return ListTile(
-                    onTap: () {
-                      // Kullanıcıya tıklayınca profil ekranına git
+                    final username = isOrphanPost
+                        ? 'kullanici'
+                        : (hasRealName
+                            ? (widget.post.authorUsername ??
+                                userProfile?['username'] ??
+                                'kullanici')
+                            : 'kullanici');
+                    final avatarUrl = isOrphanPost
+                        ? null
+                        : (widget.post.authorAvatarUrl ?? userProfile?['avatar_url']);
+                    final authorRole =
+                        isOrphanPost ? AuthorRole.unknown : widget.post.authorRole;
+                    final isVerified =
+                        isOrphanPost ? false : widget.post.authorIsVerified;
+                    void goToProfile() {
                       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
                       if (widget.post.userId == currentUserId) {
                         // Kendi profili
@@ -477,33 +509,101 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           ),
                         );
                       }
-                    },
-                    leading: CircleAvatar(
-                      radius: 20,
-                      backgroundImage: avatarUrl != null
-                          ? NetworkImage(avatarUrl)
-                          : null,
-                      child: avatarUrl == null
-                          ? Text(
-                              () {
-                                final u = username;
-                                return u.length >= 2
-                                    ? u.substring(0, 2).toUpperCase()
-                                    : u.toUpperCase();
-                              }(),
-                              style: const TextStyle(fontSize: 14),
-                            )
-                          : null,
-                    ),
-                    title: Text(
-                      fullName,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      '@$username • ${_formatDate(widget.post.createdAt)}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+                    }
+                    return ListTile(
+                      onTap: goToProfile,
+                      leading: GestureDetector(
+                        onTap: goToProfile,
+                        child: PrivilegedAvatar(
+                          userId: widget.post.userId,
+                          username: username,
+                          avatarUrl: avatarUrl,
+                          radius: 20,
+                          showSocialPrivileges: false,
+                          onTap: goToProfile,
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              fullName,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (!isOrphanPost) ...[
+                            const SizedBox(width: 4),
+                            ProfilePrivilegeBadges(
+                              userId: widget.post.userId,
+                              maximum: 3,
+                            ),
+                          ],
+                          if (isVerified) ...[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.verified,
+                              size: 14,
+                              color: Color(0xFF1DA1F2),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '@$username • ${_formatDate(widget.post.createdAt)}',
+                              style: const TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (authorRole.isStaff) ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: _getAuthorRoleColor(authorRole),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                authorRole.displayLabel,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (widget.post.adminPinned) ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade700,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.push_pin, size: 9, color: Colors.white),
+                                  SizedBox(width: 2),
+                                  Text(
+                                    'Sabit',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
                     );
                   }),
 

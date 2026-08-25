@@ -692,6 +692,19 @@ class _SocialScreenState extends State<SocialScreen> {
       } else {
         await _postService.likePost(post.id, userId);
       }
+
+      // Başarılıysa gerçek sayıyı sunucudan al (trigger'dan güncellenmiş olacak)
+      final updatedPost = await _postService.getPostById(post.id);
+      if (updatedPost != null && mounted) {
+        setState(() {
+          final index = _posts.indexWhere((p) => p.id == post.id);
+          if (index != -1) {
+            _posts[index] = _posts[index].copyWith(
+              likesCount: updatedPost.likesCount,
+            );
+          }
+        });
+      }
     } catch (e) {
       // Hata olursa geri al
       setState(() {

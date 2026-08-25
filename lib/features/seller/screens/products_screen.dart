@@ -331,15 +331,51 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
     if (result == null || !mounted) return;
 
-    await _runBulkAction(
-      action: () => _productService.bulkSetDiscount(
-        productIds: targets.map((p) => p.id).toList(),
-        mode: result.mode,
-        value: result.value,
-      ),
-      skipped: targets.length,
-      successLabel: 'ürüne indirim uygulandı',
-    );
+    final productIds = targets.map((p) => p.id).toList();
+    final hasDiscount = result.mode != null && result.value != null;
+    final hasCampaignChange = result.campaignEnabled != null;
+
+    setState(() => _isBulkWorking = true);
+    try {
+      var updated = 0;
+      if (hasDiscount) {
+        updated += await _productService.bulkSetDiscount(
+          productIds: productIds,
+          mode: result.mode!,
+          value: result.value!,
+        );
+      }
+      if (hasCampaignChange) {
+        updated += await _productService.bulkSetCampaignType(
+          productIds: productIds,
+          campaignType: result.campaignEnabled! ? 'buy2_get1_balance' : null,
+        );
+      }
+      if (!mounted) return;
+
+      final label = hasDiscount && hasCampaignChange
+          ? 'ürün güncellendi (indirim + kampanya)'
+          : hasCampaignChange
+          ? 'üründe "2 Al 1 Bakiye" kampanyası güncellendi'
+          : 'ürüne indirim uygulandı';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$updated $label'),
+          backgroundColor: updated > 0 ? Colors.green : Colors.orange,
+        ),
+      );
+
+      _exitSelectionMode();
+      await _loadProducts();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBulkWorking = false);
+    }
   }
 
   Future<void> _confirmBulkClearDiscount() async {
@@ -384,6 +420,56 @@ class _ProductsScreenState extends State<ProductsScreen> {
           _productService.bulkClearDiscount(targets.map((p) => p.id).toList()),
       skipped: targets.length,
       successLabel: 'üründe indirim kaldırıldı',
+    );
+  }
+
+  /// Toplu "2 Al Biri Bakiye" kampanyasını seçili tüm ürünlerden kaldırır.
+  Future<void> _confirmBulkClearCampaign() async {
+    final targets = _discountableSelection
+        .where((p) => p.isBuy2Get1BalanceCampaign)
+        .toList();
+
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seçili ürünlerde kaldırılacak "2 Al Biri Bakiye" kampanyası yok',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kampanyayı Kaldır'),
+        content: Text(
+          '${targets.length} üründeki "2 Al Biri Bakiye" kampanyası '
+          'kaldırılacak. Devam edilsin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kaldır'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await _runBulkAction(
+      action: () => _productService.bulkSetCampaignType(
+        productIds: targets.map((p) => p.id).toList(),
+        campaignType: null,
+      ),
+      skipped: targets.length,
+      successLabel: 'üründe kampanya kaldırıldı',
     );
   }
 
@@ -686,6 +772,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final withDiscount = _discountableSelection
         .where((p) => p.discountPrice != null)
         .length;
+    final withCampaign = _discountableSelection
+        .where((p) => p.isBuy2Get1BalanceCampaign)
+        .length;
 
     return SafeArea(
       child: Container(
@@ -757,6 +846,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       : _confirmBulkClearDiscount,
                   tooltip: 'İndirimi kaldır',
                   icon: const Icon(Icons.money_off),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.shade50,
+                    foregroundColor: Colors.red.shade700,
+                    padding: const EdgeInsets.all(14),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: (withCampaign == 0 || _isBulkWorking)
+                      ? null
+                      : _confirmBulkClearCampaign,
+                  tooltip: '"2 Al Biri Bakiye" kampanyasını kaldır',
+                  icon: const Icon(Icons.campaign_outlined),
                   style: IconButton.styleFrom(
                     backgroundColor: Colors.red.shade50,
                     foregroundColor: Colors.red.shade700,
@@ -1173,11 +1275,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
 }
 
 /// Toplu indirim diyaloğunun sonucu.
+///
+/// [mode]/[value] `null` ise fiyat indirimi uygulanmaz (yalnızca kampanya
+/// değişmiş olabilir). [campaignEnabled] `null` ise "2 Al 1 Bakiye" kampanyası
+/// değiştirilmez; `true`/`false` ise seçili tüm ürünlerde açılır/kapatılır.
 class _BulkDiscountResult {
-  final BulkDiscountMode mode;
-  final double value;
+  final BulkDiscountMode? mode;
+  final double? value;
+  final bool? campaignEnabled;
 
-  const _BulkDiscountResult(this.mode, this.value);
+  const _BulkDiscountResult({this.mode, this.value, this.campaignEnabled});
 }
 
 /// Seçili ürünlere uygulanacak indirimi belirleyen diyalog.
@@ -1197,6 +1304,12 @@ class _BulkDiscountDialogState extends State<_BulkDiscountDialog> {
   BulkDiscountMode _mode = BulkDiscountMode.percent;
   final _valueController = TextEditingController();
   String? _error;
+
+  // Seçili ürünlerin hepsinde "2 Al Biri Bakiye" kampanyası zaten aktifse
+  // başlangıç değeri açık gelir; karışık ya da hiçbirinde yoksa kapalı gelir.
+  late final bool _initialCampaignEnabled = widget.products.isNotEmpty &&
+      widget.products.every((p) => p.isBuy2Get1BalanceCampaign);
+  late bool _campaignEnabled = _initialCampaignEnabled;
 
   @override
   void dispose() {
@@ -1236,6 +1349,13 @@ class _BulkDiscountDialogState extends State<_BulkDiscountDialog> {
       return 'Yüzde indirim en fazla %95 olabilir';
     }
     return null;
+  }
+
+  /// İndirim değeri girilmişse geçerli olmalı; girilmemişse yalnızca
+  /// kampanya anahtarının değişmiş olması yeterlidir.
+  bool _canSubmit(bool hasValue, List<Product> applicable) {
+    if (hasValue) return applicable.isNotEmpty;
+    return _campaignEnabled != _initialCampaignEnabled;
   }
 
   @override
@@ -1407,6 +1527,21 @@ class _BulkDiscountDialogState extends State<_BulkDiscountDialog> {
                   ),
                 ),
               ],
+              const Divider(height: 24),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('"2 Al Biri Bakiye" Kampanyası'),
+                subtitle: Text(
+                  'Seçili ${widget.products.length} üründe bu kampanya '
+                  '${_campaignEnabled ? "açılacak" : "kapatılacak"}. '
+                  '2 adet alan müşteriye 1 adedin tutarı bakiye olarak iade edilir.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                value: _campaignEnabled,
+                onChanged: (value) => setState(() => _campaignEnabled = value),
+                activeTrackColor: Colors.green.shade200,
+                activeThumbColor: Colors.green.shade700,
+              ),
             ],
           ),
         ),
@@ -1417,15 +1552,26 @@ class _BulkDiscountDialogState extends State<_BulkDiscountDialog> {
           child: const Text('Vazgeç'),
         ),
         ElevatedButton(
-          onPressed: applicable.isEmpty
+          onPressed: !_canSubmit(hasValue, applicable)
               ? null
               : () {
-                  final err = _validate();
-                  if (err != null) {
-                    setState(() => _error = err);
-                    return;
+                  if (hasValue) {
+                    final err = _validate();
+                    if (err != null) {
+                      setState(() => _error = err);
+                      return;
+                    }
                   }
-                  Navigator.pop(context, _BulkDiscountResult(_mode, _value!));
+                  final campaignChanged =
+                      _campaignEnabled != _initialCampaignEnabled;
+                  Navigator.pop(
+                    context,
+                    _BulkDiscountResult(
+                      mode: hasValue ? _mode : null,
+                      value: hasValue ? _value : null,
+                      campaignEnabled: campaignChanged ? _campaignEnabled : null,
+                    ),
+                  );
                 },
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.orange.shade700,

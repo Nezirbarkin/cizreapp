@@ -643,6 +643,26 @@ class ProductService {
     }
   }
 
+  /// Seçilen ürünlerde "2 Al Biri Bakiye" kampanyasını tek işlemde açar/kapatır.
+  /// [campaignType] `null` gönderilirse kampanya kaldırılır.
+  Future<int> bulkSetCampaignType({
+    required List<String> productIds,
+    String? campaignType,
+  }) async {
+    try {
+      final result = await supabase.rpc(
+        'seller_bulk_set_campaign_type',
+        params: {
+          'p_product_ids': productIds,
+          'p_campaign_type': campaignType,
+        },
+      );
+      return (result as num?)?.toInt() ?? 0;
+    } catch (e) {
+      throw Exception('Kampanya güncellenirken hata: $e');
+    }
+  }
+
   // Ürünü sponsor olarak sabitle/kaldır (admin için)
   Future<void> toggleProductPinned(String productId, bool isPinned) async {
     try {

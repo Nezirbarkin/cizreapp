@@ -29,6 +29,7 @@ import 'features/auth/screens/register_screen_v2.dart';
 import 'features/auth/screens/reset_password_screen.dart';
 import 'features/auth/screens/reset_password_confirm_screen.dart';
 import 'features/main/screens/main_screen.dart';
+import 'features/onboarding/widgets/onboarding_gate.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
@@ -267,10 +268,12 @@ void main() async {
 
         try {
           final permissionService = PermissionService();
-          // Konum izni başlangıçta istenmez — kullanıcı konum butonuna
-          // bastığında ayrıca talep edilecek (haritaya girilince otomatik
-          // sorulmaz, sadece buton tetikler).
-          permissionService.checkAndRequestAllPermissionsExceptLocation().then((permissionResults) {
+          // Konum izni burada İSTENMEZ. Kullanıcı konum gerektiren bir
+          // özelliği (adres seçme, kurye/şoför takibi, "konumuma git") ilk
+          // kez kullandığında, o özelliğin bağlamında ve önce Prominent
+          // Disclosure ekranı gösterilerek istenir —
+          // LocationDisclosureService.ensure.
+          permissionService.checkAndRequestAllPermissions().then((permissionResults) {
             log('✅ İzinler kontrol edildi: ${permissionResults.length} izin');
             for (final entry in permissionResults.entries) {
               if (entry.value.isPermanentlyDenied) {
@@ -727,8 +730,9 @@ class _CizreAppState extends State<CizreApp> {
   /// Splash ekranı tamamen kaldırıldı - direkt MainScreen'e gidilir
   Widget _getInitialScreen() {
     if (!kIsWeb) {
-      // Mobil'de splash atlanır, direkt MainScreen'e gidilir
-      return const MainScreen();
+      // Mobil'de splash atlanır, direkt MainScreen'e gidilir (ilk açılışta
+      // araya tek seferlik tanıtım ekranı girer)
+      return const OnboardingGate(child: MainScreen());
     }
     
     final path = Uri.base.path;
@@ -754,7 +758,7 @@ class _CizreAppState extends State<CizreApp> {
     
     // Web'de MainScreen
     print('🏠 Loading main screen');
-    return const MainScreen();
+    return const OnboardingGate(child: MainScreen());
   }
 
   @override
