@@ -341,6 +341,26 @@ extension on _AdminDashboardScreenState {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: _buildCourierDocumentStatusChip(courier)),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _showCourierDocumentsDialog(courier),
+                  icon: const Icon(Icons.badge_outlined, size: 16),
+                  label: const Text('Evraklar'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.brown,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -608,5 +628,437 @@ extension on _AdminDashboardScreenState {
       debugPrint('Kurye ücreti yüklenirken hata: $e');
       return 15.0;
     }
+  }
+
+  // --- _buildCourierDocumentStatusChip ---
+  Widget _buildCourierDocumentStatusChip(Map<String, dynamic> courier) {
+    final status = courier['document_status'] as String?;
+
+    late final Color color;
+    late final String text;
+    late final IconData icon;
+
+    switch (status) {
+      case 'approved':
+        color = Colors.green;
+        text = 'Evrak: Onaylı';
+        icon = Icons.verified;
+        break;
+      case 'rejected':
+        color = Colors.red;
+        text = 'Evrak: Reddedildi';
+        icon = Icons.error_outline;
+        break;
+      case 'pending':
+        color = Colors.orange;
+        text = 'Evrak: İncelemede';
+        icon = Icons.hourglass_top;
+        break;
+      default:
+        color = Colors.grey;
+        text = 'Evrak: Gönderilmedi';
+        icon = Icons.help_outline;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _showCourierDocumentsDialog ---
+  void _showCourierDocumentsDialog(Map<String, dynamic> courier) async {
+    final courierId = courier['id'] as String;
+
+    Map<String, dynamic>? doc;
+    try {
+      doc = await Supabase.instance.client
+          .from('courier_documents')
+          .select()
+          .eq('courier_id', courierId)
+          .maybeSingle();
+    } catch (e) {
+      debugPrint('Kurye evrakı yüklenirken hata: $e');
+    }
+
+    if (!mounted) return;
+
+    if (doc == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu kurye henüz evrak göndermemiş'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // showDialog'un builder closure'ı içinde `doc?[...]` her seferinde null
+    // kontrolü gerektirmesin diye (Dart, mutable yakalanan değişkenlerde tip
+    // daraltmasını closure sınırında korumuyor) null-check sonrası non-nullable
+    // bir kopya alınır.
+    final docData = doc;
+
+    final slots = <String, String?>{
+      'Kimlik (Ön Yüz)': docData['id_front_path'] as String?,
+      'Kimlik (Arka Yüz)': docData['id_back_path'] as String?,
+      'Ehliyet Fotoğrafı': docData['license_photo_path'] as String?,
+      'Motor / Plaka Fotoğrafı': docData['vehicle_photo_path'] as String?,
+    };
+
+    final signedUrls = <String, String>{};
+    for (final entry in slots.entries) {
+      final path = entry.value;
+      if (path == null || path.isEmpty) continue;
+      try {
+        final url = await Supabase.instance.client.storage
+            .from('courier-documents')
+            .createSignedUrl(path, 3600);
+        signedUrls[entry.key] = url;
+      } catch (e) {
+        debugPrint('Signed url alınamadı (${entry.key}): $e');
+      }
+    }
+
+    String? selfieVideoUrl;
+    final selfieVideoPath = docData['selfie_video_path'] as String?;
+    if (selfieVideoPath != null && selfieVideoPath.isNotEmpty) {
+      try {
+        selfieVideoUrl = await Supabase.instance.client.storage
+            .from('courier-documents')
+            .createSignedUrl(selfieVideoPath, 3600);
+      } catch (e) {
+        debugPrint('Selfie video signed url alınamadı: $e');
+      }
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          courier['full_name'] ?? courier['username'] ?? 'Kurye Evrakları',
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildCourierDocumentStatusChip({
+                  ...courier,
+                  'document_status': docData['status'],
+                }),
+                const SizedBox(height: 12),
+                Text('Ad Soyad: ${docData['full_name'] ?? '-'}'),
+                Text('Telefon: ${docData['phone'] ?? '-'}'),
+                Text('Plaka: ${docData['plate_number'] ?? '-'}'),
+                if (docData['admin_note'] != null &&
+                    (docData['admin_note'] as String).isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Not: ${docData['admin_note']}',
+                      style: const TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1,
+                  children: slots.keys.map((label) {
+                    final url = signedUrls[label];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label, style: const TextStyle(fontSize: 11)),
+                        const SizedBox(height: 4),
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: url == null
+                                ? const Center(
+                                    child: Icon(
+                                      Icons.image_not_supported_outlined,
+                                      color: Colors.grey,
+                                    ),
+                                  )
+                                : GestureDetector(
+                                    onTap: () => _showFullscreenImage(url),
+                                    child: Image.network(
+                                      url,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (c, e, s) => const Center(
+                                        child: Icon(
+                                          Icons.broken_image,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Selfie Doğrulama Videosu',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (selfieVideoUrl == null)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.videocam_off_outlined, color: Colors.grey.shade500, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Video gönderilmemiş',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: () => _showFullscreenVideo(selfieVideoUrl!),
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('Videoyu Oynat'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.teal),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Kapat'),
+          ),
+          if (docData['status'] != 'rejected')
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _reviewCourierDocument(courierId, 'rejected');
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Reddet'),
+            ),
+          if (docData['status'] != 'approved')
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _reviewCourierDocument(courierId, 'approved');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Onayla'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // --- _showFullscreenImage ---
+  void _showFullscreenImage(String url) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: InteractiveViewer(
+          child: Image.network(url, fit: BoxFit.contain),
+        ),
+      ),
+    );
+  }
+
+  // --- _showFullscreenVideo ---
+  void _showFullscreenVideo(String url) {
+    showDialog(
+      context: context,
+      builder: (context) => _AdminVideoPreviewDialog(url: url),
+    );
+  }
+
+  // --- _reviewCourierDocument ---
+  Future<void> _reviewCourierDocument(String courierId, String status) async {
+    String? note;
+    if (status == 'rejected') {
+      final noteController = TextEditingController();
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Reddetme Gerekçesi'),
+          content: TextField(
+            controller: noteController,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Kurye evrakında düzeltilmesi gereken durumu yazın',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Reddet'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      note = noteController.text.trim();
+    }
+
+    try {
+      await Supabase.instance.client.rpc(
+        'admin_review_courier_document',
+        params: {
+          'p_courier_id': courierId,
+          'p_status': status,
+          'p_note': note,
+        },
+      );
+
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              status == 'approved'
+                  ? 'Kurye evrakları onaylandı'
+                  : 'Kurye evrakları reddedildi',
+            ),
+            backgroundColor: status == 'approved' ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Evrak inceleme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+}
+
+class _AdminVideoPreviewDialog extends StatefulWidget {
+  const _AdminVideoPreviewDialog({required this.url});
+
+  final String url;
+
+  @override
+  State<_AdminVideoPreviewDialog> createState() =>
+      _AdminVideoPreviewDialogState();
+}
+
+class _AdminVideoPreviewDialogState extends State<_AdminVideoPreviewDialog> {
+  VideoPlayerController? _controller;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    try {
+      await controller.initialize();
+      await controller.play();
+      if (mounted) setState(() => _controller = controller);
+    } catch (e) {
+      debugPrint('Video oynatma hatası: $e');
+      if (mounted) setState(() => _hasError = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(12),
+      child: _hasError
+          ? const Padding(
+              padding: EdgeInsets.all(32),
+              child: Text('Video oynatılamadı', style: TextStyle(color: Colors.white)),
+            )
+          : _controller == null
+              ? const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(color: Colors.white),
+                )
+              : AspectRatio(
+                  aspectRatio: _controller!.value.aspectRatio,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _controller!.value.isPlaying
+                            ? _controller!.pause()
+                            : _controller!.play();
+                      });
+                    },
+                    child: VideoPlayer(_controller!),
+                  ),
+                ),
+    );
   }
 }

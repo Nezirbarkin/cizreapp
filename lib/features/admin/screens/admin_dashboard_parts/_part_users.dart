@@ -29,12 +29,14 @@ extension on _AdminDashboardScreenState {
     if (!mounted) return;
     setState(() {
       _usersFuture = _loadUsers();
+      _userRoleCountsFuture = _loadUserRoleCounts();
     });
   }
 
   // --- _buildUsersContent ---
   Widget _buildUsersContent() {
     _usersFuture ??= _loadUsers();
+    _userRoleCountsFuture ??= _loadUserRoleCounts();
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _usersFuture,
       builder: (context, snapshot) {
@@ -72,459 +74,491 @@ extension on _AdminDashboardScreenState {
           return true;
         }).toList();
 
-        // İstatistikler (tüm kullanıcılar üzerinden)
-        final totalUsers = allUsers.length;
-        final adminCount = allUsers.where((u) => u['role'] == 'admin').length;
-        final sellerCount = allUsers.where((u) => u['role'] == 'seller').length;
-        final courierCount = allUsers
-            .where((u) => u['role'] == 'courier')
-            .length;
-        final driverCount = allUsers.where((u) => u['role'] == 'driver').length;
-        final newsCount = allUsers.where((u) => u['role'] == 'news').length;
-        // NOT: "Yasakli" karti yok - profiles tablosunda is_banned kolonu
-        // bulunmuyor. Eklenirse burada sayilip bir _buildStatCard eklenmeli.
+        return FutureBuilder<Map<String, int>?>(
+          future: _userRoleCountsFuture,
+          builder: (context, countsSnapshot) {
+            // İstatistikler: gercek toplam admin_user_role_counts RPC'sinden
+            // gelir (limitsiz, tum profiles uzerinde GROUP BY role). RPC
+            // henuz donmediyse/hata verdiyse (ornegin migration henuz
+            // uygulanmamis eski bir ortamda) su anki sayfadan sayarak
+            // dusuyoruz - bu durumda kartlar limitli sayfayi yansitir, ama
+            // bu yalniz gecici bir fallback'tir, kalici davranis degildir.
+            final roleCounts = countsSnapshot.data;
+            final totalUsers = roleCounts != null
+                ? roleCounts.values.fold<int>(0, (a, b) => a + b)
+                : allUsers.length;
+            final adminCount =
+                roleCounts?['admin'] ??
+                allUsers.where((u) => u['role'] == 'admin').length;
+            final sellerCount =
+                roleCounts?['seller'] ??
+                allUsers.where((u) => u['role'] == 'seller').length;
+            final courierCount =
+                roleCounts?['courier'] ??
+                allUsers.where((u) => u['role'] == 'courier').length;
+            final driverCount =
+                roleCounts?['driver'] ??
+                allUsers.where((u) => u['role'] == 'driver').length;
+            final newsCount =
+                roleCounts?['news'] ??
+                allUsers.where((u) => u['role'] == 'news').length;
+            // NOT: "Yasakli" karti yok - profiles tablosunda is_banned kolonu
+            // bulunmuyor. Eklenirse burada sayilip bir _buildStatCard eklenmeli.
 
-        return RefreshIndicator(
-          onRefresh: () async {
-            _refreshUsers();
-            await _usersFuture;
-          },
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Kullanıcı Yönetimi',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-
-                // Arama TextField
-                TextField(
-                  controller: _userSearchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _userSearchQuery = value;
-                    });
-                  },
-                  decoration: InputDecoration(
-                    hintText:
-                        'Kullanıcı ara (isim, email, kullanıcı adı, telefon)...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _userSearchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _userSearchController.clear();
-                              setState(() {
-                                _userSearchQuery = '';
-                              });
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // İstatistik Kartları
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+            return RefreshIndicator(
+              onRefresh: () async {
+                _refreshUsers();
+                await _usersFuture;
+              },
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.people,
-                        title: 'Toplam',
-                        value: '$totalUsers',
-                        color: Colors.blue,
-                        gradient: [Colors.blue.shade400, Colors.blue.shade600],
-                        onTap: () => setState(() => _roleFilter = null),
-                      ),
-                    ),
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.admin_panel_settings,
-                        title: 'Admin',
-                        value: '$adminCount',
-                        color: Colors.purple,
-                        gradient: [
-                          Colors.purple.shade400,
-                          Colors.purple.shade600,
-                        ],
-                        onTap: () => setState(() => _roleFilter = 'admin'),
-                      ),
-                    ),
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.store,
-                        title: 'Satıcı',
-                        value: '$sellerCount',
-                        color: Colors.orange,
-                        gradient: [
-                          Colors.orange.shade400,
-                          Colors.orange.shade600,
-                        ],
-                        onTap: () => setState(() => _roleFilter = 'seller'),
-                      ),
-                    ),
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.delivery_dining,
-                        title: 'Kurye',
-                        value: '$courierCount',
-                        color: Colors.teal,
-                        gradient: [Colors.teal.shade400, Colors.teal.shade600],
-                        onTap: () => setState(() => _roleFilter = 'courier'),
-                      ),
-                    ),
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.directions_bus,
-                        title: 'Şoför',
-                        value: '$driverCount',
-                        color: Colors.indigo,
-                        gradient: [
-                          Colors.indigo.shade400,
-                          Colors.indigo.shade600,
-                        ],
-                        onTap: () => setState(() => _roleFilter = 'driver'),
-                      ),
-                    ),
-                    SizedBox(
-                      width: (MediaQuery.of(context).size.width - 80) / 4,
-                      child: _buildStatCard(
-                        icon: Icons.newspaper,
-                        title: 'Haberci',
-                        value: '$newsCount',
-                        color: Colors.blueGrey,
-                        gradient: [
-                          Colors.blueGrey.shade400,
-                          Colors.blueGrey.shade600,
-                        ],
-                        onTap: () => setState(() => _roleFilter = 'news'),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_roleFilter != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Row(
-                      children: [
-                        Chip(
-                          label: Text('Filtre: $_roleFilter'),
-                          onDeleted: () => setState(() => _roleFilter = null),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 24),
-
-                // Filtrelenmiş sonuç bilgisi
-                if (_userSearchQuery.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text(
-                      '${users.length} kullanıcı bulundu',
+                    const Text(
+                      'Kullanıcı Yönetimi',
                       style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 14,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 16),
 
-                // Kullanıcı Listesi
-                if (users.isEmpty && _userSearchQuery.isNotEmpty)
-                  Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.search_off,
-                          size: 64,
-                          color: Colors.grey.shade400,
+                    // Arama TextField
+                    TextField(
+                      controller: _userSearchController,
+                      onChanged: (value) {
+                        setState(() {
+                          _userSearchQuery = value;
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText:
+                            'Kullanıcı ara (isim, email, kullanıcı adı, telefon)...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _userSearchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _userSearchController.clear();
+                                  setState(() {
+                                    _userSearchQuery = '';
+                                  });
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Arama sonucu bulunamadı',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey.shade600,
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // İstatistik Kartları
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.people,
+                            title: 'Toplam',
+                            value: '$totalUsers',
+                            color: Colors.blue,
+                            gradient: [
+                              Colors.blue.shade400,
+                              Colors.blue.shade600,
+                            ],
+                            onTap: () => setState(() => _roleFilter = null),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _userSearchQuery = '';
-                            });
-                          },
-                          icon: const Icon(Icons.clear),
-                          label: const Text('Aramayı Temizle'),
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.admin_panel_settings,
+                            title: 'Admin',
+                            value: '$adminCount',
+                            color: Colors.purple,
+                            gradient: [
+                              Colors.purple.shade400,
+                              Colors.purple.shade600,
+                            ],
+                            onTap: () => setState(() => _roleFilter = 'admin'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.store,
+                            title: 'Satıcı',
+                            value: '$sellerCount',
+                            color: Colors.orange,
+                            gradient: [
+                              Colors.orange.shade400,
+                              Colors.orange.shade600,
+                            ],
+                            onTap: () => setState(() => _roleFilter = 'seller'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.delivery_dining,
+                            title: 'Kurye',
+                            value: '$courierCount',
+                            color: Colors.teal,
+                            gradient: [
+                              Colors.teal.shade400,
+                              Colors.teal.shade600,
+                            ],
+                            onTap: () =>
+                                setState(() => _roleFilter = 'courier'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.directions_bus,
+                            title: 'Şoför',
+                            value: '$driverCount',
+                            color: Colors.indigo,
+                            gradient: [
+                              Colors.indigo.shade400,
+                              Colors.indigo.shade600,
+                            ],
+                            onTap: () => setState(() => _roleFilter = 'driver'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 80) / 4,
+                          child: _buildStatCard(
+                            icon: Icons.newspaper,
+                            title: 'Haberci',
+                            value: '$newsCount',
+                            color: Colors.blueGrey,
+                            gradient: [
+                              Colors.blueGrey.shade400,
+                              Colors.blueGrey.shade600,
+                            ],
+                            onTap: () => setState(() => _roleFilter = 'news'),
+                          ),
                         ),
                       ],
                     ),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: users.length,
-                    itemBuilder: (context, index) {
-                      final user = users[index];
-
-                      // --- Kart verisini güvenli şekilde çıkar ---
-                      // Eski admin_list_users (fallback) veya yeni
-                      // admin_user_list_with_stats'tan gelse de null-safe.
-                      final email = (user['email'] as String?) ?? '';
-                      final phone = (user['phone'] as String?) ?? '';
-                      final username = (user['username'] as String?) ?? '';
-                      final role = user['role'] as String?;
-                      final fullName = (user['full_name'] as String?) ?? '';
-                      final displayName = fullName.trim().isNotEmpty
-                          ? fullName
-                          : (username.trim().isNotEmpty ? username : '-');
-                      final postsCount =
-                          (user['posts_count'] as num?)?.toInt() ?? 0;
-                      final followersCount =
-                          (user['followers_count'] as num?)?.toInt() ?? 0;
-                      final followingCount =
-                          (user['following_count'] as num?)?.toInt() ?? 0;
-                      final deliveredCount =
-                          (user['delivered_count'] as num?)?.toInt() ?? 0;
-                      final isOnline = (user['is_online'] as bool?) ?? false;
-                      final isSuspicious =
-                          (user['is_suspicious'] as bool?) ?? false;
-                      final now = DateTime.now();
-                      final lastSeen = _parseDateTime(user['last_seen']);
-                      final createdAt = _parseDateTime(user['created_at']);
-                      final lastSeenLabel = AdminUserHelpers.formatLastSeen(
-                        lastSeen,
-                        now: now,
-                      );
-                      final isNew =
-                          AdminUserHelpers.isNewMember(createdAt, now: now);
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    if (_roleFilter != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Row(
+                          children: [
+                            Chip(
+                              label: Text('Filtre: $_roleFilter'),
+                              onDeleted: () =>
+                                  setState(() => _roleFilter = null),
+                            ),
+                          ],
                         ),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _showEditUserDialog(user),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Avatar + online göstergesi
-                                _buildUserAvatar(
-                                  user,
-                                  online: isOnline,
-                                ),
-                                const SizedBox(width: 12),
-                                // İçerik
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // İsim + rozetler
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 4,
+                      ),
+                    const SizedBox(height: 24),
+
+                    // Filtrelenmiş sonuç bilgisi
+                    if (_userSearchQuery.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text(
+                          '${users.length} kullanıcı bulundu',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+
+                    // Kullanıcı Listesi
+                    if (users.isEmpty && _userSearchQuery.isNotEmpty)
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 64,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Arama sonucu bulunamadı',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _userSearchQuery = '';
+                                });
+                              },
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Aramayı Temizle'),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: users.length,
+                        itemBuilder: (context, index) {
+                          final user = users[index];
+
+                          // --- Kart verisini güvenli şekilde çıkar ---
+                          // Eski admin_list_users (fallback) veya yeni
+                          // admin_user_list_with_stats'tan gelse de null-safe.
+                          final email = (user['email'] as String?) ?? '';
+                          final phone = (user['phone'] as String?) ?? '';
+                          final username = (user['username'] as String?) ?? '';
+                          final role = user['role'] as String?;
+                          final fullName = (user['full_name'] as String?) ?? '';
+                          final displayName = fullName.trim().isNotEmpty
+                              ? fullName
+                              : (username.trim().isNotEmpty ? username : '-');
+                          final postsCount =
+                              (user['posts_count'] as num?)?.toInt() ?? 0;
+                          final followersCount =
+                              (user['followers_count'] as num?)?.toInt() ?? 0;
+                          final followingCount =
+                              (user['following_count'] as num?)?.toInt() ?? 0;
+                          final deliveredCount =
+                              (user['delivered_count'] as num?)?.toInt() ?? 0;
+                          final isOnline =
+                              (user['is_online'] as bool?) ?? false;
+                          final isSuspicious =
+                              (user['is_suspicious'] as bool?) ?? false;
+                          final now = DateTime.now();
+                          final lastSeen = _parseDateTime(user['last_seen']);
+                          final createdAt = _parseDateTime(user['created_at']);
+                          final lastSeenLabel = AdminUserHelpers.formatLastSeen(
+                            lastSeen,
+                            now: now,
+                          );
+                          final isNew = AdminUserHelpers.isNewMember(
+                            createdAt,
+                            now: now,
+                          );
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            elevation: 1,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => _showEditUserDialog(user),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Avatar + online göstergesi
+                                    _buildUserAvatar(user, online: isOnline),
+                                    const SizedBox(width: 12),
+                                    // İçerik
+                                    Expanded(
+                                      child: Column(
                                         crossAxisAlignment:
-                                            WrapCrossAlignment.center,
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            displayName,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 15,
-                                            ),
-                                          ),
-                                          _buildRoleBadge(role),
-                                          if (isSuspicious)
-                                            _buildMiniBadge(
-                                              'Şüpheli',
-                                              Icons.warning_amber_rounded,
-                                              Colors.red,
-                                            ),
-                                          if (isNew)
-                                            _buildMiniBadge(
-                                              'Yeni',
-                                              Icons.fiber_new,
-                                              Colors.green,
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      // E-posta (mail ikonu yanında)
-                                      _infoRow(
-                                        Icons.email_outlined,
-                                        email.isNotEmpty
-                                            ? email
-                                            : 'E-posta yok',
-                                        dim: email.isEmpty,
-                                      ),
-                                      // Telefon (varsa)
-                                      if (phone.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        _infoRow(
-                                          Icons.phone_outlined,
-                                          phone,
-                                        ),
-                                      ],
-                                      const SizedBox(height: 2),
-                                      _infoRow(
-                                        Icons.alternate_email,
-                                        '@${username.isEmpty ? '-' : username}',
-                                      ),
-                                      // Sosyal istatistikler
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _statChip(
-                                            Icons.article_outlined,
-                                            AdminUserHelpers.formatStatCount(
-                                              postsCount,
-                                            ),
-                                            'Gönderi',
-                                            color: Colors.blue,
-                                          ),
-                                          _statChip(
-                                            Icons.people_alt_outlined,
-                                            AdminUserHelpers.formatStatCount(
-                                              followersCount,
-                                            ),
-                                            'Takipçi',
-                                            color: Colors.purple,
-                                          ),
-                                          _statChip(
-                                            Icons.person_add_alt_outlined,
-                                            AdminUserHelpers.formatStatCount(
-                                              followingCount,
-                                            ),
-                                            'Takip',
-                                            color: Colors.teal,
-                                          ),
-                                          if (role == 'courier' &&
-                                              deliveredCount > 0)
-                                            _statChip(
-                                              Icons.local_shipping_outlined,
-                                              AdminUserHelpers.formatStatCount(
-                                                deliveredCount,
+                                          // İsim + rozetler
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 4,
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
+                                            children: [
+                                              Text(
+                                                displayName,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
                                               ),
-                                              'Teslim',
-                                              color: Colors.orange,
+                                              _buildRoleBadge(role),
+                                              if (isSuspicious)
+                                                _buildMiniBadge(
+                                                  'Şüpheli',
+                                                  Icons.warning_amber_rounded,
+                                                  Colors.red,
+                                                ),
+                                              if (isNew)
+                                                _buildMiniBadge(
+                                                  'Yeni',
+                                                  Icons.fiber_new,
+                                                  Colors.green,
+                                                ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          // E-posta (mail ikonu yanında)
+                                          _infoRow(
+                                            Icons.email_outlined,
+                                            email.isNotEmpty
+                                                ? email
+                                                : 'E-posta yok',
+                                            dim: email.isEmpty,
+                                          ),
+                                          // Telefon (varsa)
+                                          if (phone.isNotEmpty) ...[
+                                            const SizedBox(height: 2),
+                                            _infoRow(
+                                              Icons.phone_outlined,
+                                              phone,
                                             ),
+                                          ],
+                                          const SizedBox(height: 2),
+                                          _infoRow(
+                                            Icons.alternate_email,
+                                            '@${username.isEmpty ? '-' : username}',
+                                          ),
+                                          // Sosyal istatistikler
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 6,
+                                            children: [
+                                              _statChip(
+                                                Icons.article_outlined,
+                                                AdminUserHelpers.formatStatCount(
+                                                  postsCount,
+                                                ),
+                                                'Gönderi',
+                                                color: Colors.blue,
+                                              ),
+                                              _statChip(
+                                                Icons.people_alt_outlined,
+                                                AdminUserHelpers.formatStatCount(
+                                                  followersCount,
+                                                ),
+                                                'Takipçi',
+                                                color: Colors.purple,
+                                              ),
+                                              _statChip(
+                                                Icons.person_add_alt_outlined,
+                                                AdminUserHelpers.formatStatCount(
+                                                  followingCount,
+                                                ),
+                                                'Takip',
+                                                color: Colors.teal,
+                                              ),
+                                              if (role == 'courier' &&
+                                                  deliveredCount > 0)
+                                                _statChip(
+                                                  Icons.local_shipping_outlined,
+                                                  AdminUserHelpers.formatStatCount(
+                                                    deliveredCount,
+                                                  ),
+                                                  'Teslim',
+                                                  color: Colors.orange,
+                                                ),
+                                            ],
+                                          ),
+                                          // Son görülme
+                                          if (lastSeenLabel != '-') ...[
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Son görülme: $lastSeenLabel',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
-                                      // Son görülme
-                                      if (lastSeenLabel != '-') ...[
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'Son görülme: $lastSeenLabel',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500,
+                                    ),
+                                    // Aksiyon menüsü
+                                    PopupMenuButton<String>(
+                                      icon: Icon(
+                                        Icons.more_vert,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                      onSelected: (value) {
+                                        switch (value) {
+                                          case 'edit':
+                                            _showEditUserDialog(user);
+                                            break;
+                                          case 'change_role':
+                                            _showChangeRoleDialog(user);
+                                            break;
+                                          case 'delete':
+                                            _showDeleteUserDialog(user);
+                                            break;
+                                        }
+                                      },
+                                      itemBuilder: (context) => [
+                                        const PopupMenuItem(
+                                          value: 'edit',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.edit, size: 18),
+                                              SizedBox(width: 8),
+                                              Text('Düzenle'),
+                                            ],
+                                          ),
+                                        ),
+                                        const PopupMenuItem(
+                                          value: 'change_role',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.admin_panel_settings,
+                                                size: 18,
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text('Rol Değiştir'),
+                                            ],
+                                          ),
+                                        ),
+                                        // Bu eylem hesabi silmez, "supheli"
+                                        // isaretler (bkz. _showDeleteUserDialog).
+                                        const PopupMenuItem(
+                                          value: 'delete',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.gpp_bad,
+                                                size: 18,
+                                                color: Colors.orange,
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Şüpheli İşaretle',
+                                                style: TextStyle(
+                                                  color: Colors.orange,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
-                                    ],
-                                  ),
-                                ),
-                                // Aksiyon menüsü
-                                PopupMenuButton<String>(
-                                  icon: Icon(
-                                    Icons.more_vert,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                  onSelected: (value) {
-                                    switch (value) {
-                                      case 'edit':
-                                        _showEditUserDialog(user);
-                                        break;
-                                      case 'change_role':
-                                        _showChangeRoleDialog(user);
-                                        break;
-                                      case 'delete':
-                                        _showDeleteUserDialog(user);
-                                        break;
-                                    }
-                                  },
-                                  itemBuilder: (context) => [
-                                    const PopupMenuItem(
-                                      value: 'edit',
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.edit, size: 18),
-                                          SizedBox(width: 8),
-                                          Text('Düzenle'),
-                                        ],
-                                      ),
-                                    ),
-                                    const PopupMenuItem(
-                                      value: 'change_role',
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.admin_panel_settings,
-                                            size: 18,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text('Rol Değiştir'),
-                                        ],
-                                      ),
-                                    ),
-                                    // Bu eylem hesabi silmez, "supheli"
-                                    // isaretler (bkz. _showDeleteUserDialog).
-                                    const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.gpp_bad,
-                                            size: 18,
-                                            color: Colors.orange,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            'Şüpheli İşaretle',
-                                            style: TextStyle(
-                                              color: Colors.orange,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
                                     ),
                                   ],
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1242,6 +1276,38 @@ extension on _AdminDashboardScreenState {
 
       // Hata durumunda boş liste döndür
       return [];
+    }
+  }
+
+  // Rol bazlı ozet sayilari yukle (admin_user_role_counts RPC).
+  //
+  // ONEMLI: Bu, _loadUsers()'in dondurdugu listeden AYRI bir sorgudur.
+  // _loadUsers() admin_user_list_with_stats RPC'sini p_limit=100 ile
+  // cagirir ve en yeni 100 profili doner; kart istatistiklerini o listeden
+  // saymak, toplam profil sayisi 100'u astiginda erken acilmis admin/kurye/
+  // haberci hesaplarini "0" gibi gosteriyordu (bu hesaplar genelde en eski
+  // kayitlardir, "en yeni 100" penceresinin disinda kalirlar). Bu fonksiyon
+  // limitsiz, tum profiles tablosu uzerinde GROUP BY role hesabi doner; kart
+  // sayilari bundan sonra ASLA sayfalanmis listeden hesaplanmamali.
+  Future<Map<String, int>?> _loadUserRoleCounts() async {
+    try {
+      final response = await Supabase.instance.client.rpc<List<dynamic>>(
+        'admin_user_role_counts',
+      );
+      final counts = <String, int>{};
+      for (final row in response) {
+        final role = row['role'] as String?;
+        final count = (row['user_count'] as num?)?.toInt() ?? 0;
+        if (role != null) counts[role] = count;
+      }
+      return counts;
+    } catch (e) {
+      debugPrint('❌ Rol sayıları yüklenirken hata: $e');
+      // NULL dondurulur (bos map DEGIL): _buildUsersContent bunu
+      // "RPC basarisiz" olarak tanir ve TUM kartlari (Toplam dahil)
+      // mevcut sayfadan saymaya duser. Bos map donseydi "Toplam" karti
+      // yanlislikla 0 gosterirdi (fold uzerinde toplanacak eleman kalmaz).
+      return null;
     }
   }
 }

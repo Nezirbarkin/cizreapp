@@ -13,6 +13,7 @@ import '../../../core/services/courier_location_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/privacy_service.dart';
+import '../../chat/services/presence_service.dart';
 import '../../../core/services/email_service.dart';
 import '../../market/screens/cart_screen.dart';
 import '../../social/screens/social_screen.dart';
@@ -515,6 +516,8 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
         return;
       }
 
+      await PresenceService.instance.setOnlineEnabled(newValue);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -726,10 +729,13 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
               final newPhone = phoneController.text.trim();
 
               try {
-                await Supabase.instance.client
-                    .from('profiles')
-                    .update({'full_name': newName, 'phone': newPhone})
-                    .eq('id', userId);
+                // profiles tablosuna doğrudan UPDATE yetkisi authenticated
+                // rolünden kaldırıldı; yazım SECURITY DEFINER RPC üzerinden
+                // yapılmalı.
+                await Supabase.instance.client.rpc(
+                  'update_my_public_profile',
+                  params: {'p_full_name': newName, 'p_phone': newPhone},
+                );
 
                 // Email güncelleme (auth metadata)
                 if (newEmail.isNotEmpty) {
@@ -845,6 +851,15 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                             case 'settings':
                               _showSettingsDialog();
                               break;
+                            case 'documents':
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const CourierDocumentsScreen(),
+                                ),
+                              );
+                              break;
                           }
                         },
                         itemBuilder: (context) => [
@@ -855,6 +870,16 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                                 Icon(Icons.settings, color: Colors.teal),
                                 SizedBox(width: 12),
                                 Text('Ayarlar'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'documents',
+                            child: Row(
+                              children: [
+                                Icon(Icons.badge_outlined, color: Colors.brown),
+                                SizedBox(width: 12),
+                                Text('Evraklarım'),
                               ],
                             ),
                           ),
@@ -1128,6 +1153,19 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
                           subtitle: 'IBAN ve banka bilgileri',
                           color: Colors.purple,
                           onTap: () => _showPaymentInfoDialog(),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildQuickActionCard(
+                          icon: Icons.badge_outlined,
+                          title: 'Kurye Evraklarım',
+                          subtitle: 'Kimlik, ehliyet, motor ve plaka bilgileri',
+                          color: Colors.brown,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CourierDocumentsScreen(),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 24),
                         const Text(

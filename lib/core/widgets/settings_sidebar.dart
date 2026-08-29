@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
 import '../models/user_model.dart';
 import '../services/privacy_service.dart';
+import '../../features/chat/services/presence_service.dart';
 import '../navigation/app_navigator.dart';
 import '../../features/favorites/screens/favorites_screen.dart';
 import '../../features/market/screens/address_management_screen.dart';
@@ -169,6 +170,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     try {
       // Tercihi güncelle; servis is_online alanını da buna göre setler.
       final success = await _privacyService.updateOnlineEnabled(value);
+      if (success) {
+        await PresenceService.instance.setOnlineEnabled(value);
+      }
       if (success && mounted) {
         setState(() => _isOnlineEnabled = value);
       }
@@ -184,13 +188,18 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     setState(() => _isLoadingPrivacy = true);
     try {
       final success = await _privacyService.updateGhostMode(value);
-      if (success && mounted) {
-        setState(() => _isGhostMode = value);
-        // Hayalet mod açılırsa çevrimiçi görünürlük tercihini de kapalı göster.
-        // (Tercih değişmez ama UI görünümü çevrimdışı olur; gerçek is_online
-        // serviste false yapıldı.)
+      if (success) {
         if (value) {
-          setState(() => _isOnlineEnabled = false);
+          await PresenceService.instance.setOnlineEnabled(false);
+        }
+        if (mounted) {
+          setState(() => _isGhostMode = value);
+          // Hayalet mod açılırsa çevrimiçi görünürlük tercihini de kapalı göster.
+          // (Tercih değişmez ama UI görünümü çevrimdışı olur; gerçek is_online
+          // serviste false yapıldı.)
+          if (value) {
+            setState(() => _isOnlineEnabled = false);
+          }
         }
       }
     } finally {

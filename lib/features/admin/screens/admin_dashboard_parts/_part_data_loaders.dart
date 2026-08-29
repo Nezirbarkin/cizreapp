@@ -1241,6 +1241,26 @@ extension on _AdminDashboardScreenState {
         }
       }
 
+      // Evrak durumunu (varsa) tek sorguyla eşleştir.
+      try {
+        final courierIds = couriers.map((c) => c['id']).toList();
+        if (courierIds.isNotEmpty) {
+          final docs = await Supabase.instance.client
+              .from('courier_documents')
+              .select('courier_id, status')
+              .inFilter('courier_id', courierIds);
+          final statusById = <String, String>{
+            for (final d in List<Map<String, dynamic>>.from(docs))
+              d['courier_id'] as String: d['status'] as String,
+          };
+          for (var courier in couriers) {
+            courier['document_status'] = statusById[courier['id']];
+          }
+        }
+      } catch (e) {
+        debugPrint('Kurye evrak durumu yüklenirken hata: $e');
+      }
+
       return couriers;
     } catch (e) {
       debugPrint('Kuryeler yüklenirken hata: $e');

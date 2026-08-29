@@ -91,22 +91,23 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
   Future<void> _updatePrivacySettings() async {
     setState(() => _isUpdating = true);
-    
+
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      await Supabase.instance.client
-          .from('profiles')
-          .update({
-            'status': _userStatus,
-            'show_last_seen': _showLastSeen,
-            'allow_messages_from_non_followers': _allowMessagesFromNonFollowers,
-            'profile_is_public': _profileIsPublic,
-            'messages_enabled': _messagesEnabled,
-            'last_seen': DateTime.now().toIso8601String(),
-          })
-          .eq('id', userId);
+      // profiles tablosuna doğrudan yazma yetkisi authenticated rolünden
+      // kaldırıldı (bkz. 20260803000006 migration); yazımlar SECURITY
+      // DEFINER RPC üzerinden yapılmalı.
+      await Supabase.instance.client.rpc(
+        'update_my_privacy_settings',
+        params: {
+          'p_show_last_seen': _showLastSeen,
+          'p_allow_messages_from_non_followers': _allowMessagesFromNonFollowers,
+          'p_profile_is_public': _profileIsPublic,
+          'p_messages_enabled': _messagesEnabled,
+        },
+      );
 
       if (mounted) {
         _showMessage('Gizlilik ayarları güncellendi');

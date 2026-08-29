@@ -20,6 +20,7 @@ class PresenceService {
 
   RealtimeChannel? _globalChannel;
   String? _userId;
+  bool _onlineEnabledPref = true;
 
   final StreamController<List<String>> _onlineUsersController =
       StreamController<List<String>>.broadcast();
@@ -59,14 +60,17 @@ class PresenceService {
 
     // ÖNCE kullanıcının çevrimiçi görünme tercihini kontrol et
     final isOnlineEnabled = await _isOnlineEnabled(userId);
+    _onlineEnabledPref = isOnlineEnabled;
 
-    // Tercih açıksa is_online=true yaz, kapalıysa sadece last_seen güncelle
+    // Tercih açıksa is_online=true yaz, kapalıysa sadece last_seen güncelle.
+    // profiles tablosuna doğrudan UPDATE yetkisi authenticated rolünden
+    // kaldırıldığı için (bkz. 20260803000006 migration) set_my_presence
+    // SECURITY DEFINER RPC'si kullanılıyor.
     try {
-      await Supabase.instance.client.from('profiles').update({
-        'is_online': isOnlineEnabled,
-        'last_seen': DateTime.now().toUtc().toIso8601String(),
-        'platform': _currentPlatform(),
-      }).eq('id', userId);
+      await Supabase.instance.client.rpc(
+        'set_my_presence',
+        params: {'p_is_online': isOnlineEnabled, 'p_platform': _currentPlatform()},
+      );
       debugPrint('✅ DB is_online=$isOnlineEnabled set for user=$userId');
     } catch (e) {
       debugPrint('⚠️ DB is_online update failed: $e');
@@ -108,7 +112,7 @@ class PresenceService {
 
     channel.subscribe((status, error) async {
       debugPrint('📡 Presence channel status: $status');
-      if (status == RealtimeSubscribeStatus.subscribed) {
+      if (status == RealtimeSubscribeStatus.subscribed && _onlineEnabledPref) {
         await _trackWithRetry(channel, userId, 0);
       }
       if (error != null) {
@@ -198,20 +202,31 @@ class PresenceService {
     // ÖNCE tercihi kontrol et
     final userId = _userId!;
     final isOnlineEnabled = await _isOnlineEnabled(userId);
-    
-    // Tercihe göre is_online alanını güncelle
+    _onlineEnabledPref = isOnlineEnabled;
+
+    // Tercihe göre is_online alanını güncelle (profiles tablosuna doğrudan
+    // UPDATE yetkisi yok; set_my_presence SECURITY DEFINER RPC'si kullanılır).
     try {
-      await Supabase.instance.client.from('profiles').update({
-        'is_online': isOnlineEnabled,
-        'last_seen': DateTime.now().toUtc().toIso8601String(),
-        'platform': _currentPlatform(),
-      }).eq('id', userId);
+      await Supabase.instance.client.rpc(
+        'set_my_presence',
+        params: {'p_is_online': isOnlineEnabled, 'p_platform': _currentPlatform()},
+      );
       debugPrint('✅ resumeGlobal: is_online=$isOnlineEnabled for user=$_userId');
     } catch (e) {
       debugPrint('⚠️ resumeGlobal DB update failed: $e');
     }
-    
-    // Presence track et
+
+    // Presence track et: tercih kapalıysa hiç track etme (aksi halde
+    // Realtime presence kanalı kullanıcıyı DB'deki is_online=false'a
+    // rağmen "online" olarak yayınlamaya devam eder).
+    if (!isOnlineEnabled) {
+      try {
+        await ch.untrack();
+      } catch (e) {
+        debugPrint('resume untrack error: $e');
+      }
+      return;
+    }
     try {
       await ch.track({
         'user_id': _userId,
@@ -220,6 +235,30 @@ class PresenceService {
       });
     } catch (e) {
       debugPrint('resume track error: $e');
+    }
+  }
+
+  /// Kullanıcı "çevrimiçi görünme" tercihini uygulama açıkken anlık
+  /// değiştirdiğinde çağrılır (Gizlilik & Durum ekranındaki toggle).
+  /// Tercih kapatılırsa presence kanalından hemen untrack edilir; aksi
+  /// halde kullanıcı DB'de is_online=false olsa bile Realtime presence
+  /// üzerinden diğer ekranlarda "çevrimiçi" görünmeye devam eder.
+  Future<void> setOnlineEnabled(bool enabled) async {
+    _onlineEnabledPref = enabled;
+    final ch = _globalChannel;
+    if (ch == null) return;
+    try {
+      if (enabled) {
+        await ch.track({
+          'user_id': _userId,
+          'online_at': DateTime.now().toUtc().toIso8601String(),
+          'platform': defaultTargetPlatform.name,
+        });
+      } else {
+        await ch.untrack();
+      }
+    } catch (e) {
+      debugPrint('setOnlineEnabled track/untrack error: $e');
     }
   }
 

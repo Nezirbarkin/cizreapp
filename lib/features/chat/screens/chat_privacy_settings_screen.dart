@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/privacy_service.dart';
+import '../services/presence_service.dart';
 
 class ChatPrivacySettingsScreen extends StatefulWidget {
   const ChatPrivacySettingsScreen({super.key});
@@ -49,6 +50,9 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
     setState(() => _isLoading = true);
     try {
       final success = await _privacyService.updateOnlineEnabled(value);
+      if (success) {
+        await PresenceService.instance.setOnlineEnabled(value);
+      }
       if (success && mounted) {
         setState(() => _isOnlineEnabled = value);
       }
@@ -63,13 +67,18 @@ class _ChatPrivacySettingsScreenState extends State<ChatPrivacySettingsScreen> {
     setState(() => _isLoading = true);
     try {
       final success = await _privacyService.updateGhostMode(value);
-      if (success && mounted) {
-        setState(() {
-          _isGhostMode = value;
-          if (value) {
-            _isOnlineEnabled = false;
-          }
-        });
+      if (success) {
+        if (value) {
+          await PresenceService.instance.setOnlineEnabled(false);
+        }
+        if (mounted) {
+          setState(() {
+            _isGhostMode = value;
+            if (value) {
+              _isOnlineEnabled = false;
+            }
+          });
+        }
       }
     } finally {
       if (mounted) {

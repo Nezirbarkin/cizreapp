@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/services/cache_service.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
@@ -95,7 +96,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   double _totalRevenue = 0; // İptal edilmemiş siparişlerin toplam tutarı
   double _totalAdminCommission = 0; // Toplam admin komisyonu
   int _totalDigitalOrders = 0; // Toplam dijital (SMM) sipariş sayısı
-  double _totalDigitalRevenue = 0; // İptal/iade edilmemiş dijital sipariş geliri
+  double _totalDigitalRevenue =
+      0; // İptal/iade edilmemiş dijital sipariş geliri
   int _totalCouriers = 0; // Toplam kurye sayısı
   int _onlineCouriers = 0; // Şu an çevrimiçi kurye sayısı
   int _unansweredComplaintCount = 0; // Yanıtlanmamış şikayet sayısı
@@ -103,7 +105,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _newPostsCount = 0; // Menü görülmeden gelen yeni gönderi sayısı
   int _newProductsCount = 0; // Menü görülmeden gelen yeni ürün sayısı
   int _newOrdersCount = 0; // Menü görülmeden gelen yeni sipariş sayısı
-  int _newDigitalOrdersCount = 0; // Menü görülmeden gelen yeni dijital (SMM) sipariş sayısı
+  int _newDigitalOrdersCount =
+      0; // Menü görülmeden gelen yeni dijital (SMM) sipariş sayısı
   int _newGroupsCount = 0; // Menü görülmeden gelen yeni grup sayısı
   int _newUsersCount = 0; // Menü görülmeden gelen yeni kullanıcı sayısı
   bool _isLoading = true;
@@ -122,6 +125,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _roleFilter; // Kullanıcı listesi rol filtresi (kart tıklayınca)
   final TextEditingController _userSearchController = TextEditingController();
   Future<List<Map<String, dynamic>>>? _usersFuture;
+  // Kullanicilar sekmesindeki ozet kartlarin (Toplam/Admin/Kurye/...) veri
+  // kaynagi. _usersFuture SINIRLI (limit=100, en yeni once) bir sayfa
+  // dondurdugu icin ondan sayim yapmak toplam profil sayisi limiti astiginda
+  // erken acilmis admin/kurye/haberci hesaplarini "0" gosteriyordu. Bu future
+  // limitten bagimsiz, tum tablo uzerinde GROUP BY role hesabi yapan
+  // admin_user_role_counts RPC'sini cagirir.
+  Future<Map<String, int>?>? _userRoleCountsFuture;
   Future<Map<String, dynamic>>? _logsDataFuture;
   Future<Map<String, dynamic>>? _analyticsDataFuture;
   // Dagilim/hata metriklerinin zaman penceresi. Tum zamanlar uzerinden
@@ -139,6 +149,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void initState() {
     super.initState();
     _usersFuture = _loadUsers();
+    _userRoleCountsFuture = _loadUserRoleCounts();
     _loadRealData();
     _setupRealtimeSubscription();
   }
