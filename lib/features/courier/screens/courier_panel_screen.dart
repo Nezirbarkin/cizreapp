@@ -20,6 +20,7 @@ import '../../profile/screens/profile_screen.dart';
 import '../../market/providers/cart_provider.dart';
 import '../../main/screens/main_screen.dart';
 import '../../seller/screens/seller_dashboard_screen.dart';
+import 'courier_documents_screen.dart';
 
 /// Bir id'yi güvenli şekilde kısa gösterime dönüştürür. id null/boş/kısa ise
 /// RangeError fırlatmaz; "null"/"?" yerine güvenli bir değer döner.
@@ -1663,6 +1664,12 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
   bool _didReadRouteArguments = false;
   String? _packageError; // Paket RPC hata özeti (UI'da gösterilir)
   double _commissionPercent = 20;
+  // Kurye evrak onay durumu: null (henüz gönderilmemiş) / 'pending' /
+  // 'approved' / 'rejected'. approved değilse sipariş/paket havuzu RPC'leri
+  // sunucu tarafında zaten boş döner (bkz. is_courier_document_approved);
+  // burada yalnız kuryeye NEDENİNİ göstermek için ayrıca okunur.
+  String? _documentStatus;
+  String? _documentAdminNote;
 
   /// Kurye ücretini al
   Future<double> _getCourierFee() async {
@@ -1819,6 +1826,20 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             (settings?['commission_percent'] as num?)?.toDouble() ?? 20;
       } catch (e) {
         debugPrint('Komisyon oranı yüklenemedi: $e');
+      }
+
+      // Evrak onay durumu — courier_documents RLS'i yalnız sahibine (veya
+      // admin'e) okuma izni verdiği için doğrudan select edilebilir.
+      try {
+        final doc = await Supabase.instance.client
+            .from('courier_documents')
+            .select('status, admin_note')
+            .eq('courier_id', userId)
+            .maybeSingle();
+        _documentStatus = doc?['status'] as String?;
+        _documentAdminNote = doc?['admin_note'] as String?;
+      } catch (e) {
+        debugPrint('Evrak durumu yüklenemedi: $e');
       }
 
       debugPrint('========== KURYE SİPARİŞ YÜKLEME ==========');
@@ -2074,7 +2095,21 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
   }
 
   Widget _buildAvailableOrdersList() {
+    final banners = <Widget>[
+      if (_documentStatus != 'approved') _buildDocumentStatusBanner(),
+      if (_packageError != null) _buildPackageErrorBanner(_packageError!),
+    ];
+
     if (_availableOrders.isEmpty) {
+      if (banners.isNotEmpty) {
+        return RefreshIndicator(
+          onRefresh: _loadOrders,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            children: banners,
+          ),
+        );
+      }
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2099,20 +2134,133 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       onRefresh: _loadOrders,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-        itemCount: _packageError != null
-            ? _availableOrders.length + 1
-            : _availableOrders.length,
+        itemCount: banners.length + _availableOrders.length,
         itemBuilder: (context, index) {
-          // İlk item, RPC hata özeti ise bilgi kartı göster
-          if (_packageError != null && index == 0) {
-            return _buildPackageErrorBanner(_packageError!);
+          if (index < banners.length) {
+            return banners[index];
           }
-          final orderIndex = _packageError != null ? index - 1 : index;
-          final order = _availableOrders[orderIndex];
+          final order = _availableOrders[index - banners.length];
           if (order['_type'] == 'package')
             return _buildPackageCard(order, isMine: false);
           return _buildAvailableOrderCard(order);
         },
+      ),
+    );
+  }
+
+  Widget _buildDocumentStatusBanner() {
+    final status = _documentStatus;
+    final IconData icon;
+    final MaterialColor color;
+    final String title;
+    final String body;
+
+    if (status == 'pending') {
+      icon = Icons.hourglass_top_rounded;
+      color = Colors.blue;
+      title = 'Evraklarınız inceleniyor';
+      body =
+          'Kimlik/ehliyet evraklarınız admin onayını bekliyor. Onaylanana '
+          'kadar sipariş ve paket alamazsınız.';
+    } else if (status == 'rejected') {
+      icon = Icons.error_outline_rounded;
+      color = Colors.red;
+      title = 'Evraklarınız reddedildi';
+      body = _documentAdminNote?.trim().isNotEmpty == true
+          ? 'Gerekçe: ${_documentAdminNote!.trim()}. Evraklarınızı güncelleyip tekrar gönderin.'
+          : 'Evraklarınızı güncelleyip tekrar gönderin.';
+    } else {
+      icon = Icons.badge_outlined;
+      color = Colors.orange;
+      title = 'Sipariş almadan önce kimliğinizi doğrulayın';
+      body =
+          'Kimlik, ehliyet ve araç fotoğrafınızı yükleyip admin onayı '
+          'alana kadar sipariş/paket kabul edemezsiniz.';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        border: Border.all(color: color.shade200),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color.shade800, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: color.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      body,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: color.shade900,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const CourierDocumentsScreen(),
+                  ),
+                );
+                _loadOrders();
+              },
+              icon: Icon(
+                status == 'rejected' ? Icons.edit_outlined : Icons.badge,
+                size: 16,
+                color: color.shade900,
+              ),
+              label: Text(
+                status == null
+                    ? 'Evrak Yükle'
+                    : status == 'rejected'
+                    ? 'Evrakları Güncelle'
+                    : 'Evraklarımı Gör',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: color.shade900,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2835,6 +2983,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       final msg = e.toString();
       final userMsg = msg.contains('already_assigned')
           ? 'Bu sipariş başka bir kurye tarafından alınmış.'
+          : msg.contains('courier_documents_not_approved')
+          ? 'Sipariş alabilmek için önce kimlik evraklarınızın admin '
+                'tarafından onaylanması gerekiyor.'
           : 'Sipariş alınamadı: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3082,9 +3233,14 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
       _loadOrders();
     } catch (e) {
       debugPrint('Paket kabul hatası: $e');
+      final msg = e.toString();
+      final userMsg = msg.contains('courier_documents_not_approved')
+          ? 'Paket alabilmek için önce kimlik evraklarınızın admin '
+                'tarafından onaylanması gerekiyor.'
+          : 'Hata: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(userMsg), backgroundColor: Colors.red),
         );
       }
     }
