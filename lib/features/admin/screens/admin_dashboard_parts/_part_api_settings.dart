@@ -1322,8 +1322,9 @@ extension on _AdminDashboardScreenState {
                     .eq('id', settingsId);
 
                 if (context.mounted) {
+                  final messenger = ScaffoldMessenger.of(context);
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     const SnackBar(
                       content: Text('S3 ayarları kaydedildi'),
                       backgroundColor: Colors.green,

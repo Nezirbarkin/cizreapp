@@ -474,10 +474,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              reasonController.dispose();
-              Navigator.pop(context, false);
-            },
+            // Controller'ı BURADA dispose etmiyoruz: dialog daha kapanmadan
+            // TextField ölü bir controller'a bakıyor ("A TextEditingController
+            // was used after being disposed") ve metodun sonundaki dispose ile
+            // birlikte çift dispose oluyordu. Tek dispose, dialog kapandıktan
+            // sonra yapılır.
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Vazgeç'),
           ),
           ElevatedButton(

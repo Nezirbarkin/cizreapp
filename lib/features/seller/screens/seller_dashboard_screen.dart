@@ -498,8 +498,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                   icon: Icons.help_outline,
                   title: 'Yardım',
                   onTap: () {
+                    final messenger = ScaffoldMessenger.of(context);
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('Yardım ekranı yakında eklenecek')),
                     );
                   },
@@ -1675,8 +1676,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                     );
 
                     if (context.mounted) {
+                      final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('IBAN bilgileri güncellendi')),
                       );
                       _loadDashboardData();
@@ -1956,8 +1958,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                 );
 
                 if (context.mounted) {
+                  final messenger = ScaffoldMessenger.of(context);
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     const SnackBar(content: Text('Ödeme isteği oluşturuldu')),
                   );
                   _loadDashboardData();
@@ -2200,8 +2203,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen>
                 
                   // ignore: use_build_context_synchronously
                 if (mounted) {
+                  final messenger = ScaffoldMessenger.of(context);
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     const SnackBar(
                       content: Text('Mağaza oluşturuldu! Admin onayı bekleniyor...'),
                       backgroundColor: Colors.green,

@@ -201,12 +201,15 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
   }
 
+  // Kayıtlı gönderiler tek kaynaktan (post_favorites) okunuyor; eskiden
+  // SharedPreferences'tan okunduğu için buradan kaydedilen gönderinin
+  // yer imi ikonu dolu görünmüyordu.
   Future<void> _loadSavedPosts() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedPosts = prefs.getStringList('saved_posts') ?? [];
+      await _postService.migrateLegacyLocalSaves();
+      final saved = await _postService.getSavedPostIds();
       if (!mounted) return;
-      setState(() => _savedPosts = savedPosts.toSet());
+      setState(() => _savedPosts = saved);
     } catch (e) {
       debugPrint('Kaydedilen gönderiler yüklenirken hata: $e');
     }

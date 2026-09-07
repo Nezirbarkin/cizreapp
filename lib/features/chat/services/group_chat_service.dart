@@ -52,8 +52,11 @@ class GroupChatService {
       final group = ChatGroup.fromMap(response);
       return group.copyWith(userRole: 'admin', unreadCount: 0);
     } catch (e, stackTrace) {
-      AppLogger.error('Error creating group: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error creating group',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return null;
     }
   }

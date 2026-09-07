@@ -641,8 +641,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     final textColor = isMe ? Colors.white : Colors.grey[900]!;
     final timeColor = isMe ? Colors.white70 : Colors.grey[600]!;
 
-    // Yanıt gösterimi için
-    final hasReply = message.replyToId != null;
+    // Yanıt gösterimi için.
+    // NOT: Hikaye yanıtlarında alıntılanacak bir mesaj yoktur (reply_to_id
+    // null'dır), yalnızca reply_to_content doldurulur. Sadece id'ye bakmak
+    // bu balonlardaki "Hikayene yanıt verdi" başlığını gizliyordu.
+    final hasReply = message.replyToId != null ||
+        (message.replyToContent?.isNotEmpty ?? false);
 
     // Sağa kaydırarak yanıtla - Dismissible yerine GestureDetector ile swipe
     return Align(

@@ -301,11 +301,15 @@ class _RegisterScreenState extends State<RegisterScreen>
         _confettiController.forward();
         
         setState(() => _currentStep = RegistrationStep.complete);
-        
-        // Navigate after delay
+
+        // NavigatorState'i ŞİMDİ yakala. 3 sn sonra `Navigator.of(context)`
+        // demek güvenli değil: kullanıcı bu arada geri gitmişse element
+        // deactive olur ve `mounted` hâlâ true olduğu için koruma tutmaz —
+        // "Looking up a deactivated widget's ancestor is unsafe" fırlıyordu.
+        final navigator = Navigator.of(context);
         Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            Navigator.of(context).pop();
+          if (mounted && navigator.canPop()) {
+            navigator.pop();
           }
         });
       }
@@ -1362,11 +1366,15 @@ class _RegisterScreenState extends State<RegisterScreen>
         _confettiController.forward();
         
         setState(() => _currentStep = RegistrationStep.complete);
-        
-        // Navigate after delay
+
+        // NavigatorState'i ŞİMDİ yakala. 3 sn sonra `Navigator.of(context)`
+        // demek güvenli değil: kullanıcı bu arada geri gitmişse element
+        // deactive olur ve `mounted` hâlâ true olduğu için koruma tutmaz —
+        // "Looking up a deactivated widget's ancestor is unsafe" fırlıyordu.
+        final navigator = Navigator.of(context);
         Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            Navigator.of(context).pop();
+          if (mounted && navigator.canPop()) {
+            navigator.pop();
           }
         });
       }
@@ -1392,11 +1400,15 @@ class _RegisterScreenState extends State<RegisterScreen>
         _confettiController.forward();
         
         setState(() => _currentStep = RegistrationStep.complete);
-        
-        // Navigate after delay
+
+        // NavigatorState'i ŞİMDİ yakala. 3 sn sonra `Navigator.of(context)`
+        // demek güvenli değil: kullanıcı bu arada geri gitmişse element
+        // deactive olur ve `mounted` hâlâ true olduğu için koruma tutmaz —
+        // "Looking up a deactivated widget's ancestor is unsafe" fırlıyordu.
+        final navigator = Navigator.of(context);
         Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            Navigator.of(context).pop();
+          if (mounted && navigator.canPop()) {
+            navigator.pop();
           }
         });
       }

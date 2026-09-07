@@ -201,6 +201,15 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.casino,
+                    title: '101 Okey',
+                    isSelected: _selectedMenu == '101 Okey',
+                    onTap: () {
+                      setState(() => _selectedMenu = '101 Okey');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.notifications_active_rounded,
                     title: 'Bildirimler',
                     isSelected: _selectedMenu == 'Bildirimler',

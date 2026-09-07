@@ -137,10 +137,12 @@ class _StoryViewersScreenState extends State<StoryViewersScreen> {
                           final viewerId = viewer['viewer_id'] as String;
                           final createdAt = viewer['created_at'] as String;
                           final profiles = viewer['profiles'];
-                          
+                          // Bu kişi hikayeye tepki verdiyse emoji burada gelir.
+                          final reaction = viewer['reaction'] as String?;
+
                           String name = 'Bilinmiyor';
                           String? avatarUrl;
-                          
+
                           if (profiles != null) {
                             name = profiles['full_name'] ?? profiles['username'] ?? 'Bilinmiyor';
                             avatarUrl = profiles['avatar_url'];
@@ -159,7 +161,9 @@ class _StoryViewersScreenState extends State<StoryViewersScreen> {
                               backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                               child: avatarUrl == null
                                   ? Text(
-                                      name.substring(0, 1).toUpperCase(),
+                                      name.isEmpty
+                                          ? '?'
+                                          : name.substring(0, 1).toUpperCase(),
                                       style: TextStyle(
                                         color: Theme.of(context).colorScheme.primary,
                                         fontWeight: FontWeight.bold,
@@ -182,6 +186,13 @@ class _StoryViewersScreenState extends State<StoryViewersScreen> {
                                 color: Colors.grey.shade600,
                               ),
                             ),
+                            // Tepki veren kişilerin emojisi satırın sağında
+                            trailing: reaction == null
+                                ? null
+                                : Text(
+                                    reaction,
+                                    style: const TextStyle(fontSize: 22),
+                                  ),
                             onTap: () {
                               Navigator.push(
                                 context,

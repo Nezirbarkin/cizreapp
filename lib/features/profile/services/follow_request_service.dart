@@ -83,9 +83,10 @@ class FollowRequestService {
     }
   }
 
-  /// Takip isteği kabul et
-  /// Hem follow_requests durumunu günceller hem de follows tablosuna ekler
-  /// Ayrıca istek gönderen kullanıcıya bildirim gönderir
+  /// Takip isteği kabul et.
+  ///
+  /// Yalnızca follow_requests.status'u 'accepted' yapar; follows kaydını ve
+  /// bildirimi DB trigger'ları üstlenir (tek kaynak, çift bildirim yok).
   Future<void> acceptFollowRequest(String requestId) async {
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
@@ -116,44 +117,26 @@ class FollowRequestService {
 
       debugPrint('🔍 İstek gönderen: $followerId, hedef: $currentUserId');
 
-      // 2. follows tablosuna doğrudan ekle (önce follows'a ekle, sonra status güncelle)
-      bool followAdded = false;
-      try {
-        await _supabase.from('follows').upsert({
-          'follower_id': followerId,
-          'following_id': currentUserId,
-          'created_at': DateTime.now().toIso8601String(),
-        }, onConflict: 'follower_id, following_id');
-        followAdded = true;
-        debugPrint('✅ follows tablosuna eklendi: $followerId -> $currentUserId');
-      } catch (followError) {
-        debugPrint('⚠️ follows tablosuna ekleme hatası (duplicate olabilir): $followError');
-        // Duplicate ise devam et - zaten takip ediyor demektir
-        followAdded = true;
-      }
+      // 2. İsteği 'accepted' yap.
+      //
+      // follows kaydını ARTIK Dart eklemiyor: DB'deki SECURITY DEFINER
+      // trigger'ı (handle_follow_request_status_change) status 'accepted'
+      // olunca follows satırını kendisi oluşturuyor. Eskiden Dart da doğrudan
+      // insert ettiği için follows INSERT politikasının
+      // "auth.uid() = following_id" gibi gevşek bir kural içermesi
+      // gerekiyordu; bu da bir kullanıcının başkasını kendisini takip ediyor
+      // göstermesine izin veriyordu (20260906100002 migration'ı ile kapatıldı).
+      await _supabase
+          .from('follow_requests')
+          .update({'status': 'accepted'})
+          .eq('id', requestId);
 
-      // 3. İsteği kabul et (follows başarılı olduktan sonra)
-      if (followAdded) {
-        await _supabase
-            .from('follow_requests')
-            .update({'status': 'accepted'})
-            .eq('id', requestId);
-        debugPrint('✅ Takip isteği kabul edildi: $requestId');
-      }
+      debugPrint('✅ Takip isteği kabul edildi: $requestId (follower: $followerId)');
 
-      // 4. İstek gönderen kullanıcıya bildirim gönder
-      try {
-        await _notificationService.createNotification(
-          userId: followerId,
-          type: 'follow_accepted',
-          title: 'Takip İsteğiniz Kabul Edildi',
-          content: 'Takip isteğiniz kabul edildi',
-          actorId: currentUserId,
-        );
-        debugPrint('📩 Takip kabul bildirimi gönderildi: $followerId');
-      } catch (notifError) {
-        debugPrint('⚠️ Bildirim gönderilemedi: $notifError');
-      }
+      // 3. Bildirim: DB trigger'ı (notify_follow_request_accepted) zaten
+      //    'follow_request_accepted' tipinde bildirim yazıyor. Burada ikinci
+      //    kez 'follow_accepted' yazmak kullanıcıya AYNI olay için iki
+      //    bildirim gösteriyordu; bu yüzden Dart tarafı kaldırıldı.
     } catch (e) {
       debugPrint('❌ Takip isteği kabul hatası: $e');
       rethrow;

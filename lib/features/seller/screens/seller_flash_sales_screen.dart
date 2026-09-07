@@ -310,8 +310,9 @@ class _CreateFlashSaleDialogState extends State<_CreateFlashSaleDialog> {
         endAt: now.add(_duration),
       );
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('✅ Flash satış başlatıldı!')),
         );
       }

@@ -13,6 +13,7 @@ import '../../../core/widgets/skeleton_loader.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../services/post_service.dart';
 import '../services/post_report_service.dart';
+import 'post_likes_screen.dart';
 import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
@@ -44,6 +45,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _isCommenting = false;
   bool _isLiked = false;
   int _likesCount = 0;
+  // Yorum sayısı ekran içinde değişebildiği için (ekle/sil) yerel tutuluyor;
+  // widget.post.commentsCount açılış anındaki değeri taşır ve güncellenmez.
+  int _commentsCount = 0;
+  // Ekran kapanırken feed'in yenilenmesi gerekiyor mu?
+  bool _commentsChanged = false;
 
   @override
   void initState() {
@@ -326,32 +332,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Yorumları yükle (profil hatası yorum yüklemeyi bozmamalı)
-      final List<PostComment> comments;
-      try {
-        comments = await _postService.getComments(widget.post.id);
-      } catch (e) {
-        // Yorum yükleme hatası kritik; üst katmana ilet
-        rethrow;
-      }
+      // Yorumlar yazar profilleriyle birlikte TEK sorguda geliyor.
+      // Eskiden her yorum için ayrı getUserProfile çağrılıyordu (N+1) ve
+      // 20 yorumlu bir gönderide 20 ek istek atılıyordu.
+      final comments = await _postService.getComments(widget.post.id);
 
-      // Tüm yorum yapan kullanıcıların profillerini yükle
-      final userIds = <String>{widget.post.userId};
-      for (var comment in comments) {
-        userIds.add(comment.userId);
-      }
-
-      // Batch profile fetch - profil bulunamasa bile yorumlar gösterilsin
+      // Gönderi sahibinin profili (başlık için) ayrı yükleniyor.
       final profiles = <String, Map<String, dynamic>>{};
-
-      // Gönderi sahibinin profilini yükle (yoksa placeholder kullan)
       try {
-        final postAuthorProfile =
+        profiles[widget.post.userId] =
             await _profileService.getUserProfile(widget.post.userId);
-        profiles[widget.post.userId] = postAuthorProfile;
       } catch (e) {
-        // Gönderi sahibi profili bulunamadıysa placeholder kullan
-        // (silinmiş kullanıcı, henüz profil oluşturulmamış, vb.)
+        // Silinmiş kullanıcı / profili olmayan yazar
         profiles[widget.post.userId] = {
           'id': widget.post.userId,
           'username': 'silinmis_kullanici',
@@ -361,26 +353,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         };
       }
 
-      for (var id in userIds) {
-        if (id == widget.post.userId) continue; // Zaten yüklendi
-        try {
-          final profile = await _profileService.getUserProfile(id);
-          profiles[id] = profile;
-        } catch (e) {
-          // Profil yüklenemezse placeholder kullan
-          profiles[id] = {
-            'id': id,
-            'username': 'silinmis_kullanici',
-            'full_name': 'Silinmiş Kullanıcı',
-            'avatar_url': null,
-            'bio': null,
-          };
-        }
-      }
-
       if (!mounted) return;
       setState(() {
         _comments = comments;
+        _commentsCount = comments.length;
         _userProfiles = profiles;
         _isLoading = false;
       });
@@ -395,23 +371,91 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  /// Yorumu sil (kendi yorumun ya da kendi gönderindeki yorum).
+  Future<void> _deleteComment(PostComment comment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Yorumu sil'),
+        content: const Text('Bu yorumu silmek istediğinize emin misiniz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    // Optimistik kaldırma
+    final index = _comments.indexWhere((c) => c.id == comment.id);
+    if (index == -1) return;
+    setState(() {
+      _comments.removeAt(index);
+      _commentsCount = (_commentsCount - 1).clamp(0, 1 << 30);
+    });
+
+    try {
+      await _postService.deleteComment(comment.id);
+      if (!mounted) return;
+      _commentsChanged = true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Yorum silindi')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _comments.insert(index, comment);
+        _commentsCount += 1;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
+    }
+  }
+
   Future<void> _addComment() async {
-    if (_commentController.text.isEmpty) return;
+    // Sadece boşluktan oluşan yorumlar gönderilmesin.
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Yorum yapmak için giriş yapmalısınız')),
+      );
+      return;
+    }
 
     setState(() => _isCommenting = true);
 
     try {
-      await _postService.addComment(
+      final comment = await _postService.addComment(
         widget.post.id,
         userId,
-        _commentController.text,
+        text,
       );
 
+      if (!mounted) return;
       _commentController.clear();
-      _loadData();
+      _commentsChanged = true;
+
+      if (comment != null) {
+        // Yorum yazar bilgisiyle birlikte döndüğü için listeyi baştan
+        // yüklemeye gerek yok; doğrudan en üste ekleniyor.
+        setState(() {
+          _comments.insert(0, comment);
+          _commentsCount += 1;
+        });
+      } else {
+        await _loadData();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -443,6 +487,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Yorum eklendi/silindiyse geri dönerken feed'e "yenile" sinyali gönder;
+    // aksi halde ana akıştaki yorum sayacı eski değerde kalıyordu.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.pop(context, _commentsChanged ? 'updated' : null);
+      },
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gönderi Detayı'),
@@ -665,18 +722,47 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ),
                     ),
 
-                  // Stats - Sadece sayı göster, beğeni butonu aşağıda ayrı
+                  // Stats - beğeni sayısına dokununca beğenenler listesi açılır
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       children: [
-                        Icon(Icons.favorite, size: 20, color: _isLiked ? Colors.red.shade400 : Colors.grey.shade400),
-                        const SizedBox(width: 4),
-                        Text('$_likesCount beğeni'),
-                        const SizedBox(width: 24),
+                        InkWell(
+                          onTap: _likesCount > 0
+                              ? () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          PostLikesScreen(postId: widget.post.id),
+                                    ),
+                                  )
+                              : null,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 2,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.favorite,
+                                  size: 20,
+                                  color: _isLiked
+                                      ? Colors.red.shade400
+                                      : Colors.grey.shade400,
+                                ),
+                                const SizedBox(width: 4),
+                                Text('$_likesCount beğeni'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 20),
                         const Icon(Icons.comment, size: 20, color: Colors.grey),
                         const SizedBox(width: 4),
-                        Text('${widget.post.commentsCount} yorum'),
+                        Text('$_commentsCount yorum'),
                       ],
                     ),
                   ),
@@ -752,26 +838,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       itemCount: _comments.length,
                       itemBuilder: (context, index) {
                         final comment = _comments[index];
-                        final userProfile = _userProfiles[comment.userId];
-                        // ✅ UX FIX: Orphan yorum yazarları için UUID kırpıntısı
-                        //    göstermek yerine jenerik "kullanici" fallback'i.
-                        final rawCommentUsername =
-                            userProfile?['username']?.toString().trim();
-                        final hasRealCommentUsername =
-                            rawCommentUsername != null && rawCommentUsername.isNotEmpty;
-                        final username =
-                            hasRealCommentUsername ? rawCommentUsername : 'kullanici';
-                        final fullName =
-                            (userProfile?['full_name']?.toString().trim().isNotEmpty ??
-                                    false)
-                                ? userProfile!['full_name'].toString()
-                                : username;
-                        final avatarUrl = userProfile?['avatar_url'];
-                        
+                        // Yazar bilgisi artık yorumla birlikte geliyor
+                        // (post_comments -> profiles JOIN).
+                        final username = comment.displayUsername;
+                        final fullName = comment.displayName;
+                        final avatarUrl = comment.authorAvatarUrl;
+                        final currentUserId =
+                            Supabase.instance.client.auth.currentUser?.id;
+                        // Kendi yorumunu herkes, gönderindeki yorumu da sen
+                        // silebilirsin (DB politikası da aynı kuralı uygular).
+                        final canDelete = currentUserId != null &&
+                            (comment.userId == currentUserId ||
+                                widget.post.userId == currentUserId);
+
                         return ListTile(
                           onTap: () {
                             // Kullanıcıya tıklayınca profil ekranına git
-                            final currentUserId = Supabase.instance.client.auth.currentUser?.id;
                             if (comment.userId == currentUserId) {
                               // Kendi profili
                               Navigator.of(context).pushNamed('/main');
@@ -786,7 +868,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           },
                           leading: CircleAvatar(
                             radius: 16,
-                            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                            backgroundImage: avatarUrl != null
+                                ? NetworkImage(avatarUrl)
+                                : null,
                             child: avatarUrl == null
                                 ? Text(
                                     username.length >= 2
@@ -818,6 +902,17 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               ),
                             ],
                           ),
+                          trailing: canDelete
+                              ? IconButton(
+                                  icon: Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  tooltip: 'Yorumu sil',
+                                  onPressed: () => _deleteComment(comment),
+                                )
+                              : null,
                         );
                       },
                     ),

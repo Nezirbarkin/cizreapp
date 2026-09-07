@@ -266,6 +266,13 @@ class PostComment {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  // Yazar bilgileri — yorumlar profiles ile JOIN'lenerek tek sorguda gelir.
+  // Eskiden her yorum için ayrı profil sorgusu atılıyordu (N+1); 20 yorumlu
+  // bir gönderide 20 ek istek anlamına geliyordu.
+  final String? authorUsername;
+  final String? authorFullName;
+  final String? authorAvatarUrl;
+
   PostComment({
     required this.id,
     required this.postId,
@@ -273,7 +280,25 @@ class PostComment {
     required this.content,
     required this.createdAt,
     required this.updatedAt,
+    this.authorUsername,
+    this.authorFullName,
+    this.authorAvatarUrl,
   });
+
+  /// Gösterilecek ad: tam ad > kullanıcı adı > jenerik.
+  String get displayName {
+    final full = authorFullName?.trim();
+    if (full != null && full.isNotEmpty) return full;
+    final uname = authorUsername?.trim();
+    if (uname != null && uname.isNotEmpty) return uname;
+    return 'Kullanıcı';
+  }
+
+  /// @handle için kullanıcı adı (yoksa jenerik).
+  String get displayUsername {
+    final uname = authorUsername?.trim();
+    return (uname != null && uname.isNotEmpty) ? uname : 'kullanici';
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -287,16 +312,31 @@ class PostComment {
   }
 
   factory PostComment.fromJson(Map<String, dynamic> json) {
+    // PostgREST embed'i: profiles!post_comments_user_id_fkey(...)
+    final profile = json['profiles'];
+    final profileMap = profile is Map ? profile : const {};
+
     return PostComment(
       id: json['id'] as String,
       postId: json['post_id'] as String,
       userId: json['user_id'] as String,
       content: json['content'] as String,
       createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      updatedAt: DateTime.parse(
+        (json['updated_at'] ?? json['created_at']) as String,
+      ),
+      authorUsername:
+          (json['author_username'] ?? profileMap['username']) as String?,
+      authorFullName:
+          (json['author_full_name'] ?? profileMap['full_name']) as String?,
+      authorAvatarUrl:
+          (json['author_avatar_url'] ?? profileMap['avatar_url']) as String?,
     );
   }
 }
+
+/// copyWith'te "parametre verilmedi" ile "null verildi"yi ayirt eden sentinel.
+const Object _unset = Object();
 
 class Story {
   final String id;
@@ -310,6 +350,9 @@ class Story {
   final DateTime expiresAt;
   final bool isViewedByCurrentUser; // Kullanıcı bu story'yi gördü mü?
   final bool isLikedByCurrentUser; // Kullanıcı bu story'yi beğendi mi?
+  /// Kullanıcının bu hikayeye verdiği tepki emojisi (yoksa null).
+  /// Klasik beğeni ❤️ olarak saklanır.
+  final String? myReaction;
   final bool isPinned;
   final bool adminPinned; // Admin sabitledi (feed'de sabitlenmiş görünür)
   // Profil bilgileri - StoryService tarafından doldurulur
@@ -329,6 +372,7 @@ class Story {
     required this.expiresAt,
     this.isViewedByCurrentUser = false,
     this.isLikedByCurrentUser = false,
+    this.myReaction,
     this.isPinned = false,
     this.adminPinned = false,
     this.username,
@@ -355,6 +399,9 @@ class Story {
     DateTime? expiresAt,
     bool? isViewedByCurrentUser,
     bool? isLikedByCurrentUser,
+    // Tepki KALDIRILDIĞINDA null'a çekilebilmesi için sentinel kullanılıyor:
+    // normal `String? myReaction` ile null geçmek "değiştirme" anlamına gelir.
+    Object? myReaction = _unset,
     bool? isPinned,
     bool? adminPinned,
     String? username,
@@ -373,6 +420,9 @@ class Story {
       expiresAt: expiresAt ?? this.expiresAt,
       isViewedByCurrentUser: isViewedByCurrentUser ?? this.isViewedByCurrentUser,
       isLikedByCurrentUser: isLikedByCurrentUser ?? this.isLikedByCurrentUser,
+      myReaction: identical(myReaction, _unset)
+          ? this.myReaction
+          : myReaction as String?,
       isPinned: isPinned ?? this.isPinned,
       adminPinned: adminPinned ?? this.adminPinned,
       username: username ?? this.username,
@@ -412,6 +462,7 @@ class Story {
       expiresAt: DateTime.parse(json['expires_at'] as String),
       isViewedByCurrentUser: json['is_viewed_by_current_user'] as bool? ?? false,
       isLikedByCurrentUser: json['is_liked_by_current_user'] as bool? ?? false,
+      myReaction: json['my_reaction'] as String?,
       isPinned: json['is_pinned'] as bool? ?? false,
       adminPinned: json['admin_pinned'] as bool? ?? false,
       // Profil bilgileri - varsa al

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
+import '../utils/image_url.dart';
 import '../../features/social/services/story_service.dart';
 import '../../sehirici/widgets/sehirici_story_card.dart';
 
@@ -36,6 +37,13 @@ class StoryCard extends StatelessWidget {
     this.onTap,
     this.isCompact = false,
   });
+
+  /// URL boş/geçersizse `null` döner; `BoxDecoration.image` de null kabul eder.
+  static DecorationImage? _decoration(String? url) {
+    final provider = safeNetworkImage(url);
+    if (provider == null) return null;
+    return DecorationImage(image: provider, fit: BoxFit.cover);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,10 +84,10 @@ class StoryCard extends StatelessWidget {
                       color: Colors.green.shade600,
                       width: 3,
                     ),
-                    image: DecorationImage(
-                      image: NetworkImage(story.imageUrl),
-                      fit: BoxFit.cover,
-                    ),
+                    // Boş/geçersiz URL'de DecorationImage hiç kurulmaz:
+                    // NetworkImage('') "No host specified in URI file:///"
+                    // fırlatır ve DecorationImage bunu yakalayamaz.
+                    image: _decoration(story.imageUrl),
                   ),
                 ),
               ),
@@ -107,10 +115,7 @@ class StoryCard extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
-            image: DecorationImage(
-              image: NetworkImage(story.imageUrl),
-              fit: BoxFit.cover,
-            ),
+            image: _decoration(story.imageUrl),
           ),
           child: Stack(
             children: [
@@ -129,10 +134,7 @@ class StoryCard extends StatelessWidget {
                           color: Colors.white,
                           width: 2,
                         ),
-                        image: DecorationImage(
-                          image: NetworkImage(story.userAvatar),
-                          fit: BoxFit.cover,
-                        ),
+                        image: _decoration(story.userAvatar),
                       ),
                     ),
                     const SizedBox(width: 8),

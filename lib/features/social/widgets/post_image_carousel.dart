@@ -17,6 +17,10 @@ class PostImageCarousel extends StatefulWidget {
 }
 
 class PostImageCarouselState extends State<PostImageCarousel> {
+  /// Kart görselinin yüksekliği. Kart tasarımı genişledikçe 200px çok basık
+  /// duruyordu; 240 hem daha modern hem de bellek açısından hâlâ güvenli.
+  static const double _imageHeight = 240;
+
   late PageController _pageController;
   int _currentIndex = 0;
 
@@ -45,7 +49,7 @@ class PostImageCarouselState extends State<PostImageCarousel> {
         children: [
           // PageView: tek görselde swipe'a gerek yok ama tutarlı render için kullanılır.
           SizedBox(
-            height: 200,
+            height: _imageHeight,
             child: PageView.builder(
               controller: _pageController,
               physics: isSingle
@@ -61,9 +65,9 @@ class PostImageCarouselState extends State<PostImageCarousel> {
                   child: CachedNetworkImage(
                     imageUrl: images[index],
                     width: double.infinity,
-                    height: 200,
+                    height: _imageHeight,
                     fit: BoxFit.cover,
-                    // Feed görseli tam genişlikte ~200px yüksekliğinde gösterilir;
+                    // Feed görseli tam genişlikte ~240px yüksekliğinde gösterilir;
                     // kaynak çözünürlüğünde (~1080px) decode etmek her görsel için
                     // ~8MB bitmap demek. 750px sınırı, kayan feed'de OOM riskini
                     // düşürürken görünür kaliteyi korur.
@@ -72,7 +76,7 @@ class PostImageCarouselState extends State<PostImageCarousel> {
                       // Görsel yüklenemezse gri placeholder
                       return Container(
                         width: double.infinity,
-                        height: 200,
+                        height: _imageHeight,
                         color: Colors.grey.shade200,
                         child: const Icon(
                           Icons.broken_image_outlined,
@@ -84,7 +88,7 @@ class PostImageCarouselState extends State<PostImageCarousel> {
                     placeholder: (context, url) {
                       return Container(
                         width: double.infinity,
-                        height: 200,
+                        height: _imageHeight,
                         color: Colors.grey.shade100,
                         child: const Center(
                           child: SizedBox(

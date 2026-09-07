@@ -16,6 +16,8 @@ import '../services/shop_review_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/screens/orders_screen.dart';
 import '../../seller/screens/seller_orders_screen.dart';
+import '../../../okey/screens/okey_lobby_screen.dart';
+import '../../../okey/screens/okey_room_screen.dart';
 import 'package:intl/intl.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -333,6 +335,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'new_follower': // DB trigger'ı takip bildirimini bu type ile oluşturuyor
       case 'follow_request':
       case 'follow_accepted':
+      // DB trigger'ının (notify_follow_request_accepted) yazdığı tip; burada
+      // eşleşmediği için "takip isteğin kabul edildi" bildirimine dokununca
+      // hiçbir şey olmuyordu.
+      case 'follow_request_accepted':
         // Takip/Takip isteği bildirimi - kullanıcı profiline git
         if (notification.actorId != null) {
           Navigator.push(
@@ -537,6 +543,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
+      case 'okey_invite':
+        // Masaya çağrıldım. Doğrudan bekleme odasına GÖTÜRMEK yanlış olur:
+        // henüz oturmuş değilim, masayı RLS gereği göremem ve masa puanı
+        // cüzdanımdan onayım olmadan düşemez. Lobide davet kartı en üstte
+        // durur; katılma da reddetme de oradan yapılır.
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const OkeyLobbyScreen()),
+          );
+        }
+        break;
+
+      case 'okey_invite_accepted':
+      case 'okey_invite_declined':
+        // Davet EDENE gelen yanıt. entity_id burada davet kimliğidir
+        // (bkz. 20260905000002: aynı odaya gelen ikinci kabul, birincinin
+        // bildirimini silmesin diye); oda kimliği metadata'da taşınır.
+        final okeyRoomId = notification.metadata?['room_id'] as String?;
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => okeyRoomId == null
+                  ? const OkeyLobbyScreen()
+                  : OkeyRoomScreen(roomId: okeyRoomId),
+            ),
+          );
+        }
+        break;
+
       case 'admin_notification':
         // Admin'in gönderdiği bildirim: yönlendirme YOK, başlık+içerik DETAY göster.
         if (mounted) {
@@ -716,6 +753,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'like':
       case 'post_like':
         return Icons.favorite;
+      // Hikaye tepkileri: eşleme yoktu, jenerik zil ikonu görünüyordu.
+      case 'story_like':
+        return Icons.auto_awesome;
       case 'comment':
       case 'post_comment':
         return Icons.chat_bubble;
@@ -724,6 +764,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.person_add;
       case 'follow_request':
         return Icons.person_add_alt_1;
+      case 'follow_request_accepted':
+      case 'follow_accepted':
+        return Icons.how_to_reg;
+      case 'post_share':
+        return Icons.share;
       case 'mention':
       case 'comment_mention':
         return Icons.alternate_email;
@@ -745,6 +790,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.star_rate;
       case 'admin_notification':
         return Icons.campaign_rounded;
+      case 'okey_invite':
+        return Icons.casino;
+      case 'okey_invite_accepted':
+        return Icons.how_to_reg;
+      case 'okey_invite_declined':
+        return Icons.person_off;
       default:
         return Icons.notifications;
     }
@@ -763,6 +814,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.purple;
       case 'follow_request':
         return Colors.orange;
+      case 'follow_request_accepted':
+      case 'follow_accepted':
+        return Colors.green;
+      case 'story_like':
+        return Colors.pink;
+      case 'post_share':
+        return Colors.teal;
       case 'order':
         return Colors.green;
       case 'order_update':
@@ -779,6 +837,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.amber;
       case 'admin_notification':
         return Colors.blue;
+      case 'okey_invite':
+      case 'okey_invite_accepted':
+        return Colors.amber;
       default:
         return Colors.grey;
     }

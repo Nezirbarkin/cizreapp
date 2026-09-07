@@ -286,14 +286,21 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
                         children: [
                           Row(
                             children: [
+                              // Row, Wrap DEĞİL: `Flexible` yalnızca bir Flex
+                              // (Row/Column) içinde geçerlidir. Wrap içindeyken
+                              // her karede "Incorrect use of ParentDataWidget"
+                              // fırlatıyor, ayrıca WrapParentData -> FlexParentData
+                              // cast'i patlıyordu. Dükkan adı + onay rozeti zaten
+                              // tek satırda durmalı; taşarsa ad kısaltılır.
                               Expanded(
-                                child: Wrap(
-                                  spacing: 6,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     Flexible(
                                       child: Text(
                                         shop.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 14,
@@ -301,6 +308,7 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
                                       ),
                                     ),
                                     if (shop.isVerified) ...[
+                                      const SizedBox(width: 6),
                                       const Icon(
                                         Icons.verified,
                                         size: 16,

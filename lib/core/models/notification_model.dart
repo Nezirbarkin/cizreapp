@@ -128,6 +128,10 @@ class NotificationModel {
       case 'like':
       case 'post_like':
         return 'favorite';
+      // Hikaye tepkileri DB trigger'ı tarafından 'story_like' tipiyle
+      // yazılıyor; eşleme olmadığı için jenerik zil ikonu görünüyordu.
+      case 'story_like':
+        return 'auto_awesome';
       case 'comment':
       case 'post_comment':
         return 'chat_bubble';
@@ -136,6 +140,13 @@ class NotificationModel {
         return 'person_add';
       case 'follow_request':
         return 'person_add_alt_1';
+      // DB trigger'ı 'follow_request_accepted', eski Dart kodu 'follow_accepted'
+      // yazıyordu; iki tipi de tanıyoruz.
+      case 'follow_request_accepted':
+      case 'follow_accepted':
+        return 'how_to_reg';
+      case 'post_share':
+        return 'share';
       case 'mention':
       case 'comment_mention':
         return 'alternate_email';
@@ -163,6 +174,12 @@ class NotificationModel {
         return 'group_add';
       case 'group_member_joined':
         return 'group';
+      case 'okey_invite':
+        return 'casino';
+      case 'okey_invite_accepted':
+        return 'how_to_reg';
+      case 'okey_invite_declined':
+        return 'person_off';
       default:
         return 'notifications';
     }
@@ -174,6 +191,8 @@ class NotificationModel {
       case 'like':
       case 'post_like':
         return 'red';
+      case 'story_like':
+        return 'pink';
       case 'comment':
       case 'post_comment':
         return 'blue';
@@ -182,6 +201,11 @@ class NotificationModel {
         return 'purple';
       case 'follow_request':
         return 'orange';
+      case 'follow_request_accepted':
+      case 'follow_accepted':
+        return 'green';
+      case 'post_share':
+        return 'teal';
       case 'mention':
       case 'comment_mention':
         return 'teal';
@@ -209,6 +233,11 @@ class NotificationModel {
         return 'deepOrange';
       case 'group_member_joined':
         return 'lightGreen';
+      case 'okey_invite':
+      case 'okey_invite_accepted':
+        return 'amber';
+      case 'okey_invite_declined':
+        return 'grey';
       default:
         return 'grey';
     }

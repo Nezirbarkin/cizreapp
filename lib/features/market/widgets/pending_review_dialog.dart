@@ -84,8 +84,9 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
       }
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(
             content: Text('Değerlendirmeniz için teşekkürler!'),
             backgroundColor: Colors.green,

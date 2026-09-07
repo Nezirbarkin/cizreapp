@@ -534,8 +534,9 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
                 );
 
                 if (context.mounted) {
+                  final messenger = ScaffoldMessenger.of(context);
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     const SnackBar(
                       content: Text('Cevabınız kaydedildi'),
                       backgroundColor: Colors.green,

@@ -891,8 +891,9 @@ class _NotificationsContentState extends State<NotificationsContent> {
                             .from('push_notifications')
                             .insert(notificationData);
 
+                        final messenger = ScaffoldMessenger.of(context);
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(
                             content: Text('Bildirim kuyruğa eklendi'),
                             backgroundColor: Colors.green,

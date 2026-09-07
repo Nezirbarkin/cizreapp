@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
 // ignore: unused_import
 import '../../../core/models/user_model.dart' as user_model;
-import '../../../core/services/notification_service.dart';
 import '../../../core/services/mention_service.dart';
 import '../../../core/services/cache_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
@@ -21,7 +21,6 @@ class PostService {
       rethrow;
     }
   }
-  final NotificationService _notificationService = NotificationService();
   final MentionService _mentionService = MentionService();
   final CacheService _cacheService = CacheService();
   final PerformanceMonitoringService _performanceMonitoringService = PerformanceMonitoringService();
@@ -204,70 +203,12 @@ class PostService {
     }
   }
 
-  // Beğeni bildirimi oluştur
-  Future<void> _createLikeNotification(String postId, String actorId) async {
-    try {
-      debugPrint('🔵 BİLDİRİM: Beğeni bildirimi oluşturuluyor - Post: $postId, Actor: $actorId');
-      
-      // Gönderiyi getir
-      final post = await getPostById(postId);
-      if (post == null) {
-        debugPrint('⚠️ BİLDİRİM: Gönderi bulunamadı');
-        return;
-      }
-      if (post.userId == actorId) {
-        debugPrint('⚠️ BİLDİRİM: Kendi gönderisine beğendi, bildirim gönderilmiyor');
-        return; // Kendi gönderisine beğendiğinde bildirim verme
-      }
-      
-      debugPrint('🔵 BİLDİRİM: Gönderi sahibi: ${post.userId}');
-
-      // Gönderi sahibi ve beğenen kullanıcı bilgilerini getir
-      final response = await _supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .inFilter('id', [post.userId, actorId]);
-
-      final profiles = response;
-      Map<String, dynamic>? postOwner;
-      Map<String, dynamic>? actor;
-      
-      try {
-        postOwner = profiles.firstWhere((p) => p['id'] == post.userId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Post owner profili bulunamadı');
-      }
-      
-      try {
-        actor = profiles.firstWhere((p) => p['id'] == actorId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Actor profili bulunamadı');
-      }
-
-      if (postOwner == null || actor == null) {
-        debugPrint('⚠️ BİLDİRİM: Profil bulunamadı - postOwner: $postOwner, actor: $actor');
-        return;
-      }
-      
-      debugPrint('🔵 BİLDİRİM: Actor: ${actor['username']}, PostOwner: ${postOwner['username']}');
-
-      await _notificationService.createLikeNotification(
-        userId: postOwner['id'],
-        actorId: actor['id'],
-        actorName: actor['username'] ?? 'Bir kullanıcı',
-        actorAvatar: actor['avatar_url'],
-        entityType: 'post',
-        entityId: postId,
-        entityImage: post.images.isNotEmpty ? post.images.first : null,
-        entityTitle: (post.content?.length ?? 0) > 50 ? '${post.content!.substring(0, 50)}...' : (post.content ?? 'Gönderi'),
-      );
-      
-      debugPrint('✅ BİLDİRİM: Beğeni bildirimi gönderildi');
-    } catch (e) {
-      // Bildirim hatası ana işlemi engellememesin
-      debugPrint('❌ BİLDİRİM HATASI: Beğeni bildirimi oluşturulurken hata: $e');
-    }
-  }
+  // NOT (2026-09-06): Kullanılmayan bildirim yardımcıları kaldırıldı.
+  // Beğeni / yorum / takip bildirimleri DB trigger'ları tarafından
+  // (notify_post_like, notify_post_comment, notify_new_follower)
+  // üretiliyor. Ayrıca notifications tablosunun INSERT politikası
+  // yalnızca 'kendine bildirim' yazmaya izin veriyor; bu yüzden istemci
+  // tarafından başka bir kullanıcıya bildirim yazmak zaten mümkün değil.
 
   // Beğeniyi kaldır
   Future<void> unlikePost(String postId, String userId) async {
@@ -352,17 +293,33 @@ class PostService {
     String userId,
     String content,
   ) async {
+    // Yalnızca boşluktan oluşan yorumlar DB'ye yazılmasın (content NOT NULL
+    // ama boş string'i engellemiyor; feed'de boş balon görünüyordu).
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) {
+      throw Exception('Yorum boş olamaz');
+    }
+
     try {
-      final response = await _supabase.from('post_comments').insert({
-        'post_id': postId,
-        'user_id': userId,
-        'content': content,
-        'created_at': DateTime.now().toIso8601String(),
-      }).select().maybeSingle();
+      // Yazar bilgisini de aynı sorguda geri al; böylece yeni yorum listeye
+      // eklenirken ikinci bir profil isteği gerekmiyor.
+      final response = await _supabase
+          .from('post_comments')
+          .insert({
+            'post_id': postId,
+            'user_id': userId,
+            'content': trimmed,
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select(
+            '*, profiles!post_comments_user_id_fkey(id, username, full_name, avatar_url)',
+          )
+          .maybeSingle();
 
       if (response == null) return null;
 
       final commentId = response['id'];
+      content = trimmed;
 
       // Mention'ları kaydet (@kullaniciadi'leri parse edip database'e kaydet)
       debugPrint('📝 Mention\'lar kaydediliyor - Comment: $commentId');
@@ -382,76 +339,16 @@ class PostService {
     }
   }
 
-  // Yorum bildirimi oluştur
-  Future<void> _createCommentNotification(String postId, String actorId, String commentText) async {
-    try {
-      debugPrint('🟢 BİLDİRİM: Yorum bildirimi oluşturuluyor - Post: $postId, Actor: $actorId');
-      
-      // Gönderiyi getir
-      final post = await getPostById(postId);
-      if (post == null) {
-        debugPrint('⚠️ BİLDİRİM: Gönderi bulunamadı');
-        return;
-      }
-      if (post.userId == actorId) {
-        debugPrint('⚠️ BİLDİRİM: Kendi gönderisine yorum yaptı, bildirim gönderilmiyor');
-        return; // Kendi gönderisine yorumduğunda bildirim verme
-      }
-      
-      debugPrint('🟢 BİLDİRİM: Gönderi sahibi: ${post.userId}');
-
-      // Gönderi sahibi ve yorum yapan kullanıcı bilgilerini getir
-      final response = await _supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .inFilter('id', [post.userId, actorId]);
-
-      final profiles = response;
-      Map<String, dynamic>? postOwner;
-      Map<String, dynamic>? actor;
-      
-      try {
-        postOwner = profiles.firstWhere((p) => p['id'] == post.userId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Post owner profili bulunamadı');
-      }
-      
-      try {
-        actor = profiles.firstWhere((p) => p['id'] == actorId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Actor profili bulunamadı');
-      }
-
-      if (postOwner == null || actor == null) {
-        debugPrint('⚠️ BİLDİRİM: Profil bulunamadı');
-        return;
-      }
-      
-      debugPrint('🟢 BİLDİRİM: Actor: ${actor['username']}, PostOwner: ${postOwner['username']}');
-
-      await _notificationService.createCommentNotification(
-        userId: postOwner['id'],
-        actorId: actor['id'],
-        actorName: actor['username'] ?? 'Bir kullanıcı',
-        actorAvatar: actor['avatar_url'],
-        postId: postId,
-        postImage: post.images.isNotEmpty ? post.images.first : null,
-        commentText: commentText.length > 50 ? '${commentText.substring(0, 50)}...' : commentText,
-      );
-      
-      debugPrint('✅ BİLDİRİM: Yorum bildirimi gönderildi');
-    } catch (e) {
-      // Bildirim hatası ana işlemi engellememesin
-      debugPrint('❌ BİLDİRİM HATASI: Yorum bildirimi oluşturulurken hata: $e');
-    }
-  }
-
   // Yorumları getir
+  // ✅ OPTİMİZE: Yazar profilleri aynı sorguda JOIN'leniyor. Eskiden ekran
+  // katmanı her yorum için ayrı bir getUserProfile çağrısı yapıyordu (N+1).
   Future<List<PostComment>> getComments(String postId) async {
     try {
       final response = await _supabase
           .from('post_comments')
-          .select()
+          .select(
+            '*, profiles!post_comments_user_id_fkey(id, username, full_name, avatar_url)',
+          )
           .eq('post_id', postId)
           .order('created_at', ascending: false);
 
@@ -464,12 +361,33 @@ class PostService {
   }
 
   // Yorum sil
+  // Yetki DB'de: yorumu yazan, gönderi sahibi veya admin silebilir
+  // (post_comments_delete_allowed politikası).
   Future<void> deleteComment(String commentId) async {
     try {
-      await _supabase.from('post_comments').delete().eq('id', commentId);
+      final deleted = await _supabase
+          .from('post_comments')
+          .delete()
+          .eq('id', commentId)
+          .select('id');
+
+      if ((deleted as List).isEmpty) {
+        // RLS engelledi: satır silinmedi ama Postgrest hata da fırlatmadı.
+        throw Exception('Bu yorumu silme yetkiniz yok');
+      }
     } catch (e) {
       throw Exception('Yorum silinirken hata: $e');
     }
+  }
+
+  /// Yorumu silebilir miyiz? (yorum sahibi veya gönderi sahibi)
+  bool canDeleteComment({
+    required String commentUserId,
+    required String postOwnerId,
+  }) {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return false;
+    return userId == commentUserId || userId == postOwnerId;
   }
 
   // Takip et
@@ -501,54 +419,6 @@ class PostService {
     }
   }
 
-  // Takip bildirimi oluştur
-  Future<void> _createFollowNotification(String followerId, String followingId) async {
-    try {
-      debugPrint('🟣 BİLDİRİM: Takip bildirimi oluşturuluyor - Follower: $followerId, Following: $followingId');
-      
-      // Takip eden ve takip edilen kullanıcı bilgilerini getir
-      final response = await _supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .inFilter('id', [followerId, followingId]);
-
-      final profiles = response;
-      Map<String, dynamic>? follower;
-      Map<String, dynamic>? following;
-      
-      try {
-        follower = profiles.firstWhere((p) => p['id'] == followerId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Follower profili bulunamadı');
-      }
-      
-      try {
-        following = profiles.firstWhere((p) => p['id'] == followingId);
-      } catch (e) {
-        debugPrint('⚠️ BİLDİRİM: Following profili bulunamadı');
-      }
-
-      if (follower == null || following == null) {
-        debugPrint('⚠️ BİLDİRİM: Profil bulunamadı');
-        return;
-      }
-      
-      debugPrint('🟣 BİLDİRİM: Follower: ${follower['username']}, Following: ${following['username']}');
-
-      await _notificationService.createFollowNotification(
-        userId: following['id'],
-        actorId: follower['id'],
-        actorName: follower['username'] ?? 'Bir kullanıcı',
-        actorAvatar: follower['avatar_url'],
-      );
-      
-      debugPrint('✅ BİLDİRİM: Takip bildirimi gönderildi');
-    } catch (e) {
-      // Bildirim hatası ana işlemi engellememesin
-      debugPrint('❌ BİLDİRİM HATASI: Takip bildirimi oluşturulurken hata: $e');
-    }
-  }
-
   // Takipten çık
   Future<void> unfollowUser(String followerId, String followingId) async {
     try {
@@ -574,6 +444,123 @@ class PostService {
       return response.isNotEmpty;
     } catch (e) {
       return false;
+    }
+  }
+
+  // ==========================================================================
+  // KAYDEDİLEN GÖNDERİLER (post_favorites)
+  // ==========================================================================
+  // ÖNCEKİ DURUM — üç ayrı depo aynı anda kullanılıyordu:
+  //   * Keşfet feed'indeki yer imi butonu SharedPreferences('saved_posts')
+  //     yazıyordu (cihaz yerel; uygulama silinince kaybolur),
+  //   * Profil ekranlarındaki buton toggle_post_favorite RPC'siyle
+  //     post_favorites tablosuna yazıyordu,
+  //   * ama profil ekranları kayıtlı DURUMUNU yine SharedPreferences'tan
+  //     okuyordu.
+  // Sonuç: feed'den kaydedilen gönderi "Favorilerim" ekranında hiç görünmüyor,
+  // profilden kaydedilen gönderinin ikonu dolu görünmüyordu.
+  //
+  // Tek kaynak artık post_favorites (Favoriler ekranının da okuduğu tablo).
+
+  /// Kullanıcının kaydettiği gönderi id'leri.
+  Future<Set<String>> getSavedPostIds() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return {};
+
+      final response = await _supabase
+          .from('post_favorites')
+          .select('post_id')
+          .eq('user_id', userId);
+
+      return (response as List)
+          .map((row) => row['post_id'] as String?)
+          .whereType<String>()
+          .toSet();
+    } catch (e) {
+      debugPrint('Kaydedilen gönderiler yüklenirken hata: $e');
+      return {};
+    }
+  }
+
+  /// Gönderiyi kaydet / kaydı kaldır. Dönen değer: işlem sonrası kayıtlı mı.
+  Future<bool> toggleSavePost(String postId) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('Kaydetmek için giriş yapmalısınız');
+    }
+
+    final existing = await _supabase
+        .from('post_favorites')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existing != null) {
+      await _supabase
+          .from('post_favorites')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', userId);
+      return false;
+    }
+
+    await _supabase.from('post_favorites').insert({
+      'post_id': postId,
+      'user_id': userId,
+    });
+    return true;
+  }
+
+  /// Eski sürümde SharedPreferences'ta tutulan yerel kayıtları bir kereliğine
+  /// post_favorites tablosuna taşır. Taşıma sonrası yerel anahtar silinir,
+  /// böylece her açılışta tekrar çalışmaz.
+  Future<void> migrateLegacyLocalSaves() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final legacy = prefs.getStringList('saved_posts');
+      if (legacy == null) return;
+
+      final ids = legacy.where((id) => id.isNotEmpty).toSet();
+      if (ids.isNotEmpty) {
+        await _supabase.from('post_favorites').upsert(
+          [
+            for (final postId in ids) {'post_id': postId, 'user_id': userId},
+          ],
+          onConflict: 'user_id,post_id',
+          ignoreDuplicates: true,
+        );
+        debugPrint('📌 ${ids.length} yerel kayıt post_favorites tablosuna taşındı');
+      }
+
+      await prefs.remove('saved_posts');
+    } catch (e) {
+      // Taşıma başarısız olursa kullanıcıyı engellemeyelim; yerel anahtar
+      // duruyorsa bir sonraki açılışta tekrar denenir.
+      debugPrint('Yerel kayıt taşıma hatası (yoksayıldı): $e');
+    }
+  }
+
+  /// Kaydedilen gönderilerin tamamını (içerikleriyle) getirir.
+  Future<List<Post>> getSavedPosts() async {
+    try {
+      final ids = await getSavedPostIds();
+      if (ids.isEmpty) return [];
+
+      final response = await _supabase
+          .from('posts_with_profiles')
+          .select()
+          .inFilter('id', ids.toList())
+          .order('created_at', ascending: false);
+
+      return (response as List).map((json) => Post.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Kaydedilen gönderiler getirilemedi: $e');
+      return [];
     }
   }
 

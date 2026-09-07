@@ -354,8 +354,9 @@ class _CouponsScreenState extends State<CouponsScreen> {
                   }
 
                   if (mounted) {
+                    final messenger = ScaffoldMessenger.of(context);
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       SnackBar(
                         content: Text(isEdit 
                             ? 'Kupon güncellendi' 

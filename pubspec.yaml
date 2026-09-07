@@ -111,6 +111,14 @@ dependencies:
   # permission_handler zaten dependencies'te (kamera/mikrofon izinleri için)
   # Production token için Edge Function gerekir (Token Server önerilir).
   agora_rtc_engine: ^6.5.3
+  audioplayers: ^6.7.1
+
+  # ============ SESLİ ANONS (101 Okey masası) ============
+  # "Seri açıldı" / "Çift açıldı" / "Son üç taş" anonsları cihazın
+  # kendi TTS motoruyla okunur — ses dosyası paketlemek gerekmez ve
+  # oyuncu adı gibi değişken metinler de seslendirilebilir.
+  flutter_tts: ^4.2.3
+  file_picker: ^11.0.3
 
 dev_dependencies:
   flutter_test:
@@ -153,6 +161,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - assets/sounds/
     - assets/logos/app_logo.png
     - assets/logos/cizreapp_logo.jpg
 

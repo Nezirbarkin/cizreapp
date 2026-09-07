@@ -482,6 +482,18 @@ class PushNotificationService {
         }
         break;
 
+      case 'okey_invite':
+      case 'okey_invite_accepted':
+      case 'okey_invite_declined':
+        // 101 Okey masa daveti ve davete gelen yanıt — okey lobisini aç.
+        //
+        // Davet EDİLEN masayı henüz göremez (koltuğa oturmadan RLS masayı
+        // vermez), o yüzden hedef bekleme odası DEĞİL lobidir: davet kartı
+        // orada, katıl/reddet düğmeleriyle en üstte durur. Davet EDEN için
+        // de aynı ekran "Devam eden oyunun var" bandıyla masaya döndürür.
+        _navigateToOkeyLobby(context);
+        break;
+
       case 'admin_notification':
         _navigateToMainScreen(context);
         break;
@@ -501,6 +513,23 @@ class PushNotificationService {
       debugPrint('✅ MainScreen\'e yönlendirildi');
     } catch (e) {
       debugPrint('❌ MainScreen\'e yönlendirme hatası: $e');
+    }
+  }
+
+  /// 101 Okey lobisini açar.
+  ///
+  /// Önce ana ekran yığının dibine konur, lobi ONUN ÜSTÜNE itilir: lobiyi
+  /// tek başına `pushNamedAndRemoveUntil` ile açmak, geri tuşuna basan
+  /// oyuncuyu boş bir yığında bırakırdı.
+  static void _navigateToOkeyLobby(BuildContext context) {
+    try {
+      final navigator = Navigator.of(context);
+      navigator.pushNamedAndRemoveUntil('/main', (route) => false);
+      navigator.pushNamed('/okey');
+      debugPrint('✅ Okey lobisine yönlendirildi');
+    } catch (e) {
+      debugPrint('❌ Okey lobisine yönlendirme hatası: $e');
+      _navigateToMainScreen(context);
     }
   }
 

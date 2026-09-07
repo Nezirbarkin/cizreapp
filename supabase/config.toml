@@ -5,6 +5,15 @@
 # Canlı Auth ayarları burada açıkça tutulur; `supabase config push` varsayılan
 # localhost değerleriyle production yönlendirmelerini ezmemelidir.
 [auth]
+# MİSAFİR GİRİŞİ (101 Okey). Okey masasındaki her satır RLS ile auth.uid()'ye
+# bağlıdır; oturumsuz bir istemci masayı ne oynayabilir ne izleyebilir. Anonim
+# oturum, kullanıcıdan e-posta/parola istemeden gerçek bir auth.users satırı
+# açar ve RLS olduğu gibi çalışmaya devam eder.
+#
+# DİKKAT: Bu satır tek başına yetmez — canlı projede etkin olması için ya
+# `supabase config push` çalıştırılmalı ya da panelden
+# Authentication → Sign In / Providers → "Allow anonymous sign-ins" açılmalıdır.
+enable_anonymous_sign_ins = true
 site_url = "https://www.cizreapp.com/auth-callback.html"
 additional_redirect_urls = ["https://cizreapp.com/**", "https://www.cizreapp.com/auth/callback", "cizreapp://login", "https://cizreapp.com/*", "https://cizreapp.com/recovery", "https://cizreapp.com/auth/callback", "https://cizreapp.com/verify", "https://www.cizreapp.com/recovery", "https://www.cizreapp.com/verify/", "https://cizreapp.com/verify/", "cizreapp://verify", "cizreapp://recovery", "cizreapp://reset", "cizreapp://reset-password", "https://www.cizreapp.com/auth-callback.html", "https://www.cizreapp.com", "https://cizreapp.com"]
 refresh_token_reuse_interval = 600

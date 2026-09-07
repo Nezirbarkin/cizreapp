@@ -270,8 +270,9 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   try {
                     await _reviewService.deleteReview(_userReview!.id);
                     if (context.mounted) {
+                      final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(context, true);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('Yorum silindi')),
                       );
                     }
@@ -315,8 +316,9 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   }
 
                   if (context.mounted) {
+                    final messenger = ScaffoldMessenger.of(context);
                     Navigator.pop(context, true);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       SnackBar(
                         content: Text(
                           _userReview == null

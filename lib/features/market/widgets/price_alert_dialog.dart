@@ -44,8 +44,9 @@ class _PriceAlertDialogState extends State<PriceAlertDialog> {
         currentPrice: widget.currentPrice,
       );
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             '🔔 Alarm kuruldu: ${_targetPrice.toStringAsFixed(2)} ₺ altında bildirim alacaksınız',

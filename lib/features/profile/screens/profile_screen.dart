@@ -132,12 +132,16 @@ class _ProfileScreenState extends State<ProfileScreen>
         targetUserId,
       );
 
+      // await'lerden sonra ekran kapanmış olabilir; korumasız setState
+      // "setState() called after dispose(): _ProfileScreenState" fırlatıyordu.
+      if (!mounted) return;
       setState(() {
         _profileViewStats = profileStats;
         _postViewStats = postStats;
         _isLoadingAnalytics = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoadingAnalytics = false);
     }
   }
@@ -234,6 +238,8 @@ class _ProfileScreenState extends State<ProfileScreen>
           currentUserId != null) {
         await _createDefaultProfile(currentUserId);
       } else {
+        // catch bloğuna gelene kadar await'ler geçti; ekran kapanmış olabilir.
+        if (!mounted) return;
         setState(() => _isLoading = false);
       }
     }
@@ -328,13 +334,16 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
+  // Kayıtlı gönderiler tek kaynaktan (post_favorites) okunuyor; eskiden
+  // SharedPreferences'tan okunduğu için profilden kaydedilen gönderinin
+  // yer imi ikonu dolu görünmüyordu.
   Future<void> _loadSavedPosts() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedPosts = prefs.getStringList('saved_posts') ?? [];
+      await _postService.migrateLegacyLocalSaves();
+      final saved = await _postService.getSavedPostIds();
       if (mounted) {
         setState(() {
-          _savedPosts = savedPosts.toSet();
+          _savedPosts = saved;
         });
       }
     } catch (e) {
@@ -2408,8 +2417,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                       onTap: () async {
                         await _sendPostToFriend(user['following_id'], post);
                         if (mounted) {
+                          final messenger = ScaffoldMessenger.of(context);
                           Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             SnackBar(
                               content: Text(
                                 '$name adlı kullanıcıya gönderildi',

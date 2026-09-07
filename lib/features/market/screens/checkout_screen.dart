@@ -69,6 +69,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Eskiden taze CartProvider yüzünden hep null geliyordu.
   AppliedCoupon? get _appliedCoupon => widget.couponsByShop[widget.shopId];
 
+  /// CheckoutScreen'in ÜSTÜNDEKİ (ör. MainScreen'deki) CartProvider — yoksa
+  /// null döner.
+  ///
+  /// Sipariş tamamlandıktan sonra ana ekrandaki sepet rozeti yenilenmeli.
+  /// Eskiden bu, `popUntil`den 100 ms sonra `context.read<CartProvider>()`
+  /// ile yapılıyordu ve üç ayrı hata üretiyordu:
+  ///   * pop sonrası element deactive olduğu için "Looking up a deactivated
+  ///     widget's ancestor is unsafe" (`context.mounted` o anda hâlâ true
+  ///     olduğundan koruma işe yaramıyordu),
+  ///   * CheckoutScreen'in üstünde hiç CartProvider olmayan navigasyon
+  ///     yollarında `ProviderNotFoundException`,
+  ///   * yerel provider bu arada dispose edildiği için "A CartProvider was
+  ///     used after being disposed".
+  /// Çözüm: pop'TAN ÖNCE, element hâlâ aktifken çözmek. `build()` içinde
+  /// yaratılan yerel MultiProvider bu context'in ALTINDA kaldığı için buradan
+  /// okunmaz; aranan zaten ana ekranın sepetidir.
+  static CartProvider? _readAncestorCart(BuildContext context) {
+    try {
+      return context.read<CartProvider>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   /// Verilen ara toplam için bu dükkanın kupon indirmini döndürür.
   /// subtotal ile sınırlı, 0'a clamp'li. Kupon yoksa 0.
   double _couponDiscountFor(double subtotal) {
@@ -379,8 +403,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                            
                           if (result['success'] == true) {
                             if (context.mounted) {
+                              final messenger = ScaffoldMessenger.of(context);
                               Navigator.pop(context, true);
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 const SnackBar(
                                   content: Text('Kod doğrulandı!'),
                                   backgroundColor: Colors.green,
@@ -771,17 +796,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           }
 
           if (mounted) {
+            // Messenger ve ana ekranın CartProvider'ı POP'TAN ÖNCE çözülür.
+            // Bkz. [_readAncestorCart].
+            final messenger = ScaffoldMessenger.of(context);
+            final rootCart = _readAncestorCart(context);
+
             // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
             Navigator.of(context).popUntil((route) => route.isFirst);
+            rootCart?.loadCart();
 
-            // Biraz gecikme ile çünkü navigation tamamlanmalı
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (context.mounted) {
-                context.read<CartProvider>().loadCart();
-              }
-            });
-
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(
                 content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${realTotal.toStringAsFixed(2)})'),
                 backgroundColor: Colors.green,
@@ -1076,21 +1100,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         await cartProvider.clearCart(); // CartProvider'ı da temizle
 
         if (mounted) {
+          // Messenger ve ana ekranın CartProvider'ı POP'TAN ÖNCE çözülür.
+          // Bkz. [_readAncestorCart].
+          final messenger = ScaffoldMessenger.of(context);
+          final rootCart = _readAncestorCart(context);
+
           // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
           Navigator.of(context).popUntil((route) => route.isFirst);
-          
-          // MainScreen'deki CartProvider'a erişip yeniden yükle
-          // Biraz gecikme ile çünkü navigation tamamlanmalı
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (context.mounted) {
-              // MainScreen context'inden CartProvider'a eriş
-              // ignore: use_build_context_synchronously
-              final mainCartProvider = context.read<CartProvider>();
-              mainCartProvider.loadCart();
-            }
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
+          rootCart?.loadCart();
+
+          messenger.showSnackBar(
             const SnackBar(
               content: Text('Siparişiniz başarıyla oluşturuldu!'),
               backgroundColor: Colors.green,

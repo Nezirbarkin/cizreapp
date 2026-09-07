@@ -814,8 +814,9 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
           ),
           ElevatedButton(
             onPressed: () {
+              final messenger = ScaffoldMessenger.of(context);
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
+              messenger.showSnackBar(
                 const SnackBar(content: Text('Bildiriminiz için teşekkürler')),
               );
             },

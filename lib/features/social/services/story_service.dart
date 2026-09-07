@@ -5,12 +5,24 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path/path.dart' as path;
 import '../../../core/models/post_model.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/image_compression_helper.dart';
 
 class StoryService {
+  /// Klasik begeni tepkisi. story_likes.emoji sutununun DB varsayilani da ayni.
+  static const String defaultReaction = '\u2764\uFE0F';
+
+  /// Hikaye ekranindaki hizli tepki cubugunda gosterilen emojiler.
+  static const List<String> quickReactions = <String>[
+    '\u2764\uFE0F',
+    '\u{1F602}',
+    '\u{1F62E}',
+    '\u{1F622}',
+    '\u{1F44F}',
+    '\u{1F525}',
+  ];
+
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get _supabase {
     try {
@@ -20,7 +32,6 @@ class StoryService {
       rethrow;
     }
   }
-  final NotificationService _notificationService = NotificationService();
   final StorageService _storageService = StorageService();
 
   // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder
@@ -51,22 +62,29 @@ class StoryService {
                 debugPrint('⚠️ Story views yüklenirken hata (yoksayıldı): $e');
                 return <String>[];
               });
+      // Beğeni + tepki emojisi (story_id -> emoji) tek sorguda gelir.
       final likesFuture = userId == null
-          ? Future.value(<String>[])
+          ? Future.value(<String, String>{})
           : _supabase
               .from('story_likes')
-              .select('story_id')
+              .select('story_id, emoji')
               .eq('user_id', userId)
               .then((r) {
-                final ids = (r as List)
-                    .map((row) => row['story_id'] as String)
-                    .toList();
-                debugPrint('📱 Kullanıcı ${ids.length} story beğenmiş');
-                return ids;
+                final map = <String, String>{};
+                for (final row in (r as List)) {
+                  final sid = row['story_id'] as String?;
+                  if (sid == null) continue;
+                  final emoji = row['emoji'] as String?;
+                  map[sid] = (emoji == null || emoji.isEmpty)
+                      ? defaultReaction
+                      : emoji;
+                }
+                debugPrint('📱 Kullanıcı ${map.length} story beğenmiş');
+                return map;
               })
               .catchError((e) {
                 debugPrint('⚠️ Story likes yüklenirken hata (yoksayıldı): $e');
-                return <String>[];
+                return <String, String>{};
               });
 
       // Stories ile birlikte profil bilgilerini de çek (TEK SORGU) - retry ile
@@ -103,8 +121,8 @@ class StoryService {
         fetchStories(),
       ]);
       final viewedStoryIds = results[0] as List<String>;
-      final likedStoryIds = results[1] as List<String>;
-      final response = results[2];
+      final myReactions = results[1] as Map<String, String>;
+      final response = results[2] as List?;
 
       if (response == null) {
         throw Exception('Hikayeler yüklenemedi');
@@ -121,9 +139,10 @@ class StoryService {
       final stories = response.map((json) {
         final storyId = json['id'] as String;
         final isViewed = viewedStoryIds.contains(storyId);
-        final isLiked = likedStoryIds.contains(storyId);
+        final myReaction = myReactions[storyId];
         json['is_viewed_by_current_user'] = isViewed;
-        json['is_liked_by_current_user'] = isLiked;
+        json['is_liked_by_current_user'] = myReaction != null;
+        json['my_reaction'] = myReaction;
         
         // Profil bilgilerini doğrudan story json'ına ekle
         final profiles = json['profiles'] as Map<String, dynamic>?;
@@ -487,11 +506,24 @@ class StoryService {
 
       debugPrint('📱 Viewer IDs: $viewerIds');
 
-      // 3. Bu kullanıcıların profillerini ayrı sorgu ile al
-      final profilesResponse = await _supabase
-          .from('profiles')
-          .select('id, full_name, username, avatar_url')
-          .inFilter('id', viewerIds);
+      // 3. Profilleri ve bu hikayeye verilen tepkileri paralel çek
+      final extras = await Future.wait([
+        _supabase
+            .from('profiles')
+            .select('id, full_name, username, avatar_url')
+            .inFilter('id', viewerIds),
+        _supabase
+            .from('story_likes')
+            .select('user_id, emoji')
+            .eq('story_id', storyId)
+            .catchError((e) {
+              debugPrint('⚠️ Story tepkileri yüklenemedi (yoksayıldı): $e');
+              return <Map<String, dynamic>>[];
+            }),
+      ]);
+
+      final profilesResponse = extras[0] as List;
+      final reactionsResponse = extras[1] as List;
 
       debugPrint('📱 Profil sayısı: ${profilesResponse.length}');
 
@@ -499,6 +531,17 @@ class StoryService {
       final profilesMap = <String, Map<String, dynamic>>{};
       for (var profile in profilesResponse) {
         profilesMap[profile['id']] = profile;
+      }
+
+      // 4b. Tepkileri map'e koy (viewer_id -> emoji)
+      final reactionsMap = <String, String>{};
+      for (var row in reactionsResponse) {
+        final uid = row['user_id'] as String?;
+        if (uid == null) continue;
+        final emoji = row['emoji'] as String?;
+        reactionsMap[uid] = (emoji == null || emoji.isEmpty)
+            ? defaultReaction
+            : emoji;
       }
 
       // 5. View verileriyle profile'leri birleştir
@@ -509,6 +552,7 @@ class StoryService {
           'viewer_id': viewerId,
           'created_at': view['created_at'],
           'profiles': profilesMap[viewerId],
+          'reaction': reactionsMap[viewerId],
         });
       }
 
@@ -564,152 +608,60 @@ class StoryService {
   // NOT: stories.likes_count senkronizasyonu PostgreSQL trigger'ı
   // (increment_story_likes_count) tarafından otomatik yapılır.
   // Burada RPC çağırmak çift sayıma yol açar.
-  Future<void> likeStory(String storyId) async {
+  /// Hikayeye tepki ver (klasik begeni = kalp emojisi).
+  ///
+  /// NOT (2026-09-06): Bildirim ARTIK Dart'tan gonderilmiyor. DB'deki
+  /// notify_story_like_trigger zaten hikaye sahibine bildirim yaziyor;
+  /// Dart tarafindaki _createStoryLikeNotification ikinci bir bildirim
+  /// uretme riski tasiyordu. Sayac da trigger_increment_story_likes_count
+  /// tarafindan yonetiliyor (increment_story_likes RPC'si no-op).
+  Future<void> likeStory(String storyId, {String emoji = defaultReaction}) async {
     try {
-      debugPrint('🔔 STORY LİKE BAŞLADI - storyId: $storyId');
-
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
-        debugPrint('❌ Kullanıcı giriş yapmamış');
-        throw Exception('Kullanıcı giriş yapmamış');
+        throw Exception('Kullanici giris yapmamis');
       }
 
-      // Önce mevcut kayıt var mı kontrol et — increment sadece yeni beğenide atılır
-      final existing = await _supabase
+      // Upsert ile race condition'dan korunuyoruz (unique constraint).
+      // Kayit zaten varsa yalnizca emoji guncellenir (tepki degistirme).
+      await _supabase.from('story_likes').upsert(
+        {'story_id': storyId, 'user_id': userId, 'emoji': emoji},
+        onConflict: 'story_id,user_id',
+      );
+
+      debugPrint('Story tepkisi kaydedildi: $storyId -> $emoji');
+    } catch (e) {
+      debugPrint('Story tepki hatasi: $e');
+      throw Exception('Story begenilirken hata: $e');
+    }
+  }
+
+  /// Mevcut kullanicinin bu hikayeye verdigi tepkiyi dondurur (yoksa null).
+  Future<String?> getMyReaction(String storyId) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      final response = await _supabase
           .from('story_likes')
-          .select('id')
+          .select('emoji')
           .eq('story_id', storyId)
           .eq('user_id', userId)
           .maybeSingle();
 
-      // Upsert ile race condition'dan korunuyoruz (unique constraint)
-      // Trigger otomatik increment'i yalnızca INSERT'te tetikler
-      await _supabase.from('story_likes').upsert(
-        {'story_id': storyId, 'user_id': userId},
-        onConflict: 'story_id,user_id',
-      );
-
-      // Sadece yeni eklenmişse beğeni sayısını artır (trigger UPDATE'i ignore eder)
-      if (existing == null) {
-        await _supabase.rpc('increment_story_likes', params: {'story_id': storyId});
-        debugPrint('❤️ Story beğenildi: $storyId');
-        // Hikaye sahibine bildirim gönder
-        await _createStoryLikeNotification(storyId, userId);
-      } else {
-        debugPrint('ℹ️ Story zaten beğenilmiş: $storyId');
-      }
+      if (response == null) return null;
+      final emoji = response['emoji'] as String?;
+      return (emoji == null || emoji.isEmpty) ? defaultReaction : emoji;
     } catch (e) {
-      debugPrint('❌ Story beğenme hatası: $e');
-      throw Exception('Story beğenilirken hata: $e');
+      debugPrint('Story tepki okuma hatasi: $e');
+      return null;
     }
   }
 
-  // Hikaye beğeni bildirimi oluştur
-  Future<void> _createStoryLikeNotification(String storyId, String actorId) async {
-    try {
-      debugPrint('🔔🔔🔔 STORY BEĞENİ BİLDİRİMİ BAŞLADI 🔔🔔🔔');
-      debugPrint('📱 Story ID: $storyId');
-      debugPrint('📱 Actor ID: $actorId');
-      
-      // Hikayeyi getir - retry ile
-      dynamic storyResponse;
-      int retryCount = 0;
-      while (retryCount < 2) {
-        try {
-          storyResponse = await _supabase
-              .from('stories')
-              .select('user_id, image_url, thumbnail_url')
-              .eq('id', storyId)
-              .maybeSingle();
-          break;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= 2) {
-            debugPrint('❌ Story getirme hatası: $e');
-            return;
-          }
-          await Future.delayed(Duration(milliseconds: 300));
-        }
-      }
-
-      if (storyResponse == null) {
-        debugPrint('❌ Story bulunamadı');
-        return;
-      }
-      final storyOwnerId = storyResponse['user_id'] as String;
-      debugPrint('👤 Story Owner ID: $storyOwnerId');
-      
-      // Kendi hikayesine beğendiğinde bildirim verme
-      if (storyOwnerId == actorId) {
-        debugPrint('⚠️ Kendi hikayesini beğendi, bildirim gönderilmiyor');
-        return;
-      }
-
-      // Hikaye sahibi ve beğenen kullanıcı bilgilerini getir - retry ile
-      dynamic profilesResponse;
-      retryCount = 0;
-      while (retryCount < 2) {
-        try {
-          profilesResponse = await _supabase
-              .from('profiles')
-              .select('id, username, avatar_url')
-              .inFilter('id', [storyOwnerId, actorId]);
-          break;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= 2) {
-            debugPrint('❌ Profil getirme hatası: $e');
-            return;
-          }
-          await Future.delayed(Duration(milliseconds: 300));
-        }
-      }
-
-      Map<String, dynamic>? storyOwner;
-      Map<String, dynamic>? actor;
-      
-      // ignore: unnecessary_type_check
-      if (profilesResponse is List) {
-        for (var p in profilesResponse) {
-          if (p['id'] == storyOwnerId) storyOwner = p;
-          if (p['id'] == actorId) actor = p;
-        }
-      }
-
-      if (storyOwner == null || actor == null) {
-        debugPrint('❌ Kullanıcı profilleri bulunamadı');
-        return;
-      }
-
-      // Thumbnail veya image URL'ini kullan
-      final storyImage = storyResponse['thumbnail_url'] ?? storyResponse['image_url'];
-      final actorName = actor['username'] ?? 'Bir kullanıcı';
-      
-      debugPrint('📢 BİLDİRİM GÖNDERİLİYOR:');
-      debugPrint('  - Alıcı: ${storyOwner['username']} ($storyOwnerId)');
-      debugPrint('  - Gönderen: $actorName ($actorId)');
-      debugPrint('  - Tip: like (story)');
-      debugPrint('  - Title: $actorName hikayeni beğendi');
-
-      // Story beğenisi için özel bildirim oluştur
-      await _notificationService.createNotification(
-        userId: storyOwner['id'],
-        type: 'story_like',
-        title: '$actorName hikayeni beğendi',
-        content: 'Hikayeni beğendi',
-        actorId: actor['id'],
-        actorName: actorName,
-        actorAvatar: actor['avatar_url'],
-        entityId: storyId,
-        entityImage: storyImage,
-      );
-      
-      debugPrint('✅✅✅ STORY BEĞENİ BİLDİRİMİ GÖNDERİLDİ ✅✅✅');
-    } catch (e) {
-      // Bildirim hatası ana işlemi engellemesin
-      debugPrint('❌❌❌ Story beğeni bildirim HATASI: $e');
-    }
-  }
+  // NOT (2026-09-06): _createStoryLikeNotification kaldirildi.
+  // Hikaye tepkisi bildirimi tek noktadan, DB'deki notify_story_like_trigger
+  // tarafindan uretiliyor. Dart tarafinda ikinci bir bildirim yazmak ayni
+  // olay icin cift bildirim riski dogruyordu.
 
   // Story beğenisini kaldır
   // NOT: decrement_story_likes RPC no-op'dır (20260528000001_trigger).
@@ -749,45 +701,40 @@ class StoryService {
     }
   }
 
-  // Story beğenisi toggle (beğenili değilse beğen, beğeniliyse kaldır)
+  /// Hikaye tepkisini degistir.
+  ///
+  /// Kullanicinin mevcut tepkisi [emoji] ile ayniysa tepki KALDIRILIR
+  /// (Instagram davranisi: ayni emojiye tekrar basmak geri alir), farkliysa
+  /// yeni emoji ile guncellenir.
+  ///
+  /// Donen deger: islem sonrasindaki tepki (kaldirildiysa null).
+  Future<String?> setStoryReaction(
+    String storyId, {
+    String emoji = defaultReaction,
+  }) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('Kullanici giris yapmamis');
+    }
+
+    final current = await getMyReaction(storyId);
+    if (current == emoji) {
+      await unlikeStory(storyId);
+      return null;
+    }
+
+    await likeStory(storyId, emoji: emoji);
+    return emoji;
+  }
+
+  /// Klasik begeni toggle (kalp). Geriye donuk uyumluluk icin korunuyor.
   Future<bool> toggleStoryLike(String storyId) async {
     try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) {
-        throw Exception('Kullanıcı giriş yapmamış');
-      }
-
-      // Mevcut beğeniyi kontrol et - retry ile
-      dynamic existingLike;
-      int retryCount = 0;
-      while (retryCount < 2) {
-        try {
-          existingLike = await _supabase
-              .from('story_likes')
-              .select('id')
-              .eq('story_id', storyId)
-              .eq('user_id', userId)
-              .maybeSingle();
-          break;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= 2) rethrow;
-          await Future.delayed(Duration(milliseconds: 300));
-        }
-      }
-
-      if (existingLike != null) {
-        // Beğeni varsa kaldır
-        await unlikeStory(storyId);
-        return false;
-      } else {
-        // Beğeni yoksa ekle
-        await likeStory(storyId);
-        return true;
-      }
+      final result = await setStoryReaction(storyId);
+      return result != null;
     } catch (e) {
-      debugPrint('❌ Story beğeni toggle hatası: $e');
-      throw Exception('Story beğeni işleminde hata: $e');
+      debugPrint('Story begeni toggle hatasi: $e');
+      throw Exception('Story begeni isleminde hata: $e');
     }
   }
 

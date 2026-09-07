@@ -34,6 +34,7 @@ import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
 import 'features/courier/screens/courier_panel_screen.dart';
+import 'okey/okey.dart';
 
 // Mobile/Desktop specific imports - using deferred imports
 import 'package:app_links/app_links.dart';
@@ -111,10 +112,25 @@ void main() async {
     }
     // Merkezi kayda da gonder (kanca Supabase hazir olunca baglanir; o ana
     // kadar bu cagri sessizce yok sayilir).
+    //
+    // `details.toString()` layout hatalarinda kritik: "RenderFlex overflowed"
+    // veya "Incorrect use of ParentDataWidget" icin `stack` bastan sona
+    // framework karesidir, ama tani metni "The relevant error-causing widget
+    // was: ... file:///.../lib/....dart:123:45" satirini tasir. Merkezi kayit
+    // hatanin dosya/satirini oradan cikariyor; bu olmadan admin panelindeki
+    // "Son Hatalar" listesi hangi ekrani gosterdigini soyleyemiyordu.
+    String? diagnostics;
+    try {
+      diagnostics = details.toString();
+    } catch (_) {
+      // Bozuk bir DiagnosticsNode tani metnini uretemeyebilir; hata kaydinin
+      // kendisi bu yuzden kaybolmamali.
+    }
     AppLogger.error(
       'FlutterError: ${details.library ?? 'widgets'}',
       error: details.exception,
       stackTrace: stack,
+      diagnostics: diagnostics,
     );
   };
 
@@ -525,10 +541,14 @@ class _CizreAppState extends State<CizreApp> {
       }
     });
     
-    // 2 saniye sonra otomatik kapat
+    // 2 saniye sonra otomatik kapat. NavigatorState şimdi yakalanır: 2 sn
+    // sonra `Navigator.of(context)` demek, dialog bu arada elle kapatılmışsa
+    // deactive element üzerinden ancestor araması yapar ("Looking up a
+    // deactivated widget's ancestor is unsafe").
+    final navigator = Navigator.of(context);
     Future.delayed(const Duration(milliseconds: 2000), () {
-      if (mounted && Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
+      if (mounted && navigator.canPop()) {
+        navigator.pop();
       }
     });
   }
@@ -861,6 +881,7 @@ class _CizreAppState extends State<CizreApp> {
                 const SehiriciFavoritesScreen(),
             '/sehirici-driver': (context) =>
                 const SehiriciDriverPanelScreen(),
+            '/okey': (context) => const OkeyLobbyScreen(),
           },
           showPerformanceOverlay: false,
         );

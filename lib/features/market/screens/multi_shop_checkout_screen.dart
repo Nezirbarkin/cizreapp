@@ -733,8 +733,9 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
 
                           if (result['success'] == true) {
                             if (context.mounted) {
+                              final messenger = ScaffoldMessenger.of(context);
                               Navigator.pop(context, true);
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 const SnackBar(
                                   content: Text('Kod doğrulandı!'),
                                   backgroundColor: Colors.green,

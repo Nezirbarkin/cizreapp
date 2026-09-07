@@ -74,8 +74,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
       if (mounted) {
         if (group != null) {
+          final messenger = ScaffoldMessenger.of(context);
           Navigator.pop(context, group);
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text('"${group.name}" grubu oluşturuldu'),
               backgroundColor: Colors.green,

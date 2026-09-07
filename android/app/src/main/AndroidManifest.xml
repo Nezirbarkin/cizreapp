@@ -80,6 +80,26 @@
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+
+        <!--
+            BİLDİRİM DÜĞMELERİNİN ALICISI (flutter_local_notifications)
+
+            NEDEN BURADA OLMAK ZORUNDA: Eklentinin KENDİ manifest'i yalnızca
+            izinleri tanımlar, hiçbir receiver içermez — bu alıcıyı uygulama
+            tanımlamalıdır. Tanımlanmadığında, `showsUserInterface: false`
+            verilmiş olsa bile bildirim düğmesine dokunmak arka plan yayınına
+            (broadcast) düşemiyor ve Android geri düşüş olarak MainActivity'yi
+            yeni bir intent'le başlatıyordu. Kullanıcı için görünen sonuç
+            şuydu: bildirimden "Duraklat"a basınca uygulama öne fırlıyor ve
+            oyuncu Okey masasından atılıyordu.
+
+            android:exported="false" — bu alıcıyı yalnızca kendi
+            bildirimlerimiz tetikler; dışarıdan çağrılabilir olmasına gerek
+            yok.
+        -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -228,5 +248,13 @@
         <!-- WhatsApp - Paylaşım için -->
         <package
             android:name="com.whatsapp"/>
+        <!-- SESLİ ANONS (flutter_tts) - Android 11+ paket görünürlüğü.
+             Bu <intent> olmadan uygulama cihazdaki konuşma motorunu HİÇ
+             göremez (PackageManager filtreler) ve "Seri açıldı" / "Son üç
+             taş" anonsları sessizce hiç çalmaz. -->
+        <intent>
+            <action
+                android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

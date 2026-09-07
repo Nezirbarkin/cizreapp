@@ -112,13 +112,13 @@ class _ResetPasswordConfirmScreenState
       ),
     );
 
-    // 2 saniye bekle ve login'e yönlendir
+    // NavigatorState'i şimdi yakala; 2 sn sonra `Navigator.of(context)` demek
+    // ekran bu arada kapanmışsa deactive element üzerinden ancestor araması
+    // yapar ve "Looking up a deactivated widget's ancestor is unsafe" atar.
+    final navigator = Navigator.of(context);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/login',
-          (route) => false,
-        );
+        navigator.pushNamedAndRemoveUntil('/login', (route) => false);
       }
     });
   }

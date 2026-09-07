@@ -38,6 +38,27 @@ class CartProvider with ChangeNotifier {
     loadCart();
   }
 
+  /// Provider dispose edildikten sonra gelen bildirimleri yutar.
+  ///
+  /// Constructor `loadCart()` başlatıyor ve sepet işlemlerinin hepsi asenkron;
+  /// kullanıcı istek uçmadan ekranı kapattığında `ChangeNotifierProvider` bu
+  /// nesneyi dispose ediyor, ardından tamamlanan istek `notifyListeners()`
+  /// çağırıp "A CartProvider was used after being disposed" fırlatıyordu.
+  /// Her çağrı yerine tek noktada durduruyoruz.
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   List<CartItem> get items => _items;
   bool get isLoading => _isLoading;
   String? get error => _error;

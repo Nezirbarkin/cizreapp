@@ -1569,8 +1569,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ElevatedButton(
                 onPressed: () {
                   if (selectedColorName == null || selectedColorHex == null) {
+                    final messenger = ScaffoldMessenger.of(context);
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('Lütfen bir renk seçin')),
                     );
                     return;

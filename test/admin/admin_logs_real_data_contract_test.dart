@@ -103,7 +103,10 @@ void main() {
     final analytics = read(analyticsServicePath);
     final main = read('lib/main.dart');
 
-    expect(logger, contains('static void Function(String type, String? details)? errorSink'));
+    expect(logger, contains('String? details,'));
+    expect(logger, contains('StackTrace? stackTrace,'));
+    expect(logger, contains('String? diagnostics,'));
+    expect(logger, contains(')? errorSink;'));
     expect(analytics, contains('static void attachToLogger()'));
     expect(main, contains('AnalyticsService.attachToLogger()'));
     expect(main, contains('PlatformDispatcher.instance.onError'));
@@ -116,6 +119,28 @@ void main() {
     );
     expect(analytics, contains('_errorSinkBusy'));
     expect(analytics, contains('_maxErrorEventsPerRun'));
+  });
+
+  test('hata kaydı kaynağını (dosya:satır) taşır', () {
+    final analytics = read(analyticsServicePath);
+    final main = read('lib/main.dart');
+    final logsPart = read(
+      'lib/features/admin/screens/admin_dashboard_parts/_part_logs.dart',
+    );
+
+    // "Null check operator used on a null value" gibi mesajlar tek başına
+    // hiçbir dosyayı işaret etmiyordu; kaynak artık yığın izinden ya da
+    // FlutterErrorDetails metninden çıkarılıp kayda yazılıyor.
+    expect(analytics, contains('_extractOrigin('));
+    expect(analytics, contains("metadata: {'type': errorType, 'details': details, 'origin': origin}"));
+
+    // Layout hatalarında yığın izi tamamen framework içindedir; hatayı üreten
+    // widget'ın konumu yalnızca tanı metninde geçer.
+    expect(main, contains('diagnostics: diagnostics'));
+    expect(main, contains('details.toString()'));
+
+    // Admin panelinde de görünmeli, yoksa toplamanın anlamı yok.
+    expect(logsPart, contains("e.metadata?['origin']"));
   });
 
   test('görüntüleme süresi gerçekten ölçülür', () {

@@ -1615,8 +1615,9 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
                           sentCount = audienceSize;
                         }
 
+                        final messenger = ScaffoldMessenger.of(context);
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           SnackBar(
                             content: Text(
                               '✅ $sentCount kişiye bildirim gönderildi',

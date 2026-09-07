@@ -89,12 +89,22 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     }
   }
 
-  Future<void> _updatePrivacySettings() async {
+  /// Gizlilik ayarlarını kaydeder.
+  ///
+  /// [onError] verilirse ve kayıt başarısız olursa çağrılır: anahtar (switch)
+  /// eski konumuna geri alınabilsin diye. Öncesinde kayıt başarısız olsa bile
+  /// anahtar yeni konumda kalıyordu; kullanıcı "hesabım gizli" sanıyor ama
+  /// sunucuda hiçbir şey değişmemiş oluyordu.
+  Future<void> _updatePrivacySettings({VoidCallback? onError}) async {
     setState(() => _isUpdating = true);
 
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) {
+        onError?.call();
+        if (mounted) _showMessage('Oturum bulunamadı', isError: true);
+        return;
+      }
 
       // profiles tablosuna doğrudan yazma yetkisi authenticated rolünden
       // kaldırıldı (bkz. 20260803000006 migration); yazımlar SECURITY
@@ -113,6 +123,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         _showMessage('Gizlilik ayarları güncellendi');
       }
     } catch (e) {
+      onError?.call();
       if (mounted) {
         _showMessage('Ayarlar güncellenirken hata: $e', isError: true);
       }
@@ -621,10 +632,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           title: const Text('Son görülme göster'),
                           subtitle: const Text('Diğer kullanıcılar en son ne zaman aktif olduğunuzu görebilir'),
                           value: _showLastSeen,
-                          onChanged: (value) {
-                            setState(() => _showLastSeen = value);
-                            _updatePrivacySettings();
-                          },
+                          onChanged: _isUpdating
+                              ? null
+                              : (value) {
+                                  final previous = _showLastSeen;
+                                  setState(() => _showLastSeen = value);
+                                  _updatePrivacySettings(
+                                    onError: () => setState(
+                                      () => _showLastSeen = previous,
+                                    ),
+                                  );
+                                },
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.purple,
                         ),
@@ -634,10 +652,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           title: const Text('Mesajları kabul et'),
                           subtitle: const Text('Kapalıyken kimse size mesaj gönderemez'),
                           value: _messagesEnabled,
-                          onChanged: (value) {
-                            setState(() => _messagesEnabled = value);
-                            _updatePrivacySettings();
-                          },
+                          onChanged: _isUpdating
+                              ? null
+                              : (value) {
+                                  final previous = _messagesEnabled;
+                                  setState(() => _messagesEnabled = value);
+                                  _updatePrivacySettings(
+                                    onError: () => setState(
+                                      () => _messagesEnabled = previous,
+                                    ),
+                                  );
+                                },
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.purple,
                         ),
@@ -647,10 +672,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           title: const Text('Takip etmeyenlerden mesaj'),
                           subtitle: const Text('Sizi takip etmeyen kullanıcılar size mesaj gönderebilir'),
                           value: _allowMessagesFromNonFollowers,
-                          onChanged: (value) {
-                            setState(() => _allowMessagesFromNonFollowers = value);
-                            _updatePrivacySettings();
-                          },
+                          onChanged: _isUpdating
+                              ? null
+                              : (value) {
+                                  final previous = _allowMessagesFromNonFollowers;
+                                  setState(() => _allowMessagesFromNonFollowers = value);
+                                  _updatePrivacySettings(
+                                    onError: () => setState(
+                                      () => _allowMessagesFromNonFollowers = previous,
+                                    ),
+                                  );
+                                },
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.purple,
                         ),
@@ -660,10 +692,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           title: const Text('Herkese açık profil'),
                           subtitle: const Text('Herkes profilinizi görebilir (kapalı ise sadece takipçiler)'),
                           value: _profileIsPublic,
-                          onChanged: (value) {
-                            setState(() => _profileIsPublic = value);
-                            _updatePrivacySettings();
-                          },
+                          onChanged: _isUpdating
+                              ? null
+                              : (value) {
+                                  final previous = _profileIsPublic;
+                                  setState(() => _profileIsPublic = value);
+                                  _updatePrivacySettings(
+                                    onError: () => setState(
+                                      () => _profileIsPublic = previous,
+                                    ),
+                                  );
+                                },
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.purple,
                         ),

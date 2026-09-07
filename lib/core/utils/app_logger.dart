@@ -38,13 +38,32 @@ class AppLogger {
   /// Dogrudan import etmiyoruz cunku AnalyticsService zaten AppLogger'i
   /// kullaniyor; callback araya girmeseydi core/utils <-> core/services
   /// arasinda dairesel bir bagimlilik olusurdu.
-  static void Function(String type, String? details)? errorSink;
+  ///
+  /// [stackTrace] ve [diagnostics] hatanin NEREDE olustugunu bulmak icindir:
+  /// mesajin kendisi ("Null check operator used on a null value") tek basina
+  /// hicbir dosyayi isaret etmiyordu ve admin panelindeki "Son Hatalar"
+  /// listesi bu yuzden okunabilir ama takip edilemez kayitlar uretiyordu.
+  static void Function(
+    String type,
+    String? details,
+    StackTrace? stackTrace,
+    String? diagnostics,
+  )? errorSink;
 
   /// Error seviyesinde log
-  static void error(String message, {dynamic error, StackTrace? stackTrace}) {
+  ///
+  /// [diagnostics] yalnizca `FlutterError.onError` gibi, istisnanin yaninda
+  /// ek tani metni (hatali widget'in kaynak konumu vb.) tasiyan cagricilar
+  /// icindir; merkezi kayitta hata kaynagini cikarmak icin taranir.
+  static void error(
+    String message, {
+    dynamic error,
+    StackTrace? stackTrace,
+    String? diagnostics,
+  }) {
     _logger.e(message, error: error, stackTrace: stackTrace);
 
-    _sinkError(message, error);
+    _sinkError(message, error, stackTrace, diagnostics);
 
     // Production'da crash reporting service'e gönder (Sentry, Firebase Crashlytics vs)
     if (!kDebugMode) {
@@ -53,10 +72,15 @@ class AppLogger {
   }
 
   /// Fatal error log
-  static void fatal(String message, {dynamic error, StackTrace? stackTrace}) {
+  static void fatal(
+    String message, {
+    dynamic error,
+    StackTrace? stackTrace,
+    String? diagnostics,
+  }) {
     _logger.f(message, error: error, stackTrace: stackTrace);
 
-    _sinkError(message, error);
+    _sinkError(message, error, stackTrace, diagnostics);
 
     // Production'da crash reporting service'e gönder
     if (!kDebugMode) {
@@ -65,11 +89,16 @@ class AppLogger {
   }
 
   /// Kancayi cagirir; kanca patlarsa loglama zinciri kirilmasin diye yutulur.
-  static void _sinkError(String message, dynamic error) {
+  static void _sinkError(
+    String message,
+    dynamic error,
+    StackTrace? stackTrace,
+    String? diagnostics,
+  ) {
     final sink = errorSink;
     if (sink == null) return;
     try {
-      sink(message, error?.toString());
+      sink(message, error?.toString(), stackTrace, diagnostics);
     } catch (_) {
       // Analitik yazimi basarisiz olduysa uygulamanin akisi etkilenmemeli.
     }

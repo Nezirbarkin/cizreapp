@@ -23,8 +23,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   // XFile listesi - Web ve Mobile uyumlu
   List<XFile> _selectedImages = [];
   List<String> _uploadedImageUrls = [];
-  // Web için preview bytes
-  final Map<int, Uint8List> _imageBytes = {};
+  // Web için preview bytes.
+  // ÖNEMLİ: Anahtar index DEĞİL dosya yolu. Index kullanıldığında aradan bir
+  // görsel silinince kalan görsellerin önizlemeleri kayıyordu (2. resmi
+  // silince 3. resim 2. resmin küçük görselini gösteriyordu).
+  final Map<String, Uint8List> _imageBytes = {};
   bool _isPosting = false;
   Map<String, dynamic>? _userProfile;
 
@@ -84,18 +87,25 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       
       // Web için preview bytes'ı yükle
       if (kIsWeb) {
-        for (int i = 0; i < images.length; i++) {
-          final bytes = await images[i].readAsBytes();
+        for (final image in images) {
+          final bytes = await image.readAsBytes();
+          if (!mounted) return;
           setState(() {
-            _imageBytes[_selectedImages.length - images.length + i] = bytes;
+            _imageBytes[image.path] = bytes;
           });
         }
       }
     }
   }
 
-  Future<void> _uploadImages() async {
+  /// Seçili görselleri yükler ve BAŞARISIZ OLANLARIN sayısını döndürür.
+  ///
+  /// Eskiden hata sadece debugPrint'e yazılıyordu: tüm yüklemeler başarısız
+  /// olsa bile gönderi görselsiz oluşturulup "Gönderi paylaşıldı!" deniyordu.
+  /// Kullanıcı fotoğrafının kaybolduğunu ancak feed'e bakınca anlıyordu.
+  Future<int> _uploadImages() async {
     _uploadedImageUrls.clear();
+    int failed = 0;
 
     for (int i = 0; i < _selectedImages.length; i++) {
       final xFile = _selectedImages[i];
@@ -133,13 +143,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         _uploadedImageUrls.add(imageUrl);
         debugPrint('✅ Post resmi yüklendi: $imageUrl');
       } catch (e) {
+        failed++;
         debugPrint('❌ Resim yükleme hatası: $e');
       }
     }
+
+    return failed;
   }
 
   Future<void> _createPost() async {
-    if (_contentController.text.isEmpty && _selectedImages.isEmpty) {
+    final content = _contentController.text.trim();
+    if (content.isEmpty && _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lütfen içerik veya resim ekleyin')),
       );
@@ -161,30 +175,56 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     try {
       // Resimleri yükle
+      int failedUploads = 0;
       if (_selectedImages.isNotEmpty) {
-        await _uploadImages();
+        failedUploads = await _uploadImages();
+
+        // Hiçbiri yüklenemediyse ve yazı da yoksa boş gönderi oluşturmayalım.
+        if (_uploadedImageUrls.isEmpty && content.isEmpty) {
+          if (mounted) {
+            setState(() => _isPosting = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Fotoğraflar yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
       }
 
       // Gönderiyi oluştur
       await _postService.createPost(
         userId: userId,
-        content: _contentController.text,
+        content: content,
         images: _uploadedImageUrls,
       );
 
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gönderi paylaşıldı!')),
-        );
-      }
+      if (!mounted) return;
+
+      // Snackbar POP'tan ÖNCE alınmalı: pop sonrası bu ekranın context'i
+      // artık ağaçta olmadığı için ScaffoldMessenger.of(context) patlıyordu.
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context, true);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            failedUploads > 0
+                ? 'Gönderi paylaşıldı ama $failedUploads fotoğraf yüklenemedi'
+                : 'Gönderi paylaşıldı!',
+          ),
+          backgroundColor: failedUploads > 0 ? Colors.orange : null,
+        ),
+      );
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isPosting = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppErrorHandler.handleError(e))),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
     }
   }
 
@@ -301,9 +341,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                           padding: const EdgeInsets.only(right: 8),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: _imageBytes[index] != null
+                            child: _imageBytes[_selectedImages[index].path] != null
                                 ? Image.memory(
-                                    _imageBytes[index]!,
+                                    _imageBytes[_selectedImages[index].path]!,
                                     width: 200,
                                     height: 200,
                                     fit: BoxFit.cover,
@@ -313,7 +353,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                     builder: (context, snapshot) {
                                       if (snapshot.hasData) {
                                         // Bytes'ı cache'e ekle
-                                        _imageBytes[index] = snapshot.data!;
+                                        _imageBytes[_selectedImages[index].path] =
+                                            snapshot.data!;
                                         return Image.memory(
                                           snapshot.data!,
                                           width: 200,
@@ -343,8 +384,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                             ),
                             onPressed: () {
                               setState(() {
-                                _selectedImages.removeAt(index);
-                                _imageBytes.remove(index);
+                                final removed = _selectedImages.removeAt(index);
+                                _imageBytes.remove(removed.path);
                               });
                             },
                           ),

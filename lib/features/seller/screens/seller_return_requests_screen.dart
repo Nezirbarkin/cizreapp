@@ -106,10 +106,11 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              responseController.dispose();
-              Navigator.pop(context, false);
-            },
+            // Dispose burada DEĞİL: dialog kapanmadan controller öldürülünce
+            // TextField ölü controller'a bakıyor ("A TextEditingController was
+            // used after being disposed"), ayrıca metodun sonundaki dispose ile
+            // çift dispose oluyordu.
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Vazgeç'),
           ),
           ElevatedButton(

@@ -313,8 +313,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     icon: Icons.settings_outlined,
                     title: 'Uygulama Ayarı',
                     onTap: () {
+                      final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('Uygulama ayarlarına gidildi')),
                       );
                     },
@@ -324,8 +325,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     icon: Icons.help_outline,
                     title: 'Destek Merkezi',
                     onTap: () {
+                      final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('Destek merkezi açıldı')),
                       );
                     },
@@ -335,8 +337,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     icon: Icons.info_outline,
                     title: 'Hakkında',
                     onTap: () {
+                      final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('Hakkında sayfasına gidildi')),
                       );
                     },

@@ -345,14 +345,38 @@ extension on _AdminDashboardScreenState {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final e = errors[index];
+                      // origin = hatayi ureten uygulama dosyasi/satiri.
+                      // Eski kayitlarda yok; o durumda satir hic gosterilmez,
+                      // "null" yazmaz.
+                      final origin = e.metadata?['origin']?.toString();
+                      final details = e.metadata?['details']?.toString() ?? '';
                       return ListTile(
                         leading: const Icon(
                           Icons.error_outline,
                           color: Colors.red,
                         ),
                         title: Text(e.metadata?['type']?.toString() ?? 'Hata'),
-                        subtitle: Text(
-                          '${e.metadata?['details'] ?? ''}\n${e.timestamp.toLocal()}',
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (details.isNotEmpty) Text(details),
+                            if (origin != null && origin.isNotEmpty)
+                              Text(
+                                origin,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: Colors.blueGrey.shade700,
+                                ),
+                              ),
+                            Text(
+                              '${e.timestamp.toLocal()}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                         ),
                         isThreeLine: true,
                       );

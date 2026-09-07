@@ -73,14 +73,22 @@ class AnalyticsService {
     AppLogger.errorSink = instance._onLoggedError;
   }
 
-  void _onLoggedError(String message, String? details) {
+  void _onLoggedError(
+    String message,
+    String? details,
+    StackTrace? stackTrace,
+    String? diagnostics,
+  ) {
     // Merkezi yazim sirasinda olusan hatanin kendisini tekrar yazmaya
     // calismamak icin re-entrancy kilidi.
     if (_errorSinkBusy) return;
     if (_errorEventsThisRun >= _maxErrorEventsPerRun) return;
 
     final type = _normalizeErrorType(message);
-    final key = '$type|${_truncate(details ?? '', 120)}';
+    final origin = _extractOrigin(stackTrace, diagnostics);
+    // Ayni mesajin farkli ekranlardan gelen kopyalari ayri kayitlar olmali;
+    // aksi halde ilk ekran 5 dakika boyunca digerlerini bastirirdi.
+    final key = '$type|${_truncate(details ?? '', 120)}|${origin ?? ''}';
     final now = DateTime.now();
     final lastSeen = _recentErrorKeys[key];
     if (lastSeen != null && now.difference(lastSeen) < _errorDedupeWindow) {
@@ -97,11 +105,37 @@ class AnalyticsService {
     _errorSinkBusy = true;
     // Loglama cagrisini bloklamamak icin bekletmiyoruz.
     unawaited(
-      trackError(type, details: details).whenComplete(() {
+      trackError(type, details: details, origin: origin).whenComplete(() {
         _errorSinkBusy = false;
       }),
     );
   }
+
+  /// Hatanin kaynagini `dosya.dart:satir` olarak cikarir.
+  ///
+  /// Iki kaynak taranir: (1) yigin izi — uygulama kareleri
+  /// `package:cizreapp/...dart:12:34` bicimindedir; (2) `FlutterErrorDetails`
+  /// metni — layout hatalarinda ("RenderFlex overflowed", "Incorrect use of
+  /// ParentDataWidget") yigin izi tamamen framework icindedir, ama tani metni
+  /// hatayi ureten widget'in kaynak konumunu `file:///.../lib/...dart:12:34`
+  /// olarak tasir. Uygulama koduna ait ILK kare kazanir.
+  static String? _extractOrigin(StackTrace? stackTrace, String? diagnostics) {
+    for (final source in <String?>[stackTrace?.toString(), diagnostics]) {
+      if (source == null || source.isEmpty) continue;
+      for (final match in _appFramePattern.allMatches(source)) {
+        final path = match.group(1)!;
+        // Gomulu SDK yollari (.../flutter/packages/flutter/lib/src/...) da
+        // '/lib/' iceriyor; bunlar hatanin kaynagi degil.
+        if (path.startsWith('src/')) continue;
+        return _truncate('$path:${match.group(2)}', 120);
+      }
+    }
+    return null;
+  }
+
+  static final RegExp _appFramePattern = RegExp(
+    r'(?:package:cizreapp/|/lib/)([\w/]+\.dart):(\d+)',
+  );
 
   /// Log mesajindan gruplanabilir bir hata tipi uretir.
   ///
@@ -220,9 +254,16 @@ class AnalyticsService {
       trackEvent(eventType: 'share', entityId: postId);
 
   /// Hata kaydet
-  Future<void> trackError(String errorType, {String? details}) => trackEvent(
+  ///
+  /// [origin] hatayi ureten uygulama dosyasi/satiri (varsa); admin
+  /// panelindeki "Son Hatalar" listesinde gosterilir.
+  Future<void> trackError(
+    String errorType, {
+    String? details,
+    String? origin,
+  }) => trackEvent(
     eventType: 'error',
-    metadata: {'type': errorType, 'details': details},
+    metadata: {'type': errorType, 'details': details, 'origin': origin},
   );
 
   /// En çok görüntülenen postlar

@@ -28,14 +28,29 @@ extension on _AdminDashboardScreenState {
   void _refreshUsers() {
     if (!mounted) return;
     setState(() {
-      _usersFuture = _loadUsers();
+      _usersFuture = _loadUsers(role: _roleFilter);
       _userRoleCountsFuture = _loadUserRoleCounts();
+    });
+  }
+
+  // Rol karti tiklandiginda cagrilir: filtreyi degistirmekle KALMAZ, listeyi
+  // o rol icin SUNUCU TARAFINDA yeniden ceker (p_role). Onceden sadece
+  // setState(_roleFilter=...) yapiliyordu ve zaten yuklu olan (en yeni 100
+  // profil ile SINIRLI) `allUsers` listesi client-side filtreleniyordu; bu
+  // yuzden ust karttaki gercek toplam (ornegin "Admin: 6") ile filtrelenmis
+  // liste (ornegin 2 admin) uyusmuyordu - eski admin/kurye hesaplari en
+  // yeni 100'un disinda kalip listede hic gorunmuyordu.
+  void _setRoleFilter(String? role) {
+    if (!mounted) return;
+    setState(() {
+      _roleFilter = role;
+      _usersFuture = _loadUsers(role: role);
     });
   }
 
   // --- _buildUsersContent ---
   Widget _buildUsersContent() {
-    _usersFuture ??= _loadUsers();
+    _usersFuture ??= _loadUsers(role: _roleFilter);
     _userRoleCountsFuture ??= _loadUserRoleCounts();
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _usersFuture,
@@ -172,7 +187,7 @@ extension on _AdminDashboardScreenState {
                               Colors.blue.shade400,
                               Colors.blue.shade600,
                             ],
-                            onTap: () => setState(() => _roleFilter = null),
+                            onTap: () => _setRoleFilter(null),
                           ),
                         ),
                         SizedBox(
@@ -186,7 +201,7 @@ extension on _AdminDashboardScreenState {
                               Colors.purple.shade400,
                               Colors.purple.shade600,
                             ],
-                            onTap: () => setState(() => _roleFilter = 'admin'),
+                            onTap: () => _setRoleFilter('admin'),
                           ),
                         ),
                         SizedBox(
@@ -200,7 +215,7 @@ extension on _AdminDashboardScreenState {
                               Colors.orange.shade400,
                               Colors.orange.shade600,
                             ],
-                            onTap: () => setState(() => _roleFilter = 'seller'),
+                            onTap: () => _setRoleFilter('seller'),
                           ),
                         ),
                         SizedBox(
@@ -214,8 +229,7 @@ extension on _AdminDashboardScreenState {
                               Colors.teal.shade400,
                               Colors.teal.shade600,
                             ],
-                            onTap: () =>
-                                setState(() => _roleFilter = 'courier'),
+                            onTap: () => _setRoleFilter('courier'),
                           ),
                         ),
                         SizedBox(
@@ -229,7 +243,7 @@ extension on _AdminDashboardScreenState {
                               Colors.indigo.shade400,
                               Colors.indigo.shade600,
                             ],
-                            onTap: () => setState(() => _roleFilter = 'driver'),
+                            onTap: () => _setRoleFilter('driver'),
                           ),
                         ),
                         SizedBox(
@@ -243,7 +257,7 @@ extension on _AdminDashboardScreenState {
                               Colors.blueGrey.shade400,
                               Colors.blueGrey.shade600,
                             ],
-                            onTap: () => setState(() => _roleFilter = 'news'),
+                            onTap: () => _setRoleFilter('news'),
                           ),
                         ),
                       ],
@@ -255,8 +269,7 @@ extension on _AdminDashboardScreenState {
                           children: [
                             Chip(
                               label: Text('Filtre: $_roleFilter'),
-                              onDeleted: () =>
-                                  setState(() => _roleFilter = null),
+                              onDeleted: () => _setRoleFilter(null),
                             ),
                           ],
                         ),
@@ -1220,15 +1233,21 @@ extension on _AdminDashboardScreenState {
   // sosyal istatistikleri (gönderi/takipçi/takip/teslim) tek sorguda döner.
   // Migration henüz uygulanmadıysa RPC yok olabilir; o durumda eski
   // admin_list_users()'a düşeriz (email/istatistik yok ama kart yine çalışır).
-  Future<List<Map<String, dynamic>>> _loadUsers() async {
+  // p_role verilirse (rol karti tiklandiginda) filtre SUNUCUDA uygulanir;
+  // boylece "en yeni 100" penceresi disinda kalan eski hesaplar da (erken
+  // acilmis admin/kurye/haberci gibi) dogru sekilde listelenir. p_role null
+  // iken davranis eskisiyle aynidir (en yeni 100 profil, rol gozetmeksizin).
+  Future<List<Map<String, dynamic>>> _loadUsers({String? role}) async {
     try {
-      debugPrint('🔍 Kullanıcılar yükleniyor (admin_user_list_with_stats RPC)');
+      debugPrint(
+        '🔍 Kullanıcılar yükleniyor (admin_user_list_with_stats RPC, role=$role)',
+      );
 
       List<dynamic> response;
       try {
         response = await Supabase.instance.client.rpc<List<dynamic>>(
           'admin_user_list_with_stats',
-          params: {'p_limit': 100},
+          params: {'p_limit': 100, 'p_role': role},
         );
         debugPrint('✅ ${response.length} kullanıcı yüklendi (istatistikli)');
       } catch (e) {
@@ -1238,7 +1257,7 @@ extension on _AdminDashboardScreenState {
         );
         response = await Supabase.instance.client.rpc<List<dynamic>>(
           'admin_list_users',
-          params: {'p_limit': 100},
+          params: {'p_limit': 100, 'p_role': role},
         );
         debugPrint('✅ ${response.length} kullanıcı yüklendi (sade)');
       }

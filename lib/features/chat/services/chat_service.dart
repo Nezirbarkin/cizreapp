@@ -119,8 +119,11 @@ class ChatService {
 
       return Conversation.fromMap(convWithProfile);
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting/creating conversation: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error getting/creating conversation',
+        error: e,
+        stackTrace: stackTrace,
+      );
 
       if (e.toString().contains('duplicate key') ||
           e.toString().contains('23505')) {
@@ -569,8 +572,8 @@ class ChatService {
       messageData['is_read'] = false;
 
       return Message.fromMap(messageData);
-    } catch (e) {
-      AppLogger.error('sendMessage RPC ERROR: $e');
+    } catch (e, stackTrace) {
+      AppLogger.error('sendMessage RPC ERROR', error: e, stackTrace: stackTrace);
       // FALLBACK YOK - fallback INSERT tetiklerdi ve 3 kopya olusturuyordu
       // Kullaniciya hata gosterilecek
       return null;
@@ -598,20 +601,23 @@ class ChatService {
       final jsonStr = json.encode(postData);
       final content = 'SHARED_POST:$jsonStr';
 
-      final message = await _supabase
-          .from('messages')
-          .insert({
-            'conversation_id': conversationId,
-            'sender_id': currentUserId,
-            'content': content,
-          })
-          .select()
-          .single();
-
-      return Message.fromMap(message);
+      // ÖNEMLİ (2026-09-06 fix): Burada doğrudan messages INSERT ediliyordu.
+      // Konuşmalar çift satırlı modelde tutuluyor (her kullanıcının kendi
+      // conversations satırı var); tek INSERT yalnızca GÖNDERENİN kopyasına
+      // yazıyordu. Sonuç: "Arkadaşına Gönder" akışı "gönderildi" diyordu ama
+      // karşı taraf gönderiyi hiç görmüyordu. sendMessage,
+      // send_message_with_recipient RPC'sini kullanarak her iki kopyayı da
+      // oluşturur (okunmadı sayacı + bildirim dahil).
+      return await sendMessage(
+        conversationId: conversationId,
+        content: content,
+      );
     } catch (e, stackTrace) {
-      AppLogger.error('Error sending shared post: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error sending shared post',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return null;
     }
   }
@@ -630,6 +636,26 @@ class ChatService {
     final content =
         'SHARED_ILAN:${json.encode({'ilanId': ilanId, 'title': title, 'priceText': priceText, 'locationText': locationText, 'imageUrl': imageUrl ?? ''})}';
     return sendMessage(conversationId: conversationId, content: content);
+  }
+
+  /// Hikaye yanıtını DM olarak gönderir.
+  ///
+  /// Hikaye ekranındaki "Yanıtla" kutusu buraya bağlanır. Mesaj normal
+  /// gönderim RPC'sinden geçtiği için hikaye sahibinin sohbetinde de görünür;
+  /// alıntı alanında (reply) hangi hikayeye yanıt verildiği yazar.
+  Future<Message?> sendStoryReply({
+    required String conversationId,
+    required String text,
+    required bool storyIsVideo,
+  }) {
+    return sendMessage(
+      conversationId: conversationId,
+      content: text,
+      replyToContent: storyIsVideo
+          ? '🎬 Hikayene yanıt verdi'
+          : '📷 Hikayene yanıt verdi',
+      replyToSenderName: 'Hikaye',
+    );
   }
 
   /// Kaldırıldı (2026-07-02): markSenderMessagesAsRead artık gerekli değil.
@@ -721,8 +747,11 @@ class ChatService {
       AppLogger.debug('deleteConversation: soft-deleted ok=$ok');
       return ok;
     } catch (e, stackTrace) {
-      AppLogger.error('Error deleting conversation: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error deleting conversation',
+        error: e,
+        stackTrace: stackTrace,
+      );
       rethrow;
     }
   }

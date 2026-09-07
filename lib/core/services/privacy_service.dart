@@ -66,8 +66,11 @@ class PrivacyService {
       AppLogger.debug('Online status updated successfully');
       return true;
     } catch (e, stackTrace) {
-      AppLogger.error('Error updating online status: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error updating online status',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -98,8 +101,11 @@ class PrivacyService {
       AppLogger.debug('Online enabled updated successfully');
       return true;
     } catch (e, stackTrace) {
-      AppLogger.error('Error updating online enabled: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error updating online enabled',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -128,30 +134,42 @@ class PrivacyService {
       AppLogger.debug('Ghost mode updated successfully');
       return true;
     } catch (e, stackTrace) {
-      AppLogger.error('Error updating ghost mode: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error updating ghost mode',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
+  }
+
+  /// `get_my_profile()` sonucunu güvenli okur; profil yoksa `null` döner.
+  ///
+  /// RPC `RETURNS profiles` (kompozit satır). Kullanıcının profil satırı yoksa
+  /// gövde `null` gelir ve `rpc<Map<String, dynamic>>` bunu cast edemeyip
+  /// TypeError atıyordu — çağıran taraf bunu "Error getting ghost mode" gibi
+  /// kaynağı belirsiz bir hata olarak kaydediyordu. Profil yokluğu bir tip
+  /// hatası değil, açıkça ele alınan bir durum.
+  Future<Map<String, dynamic>?> _fetchMyProfile() async {
+    final supabase = _supabase;
+    if (supabase == null) return null;
+    if (supabase.auth.currentUser?.id == null) return null;
+    final response = await supabase.rpc<dynamic>('get_my_profile');
+    if (response is Map) return Map<String, dynamic>.from(response);
+    return null;
   }
 
   /// Kullanıcının mevcut gerçek çevrimiçi durumunu al (is_online).
   Future<bool> getOnlineStatus() async {
     try {
-      final supabase = _supabase;
-      if (supabase == null) return false;
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        AppLogger.error('getOnlineStatus: userId is null');
-        return false;
-      }
-
-      final response = await supabase.rpc<Map<String, dynamic>>(
-        'get_my_profile',
-      );
-      return (response['is_online'] as bool?) ?? false;
+      final profile = await _fetchMyProfile();
+      return (profile?['is_online'] as bool?) ?? false;
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting online status: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error getting online status',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -159,21 +177,14 @@ class PrivacyService {
   /// Kullanıcının çevrimiçi görünüp görünmeyeceği *tercihini* al (is_online_enabled).
   Future<bool> getOnlineEnabled() async {
     try {
-      final supabase = _supabase;
-      if (supabase == null) return true;
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        AppLogger.error('getOnlineEnabled: userId is null');
-        return true;
-      }
-
-      final response = await supabase.rpc<Map<String, dynamic>>(
-        'get_my_profile',
-      );
-      return (response['is_online_enabled'] as bool?) ?? true;
+      final profile = await _fetchMyProfile();
+      return (profile?['is_online_enabled'] as bool?) ?? true;
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting online enabled: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error getting online enabled',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return true;
     }
   }
@@ -181,21 +192,14 @@ class PrivacyService {
   /// Kullanıcının mevcut hayalet modunu al
   Future<bool> getGhostMode() async {
     try {
-      final supabase = _supabase;
-      if (supabase == null) return false;
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        AppLogger.error('getGhostMode: userId is null');
-        return false;
-      }
-
-      final response = await supabase.rpc<Map<String, dynamic>>(
-        'get_my_profile',
-      );
-      return (response['is_ghost_mode'] as bool?) ?? false;
+      final profile = await _fetchMyProfile();
+      return (profile?['is_ghost_mode'] as bool?) ?? false;
     } catch (e, stackTrace) {
-      AppLogger.error('Error getting ghost mode: $e');
-      AppLogger.error('Stack trace: $stackTrace');
+      AppLogger.error(
+        'Error getting ghost mode',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }

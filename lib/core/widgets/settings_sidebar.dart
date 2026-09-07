@@ -21,9 +21,12 @@ import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
 import '../../features/news/screens/news_reporter_panel_screen.dart';
 import '../../sehirici/sehirici.dart';
+import '../../okey/okey.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/market/screens/my_coupons_screen.dart';
+import '../../okey/services/okey_sound_service.dart';
 import 'balance_header_widget.dart';
+import 'now_playing_panel.dart';
 
 class SettingsSidebar extends StatefulWidget {
   const SettingsSidebar({super.key});
@@ -32,11 +35,12 @@ class SettingsSidebar extends StatefulWidget {
   State<SettingsSidebar> createState() => _SettingsSidebarState();
 }
 
-class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProviderStateMixin {
+class _SettingsSidebarState extends State<SettingsSidebar>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
-  
+
   // Profil verileri
   String _username = '';
   String _fullName = '';
@@ -52,44 +56,51 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
   bool _isGhostMode = false;
   bool _isLoadingPrivacy = false;
 
+  // Arka plan müziği — Okey'den bağımsız, uygulama genelinde çalışır.
+  bool _musicLoading = true;
+  bool _hasMusic = false;
+  bool _musicOn = false;
+  String _currentTrackName = 'Şarkı';
+  int _trackCount = 0;
+
   @override
   void initState() {
     super.initState();
     _loadPrivacySettings();
+    _loadMusicState();
+    // Müzik uygulama genelinde TEK servisten çalıyor; bildirim panelinden
+    // ya da Okey masasından yapılan değişiklik bu satırdaki oynatıcıya da
+    // yansımalı.
+    OkeySoundService.instance.musicState.addListener(_onMusicStateChanged);
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
+
     _slideAnimation = Tween<Offset>(
       begin: const Offset(1.0, 0.0),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    ));
-    
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    ));
-    
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
     _controller.forward();
     _loadUserProfile();
   }
 
   @override
   void dispose() {
+    OkeySoundService.instance.musicState.removeListener(_onMusicStateChanged);
     _controller.dispose();
     super.dispose();
   }
 
   Future<void> _loadUserProfile() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    
+
     // Misafir kullanıcı kontrolü
     if (userId == null) {
       if (mounted) {
@@ -116,7 +127,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
           final roleStr = response['role'] as String?;
           setState(() {
             _username = response['username'] ?? '';
-            _fullName = response['full_name'] ?? response['username'] ?? 'Kullanıcı';
+            _fullName =
+                response['full_name'] ?? response['username'] ?? 'Kullanıcı';
             _avatarUrl = response['avatar_url'];
             _userRole = UserRole.values.firstWhere(
               (e) => e.name == (roleStr ?? 'customer'),
@@ -145,6 +157,56 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
         });
       }
     }
+  }
+
+  Future<void> _loadMusicState() async {
+    try {
+      await OkeySoundService.instance.load();
+      await OkeySoundService.instance.refreshPlaylist();
+      if (mounted) {
+        setState(() {
+          _musicLoading = false;
+          _syncMusic();
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _musicLoading = false);
+    }
+  }
+
+  /// Servisteki GERÇEK durumu yerel state'e alır.
+  ///
+  /// Yerel bayrak tutmak yerine her seferinde servise sorulur: aynı müzik
+  /// tüm ekranlarda tek bir oynatıcıdan çalıyor ve bildirim panelinden de
+  /// kontrol edilebiliyor, bu yüzden tek doğru kaynak servistir.
+  void _syncMusic() {
+    final svc = OkeySoundService.instance;
+    _hasMusic = svc.hasMusic;
+    _musicOn = svc.isMusicPlaying;
+    _currentTrackName = svc.currentTrackName;
+    _trackCount = svc.musicTrackCount;
+  }
+
+  void _onMusicStateChanged() {
+    if (mounted) setState(_syncMusic);
+  }
+
+  Future<void> _previousTrack() async {
+    await OkeySoundService.instance.previousTrack();
+    if (mounted) setState(_syncMusic);
+  }
+
+  Future<void> _nextTrack() async {
+    await OkeySoundService.instance.nextTrack();
+    if (mounted) setState(_syncMusic);
+  }
+
+  /// ▶/⏸ — müziği KAPATMADAN duraklatır/devam ettirir. Eskiden tercihi
+  /// tümden kapatıp açıyordu; bu yüzden ▶'a her basışta şarkı baştan
+  /// başlıyordu.
+  Future<void> _toggleMusic() async {
+    await OkeySoundService.instance.togglePlayPause();
+    if (mounted) setState(_syncMusic);
   }
 
   Future<void> _loadPrivacySettings() async {
@@ -220,7 +282,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    
+
     // ignore: deprecated_member_use
     return WillPopScope(
       onWillPop: () async {
@@ -242,7 +304,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                 ),
               ),
             ),
-            
+
             // Sidebar Panel
             Align(
               alignment: Alignment.centerRight,
@@ -266,7 +328,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                       // Header (Yeşil üst bölüm)
                       Container(
                         padding: EdgeInsets.only(
-                          top: MediaQuery.of(context).padding.top + 20,
+                          // Şarkı kartı artık EN ÜSTTE; durum çubuğundan
+                          // sonra 20px boşluk onu aşağı itiyordu.
+                          top: MediaQuery.of(context).padding.top + 12,
                           left: 24,
                           right: 24,
                           bottom: 24,
@@ -279,7 +343,9 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                           boxShadow: [
                             BoxShadow(
                               // ignore: deprecated_member_use
-                              color: themeProvider.primaryColor.withOpacity(0.3),
+                              color: themeProvider.primaryColor.withOpacity(
+                                0.3,
+                              ),
                               blurRadius: 8,
                               offset: const Offset(0, 4),
                             ),
@@ -288,29 +354,65 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Kapat butonu
-                            Align(
-                              alignment: Alignment.topRight,
-                              child: GestureDetector(
-                                onTap: _close,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    // ignore: deprecated_member_use
-                                    color: Colors.white.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(
-                                    Icons.close,
-                                    color: Colors.white,
-                                    size: 24,
+                            // EN ÜST SATIR: ŞARKI KARTI + KAPAT.
+                            //
+                            // Kart menünün en tepesinde durur (kullanıcı
+                            // isteği, 2026-09-05: "şarkı kartını tam yukarıya
+                            // taşı"). Altında değil, ÜSTÜNDE: menüyü açan
+                            // kişinin gözü önce oraya değer ve müziği
+                            // yönetmek için aşağı bakması gerekmez.
+                            //
+                            // TARİHÇE — kapat düğmesiyle aynı satırı
+                            // paylaşması bir kez denenmiş ve geri alınmıştı:
+                            // o zamanki oynatıcı düz bir şeritti ve kalan
+                            // darlıkta şarkı adı "..." ile kırpılıyordu.
+                            // O gerekçe artık geçerli değil — ad kırpılmıyor,
+                            // sığmadığında kayan yazı olarak akıyor
+                            // (bkz. NowPlayingPanel._MarqueeText).
+                            //
+                            // Expanded HER ZAMAN var (müzik yokken boş):
+                            // kapat düğmesi böylece şarkı olsun olmasın hep
+                            // aynı yerde, sağ üst köşede kalır.
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: (!_musicLoading && _hasMusic)
+                                      ? NowPlayingPanel(
+                                          trackName: _currentTrackName,
+                                          playing: _musicOn,
+                                          showTrackNav: _trackCount > 1,
+                                          progress: OkeySoundService
+                                              .instance
+                                              .musicProgress,
+                                          onPlayPause: _toggleMusic,
+                                          onPrevious: _previousTrack,
+                                          onNext: _nextTrack,
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                                const SizedBox(width: 10),
+                                GestureDetector(
+                                  onTap: _close,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                            
-                            const SizedBox(height: 16),
-                            
+
+                            const SizedBox(height: 12),
+
                             // Profil bilgileri - Gerçek verilerle
                             Row(
                               children: [
@@ -327,12 +429,18 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     color: Colors.white,
                                   ),
                                   child: ClipOval(
-                                    child: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                                    child:
+                                        _avatarUrl != null &&
+                                            _avatarUrl!.isNotEmpty
                                         ? CachedNetworkImage(
                                             imageUrl: _avatarUrl!,
                                             fit: BoxFit.cover,
                                             errorWidget: (context, url, error) {
-                                              return const Icon(Icons.person, size: 32, color: Colors.grey);
+                                              return const Icon(
+                                                Icons.person,
+                                                size: 32,
+                                                color: Colors.grey,
+                                              );
                                             },
                                           )
                                         : Icon(
@@ -345,10 +453,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        _isLoading ? 'Yükleniyor...' : _fullName,
+                                        _isLoading
+                                            ? 'Yükleniyor...'
+                                            : _fullName,
                                         style: const TextStyle(
                                           fontSize: 20,
                                           fontWeight: FontWeight.bold,
@@ -376,7 +487,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                           ],
                         ),
                       ),
-                      
+
                       // Menü içerikleri
                       Expanded(
                         child: SingleChildScrollView(
@@ -384,7 +495,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                             left: 24,
                             right: 24,
                             top: 24,
-                            bottom: 24 + bottomPadding, // Bottom padding eklendi
+                            bottom:
+                                24 + bottomPadding, // Bottom padding eklendi
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,7 +514,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const AdminDashboardScreen(),
+                                        builder: (context) =>
+                                            const AdminDashboardScreen(),
                                       ),
                                     );
                                   },
@@ -419,7 +532,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const SellerDashboardScreen(),
+                                        builder: (context) =>
+                                            const SellerDashboardScreen(),
                                       ),
                                     );
                                   },
@@ -436,7 +550,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const CourierPanelScreen(),
+                                        builder: (context) =>
+                                            const CourierPanelScreen(),
                                       ),
                                     );
                                   },
@@ -453,7 +568,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const NewsReporterPanelScreen(),
+                                        builder: (context) =>
+                                            const NewsReporterPanelScreen(),
                                       ),
                                     );
                                   },
@@ -477,8 +593,25 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                     );
                                   },
                                 ),
+                              _buildPanelButton(
+                                context: context,
+                                icon: Icons.casino,
+                                title: '101 Okey',
+                                subtitle: 'Online Oyun',
+                                color: Colors.deepPurple,
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const OkeyLobbyScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
                               const SizedBox(height: 24),
-                              
+
                               // Hesabım bölümü
                               const Text(
                                 'HESABIM',
@@ -490,7 +623,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.account_balance_wallet_outlined,
@@ -500,7 +633,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const WalletScreen(),
+                                      builder: (context) =>
+                                          const WalletScreen(),
                                     ),
                                   );
                                 },
@@ -515,7 +649,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const MyCouponsScreen(),
+                                      builder: (context) =>
+                                          const MyCouponsScreen(),
                                     ),
                                   );
                                 },
@@ -530,12 +665,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const FavoritesScreen(),
+                                      builder: (context) =>
+                                          const FavoritesScreen(),
                                     ),
                                   );
                                 },
                               ),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.location_on_outlined,
@@ -545,12 +681,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const AddressManagementScreen(),
+                                      builder: (context) =>
+                                          const AddressManagementScreen(),
                                     ),
                                   );
                                 },
                               ),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.shopping_cart_outlined,
@@ -560,12 +697,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const OrderHistoryScreen(),
+                                      builder: (context) =>
+                                          const OrderHistoryScreen(),
                                     ),
                                   );
                                 },
                               ),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.security_outlined,
@@ -575,14 +713,15 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const AccountSettingsScreen(),
+                                      builder: (context) =>
+                                          const AccountSettingsScreen(),
                                     ),
                                   );
                                 },
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               // Gizlilik & Durum
                               const Text(
                                 'GİZLİLİK & DURUM',
@@ -594,13 +733,17 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              
+
                               Opacity(
                                 opacity: _isGhostMode ? 0.5 : 1.0,
                                 child: _buildToggleItem(
                                   context: context,
-                                  icon: _isOnlineEnabled ? Icons.circle : Icons.circle_outlined,
-                                  title: _isOnlineEnabled ? 'Çevrimiçi Durumum: Açık' : 'Çevrimiçi Durumum: Kapalı',
+                                  icon: _isOnlineEnabled
+                                      ? Icons.circle
+                                      : Icons.circle_outlined,
+                                  title: _isOnlineEnabled
+                                      ? 'Çevrimiçi Durumum: Açık'
+                                      : 'Çevrimiçi Durumum: Kapalı',
                                   value: _isOnlineEnabled,
                                   activeColor: themeProvider.primaryColor,
                                   onChanged: (value) {
@@ -610,20 +753,23 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   },
                                 ),
                               ),
-                              
+
                               _buildToggleItem(
                                 context: context,
-                                icon: _isGhostMode ? Icons.visibility_off : Icons.visibility,
-                                title: 'Hayalet Modu${_isGhostMode ? ' (Aktif)' : ''}',
+                                icon: _isGhostMode
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                title:
+                                    'Hayalet Modu${_isGhostMode ? ' (Aktif)' : ''}',
                                 value: _isGhostMode,
                                 activeColor: Colors.indigo,
                                 onChanged: (value) {
                                   _setGhostMode(value);
                                 },
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               // Bildirimler
                               const Text(
                                 'BİLDİRİMLER',
@@ -635,7 +781,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.notifications_outlined,
@@ -645,14 +791,15 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const NotificationSettingsScreen(),
+                                      builder: (context) =>
+                                          const NotificationSettingsScreen(),
                                     ),
                                   );
                                 },
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               // Destek & Yardım
                               const Text(
                                 'DESTEK & YARDIM',
@@ -664,7 +811,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.help_outline,
@@ -674,7 +821,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const SupportCenterScreen(),
+                                      builder: (context) =>
+                                          const SupportCenterScreen(),
                                     ),
                                   );
                                 },
@@ -708,7 +856,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              
+
                               _buildMenuItem(
                                 context: context,
                                 icon: Icons.palette_outlined,
@@ -726,14 +874,24 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                               // Giriş Yap veya Çıkış Yap butonu
                               _buildAuthButton(
                                 context: context,
-                                isGuest: Supabase.instance.client.auth.currentUser == null,
+                                isGuest:
+                                    Supabase.instance.client.auth.currentUser ==
+                                    null,
                                 onTap: () async {
-                                  final isGuest = Supabase.instance.client.auth.currentUser == null;
-                                  
+                                  final isGuest =
+                                      Supabase
+                                          .instance
+                                          .client
+                                          .auth
+                                          .currentUser ==
+                                      null;
+
                                   if (isGuest) {
                                     // Misafir kullanıcı - Giriş ekranına yönlendir
                                     if (mounted) {
-                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                      Navigator.of(
+                                        context,
+                                      ).pushNamedAndRemoveUntil(
                                         '/login',
                                         (route) => false,
                                       );
@@ -744,17 +902,23 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                         ),
                                         title: const Text('Çıkış Yap'),
-                                        content: const Text('Çıkış yapmak istediğinize emin misiniz?'),
+                                        content: const Text(
+                                          'Çıkış yapmak istediğinize emin misiniz?',
+                                        ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.pop(context, false),
+                                            onPressed: () =>
+                                                Navigator.pop(context, false),
                                             child: const Text('İptal'),
                                           ),
                                           TextButton(
-                                            onPressed: () => Navigator.pop(context, true),
+                                            onPressed: () =>
+                                                Navigator.pop(context, true),
                                             style: TextButton.styleFrom(
                                               foregroundColor: Colors.red,
                                             ),
@@ -795,7 +959,6 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     required String title,
     required VoidCallback onTap,
   }) {
-    
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -822,11 +985,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                 color: Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                color: Colors.grey.shade500,
-                size: 20,
-              ),
+              child: Icon(icon, color: Colors.grey.shade500, size: 20),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -845,7 +1004,10 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     );
   }
 
-  Widget _buildBalanceToggleItem(BuildContext context, ThemeProvider themeProvider) {
+  Widget _buildBalanceToggleItem(
+    BuildContext context,
+    ThemeProvider themeProvider,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
@@ -944,11 +1106,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                 color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(
-                icon,
-                color: Colors.white,
-                size: 28,
-              ),
+              child: Icon(icon, color: Colors.white, size: 28),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -1072,7 +1230,10 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     );
   }
 
-  void _showThemeDialog(BuildContext parentContext, ThemeProvider themeProvider) {
+  void _showThemeDialog(
+    BuildContext parentContext,
+    ThemeProvider themeProvider,
+  ) {
     showDialog(
       context: parentContext,
       builder: (BuildContext context) {
@@ -1097,10 +1258,13 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                       ),
                     ),
                     const SizedBox(height: 12),
-                    
+
                     // Otomatik tema değişimi anahtarı
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(12),
@@ -1133,7 +1297,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                         ],
                       ),
                     ),
-                    
+
                     if (themeProvider.autoThemeEnabled)
                       Padding(
                         padding: const EdgeInsets.only(top: 4, left: 12),
@@ -1145,7 +1309,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
                           ),
                         ),
                       ),
-                    
+
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1196,7 +1360,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     required VoidCallback onTap,
   }) {
     final isSelected = themeProvider.primaryColor == color;
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -1208,19 +1372,12 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
               color: color,
               shape: BoxShape.circle,
               border: isSelected
-                  ? Border.all(
-                      color: Colors.black,
-                      width: 3,
-                    )
+                  ? Border.all(color: Colors.black, width: 3)
                   : null,
             ),
             child: isSelected
                 ? const Center(
-                    child: Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 24,
-                    ),
+                    child: Icon(Icons.check, color: Colors.white, size: 24),
                   )
                 : null,
           ),
@@ -1246,7 +1403,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
     final color = isGuest ? Colors.green : Colors.red;
     final icon = isGuest ? Icons.login : Icons.logout;
     final text = isGuest ? 'Giriş Yap' : 'Çıkış Yap';
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1259,11 +1416,7 @@ class _SettingsSidebarState extends State<SettingsSidebar> with SingleTickerProv
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: color.shade600,
-              size: 20,
-            ),
+            Icon(icon, color: color.shade600, size: 20),
             const SizedBox(width: 12),
             Text(
               text,

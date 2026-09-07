@@ -41,12 +41,14 @@ class _PostLikesScreenState extends State<PostLikesScreen> {
           .eq('post_id', widget.postId)
           .order('created_at', ascending: false);
 
+      if (!mounted) return;
       setState(() {
         _likes = List<Map<String, dynamic>>.from(response);
         _isLoading = false;
       });
     } catch (e) {
       debugPrint('Beğeniler yüklenirken hata: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
@@ -68,10 +70,21 @@ class _PostLikesScreenState extends State<PostLikesScreen> {
                   itemCount: _likes.length,
                   itemBuilder: (context, index) {
                     final like = _likes[index];
-                    final profile = like['profiles'];
-                    final username = profile['username'] ?? 'Kullanıcı';
-                    final fullName = profile['full_name'] ?? username;
-                    final avatarUrl = profile['avatar_url'];
+                    // Profili silinmiş kullanıcılarda embed null gelir;
+                    // eskiden burada null dereference ile TÜM liste
+                    // (kırmızı hata ekranı olarak) çöküyordu.
+                    final profile = like['profiles'] as Map<String, dynamic>?;
+                    final username =
+                        (profile?['username'] as String?)?.trim().isNotEmpty == true
+                            ? profile!['username'] as String
+                            : 'kullanici';
+                    final fullName =
+                        (profile?['full_name'] as String?)?.trim().isNotEmpty == true
+                            ? profile!['full_name'] as String
+                            : username;
+                    final avatarUrl = profile?['avatar_url'] as String?;
+                    final likeUserId =
+                        (profile?['id'] as String?) ?? like['user_id'] as String?;
 
                     return ListTile(
                       leading: CircleAvatar(
@@ -96,15 +109,17 @@ class _PostLikesScreenState extends State<PostLikesScreen> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text('@$username'),
-                      onTap: () {
-                        final userId = profile['id'] as String;
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => UserProfileScreen(userId: userId),
-                          ),
-                        );
-                      },
+                      onTap: likeUserId == null
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      UserProfileScreen(userId: likeUserId),
+                                ),
+                              );
+                            },
                     );
                   },
                 ),

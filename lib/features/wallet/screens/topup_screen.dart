@@ -411,8 +411,12 @@ class _TopupScreenState extends State<TopupScreen> {
     if (!mounted) return;
 
     if (confirmed) {
+      // Messenger pop'TAN ÖNCE çözülür; pop'tan sonra bu element deactive
+      // olur ve `ScaffoldMessenger.of(context)` "Looking up a deactivated
+      // widget's ancestor is unsafe" atar.
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context, true);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: const Text('Bakiye başarıyla yüklendi!'),
           backgroundColor: Colors.green.shade600,

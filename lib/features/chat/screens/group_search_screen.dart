@@ -96,6 +96,8 @@ class _GroupSearchScreenState extends State<GroupSearchScreen> {
   void _showJoinRequestDialog(String groupId) {
     final messageController = TextEditingController();
 
+    // Controller dialog kapanınca TEK noktada dispose edilir: eskiden yalnızca
+    // "İstek Gönder" yolunda ediliyordu, "İptal"de sızıyordu.
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -147,8 +149,6 @@ class _GroupSearchScreenState extends State<GroupSearchScreen> {
                   backgroundColor: success ? Colors.green : Colors.red,
                 ),
               );
-              
-              messageController.dispose();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.deepPurple,
@@ -158,7 +158,7 @@ class _GroupSearchScreenState extends State<GroupSearchScreen> {
           ),
         ],
       ),
-    );
+    ).whenComplete(messageController.dispose);
   }
 
   @override

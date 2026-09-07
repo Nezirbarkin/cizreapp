@@ -477,8 +477,9 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
 
       if (mounted) {
         setState(() => _isSaving = false);
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: Text(widget.address == null ? '✅ Adres eklendi' : '✅ Adres güncellendi'),
             backgroundColor: Colors.green,

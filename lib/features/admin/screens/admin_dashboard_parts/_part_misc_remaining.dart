@@ -298,6 +298,8 @@ extension on _AdminDashboardScreenState {
             ],
           ),
         );
+      case '101 Okey':
+        return const OkeyAdminContent();
       case 'Gruplar':
         return const GroupsManagementContent();
       case 'Bildirimler':
