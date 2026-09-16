@@ -107,10 +107,15 @@ class _OkeyAdminPointsTabState extends State<OkeyAdminPointsTab> {
   }
 
   Future<void> _grant() async {
+    // Messenger await'lerden ONCE yakalanir: onay diyalogu ve RPC bittiginde
+    // sekme agactan cikmis olabilir. `mounted` o pencerede hala true doner ve
+    // `ScaffoldMessenger.of(context)` "Looking up a deactivated widget's
+    // ancestor is unsafe" atiyordu.
+    final messenger = ScaffoldMessenger.of(context);
     final user = _selected;
     final amount = int.tryParse(_amount.text.trim());
     if (user == null || amount == null || amount == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('Kullanıcı seç ve 0 olmayan bir miktar gir'),
         ),
@@ -130,7 +135,7 @@ class _OkeyAdminPointsTabState extends State<OkeyAdminPointsTab> {
       );
       if (!mounted) return;
       setState(() => _selectedPoints = newPoints);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             '${amount > 0 ? '+' : ''}$amount çip işlendi. '
@@ -140,7 +145,7 @@ class _OkeyAdminPointsTabState extends State<OkeyAdminPointsTab> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text(OkeyAdminService.describeError(e))),
       );
     } finally {

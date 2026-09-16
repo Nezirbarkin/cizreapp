@@ -258,7 +258,6 @@ void main() {
                     tileHeight: m.meldTileHeight,
                   ),
                   pairsBoard: (c, m) => OkeyBoardWidget(
-                    emptyHint: '',
                     okeyTile: _t(OkeyColor.yellow, 13),
                     melds: [
                       OkeyTableMeld(

@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/okey_theme.dart';
+
 /// Masanın ortasındaki AÇILAN PER BÖLMESİ — koyu, içe çökmüş bir yüzey.
 ///
 /// ## Neden içe çökmüş (inset) bir yüzey
@@ -55,10 +57,12 @@ class OkeyMeldBay extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: const LinearGradient(
+        // Renkler aktif MASA TEMASINDAN gelir (bkz. OkeyTableTheme.meldBay*)
+        // — perlerin oturduğu oyuk tabla, zeminle AYNI aile tondan olmalı.
+        gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xD105202C), Color(0xC4093344)],
+          colors: [OkeyColors.meldBayTop, OkeyColors.meldBayBottom],
         ),
         border: Border.all(color: const Color(0x14FFFFFF)),
         boxShadow: const [

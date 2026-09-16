@@ -569,6 +569,142 @@ add(d, 0.0, buz)
 d = reverb(d, mix=0.08, rt=0.28)
 write("error.wav", d, loud=0.132)
 
+# ----------------------------------------------------------------- 11. coin
+# BONUS/CIP KAZANILDI (kullanici istegi, 2026-09-07: "bonus al tiklayinca
+# cip (para sesi) vs ciksin").
+#
+# Iki katman:
+#   * JETON — kompozit bir cip sert bir yuzeye dusuyor. Kisa, bantli bir
+#     "tak"; modlari 1–5 kHz arasinda ve cok hizli sonumleniyor (jeton
+#     cinlamaz, kutu bir sesi vardir).
+#   * MADENI TINI — jetonun ustune binen, gercek bir madeni paranin
+#     inharmonik kismi tonlari. Kat sayilari TAM SAYI DEGIL: tam katlar
+#     org gibi duyulur, para gibi degil.
+#
+# Uc jeton art arda ve gitgide hafif dusuyor; araliklar esit degil, cunku
+# esit aralik makine gibi duyuluyor.
+#
+# Sure 0.46 s: uc jeton + tinilari 0.33 s'de -45 dBFS'in altina iniyor,
+# gerisi sessizlik olurdu (dosyayi bosuna buyutur).
+d = zeros(0.46)
+
+
+def chip_drop(seed, scale=1.0):
+    """Bir cipin sert yuzeye temasi."""
+    return modal_hit(
+        [
+            (1180.0 * scale, 0.030, 0.55),
+            (2210.0 * scale, 0.024, 1.00),
+            (3480.0 * scale, 0.016, 0.70),
+            (5260.0 * scale, 0.010, 0.38),
+        ],
+        0.18,
+        exc_ms=1.2,
+        sharpness=6.5,
+        seed=seed,
+    )
+
+
+def coin_ring(seed, base, dur):
+    """Madeni paranin inharmonik tinisi."""
+    return modal_hit(
+        [
+            (base * 1.000, 0.30, 1.00),
+            (base * 1.508, 0.23, 0.55),
+            (base * 2.013, 0.17, 0.30),
+            (base * 2.689, 0.12, 0.15),
+        ],
+        dur,
+        exc_ms=0.8,
+        sharpness=8.0,
+        seed=seed,
+    )
+
+
+for k, (t, amp, sc) in enumerate(
+    ((0.000, 1.00, 1.00), (0.052, 0.80, 1.09), (0.113, 0.58, 0.93))
+):
+    add(d, t, chip_drop(11 + k, sc), 0.95 * amp)
+    add(d, t + 0.004, coin_ring(31 + k, 2640.0 * sc, 0.52), 0.42 * amp)
+
+d = biquad(d, "hp", 220.0, 0.7)     # govdesiz: cip kucuk ve hafif bir cisim
+d = reverb(d, mix=0.14, rt=0.42)
+write("coin.wav", d, loud=0.126)
+
+# ------------------------------------------------------------- 12. rack (takoz)
+# ISTAKAYA (takoza) TAS OTURMASI.
+#
+# Iskartaya atmaktan (discard.wav) bilerek FARKLI: istaka oyuncunun hemen
+# onunde, elinin altindadir. Bu yuzden ses daha KURU (yankisiz), daha kisa
+# ve biraz daha yuksek tinili; masaya atilan tasin tok "tak"i yerine
+# tasin oluga kayip oturdugu ince bir "tik" + kisa surtunme.
+d = zeros(0.20)
+slide = envelope(noise(0.028, 91), attack=0.004, curve=5.0)
+slide = biquad(slide, "bp", 3400.0, 1.3)
+add(d, 0.0, slide, 0.16)                       # oluga kayma
+add(d, 0.012, tile_click(seed=93, bright=1.14, body=0.86, dur=0.16, damp=0.75), 0.82)
+# istakanin tahta govdesi: cok kisa, alcak bir tepki
+add(d, 0.012, modal_hit([(430, 0.028, 1.0)], 0.08, exc_ms=2.0, seed=94), 0.14)
+d = reverb(d, mix=0.04, rt=0.18)               # yakin mesafe -> neredeyse yanki yok
+write("rack.wav", d, loud=0.100, comp=(0.10, 8.0))
+
+# ------------------------------------------------------------ 13. click (buton)
+# ARAYUZ DUGMESI TIKI.
+#
+# Tas sesi DEGIL: oyuncu "AT" dugmesine bastiginda tas sesi duyarsa hamlenin
+# gerceklestigini saniyor. Bu yuzden sentetik degil ama TASA BENZEMEYEN,
+# kucuk bir mekanik dugme sesi: cok kisa (~60 ms), dar bantli, sonumlu.
+d = zeros(0.12)
+snap = envelope(noise(0.004, 71), attack=0.0002, curve=10.0)
+snap = biquad(snap, "bp", 1900.0, 0.9)
+add(d, 0.0, snap, 0.55)
+add(d, 0.0, modal_hit(
+    [(1450, 0.018, 1.00), (2760, 0.011, 0.45), (4300, 0.007, 0.20)],
+    0.10, exc_ms=0.9, sharpness=8.0, seed=73), 0.70)
+d = biquad(d, "hp", 500.0, 0.7)                # govdesiz kalsin, tasla karismasin
+d = fade_out(d, ms=8.0)
+write("click.wav", d, loud=0.070)              # sik duyulur -> kasitli olarak KISIK
+
+# ------------------------------------------------------------- 14. join (katilim)
+# BEKLEME ODASINA BIR OYUNCU OTURDU.
+#
+# NEDEN AHSAP, NEDEN CAM DEGIL: "sira sende" (your_turn.wav) zaten yukselen
+# iki notali bir CAM zil. Katilim sesi de cam olsaydi ikisi ayni aileden
+# duyulurdu ve oyuncu bekleme odasinda "sira bana mi geldi" diye sasirirdi.
+# Burada ahsap bir cubuk (marimba) tinisi kullanilir: kismi tonlari az,
+# sonumlemesi hizli, yankisi kisa — camin uzun cinlamasinin tam tersi.
+#
+# NEDEN YUKSELEN DORTLU: masaya biri oturmak IYI haberdir; inen bir aralik
+# "biri kalkti" gibi okunurdu. Once cok kisa bir oturma tikisi, hemen
+# ardindan iki nota — "geldi ve yerine oturdu".
+def wood_tone(f0, dur, level=1.0, seed=111):
+    """Marimba cubugu: temel + iki inharmonik ust mod (~3.9x ve ~10.6x).
+
+    Gercek bir ahsap cubukta ust modlar temelin TAM katlari degildir ve cok
+    daha hizli soner; sesin 'tahta' duyulmasi bundandir.
+    """
+    modes = [
+        (f0,         0.42, 1.00),
+        (f0 * 3.93,  0.13, 0.28),   # cubugun 2. modu
+        (f0 * 10.60, 0.05, 0.09),   # 3. mod — yalnizca vurus aninda duyulur
+    ]
+    y = modal_hit(modes, dur, exc_ms=1.4, sharpness=6.0, seed=seed)
+    # Tokmak kecesi: yumusak, alcak gecirgen bir vurus gurultusu.
+    m = envelope(noise(0.006, seed + 1), attack=0.0006, curve=9.0)
+    m = biquad(m, "lp", f0 * 4.0, 0.7)
+    add(y, 0.0, m, 0.10)
+    return [v * level for v in y]
+
+
+d = zeros(0.72)
+# Oturma tikisi: kisa, tok bir temas. Notalardan ONCE gelir.
+add(d, 0.000, modal_hit([(240, 0.045, 1.00), (610, 0.022, 0.35)],
+                        0.14, exc_ms=2.2, sharpness=7.0, seed=115), 0.30)
+add(d, 0.020, wood_tone(523.25, 0.55, 1.00, seed=111))   # C5
+add(d, 0.130, wood_tone(698.46, 0.60, 0.92, seed=113))   # F5 -> yukselen dortlu
+d = reverb(d, mix=0.09, rt=0.30)               # oda var ama kuru: yakin masa
+write("join.wav", d, loud=0.112, comp=(0.14, 6.0))
+
 print("\nToplam: %.1f KB" % (
     sum(os.path.getsize(os.path.join(OUT, f))
         for f in os.listdir(OUT) if f.endswith(".wav")) / 1024.0))

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../engine/okey_action_queue.dart';
+import '../engine/okey_hand_hints.dart';
 import '../engine/okey_hand_partition.dart';
 import '../engine/okey_meld_validator.dart';
 import '../engine/okey_rack_layout.dart';
@@ -18,6 +19,7 @@ import '../widgets/okey_move_flight.dart';
 import '../services/okey_room_service.dart';
 import '../services/okey_sound_service.dart';
 import '../theme/okey_rack_style.dart';
+import '../theme/okey_table_theme.dart';
 
 enum OkeyRackSortMode { none, pairs, series }
 
@@ -110,7 +112,43 @@ class OkeyGameProvider with ChangeNotifier {
   OkeyMatch? _match;
   OkeyRoom? _room;
   List<OkeyTile> _myHand = [];
+
+  /// EL SÜRÜMÜ — el sunucudan her okunduğunda (ya da sıfırlandığında) artar.
+  ///
+  /// Çekilen taşı yerel olarak eklemenin ([_applyDraw]) güvenli olup
+  /// olmadığını anlamanın tek yolu budur: çağrı sürerken el yeniden
+  /// okunduysa yerel ekleme yapılmaz, sunucunun okuduğu el geçerlidir.
+  int _handRevision = 0;
+
+  /// ELİME YEREL OLARAK KAÇ KEZ DOKUNULDU (iyimser güncelleme sayacı).
+  ///
+  /// Taş çekme/atma masaya sunucu cevabı BEKLENMEDEN yansıyor. O sırada
+  /// uçuşta olan bir okuma varsa, o okuma hamleden ÖNCEKİ eli taşır: sonucu
+  /// yazmak atılan taşı ıstakaya geri koyar, çekilen taşı da siler — yani
+  /// masa bir an geri sarardı. Bu sayaç "okuma başladıktan sonra elime
+  /// dokundum mu?" sorusunun cevabıdır; dokunduysam BAYAT okuma yazılmaz ve
+  /// sıradaki tazeleme (hamleden sonra başlayan) doğru eli getirir.
+  int _localHandOps = 0;
   List<OkeyTableMeld> _tableMelds = [];
+
+  /// MASA PERLERİNİN PARMAK İZİ — perler her tazelemede yeniden kurulduğu
+  /// için liste KİMLİĞİ hiçbir şey söylemez; içerik söyler.
+  ///
+  /// Tazeleme başına BİR KEZ hesaplanır ([_setTableMelds]) ve ipucu
+  /// önbelleğinin geçerliliğinde kullanılır. Eskiden burada yalnızca per
+  /// KİMLİKLERİ (m.id) karmalanıyordu; bir pere taş işlendiğinde ya da
+  /// okey çalındığında kimlik AYNI kaldığı için ipuçları eski halinde
+  /// donup kalıyordu — "bu taşı işleyebilirsin" vurgusu, taş işlendikten
+  /// sonra da duruyordu.
+  int _tableMeldsFingerprint = 0;
+
+  void _setTableMelds(List<OkeyTableMeld> melds) {
+    _tableMelds = melds;
+    _tableMeldsFingerprint = Object.hashAll([
+      for (final m in melds) Object.hash(m.id, Object.hashAll(m.tiles)),
+    ]);
+  }
+
   List<OkeyRoomSeat> _seats = [];
   List<OkeySpectator> _spectators = const [];
   Map<int, int> _opponentTileCounts = {};
@@ -128,6 +166,16 @@ class OkeyGameProvider with ChangeNotifier {
   /// taşın elde olması, o turda başka hamle yapılmamış olması ve tur başına
   /// tek kullanım kuralı sunucudadır. Burada yalnızca son cevap tutulur.
   bool _canUndoSideDraw = false;
+
+  /// YANDAN ALDIĞIM TAŞI GERİ KOYDUĞUM TURUN kimliği (bkz.
+  /// [OkeyMyHand.sideDrawUndoneToken]). Aynı turda yan kapalıdır.
+  String? _sideDrawUndoneToken;
+
+  /// Masa tek okumayla mı tazeleniyor (`okey_match_snapshot` var mı)?
+  ///
+  /// Varsa baraj rozetleri ve "geri koy" hakkı her tazelemede zaten geliyor
+  /// demektir; onlar için AYRICA ağ turu atılmaz.
+  bool _snapshotMode = false;
 
   /// KOLTUK → BARAJ TÜRÜ ('pairs' | 'series'). Rozetin veri kaynağı.
   ///
@@ -161,6 +209,33 @@ class OkeyGameProvider with ChangeNotifier {
     null,
   );
 
+  /// ISTAKANIN SÜRÜMÜ — rafa dokunan her yazma bunu bir artırır.
+  ///
+  /// ## Neden bir sayaç, "parmak izi" değil (performans, 2026-09-08)
+  ///
+  /// Rafa bağlı TÜM türetilmiş değerler (öbekler, per adayları, ipuçları,
+  /// puan sayacı) önbelleklidir ve önbelleğin geçerliliği rafın değişip
+  /// değişmediğine bakar. O soru eskiden `Object.hashAll(_rackSlots…)` ile,
+  /// yani 32 elemanlık bir karma HESAPLAYARAK soruluyordu — üstelik ayrı ayrı
+  /// dört yerde ve bu getter'lar her build'de defalarca okunuyor. Yani
+  /// "değişti mi?" sorusunun kendisi, cevabından pahalı hale gelmişti.
+  ///
+  /// Raf hiçbir yerde YERİNDE değiştirilmez (her zaman yeni bir liste atanır),
+  /// bu yüzden tek giriş noktası [_setRackSlots] ve monoton bir sayaç kesin
+  /// sonuç verir.
+  int _rackRevision = 0;
+
+  /// [rackSlots] için değişmez görünüm — sürüm başına BİR KEZ kurulur.
+  /// Her build'de `List.unmodifiable` çağırmak 32 elemanlık bir kopya
+  /// demekti (ve her seferinde YENİ bir kimlik, yani gereksiz yeniden kurma).
+  List<OkeyTile?>? _rackSlotsView;
+
+  void _setRackSlots(List<OkeyTile?> next) {
+    _rackSlots = next;
+    _rackRevision++;
+    _rackSlotsView = null;
+  }
+
   /// Sürükleme sürerken UI'ın yeniden kurulmasını engeller. Realtime bir
   /// güncelleme tam sürükleme sırasında gelirse widget ağacı yeniden kurulup
   /// sürükleme katmanıyla çakışabiliyordu; bu bayrak bildirimi erteler.
@@ -185,17 +260,13 @@ class OkeyGameProvider with ChangeNotifier {
   Set<int> _cachedStealableIndices = const {};
   Set<int> _cachedRiskyIndices = const {};
 
-  int _computeHintsFingerprint() {
-    final rackHash = Object.hashAll(_rackSlots.map((t) => t?.hashCode ?? 0));
-    final meldHash = Object.hashAll(_tableMelds.map((m) => m.id));
-    return Object.hash(
-      rackHash,
-      meldHash,
-      canActOnHand,
-      _isOpeningDone,
-      isAssistOn,
-    );
-  }
+  int _computeHintsFingerprint() => Object.hash(
+    _rackRevision,
+    _tableMeldsFingerprint,
+    canActOnHand,
+    _isOpeningDone,
+    isAssistOn,
+  );
 
   void _recomputeHintsIfNeeded() {
     final fp = _computeHintsFingerprint();
@@ -320,9 +391,20 @@ class OkeyGameProvider with ChangeNotifier {
   final List<OkeyMoveFlash> _flightQueue = [];
   Timer? _flightTimer;
 
-  /// İki uçuş arasındaki en kısa mesafe: uçuş süresi + kısa bir nefes payı.
-  /// Daha kısası ikinci taşı birincisi hâlâ havadayken başlatırdı.
-  static const Duration _flightGap = Duration(milliseconds: 560);
+  /// İki uçuş arasındaki KAYMA (kullanıcı isteği, 2026-09-07: "taş atma,
+  /// işlek yapma, taş çekme ile taş uçuşu uyuşsun").
+  ///
+  /// Önce 560 ms'ydi: bir uçuş BİTMEDEN diğeri başlamasın diye. Bunun bedeli,
+  /// animasyonun masanın durumundan kopmasıydı — bot turunun üç hamlesi
+  /// (çek → işle → at) masaya bir anda yansıyor, oysa son uçuş bir buçuk
+  /// saniye sonra başlıyordu; oyuncu taşı çoktan ıskartada görürken ona doğru
+  /// uçan bir taş izliyordu.
+  ///
+  /// Uçuş katmanı artık aynı anda birden çok taş taşıyor
+  /// (bkz. OkeyMoveFlightOverlay), yani bu değer "bekleme" değil yalnızca
+  /// OKUNABİLİRLİK KAYMASI: üç hamle üst üste binmesin, sırayla okunsun.
+  /// Turun tamamı yarım saniyede biter.
+  static const Duration _flightGap = Duration(milliseconds: 110);
 
   /// Hediye menüsü — masa açıkken bir kez okunur, sonra bellekten verilir.
   List<OkeyGift>? _giftCatalog;
@@ -386,9 +468,11 @@ class OkeyGameProvider with ChangeNotifier {
 
   Future<void> _init() async {
     await _sound.load();
-    // ISTAKA TERCİHİ — masaya girmeden okunur ki ilk kare doğru takozla
-    // çizilsin. İkinci çağrılarda kendini kısa devre yapar.
+    // ISTAKA + MASA TEMASI TERCİHİ — masaya girmeden okunur ki ilk kare
+    // doğru takoz VE doğru zeminle çizilsin. İkinci çağrılarda kendini kısa
+    // devre yapar.
     unawaited(OkeyRackStylePrefs.instance.load());
+    unawaited(OkeyTableThemePrefs.instance.load());
     // Admin şarkı yüklediyse ve kullanıcı kapatmadıysa çalma listesini başlat
     unawaited(_sound.refreshPlaylist().then((_) => _sound.startMusic()));
     await refresh();
@@ -398,6 +482,7 @@ class OkeyGameProvider with ChangeNotifier {
       onHandChanged: _scheduleRefresh,
       onMeldsChanged: _scheduleRefresh,
       onMovesChanged: _scheduleRefresh,
+      onQuickPhrase: _handleIncomingQuickPhrase,
     );
     _subscribeGifts();
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
@@ -768,32 +853,14 @@ class OkeyGameProvider with ChangeNotifier {
     return _isProcessableTile(tile);
   }
 
-  /// Üç taşın herhangi bir dizilişi geçerli bir seri mi?
-  static bool _anyOrderIsRun(List<OkeyTile> trio, OkeyTile okeyTile) {
-    const orders = [
-      [0, 1, 2],
-      [0, 2, 1],
-      [1, 0, 2],
-      [1, 2, 0],
-      [2, 0, 1],
-      [2, 1, 0],
-    ];
-    for (final o in orders) {
-      if (OkeyMeldValidator.isValidRun([
-        trio[o[0]],
-        trio[o[1]],
-        trio[o[2]],
-      ], okeyTile)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /// YARDIMLI MOD — rafımda birlikte geçerli bir per/grup/çift oluşturan
   /// taşların indeksleri (henüz açmadıysam neyi bir araya getirebileceğimi
-  /// gösterir). Basit ve hızlı bir tarama: aynı renk ardışık üçlüler ve aynı
-  /// rakam farklı renk üçlüleri ile çiftler.
+  /// gösterir).
+  ///
+  /// Hesabın kendisi SAF MOTORDA (bkz. [OkeyHandHints.meldableSlots]): burada
+  /// eskiden rafın tüm ikili/üçlü kombinasyonları taranıyordu ve bu, taş
+  /// çekme/atma karesinde çalışan en pahalı ikinci işti. Motor aynı sonucu
+  /// dağılımdan doğrudan okur; eşdeğerlik testle sabitlenmiştir.
   Set<int> get meldableTileIndices {
     _recomputeHintsIfNeeded();
     return _cachedMeldableIndices;
@@ -802,41 +869,24 @@ class OkeyGameProvider with ChangeNotifier {
   Set<int> _computeMeldableTileIndices() {
     final match = _match;
     if (!isAssistOn || match == null || !canActOnHand) return const {};
-
-    // Dolu slotların indeksleri
-    final idx = <int>[];
-    for (var i = 0; i < _rackSlots.length; i++) {
-      if (_rackSlots[i] != null) idx.add(i);
-    }
-    OkeyTile at(int i) => _rackSlots[i]!;
-    final result = <int>{};
-
-    // Üçlü kombinasyonları tara (raf en fazla ~22 taş, 22C3 ≈ 1540 — ucuz)
-    for (var x = 0; x < idx.length; x++) {
-      final a = idx[x];
-      for (var y = x + 1; y < idx.length; y++) {
-        final b = idx[y];
-        // Çift kontrolü
-        if (OkeyMeldValidator.isValidPair([at(a), at(b)], match.okeyTile)) {
-          result.add(a);
-          result.add(b);
-        }
-        for (var z = y + 1; z < idx.length; z++) {
-          final c = idx[z];
-          final trio = [at(a), at(b), at(c)];
-          // Grup sıraya duyarsız; seri ise SIRALI olmalı — bu yüzden serinin
-          // tüm dizilişlerini deniyoruz (raftaki taşlar sıralı olmayabilir).
-          if (OkeyMeldValidator.isValidSet(trio, match.okeyTile) ||
-              _anyOrderIsRun(trio, match.okeyTile)) {
-            result.addAll([a, b, c]);
-          }
-        }
-      }
-    }
-    return result;
+    return OkeyHandHints.meldableSlots(_rackSlots, match.okeyTile);
   }
 
-  Map<int, int> get opponentTileCounts => _opponentTileCounts;
+  /// Koltuk → elinde kalan taş sayısı.
+  ///
+  /// KENDİ KOLTUĞUM YEREL ELDEN OKUNUR (performans, 2026-09-08): sayaç
+  /// sunucudan ayrı bir RPC ile geliyor ve ancak tazelemeyle güncelleniyor.
+  /// Taş çekip attığımda masa hamleyi anında gösterirken levhamdaki sayı bir
+  /// tazeleme boyunca eski değerde kalıyordu — "taş gitti mi gitmedi mi"
+  /// sorusunu yeniden doğuran tam da o sayıydı. Elim zaten elimde; sormaya
+  /// gerek yok.
+  Map<int, int> get opponentTileCounts {
+    final seat = mySeatNo;
+    if (seat == null || _myHand.isEmpty) return _opponentTileCounts;
+    if (_opponentTileCounts[seat] == _myHand.length) return _opponentTileCounts;
+    return {..._opponentTileCounts, seat: _myHand.length};
+  }
+
   List<OkeyTableMeld> get tableMelds => _tableMelds;
 
   /// Masadaki SERİ ve GRUPLAR — geniş tablaya serilir, taş İŞLENEBİLİR.
@@ -1008,7 +1058,8 @@ class OkeyGameProvider with ChangeNotifier {
     // milisaniye daha ekranda durur ve yerini yeni ele bırakır — tam da
     // düzeltmeye çalıştığımız "masa kayboldu" hissini yaratmasın diye.
     _myHand = const [];
-    _tableMelds = const [];
+    _handRevision++;
+    _setTableMelds(const []);
     _opponentTileCounts = {};
     _isOpeningDone = false;
     _openedWithPairs = false;
@@ -1019,7 +1070,8 @@ class OkeyGameProvider with ChangeNotifier {
     _requiredMinPoints = 101;
     _requiredMinPairs = 5;
     _canUndoSideDraw = false;
-    _rackSlots = List<OkeyTile?>.filled(OkeyRackLayout.totalSlots, null);
+    _sideDrawUndoneToken = null;
+    _setRackSlots(List<OkeyTile?>.filled(OkeyRackLayout.totalSlots, null));
     _selectedIndices.clear();
     _stagedGroups.clear();
     _revealedOkeySlots.clear();
@@ -1062,6 +1114,7 @@ class OkeyGameProvider with ChangeNotifier {
       onHandChanged: _scheduleRefresh,
       onMeldsChanged: _scheduleRefresh,
       onMovesChanged: _scheduleRefresh,
+      onQuickPhrase: _handleIncomingQuickPhrase,
     );
 
     await refresh(silent: true);
@@ -1096,6 +1149,23 @@ class OkeyGameProvider with ChangeNotifier {
   bool get canDraw => isMyTurn && _match?.turnPhase == 'draw';
   bool get canActOnHand => isMyTurn && _match?.turnPhase == 'discard';
 
+  /// BU TURDA yandan aldığım taşı geri koydum mu? (RULES.md §4)
+  ///
+  /// Geri koymak sırayı 'çekme' aşamasına döndürür; ama o taş artık
+  /// alınamaz — yoksa "al → geri koy → yine al" ile oyuncu kendini tuzağa
+  /// düşürürdü: geri alma hakkı tur başına bir kez olduğu için ikinci
+  /// alıştan sonra vazgeçmenin yolu kalmaz.
+  ///
+  /// Kuralı SUNUCU uygular (`okey_internal_draw_for_seat`); buradaki hesap
+  /// yalnızca ıskartayı sönük göstermek ve reddedilecek bir dokunuşu baştan
+  /// engellemek içindir. Tur devredince maçın `turn_token`'ı değişir ve
+  /// karşılaştırma kendiliğinden bozulur.
+  bool get sideDrawUndoneThisTurn =>
+      _sideDrawUndoneToken != null && _sideDrawUndoneToken == _match?.turnToken;
+
+  /// Soldaki oyuncunun ıskartasından taş alabilir miyim?
+  bool get canDrawFromSide => canDraw && !sideDrawUndoneThisTurn;
+
   int get secondsLeft {
     final deadline = _match?.turnDeadline;
     if (deadline == null) return 0;
@@ -1104,7 +1174,8 @@ class OkeyGameProvider with ChangeNotifier {
   }
 
   /// Istaka slotları: her eleman bir taş ya da boşluk (null).
-  List<OkeyTile?> get rackSlots => List.unmodifiable(_rackSlots);
+  List<OkeyTile?> get rackSlots =>
+      _rackSlotsView ??= List.unmodifiable(_rackSlots);
 
   /// Rafta duran taşlar (boşluklar hariç). Seçim/işlem indeksleri SLOT
   /// indeksidir, bu liste yalnızca sayım/kontrol amaçlıdır.
@@ -1126,10 +1197,12 @@ class OkeyGameProvider with ChangeNotifier {
     // Çekilen taş, oyuncunun BIRAKTIĞI slota yerleşir (varsa). Tek
     // kullanımlıktır: yerleştikten sonra sıfırlanır ki sonraki tazelemeler
     // taşları oraya toplamasın.
-    _rackSlots = OkeyRackLayout.mergeWithHand(
-      _rackSlots,
-      _expectedRackTiles,
-      preferredSlot: _pendingDrawSlot,
+    _setRackSlots(
+      OkeyRackLayout.mergeWithHand(
+        _rackSlots,
+        _expectedRackTiles,
+        preferredSlot: _pendingDrawSlot,
+      ),
     );
     _pendingDrawSlot = null;
   }
@@ -1154,8 +1227,7 @@ class OkeyGameProvider with ChangeNotifier {
   ///
   /// PERFORMANS: bu getter'lar her build'de birkaç kez çağrılıyor; parmak izi
   /// 32 elemanlık ucuz bir karma, arkasındaki tarama ise değil.
-  int _groupsFingerprint() =>
-      Object.hashAll(_rackSlots.map((t) => t?.hashCode ?? 0));
+  int _groupsFingerprint() => _rackRevision;
 
   List<({List<int> slots, List<OkeyTile> tiles})> get _groups {
     final fp = _groupsFingerprint();
@@ -1201,10 +1273,8 @@ class OkeyGameProvider with ChangeNotifier {
 
   /// Rafın + okey taşının parmak izi. Değişmediyse ayrışım aramaları
   /// (pahalı olan kısım) tekrar çalıştırılmaz.
-  int _computePartitionFingerprint(OkeyTile okeyTile) => Object.hash(
-    Object.hashAll(_rackSlots.map((t) => t?.hashCode ?? 0)),
-    okeyTile.hashCode,
-  );
+  int _computePartitionFingerprint(OkeyTile okeyTile) =>
+      Object.hash(_rackRevision, okeyTile.hashCode);
 
   void _recomputePartitionIfNeeded() {
     final match = _match;
@@ -1276,6 +1346,31 @@ class OkeyGameProvider with ChangeNotifier {
   /// Elim AÇIKSA dizilime birebir uyulur: o noktadan sonra hangi perin
   /// masaya gideceği oyuncunun tercihidir, tahmin edilmez.
   List<List<OkeyTile>> get openingCandidateGroups {
+    // PERFORMANS: bu getter (ve onu okuyan openingCandidatePoints) her
+    // build'de birkaç kez çağrılıyor; altındaki hesap ıstaka dizilimini ve
+    // elin en iyi ayrışımını puanlıyor. Girdiler değişmediyse cevap da
+    // değişmez.
+    final fp = Object.hash(
+      _rackRevision,
+      _isOpeningDone,
+      _requiredMinPoints,
+      _match?.okeyTile,
+    );
+    if (_openingCandidateFingerprint == fp) return _cachedOpeningCandidate;
+    final result = _computeOpeningCandidateGroups();
+    _openingCandidateFingerprint = fp;
+    _cachedOpeningCandidate = result;
+    _cachedOpeningCandidatePoints = _match == null
+        ? 0
+        : OkeyHandPartitioner.pointsOf(result, _match!.okeyTile);
+    return result;
+  }
+
+  int? _openingCandidateFingerprint;
+  List<List<OkeyTile>> _cachedOpeningCandidate = const [];
+  int _cachedOpeningCandidatePoints = 0;
+
+  List<List<OkeyTile>> _computeOpeningCandidateGroups() {
     _recomputePartitionIfNeeded();
     if (_isOpeningDone) return _cachedSeriesGroups;
 
@@ -1342,13 +1437,10 @@ class OkeyGameProvider with ChangeNotifier {
   /// [openingCandidateGroups] toplam puanı — SERİ AÇ'ın barajla karşılaştırdığı
   /// sayı ve konsolda gösterilen sayı BUDUR (ikisi ayrışamaz).
   int get openingCandidatePoints {
-    final match = _match;
-    if (match == null) return 0;
-    var total = 0;
-    for (final g in openingCandidateGroups) {
-      total += OkeyMeldValidator.meldPoints(g, match.okeyTile);
-    }
-    return total;
+    if (_match == null) return 0;
+    // Önbelleği tazeler; puan da aynı geçişte yazılır.
+    final _ = openingCandidateGroups;
+    return _cachedOpeningCandidatePoints;
   }
 
   int get detectedPairCount => detectedPairGroups.length;
@@ -1742,6 +1834,7 @@ class OkeyGameProvider with ChangeNotifier {
       onHandChanged: _scheduleRefresh,
       onMeldsChanged: _scheduleRefresh,
       onMovesChanged: _scheduleRefresh,
+      onQuickPhrase: _handleIncomingQuickPhrase,
     );
     await refresh(silent: true);
     // Hediye kanalı da unsubscribe ile kapandı — oda kimliği elimizdeyken
@@ -1767,36 +1860,54 @@ class OkeyGameProvider with ChangeNotifier {
     // (bkz. [switchToMatch]) uçuşta kalmış bu okuma, biten elin durumunu yeni
     // elin üstüne yazardı — masa bir an için bitmiş eli gösterirdi.
     final requestedMatchId = _matchId;
+    final requestedHandOps = _localHandOps;
     if (!silent) {
       _isLoading = true;
       _notify();
     }
     try {
-      // PERFORMANS: bu 4 çağrı birbirinden bağımsızdır (matchId zaten
-      // biliniyor, hiçbiri diğerinin sonucuna muhtaç değil) — Dart'ta bir
-      // Future oluşturulduğu anda çalışmaya başlar, await edildiği anda
-      // değil. Önceden sıralı 6-7 round-trip toplam gecikmeleri TOPLANIYORDU;
-      // artık hepsi aynı anda uçuşur ve toplam süre en yavaş tekil çağrıya
-      // iner.
-      final matchFuture = _service.getMatch(matchId);
-      final handFuture = _service.getMyHand(matchId);
-      final meldsFuture = _service.getTableMelds(matchId);
-      final countsFuture = _service.getSeatTileCounts(matchId);
-      // Hamleler SES ve UÇAN TAŞ için okunur. Eskiden _playSoundsForNewState'in
-      // İÇİNDE ayrıca await ediliyordu, yani her tazelemeye fazladan bir SIRALI
-      // ağ turu ekliyordu. Artık diğerleriyle aynı anda uçar; hata olursa
-      // _playSoundsForNewState kendi try'ında yutar (ses opsiyoneldir).
+      // Hamleler SES ve UÇAN TAŞ için okunur.
       //
       // İLK tazelemede yalnızca "en son hamle" okunur ve OYNATILMAZ: masaya
       // girerken geçmiş hamleler arka arkaya uçmasın diye sadece işaret konur.
       final seenMoveId = _lastSoundMoveId;
-      final movesFuture = seenMoveId == null
-          ? _service
-                .getLastMove(matchId)
-                .then((m) => m == null ? <OkeyMoveRow>[] : <OkeyMoveRow>[m])
-          : _service.getMovesSince(matchId, seenMoveId);
 
-      final match = await matchFuture;
+      // TEK OKUMA (performans, 2026-09-13). Masanın tamamı — maç, elim,
+      // perler, taş sayıları, hamleler, baraj rozetleri, "geri koy" hakkı —
+      // tek bir RPC turunda gelir. Eskiden bunlar YEDİ ayrı istekti;
+      // paralel uçsalar bile toplam süre en yavaş istekten aşağı inmiyordu
+      // ve her biri kendi PostgREST maliyetini ödüyordu.
+      //
+      // Sunucu bu fonksiyonu tanımıyorsa (yayınlanmamış sürüm) snapshot null
+      // döner ve aşağıdaki ESKİ yol aynen çalışır — oyun kesintiye uğramaz.
+      final snapshot = await _service.getSnapshot(
+        matchId,
+        afterMoveId: seenMoveId,
+      );
+
+      // ESKİ YOL — bu 4 çağrı birbirinden bağımsızdır (matchId zaten
+      // biliniyor, hiçbiri diğerinin sonucuna muhtaç değil) ve Dart'ta bir
+      // Future oluşturulduğu anda çalışmaya başlar, await edildiği anda
+      // değil: hepsi aynı anda uçuşur.
+      final matchFuture = snapshot != null ? null : _service.getMatch(matchId);
+      final handFuture = snapshot != null ? null : _service.getMyHand(matchId);
+      final meldsFuture = snapshot != null
+          ? null
+          : _service.getTableMelds(matchId);
+      final countsFuture = snapshot != null
+          ? null
+          : _service.getSeatTileCounts(matchId);
+      final movesFuture = snapshot != null
+          ? Future<List<OkeyMoveRow>>.value(snapshot.moves)
+          : (seenMoveId == null
+                ? _service
+                      .getLastMove(matchId)
+                      .then(
+                        (m) => m == null ? <OkeyMoveRow>[] : <OkeyMoveRow>[m],
+                      )
+                : _service.getMovesSince(matchId, seenMoveId));
+
+      final match = snapshot?.match ?? await matchFuture!;
       // Bunlar match.roomId'ye muhtaç, o yüzden ancak match gelince
       // başlatılabilirler — ama ikisi birbirinden bağımsız, yine paralel.
       //
@@ -1812,9 +1923,9 @@ class OkeyGameProvider with ChangeNotifier {
           ? _roomService.getRoom(match.roomId)
           : null;
 
-      final hand = await handFuture;
-      final melds = await meldsFuture;
-      final counts = await countsFuture;
+      final hand = snapshot?.hand ?? await handFuture!;
+      final melds = snapshot?.melds ?? await meldsFuture!;
+      final counts = snapshot?.counts ?? await countsFuture!;
       if (seatsFuture != null) {
         _seats = await seatsFuture;
         _seatsFetchedAt = DateTime.now();
@@ -1827,14 +1938,19 @@ class OkeyGameProvider with ChangeNotifier {
       if (_disposed || requestedMatchId != _matchId) return;
 
       _match = match;
-      _myHand = hand.tiles;
+      // BAYAT EL YAZILMAZ (bkz. [_localHandOps]).
+      if (_localHandOps == requestedHandOps) {
+        _myHand = hand.tiles;
+        _handRevision++;
+      }
       _isOpeningDone = hand.isOpeningDone;
       _myPenaltyPoints = hand.penaltyPoints;
       _openedWithPairs = hand.openedWithPairs;
       _wentForPairs = hand.wentForPairs;
       _seriesPairsTurnToken = hand.seriesPairsTurnToken;
       _seriesPairsTurnCount = hand.seriesPairsTurnCount;
-      _tableMelds = melds;
+      _sideDrawUndoneToken = hand.sideDrawUndoneToken;
+      _setTableMelds(melds);
       _opponentTileCounts = counts;
       // ANONSLAR — masa durumu tazelendikten SONRA, çünkü karar bu iki
       // listenin bir önceki haliyle karşılaştırılmasından çıkıyor
@@ -1854,34 +1970,58 @@ class OkeyGameProvider with ChangeNotifier {
       // atılıyordu: hem gereksiz gecikme, hem de ağ hatasında sessizce 101'e
       // düşen (yani katlamalıyı yok sayan) bir yedek yol.
       //
-      // İSTİSNA — EŞLİ MOD: eşim açtıysa baraj hiç aranmaz, ama eşimin
-      // is_opening_done değerini RLS gereği okuyamam. O tek durumda sunucuya
-      // sormaya devam edilir.
-      final seat = mySeatNo;
-      if (seat != null && !hand.isOpeningDone) {
-        await _updateRequiredOpening(seat);
+      // İSTİSNA — EŞLİ MOD: eşim açtıysa baraj TABANA iner (101 / 5 çift,
+      // katlama işlemez), ama eşimin is_opening_done değerini RLS gereği
+      // okuyamam. Baraj artık aynı okumada geliyor (required_opening); yalnızca
+      // eski sunucuda ayrı bir tur atılır.
+      final required = snapshot?.requiredOpening;
+      if (required != null) {
+        _requiredMinPoints = required.minPoints;
+        _requiredMinPairs = required.minPairs;
+      } else {
+        final seat = mySeatNo;
+        if (seat != null && !hand.isOpeningDone) {
+          // EŞLİ MODDA bu bir RPC turudur ve eskiden tazelemeyi BEKLETİYORDU
+          // (performans, 2026-09-07). Yerel hesap zaten senkron yapılıyor;
+          // sunucuya yalnızca "eşim açtı mı" sorusu için gidiliyor ve o cevap
+          // bir rozet eşiğini değiştirir, masanın akışını değil.
+          final local = _updateRequiredOpening(seat);
+          if (_room?.teamMode == 'esli') {
+            unawaited(local);
+          } else {
+            await local;
+          }
+        }
       }
       _error = null;
-      // BARAJ ROZETLERİ — yalnızca el değiştiğinde. Açılışlar el içinde
-      // olduğu için ayrıca "per kondu" haberiyle de tazelenir
-      // (bkz. _playSoundsForNewState).
-      if (_barajHandNo != match.handNo) {
+      _snapshotMode = snapshot != null;
+      if (snapshot != null) {
+        // BARAJ ROZETLERİ ve GERİ KOY HAKKI aynı okumada geldi — ikisi de
+        // ayrıca sorulmaz. Rozetler artık el başına bir kez değil HER
+        // tazelemede günceldir (maliyeti sıfır), yani bir per konduğunda
+        // gecikmeden değişir.
         _barajHandNo = match.handNo;
-        _barajs = const {};
-        unawaited(_refreshBarajs());
-      }
-      // GERİ KOYMA DÜĞMESİ: yalnızca sıra bendeyken ve atma aşamasındayken
-      // sorulur. Diğer her durumda cevabı zaten "hayır" olan bir soru için
-      // her tazelemede bir ağ turu harcanmaz.
-      if (match.turnSeat == mySeatNo && match.turnPhase == 'discard') {
-        try {
-          _canUndoSideDraw = await _service.canUndoSideDraw(matchId);
-        } catch (_) {
-          // Düğmenin görünmemesi, yanlışlıkla görünmesinden iyidir.
-          _canUndoSideDraw = false;
-        }
+        _barajs = snapshot.barajs;
+        _canUndoSideDraw = snapshot.canUndoSideDraw;
       } else {
-        _canUndoSideDraw = false;
+        // BARAJ ROZETLERİ — yalnızca el değiştiğinde. Açılışlar el içinde
+        // olduğu için ayrıca "per kondu" haberiyle de tazelenir
+        // (bkz. _playSoundsForNewState).
+        if (_barajHandNo != match.handNo) {
+          _barajHandNo = match.handNo;
+          _barajs = const {};
+          unawaited(_refreshBarajs());
+        }
+        // GERİ KOYMA DÜĞMESİ — TAZELEMEYİ BEKLETMEZ (performans, 2026-09-07).
+        //
+        // Bu soru bir RPC turu, ve eskiden diğer beş sorgunun SONUNDA await
+        // ediliyordu: beşi paralel gittiği için tazelemenin toplam süresi
+        // pratikte "en yavaş sorgu + BU sorgu" oluyordu. Yani sıra bendeyken
+        // her tazeleme, masanın hiçbir yerinde görünmeyen bir düğme uğruna
+        // bir tur daha uzuyordu.
+        //
+        // Artık arkada sorulur ve cevap DEĞİŞTİYSE ayrıca bildirilir.
+        _refreshUndoSideDraw(match);
       }
       // Oda kimliği ancak maç okunduktan sonra bilinir; hediye kanalı ilk
       // tazelemede kurulur (idempotenttir, sonrakilerde hiçbir şey yapmaz).
@@ -1902,9 +2042,51 @@ class OkeyGameProvider with ChangeNotifier {
       _notify();
       if (_refreshQueued && !_disposed) {
         _refreshQueued = false;
-        unawaited(refresh(silent: true));
+        // KUYRUKTAKİ TEKRAR DA BİRLEŞTİRİLİR (performans, 2026-09-07).
+        //
+        // Eskiden hemen yeni bir tam tazeleme başlıyordu. Tek bir hamle DÖRT
+        // realtime olayı doğurduğu ve bunların bir kısmı hep sürmekte olan
+        // tazelemenin ÜSTÜNE düştüğü için, pratikte her hamle iki tam
+        // tazeleme (2 × 5 sorgu) demekti. Debounce'tan geçirmek hem araya
+        // düşen yeni olayları aynı tura toplar hem de sunucudan okunanı
+        // yarıya indirir; gecikme farkı 120 ms ve o tazeleme zaten "bir şey
+        // kaçırmayalım" turudur.
+        _scheduleRefresh();
       }
     }
+  }
+
+  /// "Yandan aldığım taşı geri koyabilir miyim?" — ARKA PLANDA sorulur.
+  ///
+  /// Cevap yalnızca DEĞİŞTİĞİNDE bildirilir: aynı cevabı tekrar yazmak için
+  /// masanın tamamını (22 sürüklenebilir taş dahil) yeniden kurmanın anlamı
+  /// yok.
+  void _refreshUndoSideDraw(OkeyMatch match) {
+    final shouldAsk =
+        match.turnSeat == mySeatNo && match.turnPhase == 'discard';
+    if (!shouldAsk) {
+      if (_canUndoSideDraw) {
+        _canUndoSideDraw = false;
+        _notify();
+      }
+      return;
+    }
+    // TUR DAMGASI: cevap geldiğinde hâlâ aynı turda mıyız? Bayat bir "evet",
+    // hakkı çoktan bitmiş bir turda düğmeyi yakardı.
+    final token = match.turnToken;
+    unawaited(() async {
+      bool value;
+      try {
+        value = await _service.canUndoSideDraw(matchId);
+      } catch (_) {
+        // Düğmenin görünmemesi, yanlışlıkla görünmesinden iyidir.
+        value = false;
+      }
+      if (_disposed || _match?.turnToken != token) return;
+      if (_canUndoSideDraw == value) return;
+      _canUndoSideDraw = value;
+      _notify();
+    }());
   }
 
   /// Açılış barajını günceller (bkz. [refresh] içindeki açıklama).
@@ -1928,8 +2110,16 @@ class OkeyGameProvider with ChangeNotifier {
     if (_room?.teamMode != 'esli') return;
     try {
       final req = await _service.getRequiredOpening(matchId, seat);
+      if (_disposed) return;
+      // DEĞİŞTİYSE BİLDİR: bu çağrı artık tazelemeyi beklemiyor, yani
+      // cevabı finally'deki _notify()'dan SONRA gelebilir. Bildirmezsek
+      // rozet bir sonraki hamleye kadar eski eşiği gösterirdi.
+      final changed =
+          _requiredMinPoints != req.minPoints ||
+          _requiredMinPairs != req.minPairs;
       _requiredMinPoints = req.minPoints;
       _requiredMinPairs = req.minPairs;
+      if (changed) _notify();
     } catch (_) {
       // Yerel hesap yerinde duruyor — ağ hatası barajı düşürmez.
     }
@@ -1998,6 +2188,20 @@ class OkeyGameProvider with ChangeNotifier {
 
   Future<void> _playMoveSound(OkeyMoveRow move) async {
     final isMine = move.seatNo == mySeatNo;
+    // KENDİ ÇEKME/ATMAM BURADA ÇALMAZ (performans, 2026-09-08).
+    //
+    // Bu yol `okey_moves` okunduktan SONRA, yani hamleden bir-iki ağ turu
+    // sonra işler. Masa artık hamleyi anında gösterdiği için (iyimser
+    // güncelleme) ses de anında çalınıyor — burada bir kez daha çalmak aynı
+    // sesin geç bir yankısı olurdu. Rakiplerin hamlelerinde tek kaynak
+    // yine burasıdır. `timeout_auto_discard` KAPSAM DIŞI: onu ben
+    // yapmadım, sunucu benim adıma yaptı; duyulması gerekir.
+    if (isMine &&
+        (move.action == 'draw_deck' ||
+            move.action == 'draw_discard' ||
+            move.action == 'discard')) {
+      return;
+    }
     switch (move.action) {
       case 'draw_deck':
       case 'draw_discard':
@@ -2037,14 +2241,10 @@ class OkeyGameProvider with ChangeNotifier {
     // Kuyruk taşmasın: yeniden bağlanınca onlarca hamle birden gelebilir;
     // dakikalarca sürecek bir uçuş treni bilgi değil gürültü olurdu. En YENİ
     // hamleler tutulur, eskiler düşer.
-    if (_flightQueue.length >= 3) _flightQueue.removeAt(0);
+    // Bir TURUN tamamı sığmalı: çek → işle → işle → at.
+    if (_flightQueue.length >= 4) _flightQueue.removeAt(0);
     _flightQueue.add(
-      OkeyMoveFlash(
-        id: m.id,
-        seatNo: m.seatNo,
-        action: m.action,
-        tile: m.tile,
-      ),
+      OkeyMoveFlash(id: m.id, seatNo: m.seatNo, action: m.action, tile: m.tile),
     );
     if (_flightTimer == null) _emitNextFlight();
   }
@@ -2064,6 +2264,9 @@ class OkeyGameProvider with ChangeNotifier {
   /// hatası yüzünden hamleyi kesmek ya da hata bandı göstermek, kazanılan
   /// bilgiyle orantısız olurdu — bir sonraki perde yeniden denenir.
   Future<void> _refreshBarajs() async {
+    // TEK OKUMA VARSA GEREKSİZ: rozetler her tazelemede maçla birlikte
+    // geliyor (bkz. [_snapshotMode]).
+    if (_snapshotMode) return;
     try {
       final map = await _service.getBarajs(matchId);
       if (_disposed) return;
@@ -2187,6 +2390,39 @@ class OkeyGameProvider with ChangeNotifier {
     return cleaned.length <= 24 ? cleaned : cleaned.substring(0, 24).trim();
   }
 
+  /// HIZLI MESAJ GÖNDER — kullanıcı isteği, 2026-09-14: "Seri Lütfen",
+  /// "Tebrikler", "Bol Şanslar" vb. butonlar, sesli olsun.
+  ///
+  /// ## Neden yankıyı BEKLEMEZ
+  ///
+  /// Realtime broadcast varsayılan olarak göndereni yankılamaz (`self`
+  /// kapalı) — beklenseydi kendi mesajımı duymak için bir ağ turu (ve olası
+  /// bir gecikme/kayıp) gerekirdi. Bunun yerine ekranımda ANINDA
+  /// duyurulur/gösterilir ([_announce] aynı anda hem anons bandını hem
+  /// TTS'i tetikler), sonra masadaki DİĞERLERİNE yayınlanır.
+  void sendQuickPhrase(String phrase) {
+    final trimmed = phrase.trim();
+    if (trimmed.isEmpty || _disposed) return;
+    _announce(trimmed);
+    final seat = mySeatNo;
+    if (seat != null) {
+      unawaited(_realtime.sendQuickPhrase(seatNo: seat, text: trimmed));
+    }
+  }
+
+  /// Masadaki BAŞKA bir oyuncunun gönderdiği hızlı mesajı işler.
+  ///
+  /// Kendi koltuğumdan gelen bir yankı asla beklenmez (bkz.
+  /// [sendQuickPhrase] dokümanı) ama gelirse de burada elenir — çift anons
+  /// olmasın diye.
+  void _handleIncomingQuickPhrase(Map<String, dynamic> payload) {
+    final seat = (payload['seat'] as num?)?.toInt();
+    final text = payload['text'] as String?;
+    if (seat == null || text == null || text.trim().isEmpty) return;
+    if (seat == mySeatNo) return;
+    _announce('${_spokenSeatName(seat)}: ${text.trim()}');
+  }
+
   void _announce(String text) {
     // Kuyruk taşmasın: masada bir anda yığılan olaylar (ör. yeniden bağlanma)
     // dakikalarca sürecek bir anons treni yaratmamalı.
@@ -2299,10 +2535,13 @@ class OkeyGameProvider with ChangeNotifier {
       }
     }
 
-    // Sıra BENDE değilse ve o koltuk bot değilse, oyuncunun bağlantısı kopmuş
-    // olabilir. Bir süre bekleyip sunucudan otomatik oynatma iste — sunucu
-    // gerçekten yok olup olmadığını kendisi doğrular.
-    if (seat != null && !seat.isBot && turnSeat != mySeatNo) {
+    // Sıra BENDE değilse ve o koltuk (henüz) bot/AI-devir değilse, oyuncunun
+    // bağlantısı kopmuş olabilir. Bir süre bekleyip sunucudan otomatik
+    // oynatma iste — sunucu gerçekten yok olup olmadığını kendisi doğrular
+    // ve yeterince uzun süre (90 sn) kayıpsa koltuğu KALICI olarak AI'ya
+    // devreder (bkz. okey_auto_play_absent, migration 20260913120001) —
+    // ondan sonraki turlar aşağıdaki bot dalından akar.
+    if (seat != null && !seat.isBotDriven && turnSeat != mySeatNo) {
       _absentTimer = Timer(const Duration(seconds: 12), () async {
         try {
           final played = await _service.autoPlayAbsent(matchId);
@@ -2313,7 +2552,7 @@ class OkeyGameProvider with ChangeNotifier {
       });
     }
 
-    if (seat == null || !seat.isBot) return;
+    if (seat == null || !seat.isBotDriven) return;
 
     // BOT DÜŞÜNME SÜRESİ.
     //
@@ -2356,6 +2595,17 @@ class OkeyGameProvider with ChangeNotifier {
     });
   }
 
+  /// "Masadan ayrıl" — sunucuya bilinçli çıkışı haber verir: koltuk kalıcı
+  /// AI'ya devredilir ve sırası oysa turu hemen oynatılır (bkz.
+  /// okey_leave_match_seat, migration 20260915000001). Ekranın kendisi zaten
+  /// gezinip kapanacağı için burada UI beklemez — en iyi çaba, sessiz yutar:
+  /// bu çağrı hiç ulaşmasa bile sunucu 90 sn'lik bağlantı-kopması yoluyla
+  /// aynı sonuca varır, bu yalnızca o beklemeyi diğer oyuncular için ortadan
+  /// kaldırır.
+  void leaveTable() {
+    unawaited(_service.leaveMatchSeat(matchId).catchError((_) {}));
+  }
+
   // ---------------------------------------------------------------------
   // Raf: seçim, sıralama, görünüm modu
   // ---------------------------------------------------------------------
@@ -2364,6 +2614,9 @@ class OkeyGameProvider with ChangeNotifier {
   void toggleTileSelection(int slotIndex) {
     if (slotIndex < 0 || slotIndex >= _rackSlots.length) return;
     if (_rackSlots[slotIndex] == null) return;
+    // ISTAKADA TAŞ SESİ — taşa dokunmak fiziksel bir eylemdir; sessiz
+    // kalması ıstakayı "ekrandaki resim" gibi hissettiriyordu.
+    unawaited(_sound.play(OkeySound.rackTile));
     if (_selectedIndices.contains(slotIndex)) {
       _selectedIndices.remove(slotIndex);
     } else {
@@ -2382,15 +2635,20 @@ class OkeyGameProvider with ChangeNotifier {
   void setSortMode(OkeyRackSortMode mode) {
     final match = _match;
     if (match == null || mode == OkeyRackSortMode.none) return;
+    // Bütün ıstaka yeniden diziliyor: tek bir taş sesi yeter — her taş
+    // için çalmak onlarca sesin üst üste binmesi demek olurdu.
+    unawaited(_sound.play(OkeySound.rackTile));
     _sortMode = mode;
-    _rackSlots = OkeyRackLayout.buildSorted(
-      _expectedRackTiles,
-      match.okeyTile,
-      byPairs: mode == OkeyRackSortMode.pairs,
-      // GÖSTERGE ÇİFTİ (RULES.md §8) ancak gösterge taşı bilinirse KENDİ
-      // öbeğine ayrılabilir; ayrılmazsa eşsizler yığınında kalır ve çift
-      // olarak hiç sayılmaz.
-      indicatorTile: match.indicatorTile,
+    _setRackSlots(
+      OkeyRackLayout.buildSorted(
+        _expectedRackTiles,
+        match.okeyTile,
+        byPairs: mode == OkeyRackSortMode.pairs,
+        // GÖSTERGE ÇİFTİ (RULES.md §8) ancak gösterge taşı bilinirse KENDİ
+        // öbeğine ayrılabilir; ayrılmazsa eşsizler yığınında kalır ve çift
+        // olarak hiç sayılmaz.
+        indicatorTile: match.indicatorTile,
+      ),
     );
     _selectedIndices.clear();
     _error = null;
@@ -2402,7 +2660,8 @@ class OkeyGameProvider with ChangeNotifier {
   /// sunucuya gitmez.
   void moveTileToSlot(int fromSlot, int toSlot) {
     if (fromSlot == toSlot) return;
-    _rackSlots = OkeyRackLayout.moveTile(_rackSlots, fromSlot, toSlot);
+    unawaited(_sound.play(OkeySound.rackTile));
+    _setRackSlots(OkeyRackLayout.moveTile(_rackSlots, fromSlot, toSlot));
     // Seçim slot indeksine bağlı olduğundan taşınan taşın seçimini taşı
     if (_selectedIndices.contains(fromSlot)) {
       _selectedIndices.remove(fromSlot);
@@ -2478,14 +2737,17 @@ class OkeyGameProvider with ChangeNotifier {
     if (tiles.isEmpty) {
       throw 'İşlenebilecek taş yok.';
     }
-    var processed = 0;
+
+    // ---- 1) PLANLA — ağa hiç çıkmadan, hangi taş hangi pere? -------------
+    final plan = <int, List<OkeyTile>>{};
+    var planned = 0;
 
     for (final tile in tiles) {
       // RULES.md §6 — SON TAŞ İŞLENMEZ: bitiş yalnızca atma ile olur, elde
       // atılacak bir taş kalmalıdır. Sunucu da reddeder
       // (APP:must_keep_discard_tile); burada durmak, toplu işlemenin son taşa
       // gelince gereksiz bir hatayla kesilmesini önler.
-      if (_myHand.length - processed <= 1) break;
+      if (_myHand.length - planned <= 1) break;
 
       for (final meld in _tableMelds) {
         // Taş bu pere işlenebilir mi? İKİ UÇ da denenir.
@@ -2503,17 +2765,115 @@ class OkeyGameProvider with ChangeNotifier {
             : OkeyMeldValidator.extendMeld(meld.tiles, tile, match.okeyTile) !=
                   null;
         if (!ok) continue;
-        await _service.addToMeld(matchId, meld.id, tile);
-        processed++;
+        (plan[meld.id] ??= <OkeyTile>[]).add(tile);
+        planned++;
         break;
       }
     }
 
     _selectedIndices.clear();
-    if (processed == 0) {
+    if (plan.isEmpty) {
       throw 'Seçilen taşlar masadaki hiçbir pere işlenemiyor.';
     }
+
+    // ---- 2) GÖNDER — FARKLI perler PARALEL (performans, 2026-09-07) ------
+    //
+    // Eskiden her taş için ayrı ayrı BEKLENİYORDU: dört işlek taş, dört tam
+    // ağ turu demekti ve o süre boyunca hamle kuyruğu kapalı olduğu için
+    // masa donuk duruyordu.
+    //
+    // ## Paralel göndermek neden GÜVENLİ
+    //
+    // `okey_add_to_meld` işe MAÇ SATIRINI `FOR UPDATE` ile kilitleyerek
+    // başlıyor (bkz. 20260905000001 göçü). Yani aynı maça gelen çağrıları
+    // sunucu ZATEN teker teker işliyor; ikincisi birincinin commit'ini
+    // bekleyip GÜNCEL durumu okuyor. Kazanılan şey ağ turlarının üst üste
+    // binmesi, sunucudaki sıra değil.
+    //
+    // ## Aynı per İÇİNDE neden hâlâ sıralı
+    //
+    // Bir seriyi iki taşla uzatmak SIRA İSTER: masadaki 5-6-7'ye önce 4,
+    // sonra 3 gider. Paralel gönderilseydi 3 önce varabilir ve sunucu haklı
+    // olarak `invalid_meld_after_add` derdi.
+    final done = <OkeyTile>[];
+    Object? firstError;
+
+    await Future.wait([
+      for (final entry in plan.entries)
+        () async {
+          for (final tile in entry.value) {
+            try {
+              await _service.addToMeld(matchId, entry.key, tile);
+              done.add(tile);
+            } catch (e) {
+              // Aynı perdeki SONRAKİ taşlar anlamsız: o per beklenen hâline
+              // gelmedi. Öteki perler kendi zincirlerini sürdürür.
+              firstError ??= e;
+              break;
+            }
+          }
+        }(),
+    ]);
+
+    if (done.isEmpty) {
+      throw firstError ?? 'Seçilen taşlar masadaki hiçbir pere işlenemiyor.';
+    }
+    if (firstError != null) {
+      // KISMİ BAŞARI hata değildir: taşların bir kısmı masaya indi, gerisi
+      // inmedi (çoğunlukla aynı peri iki taşla uzatma sırası yüzünden).
+      // Eskiden bu bir istisna olarak yüzeye çıkıyor ve BAŞARILI kısım da
+      // olmamış gibi görünüyordu.
+      explain('Taşların bir kısmı işlendi; kalanı için tekrar dene.');
+    }
+    await _finishTurnAfterProcessing(done);
   });
+
+  /// İŞLEME BİTTİ, ELDE TEK TAŞ KALDIYSA TURU KAPAT (kullanıcı isteği,
+  /// 2026-09-07: "işlekler yapınca taş atılsın").
+  ///
+  /// ## Neden gerekiyordu
+  ///
+  /// İşleme, elde ATILACAK bir taş bırakmak zorunda (RULES.md §6): toplu
+  /// işleme son taşa gelince duruyor. O noktada oyuncunun yapabileceği TEK
+  /// hamle o taşı atmaktır ve attığı anda eli biter, yani kazanır. Ama
+  /// [processSelectedTiles] seçimi temizlediği için "AT — BİTİR" düğmesi
+  /// sönük kalıyordu: oyuncu İŞLE'ye basıyor, her şey masaya iniyor ve oyun
+  /// duruyordu. Eli bitirmek için taşa ayrıca dokunup düğmeye basması
+  /// gerektiğini anlaması gerekiyordu.
+  ///
+  /// ## Neden HER durumda atmıyoruz
+  ///
+  /// Sunucu, atılan taş masadaki bir pere İŞLENEBİLİYORSA ya da OKEY'se ceza
+  /// yazar (RULES.md §7/§8) ve bu ceza kazananın skoruna da eklenir
+  /// (okey_internal_finalize_hand: `-101 + penalty`). Yani "senin adına
+  /// attım" demek, oyuncuya sormadan 101 puana mal olabilirdi. O tek durumda
+  /// karar oyuncunun kalır; ne olduğu ve bedeli açıkça yazılır.
+  Future<void> _finishTurnAfterProcessing(List<OkeyTile> processed) async {
+    if (processed.isEmpty || !_isOpeningDone || !canActOnHand) return;
+
+    // Elde ne kaldı? İşlenen taşlar elden BİRER KOPYA düşülür — aynı taştan
+    // iki tane olabilir, hepsini birden silmek eli olduğundan boş gösterirdi.
+    final remaining = List<OkeyTile>.from(_myHand);
+    for (final t in processed) {
+      remaining.remove(t);
+    }
+    if (remaining.length != 1) return;
+
+    final last = remaining.first;
+    final okey = _match?.okeyTile;
+    if (_isTileProcessableOntoTable(last) ||
+        (okey != null && last.isJokerFor(okey))) {
+      explain(
+        'Elinde tek taş kaldı ama o taş ceza yazdırır (işlek taş / okey). '
+        'Yine de bitirmek için taşa dokunup AT\'a bas.',
+      );
+      return;
+    }
+
+    _match = await _service.discard(matchId, last);
+    _stagedGroups.clear();
+    _selectedIndices.clear();
+  }
 
   /// İŞLEME ya da OKEY ÇALMA — hangisi mümkünse.
   ///
@@ -2567,7 +2927,16 @@ class OkeyGameProvider with ChangeNotifier {
           // çağrıları zaten güncel maçı geri döndürüyor (bkz. drawFromDeck /
           // discard), yani sıradaki hamlenin aşama kontrolü için tazelemeyi
           // beklemesi GEREKMİYOR.
-          unawaited(refresh(silent: true));
+          //
+          // DEBOUNCE'A GİRER, DOĞRUDAN ÇAĞRILMAZ (performans, 2026-09-08).
+          // Kendi hamlem sunucuda dört realtime olayı doğuruyor (maç, el,
+          // perler, hamleler) ve onların hepsi zaten _scheduleRefresh'e
+          // düşüyor. Burada ayrıca DOĞRUDAN tazelemek, tek bir taş atmayı
+          // iki tam tazelemeye (2 × 5 sorgu) çıkarıyordu: birincisi buradan,
+          // ikincisi olaylardan. İkisi aynı 120 ms penceresinde birleşince
+          // hamle başına okunan yarıya iner — ve masa zaten hamleyi İYİMSER
+          // olarak göstermiş durumda, yani beklenen bir şey yok.
+          _scheduleRefresh();
         });
   }
 
@@ -2650,6 +3019,9 @@ class OkeyGameProvider with ChangeNotifier {
     if (raw.contains('APP:opening_required')) {
       return 'Önce elini açmalısın.';
     }
+    if (raw.contains('APP:side_draw_undone')) {
+      return 'Bu taşı geri koydun; aynı turda yeniden alamazsın — desteden çek.';
+    }
     if (raw.contains('APP:gosterge_pair_not_processable')) {
       return 'Gösterge çiftine işleme yapılamaz — tek taştır, tamamlanamaz.';
     }
@@ -2679,14 +3051,155 @@ class OkeyGameProvider with ChangeNotifier {
   Future<void> drawFromDeck({int? toSlot}) => _runAction(() async {
     if (!canDraw) return;
     _pendingDrawSlot = toSlot;
-    _match = await _service.drawFromDeck(matchId);
+    final rev = _handRevision;
+    _applyDraw(await _service.drawFromDeck(matchId), rev);
   });
 
+  /// YANDAN ÇEKME — TAŞ ZATEN GÖRÜNÜYOR, BEKLEMEYE GEREK YOK.
+  ///
+  /// Soldakinin ıskartasının en üstündeki taş masada AÇIK duruyor: hangi taşı
+  /// alacağımı sunucuya sormama gerek yok, elimdeki maç satırında yazıyor.
+  /// Bu yüzden taş ıstakaya HEMEN konur; RPC arkada tamamlanır ve maç
+  /// satırını (dolayısıyla ıskartayı ve aşamayı) sunucunun gerçeğiyle ezer.
   Future<void> drawFromDiscard({int? toSlot}) => _runAction(() async {
-    if (!canDraw) return;
+    // GERİ KOYDUĞUM TAŞI TEKRAR ALAMAM (RULES.md §4). Sunucu da reddeder
+    // (APP:side_draw_undone); burada susarak durmak, oyuncuya anlamsız bir
+    // hata bandı göstermekten iyidir — düğme/hedef zaten sönük.
+    if (!canDrawFromSide) return;
     _pendingDrawSlot = toSlot;
-    _match = await _service.drawFromDiscard(matchId);
+    final rev = _handRevision;
+    final rollback = _applyLocalSideDraw();
+    if (rollback != null) {
+      unawaited(_sound.play(OkeySound.drawTile));
+      _notify();
+    }
+    try {
+      _applyDraw(
+        await _service.drawFromDiscard(matchId),
+        rev,
+        playSound: rollback == null,
+      );
+    } catch (_) {
+      rollback?.call();
+      rethrow;
+    }
   });
+
+  /// Yandan çekmeyi YEREL olarak uygular; geri alma işlevini döndürür.
+  /// Kaynak ıskarta boşsa (ya da koltuk/maç bilinmiyorsa) null döner ve
+  /// çekme eskisi gibi sunucunun cevabıyla görünür.
+  ///
+  /// [_handRevision] BİLEREK artırılır: [_applyDraw] böylece "el bu arada
+  /// değişmiş" deyip taşı BİR KEZ DAHA eklemez.
+  VoidCallback? _applyLocalSideDraw() {
+    final match = _match;
+    final seat = mySeatNo;
+    if (match == null || seat == null) return null;
+    final sourceSeat = (seat + 3) % 4;
+    final pile = match.discardPiles[sourceSeat] ?? const <OkeyTile>[];
+    if (pile.isEmpty) return null;
+    final tile = pile.last;
+
+    final prevHand = _myHand;
+    final prevSlots = _rackSlots;
+    final prevPendingSlot = _pendingDrawSlot;
+
+    _myHand = [..._myHand, tile];
+    _handRevision++;
+    _localHandOps++;
+    final piles = <int, List<OkeyTile>>{...match.discardPiles};
+    piles[sourceSeat] = pile.sublist(0, pile.length - 1);
+    _match = match.copyWith(discardPiles: piles, turnPhase: 'discard');
+    _syncRackSlots();
+
+    return () {
+      _myHand = prevHand;
+      _handRevision++;
+      _localHandOps++;
+      _setRackSlots(prevSlots);
+      _match = match;
+      _pendingDrawSlot = prevPendingSlot;
+      _notify();
+    };
+  }
+
+  /// Çekme sonucunu yerel duruma yazar.
+  ///
+  /// SUNUCU ÇEKİLEN TAŞI DA DÖNDÜRÜYORSA (v2, bkz. OkeyGameService._turnAction)
+  /// taş ıstakaya HEMEN konur: eli yeniden okumak için ağ turunun dönmesini
+  /// beklemek, oyuncunun çektiği taşın gözle görülür bir gecikmeyle
+  /// belirmesi demekti. Ardından gelen `refresh` zaten aynı eli sunucudan
+  /// getirir ve yerel tahmini onaylar (ya da düzeltir) — yani bu yalnızca
+  /// GÖRÜNTÜYÜ öne alır, doğruluk sunucuda kalır.
+  ///
+  /// Sunucu eski sürümdeyse [OkeyGameService] `drawn: null` döndürür ve
+  /// davranış eskisi gibi olur: taş, tazeleme dönünce görünür.
+  ///
+  /// [handRevisionBefore] çağrı ÖNCESİNDEKİ el sürümüdür. Çağrı sürerken el
+  /// sunucudan yeniden okunduysa (realtime `onHandChanged` tazelemesi tam o
+  /// sırada düşebilir) taş EKLENMEZ: o okuma taşı ya zaten içeriyordur, ya
+  /// da bir sonraki tazeleme getirir. Buradaki kontrol sürüm üzerindendir,
+  /// "bu taş elimde var mı" üzerinden DEĞİL — okeyde her taştan iki tane
+  /// vardır ve elde zaten olan bir taşı çekmek olağandır; taşın varlığına
+  /// bakan bir kontrol o durumda ikinci kopyayı sessizce yutardı.
+  void _applyDraw(
+    ({OkeyMatch match, OkeyTile? drawn}) result,
+    int handRevisionBefore, {
+    bool playSound = true,
+  }) {
+    _match = result.match;
+    // SES, TAŞ GÖRÜNÜR OLURKEN (bkz. _playMoveSound: kendi çekmem orada
+    // atlanır). Yandan çekmede ses ZATEN çalındı — taş oraya sunucu cevabı
+    // beklenmeden konmuştu.
+    if (playSound) unawaited(_sound.play(OkeySound.drawTile));
+    // El bu arada başka bir yoldan güncellendiyse (yerel iyimser yazma ya da
+    // araya giren bir sunucu okuması) dokunma: taş ya zaten geldi, ya da
+    // hamleden SONRA başlayan tazeleme getirecek.
+    if (_handRevision != handRevisionBefore) return;
+    final drawn = result.drawn;
+    if (drawn == null) {
+      // ESKİ SUNUCU: çekilen taş cevapta yok. Tam tazelemeyi (5 sorgu +
+      // 120 ms debounce) beklemek yerine YALNIZCA eli oku — taşın ekranda
+      // belirmesi için gereken tek şey o.
+      unawaited(_refreshHandOnly());
+      return;
+    }
+    _myHand = [..._myHand, drawn];
+    _localHandOps++;
+    // Taşı oyuncunun bıraktığı slota yerleştirir ve _pendingDrawSlot'u
+    // tüketir; sonraki tazeleme rafı olduğu gibi korur.
+    _syncRackSlots();
+  }
+
+  /// YALNIZCA KENDİ ELİMİ yeniden okur (performans, 2026-09-08).
+  ///
+  /// Tam tazeleme beş sorgu ve bir debounce penceresi demek; oysa çektiğim
+  /// taşın ıstakada belirmesi için gereken tek satır kendi elim. Masanın
+  /// geri kalanı (perler, sayaçlar, ıskartalar) zaten sırada olan tazelemeyle
+  /// gelir. Hata olursa sessizce geçilir: bu bir HIZLANDIRMA, doğruluk yolu
+  /// değil.
+  Future<void> _refreshHandOnly() async {
+    final requestedMatchId = _matchId;
+    final requestedHandOps = _localHandOps;
+    try {
+      final hand = await _service.getMyHand(requestedMatchId);
+      if (_disposed || requestedMatchId != _matchId) return;
+      if (_localHandOps != requestedHandOps) return;
+      _myHand = hand.tiles;
+      _handRevision++;
+      _isOpeningDone = hand.isOpeningDone;
+      _openedWithPairs = hand.openedWithPairs;
+      _wentForPairs = hand.wentForPairs;
+      _myPenaltyPoints = hand.penaltyPoints;
+      _seriesPairsTurnToken = hand.seriesPairsTurnToken;
+      _seriesPairsTurnCount = hand.seriesPairsTurnCount;
+      _sideDrawUndoneToken = hand.sideDrawUndoneToken;
+      _syncRackSlots();
+      _notify();
+    } catch (_) {
+      // Kuyruktaki tam tazeleme zaten doğru durumu getirecek.
+    }
+  }
 
   /// Eli tamamen yere sermeye çalışan oyuncuya NE YAPACAĞINI söyleyen mesaj.
   ///
@@ -2783,6 +3296,10 @@ class OkeyGameProvider with ChangeNotifier {
     _selectedIndices.clear();
     _stagedGroups.clear();
     _canUndoSideDraw = false;
+    // YAN ARTIK KAPALI — tazelemeyi beklemeden. Sunucu bu turda ikinci bir
+    // yandan çekmeyi zaten reddediyor; ıskartanın sönmesi için bir ağ turu
+    // beklemek, oyuncuya reddedilecek bir hedef göstermek demekti.
+    _sideDrawUndoneToken = _match?.turnToken;
     await refresh(silent: true);
   });
 
@@ -2807,23 +3324,96 @@ class OkeyGameProvider with ChangeNotifier {
     }
     final tile = _rackSlots[slotIndex];
     if (tile == null) throw 'Boş slot atılamaz.';
-    // HATA UYARISI: bu taş aslında masadaki bir pere işlenebilirdi ama
-    // oyuncu onun yerine atmayı seçti — kısa bir kırmızı yanıp-sönmeyle
-    // uyar (bkz. discardMistakeTick).
-    if (_isTileProcessableOntoTable(tile)) discardMistakeTick.value++;
-    _match = await _service.discard(matchId, tile);
-    _stagedGroups.clear();
-    _selectedIndices.clear();
+    await _discard(tile, fromSlot: slotIndex);
   });
 
   Future<void> discardSelectedTile() => _runAction(() async {
     if (_selectedIndices.length != 1) {
       throw 'Atmak için tam olarak 1 taş seç.';
     }
-    final tile = selectedTiles.first;
+    await _discard(selectedTiles.first, fromSlot: _selectedIndices.first);
+  });
+
+  /// TAŞ ATMA — MASAYA ÖNCE, SUNUCUYA SONRA (performans, 2026-09-08).
+  ///
+  /// ## Neden iyimser
+  ///
+  /// Atma eskiden yalnızca `okey_take_turn_action` cevabıyla masaya
+  /// yansıyordu; el satırı ise ancak ONDAN SONRAKİ tazelemeyle okunuyordu.
+  /// Yani atılan taş, İKİ ağ turu boyunca hem ıstakada hem ıskartada duruyor,
+  /// oyuncu "taş atılmadı" sanıp tekrar deniyordu. Oysa atmanın sonucu
+  /// tamamen ÖNGÖRÜLEBİLİR: taş elimden çıkar, kendi ıskartamın üstüne gider,
+  /// sıra sağımdakine geçer. Bunları beklemenin hiçbir bilgi değeri yok.
+  ///
+  /// Doğruluk sunucuda kalır: RPC'nin döndürdüğü maç satırı yerel tahmini
+  /// EZER, ardından gelen tazeleme eli sunucudan okur. Hata olursa
+  /// [_applyLocalDiscard]'ın döndürdüğü geri alma çalışır ve masa hamleden
+  /// önceki haline döner.
+  Future<void> _discard(OkeyTile tile, {required int fromSlot}) async {
+    // HATA UYARISI: bu taş aslında masadaki bir pere işlenebilirdi ama
+    // oyuncu onun yerine atmayı seçti — kısa bir kırmızı yanıp-sönmeyle
+    // uyar (bkz. discardMistakeTick).
     if (_isTileProcessableOntoTable(tile)) discardMistakeTick.value++;
-    _match = await _service.discard(matchId, tile);
+    final rollback = _applyLocalDiscard(tile, fromSlot);
     _stagedGroups.clear();
     _selectedIndices.clear();
-  });
+    // SES DE ANINDA: dokunsal geri bildirim hamlenin kendisiyle aynı anda
+    // gelmeli. Hamle sesleri normalde `okey_moves`'tan tetiklenir; KENDİ
+    // atma/çekmem orada bilerek atlanır (bkz. _playMoveSound).
+    unawaited(_sound.play(OkeySound.discardTile));
+    _notify();
+    try {
+      _match = await _service.discard(matchId, tile);
+    } catch (_) {
+      rollback();
+      rethrow;
+    }
+  }
+
+  /// Atmayı YEREL olarak uygular; hamleden önceki hale döndüren işlevi verir.
+  VoidCallback _applyLocalDiscard(OkeyTile tile, int fromSlot) {
+    final prevHand = _myHand;
+    final prevSlots = _rackSlots;
+    final prevMatch = _match;
+
+    final hand = List<OkeyTile>.from(_myHand)..remove(tile);
+    _myHand = hand;
+    _localHandOps++;
+    // Oyuncunun ATTIĞI slot boşaltılır. Sadece ele bakan birleştirme, aynı
+    // taştan iki kopya varken İLK kopyanın slotunu siler — oyuncu bambaşka
+    // bir taşın kalktığını görürdü.
+    if (fromSlot >= 0 &&
+        fromSlot < prevSlots.length &&
+        prevSlots[fromSlot] == tile) {
+      final slots = List<OkeyTile?>.from(prevSlots);
+      slots[fromSlot] = null;
+      _setRackSlots(slots);
+    }
+    _syncRackSlots();
+
+    final match = prevMatch;
+    final seat = mySeatNo;
+    if (match != null && seat != null) {
+      final piles = <int, List<OkeyTile>>{...match.discardPiles};
+      piles[seat] = [...(piles[seat] ?? const <OkeyTile>[]), tile];
+      _match = match.copyWith(
+        discardPiles: piles,
+        turnSeat: (seat + 1) % 4,
+        turnPhase: 'draw',
+        turnDeadline: DateTime.now().add(
+          Duration(seconds: _room?.turnSeconds ?? 20),
+        ),
+      );
+      secondsLeftNotifier.value = secondsLeft;
+    }
+
+    return () {
+      _myHand = prevHand;
+      _localHandOps++;
+      _setRackSlots(prevSlots);
+      _match = prevMatch;
+      secondsLeftNotifier.value = secondsLeft;
+      _notify();
+    };
+  }
 }

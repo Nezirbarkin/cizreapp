@@ -379,6 +379,40 @@ void main() {
     await _teardown(tester, move);
   });
 
+  /// AYNI ANDA İKİ TAŞ — kullanıcı isteği, 2026-09-07: "taş atma, işlek
+  /// yapma, taş çekme ile taş uçuşu uyuşsun".
+  ///
+  /// Bir bot turunun tamamı istemciye TEK tazelemede geliyor. Katman tek uçuş
+  /// tutabilseydi hamleleri sıraya dizmek (ve masanın durumundan yarım saniye
+  /// geri kalmak) gerekirdi. Bu test, ikinci hamlenin BİRİNCİSİ HÂLÂ HAVADAYKEN
+  /// başlayabildiğini doğrular — düzeltmenin ta kendisi budur.
+  testWidgets('iki hamle üst üste binebilir — ikisi de havada', (tester) async {
+    final move = ValueNotifier<OkeyMoveFlash?>(null);
+    await tester.pumpWidget(_overlay(move, mySeat: 0));
+
+    move.value = _flash(1, 'draw_deck', seatNo: 2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byType(OkeyTileWidget), findsOneWidget);
+
+    // Birincisi daha bitmedi: ikinci hamle şimdi gelirse ikisi de çizilmeli.
+    move.value = _flash(2, 'discard', seatNo: 2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(
+      find.byType(OkeyTileWidget),
+      findsNWidgets(2),
+      reason: 'ikinci uçuş birincinin bitmesini bekliyor',
+    );
+
+    // İkisi de kendi süresini doldurunca katman boşalır.
+    await tester.pump(OkeyMoveFlightOverlay.duration);
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byType(OkeyTileWidget), findsNothing);
+
+    await _teardown(tester, move);
+  });
+
   testWidgets('dokunma olaylarını YUTMAZ', (tester) async {
     final move = ValueNotifier<OkeyMoveFlash?>(null);
     var tapped = false;

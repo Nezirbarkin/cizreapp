@@ -749,7 +749,7 @@ class _SeatRowState extends State<_SeatRow> {
 // ===========================================================================
 
 /// Ses olayı kategorisi — küçük gruplar halinde göstermek için.
-enum _SoundCategory { gameplay, feedback, social }
+enum _SoundCategory { gameplay, feedback, social, ui }
 
 /// Her ses olayının admin panelinde görünen adı, açıklaması ve kategorisi.
 const _soundLabels =
@@ -794,6 +794,16 @@ const _soundLabels =
         desc: 'Eli rakip kazanınca',
         category: _SoundCategory.feedback,
       ),
+      OkeySound.coin: (
+        title: 'Çip kazanma',
+        desc: 'Bonus/reklam ödülü cüzdana düşünce',
+        category: _SoundCategory.feedback,
+      ),
+      OkeySound.playerJoin: (
+        title: 'Oyuncu katıldı',
+        desc: 'Bekleme odasında bir koltuk dolunca',
+        category: _SoundCategory.feedback,
+      ),
       OkeySound.laugh: (
         title: 'Gülme (alay)',
         desc: 'Rakip "işlek" taş atınca',
@@ -804,12 +814,23 @@ const _soundLabels =
         desc: 'Geçersiz hamlede',
         category: _SoundCategory.social,
       ),
+      OkeySound.rackTile: (
+        title: 'Istakada taş',
+        desc: 'Taş seçilince/ıstakada taşınınca',
+        category: _SoundCategory.ui,
+      ),
+      OkeySound.buttonTap: (
+        title: 'Düğme tıkı',
+        desc: 'Oyun düğmelerine basınca',
+        category: _SoundCategory.ui,
+      ),
     };
 
 const _categoryLabels = <_SoundCategory, ({String title, IconData icon})>{
   _SoundCategory.gameplay: (title: 'Oynanış Sesleri', icon: Icons.style),
   _SoundCategory.feedback: (title: 'Bildirim Sesleri', icon: Icons.campaign),
   _SoundCategory.social: (title: 'Tepki Sesleri', icon: Icons.emoji_emotions),
+  _SoundCategory.ui: (title: 'Arayüz Sesleri', icon: Icons.touch_app),
 };
 
 class _OkeySoundsTab extends StatefulWidget {

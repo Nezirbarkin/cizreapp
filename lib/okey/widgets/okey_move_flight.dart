@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../engine/okey_tile.dart';
 import 'okey_tile_widget.dart';
@@ -113,38 +114,72 @@ class OkeyMoveFlightOverlay extends StatefulWidget {
     this.tileWidth = 30,
   });
 
-  /// Uçuş süresi. Bir hamleyi anlatacak kadar uzun, sıradaki hamleyi
-  /// geciktirmeyecek kadar kısa: botlar 2–4 sn'de bir oynuyor.
-  static const Duration duration = Duration(milliseconds: 460);
+  /// Uçuş süresi.
+  ///
+  /// 2026-09-07'de 460 → 320 ms (kullanıcı isteği: "taş atma, işlek yapma,
+  /// taş çekme ile taş uçuşu uyuşsun"). Masanın DURUMU hamle okunur okunmaz
+  /// güncelleniyor: atılan taş ıskartada, çekilen taş sayaçta zaten görünür.
+  /// Uçuş ne kadar uzun sürerse, "taş orada duruyor ama hâlâ ona doğru
+  /// uçuyor" penceresi o kadar uzun kalır. 320 ms hareketi anlatmaya yetiyor
+  /// ve pencereyi üçte bir kısaltıyor.
+  static const Duration duration = Duration(milliseconds: 320);
 
   @override
   State<OkeyMoveFlightOverlay> createState() => _OkeyMoveFlightOverlayState();
 }
 
+/// Havada olan TEK bir taş.
+@immutable
+class _Flight {
+  final OkeyMoveFlash flash;
+  final Rect from;
+  final Rect to;
+
+  /// Katmanın kendi saatinde bu uçuşun BAŞLADIĞI an.
+  final Duration startedAt;
+
+  const _Flight({
+    required this.flash,
+    required this.from,
+    required this.to,
+    required this.startedAt,
+  });
+}
+
 class _OkeyMoveFlightOverlayState extends State<OkeyMoveFlightOverlay>
     with SingleTickerProviderStateMixin {
-  /// DENETLEYİCİ initState'te KURULUR, `late final` ile tembel DEĞİL.
+  /// AYNI ANDA BİRDEN ÇOK TAŞ UÇAR (kullanıcı isteği, 2026-09-07: "taş atma,
+  /// işlek yapma, taş çekme ile taş uçuşu uyuşsun").
   ///
-  /// Tembel kurulumda ticker ilk erişimde yaratılır. Kendi hamlelerim hiç
-  /// uçmadığı için (bkz. sınıf yorumu), masada tek bir rakip hamlesi
-  /// görmeden ekranı kapatan bir oyuncuda denetleyiciye İLK erişim
-  /// `dispose()` oluyordu — ticker o anda, widget ağaçtan çıkarılmışken
-  /// kurulmaya çalışılıyor ve "Looking up a deactivated widget's ancestor is
-  /// unsafe" ile patlıyordu.
-  late final AnimationController _controller;
+  /// ## Neden tek uçuş yetmiyordu
+  ///
+  /// Bir bot turunun tamamı (çek → işle → at) istemciye TEK tazelemede
+  /// geliyor. Katman tek uçuş tutabildiği için provider'ın bunları yarım
+  /// saniyelik aralıklarla sıraya dizmesi gerekiyordu; sonuç, masanın çoktan
+  /// güncellenmiş hâliyle animasyonun birbirinden kopmasıydı — taş ıskartada
+  /// dururken hâlâ ona doğru uçuyordu, üstelik bir saniye gecikmeyle.
+  ///
+  /// Artık uçuşlar üst üste binebilir: hamleler geldikleri anda, aralarında
+  /// yalnızca okunabilirlik için küçük bir kayma bırakılarak başlar. Turun
+  /// tamamı yarım saniyede anlatılır ve masanın durumuyla örtüşür.
+  ///
+  /// ## Neden tek Ticker, uçuş başına AnimationController değil
+  ///
+  /// Her uçuş için ayrı denetleyici kurmak, saniyede birkaç kez
+  /// controller kurup söken bir masa demekti. Tek bir saat ilerler, her uçuş
+  /// kendi başlangıç anını taşır ve ilerlemesini ondan hesaplar.
+  late final Ticker _ticker;
 
-  OkeyMoveFlash? _current;
-  Rect? _from;
-  Rect? _to;
+  /// Katmanın saati — yalnızca uçuş varken ilerler.
+  Duration _clock = Duration.zero;
+
+  final List<_Flight> _flights = [];
   int? _lastId;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: OkeyMoveFlightOverlay.duration,
-    );
+    _ticker = createTicker(_onFrame);
     widget.move.addListener(_onMove);
     // İLK KURULUŞTA UÇURMA: masaya girerken en son hamle zaten olmuş bitmiş.
     _lastId = widget.move.value?.id;
@@ -162,8 +197,20 @@ class _OkeyMoveFlightOverlayState extends State<OkeyMoveFlightOverlay>
   @override
   void dispose() {
     widget.move.removeListener(_onMove);
-    _controller.dispose();
+    _ticker.dispose();
     super.dispose();
+  }
+
+  void _onFrame(Duration elapsed) {
+    setState(() {
+      _clock = elapsed;
+      _flights.removeWhere(
+        (f) => elapsed - f.startedAt >= OkeyMoveFlightOverlay.duration,
+      );
+      // Havada taş kalmadıysa saat durur: boş bir katman için her kare
+      // yeniden çizim yapılmaz.
+      if (_flights.isEmpty) _ticker.stop();
+    });
   }
 
   void _onMove() {
@@ -180,11 +227,21 @@ class _OkeyMoveFlightOverlayState extends State<OkeyMoveFlightOverlay>
     if (route == null) return; // çapası çözülemeyen hamle sessizce atlanır
 
     setState(() {
-      _current = m;
-      _from = route.$1;
-      _to = route.$2;
+      // Saat duruyorsa sıfırdan başlar: Ticker.start() geçen süreyi kendi
+      // başlangıcından sayar, eski uçuşların damgalarıyla karıştırılamaz.
+      if (!_ticker.isActive) {
+        _clock = Duration.zero;
+        _ticker.start();
+      }
+      _flights.add(
+        _Flight(
+          flash: m,
+          from: route.$1,
+          to: route.$2,
+          startedAt: _clock,
+        ),
+      );
     });
-    _controller.forward(from: 0);
   }
 
   /// Hamlenin NEREDEN NEREYE olduğunu çözer.
@@ -239,66 +296,67 @@ class _OkeyMoveFlightOverlayState extends State<OkeyMoveFlightOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final m = _current;
-    final from = _from;
-    final to = _to;
-    if (m == null || from == null || to == null) {
-      return const SizedBox.shrink();
-    }
+    if (_flights.isEmpty) return const SizedBox.shrink();
 
     final w = widget.tileWidth;
     final h = w / 0.74;
+    final total = OkeyMoveFlightOverlay.duration.inMicroseconds;
 
     return IgnorePointer(
-      // REPAINT SINIRI — uçuş 60 kare boyunca çizilir; masanın tamamını
+      // REPAINT SINIRI — uçuş onlarca kare boyunca çizilir; masanın tamamını
       // (keçe, perler, ıstaka) yeniden boyamaya zorlamasın.
       child: RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            final t = _controller.value;
-            if (t >= 1) return const SizedBox.shrink();
-
-            // Yumuşak giriş/çıkış: taş fırlamaz, "kayar".
-            final e = Curves.easeInOutCubic.transform(t);
-            final center = Offset.lerp(from.center, to.center, e)!;
-
-            // HAFİF KAVİS: düz bir çizgi mekanik görünüyordu. Yay, yolun
-            // ortasında en yüksek; iki ucunda sıfır.
-            final lift =
-                math.sin(e * math.pi) *
-                (from.center - to.center).distance *
-                0.10;
-
-            // Sonda küçülerek yerine oturur; başta hafif büyük "kalkar".
-            final scale = 1.0 + 0.16 * math.sin(e * math.pi);
-            // Yalnızca son çeyrekte söner: yol boyunca net kalsın.
-            final opacity = t < 0.75 ? 1.0 : (1 - (t - 0.75) / 0.25);
-
-            return Stack(
-              children: [
-                Positioned(
-                  left: center.dx - w / 2,
-                  top: center.dy - h / 2 - lift,
-                  child: Opacity(
-                    opacity: opacity.clamp(0.0, 1.0),
-                    child: Transform.scale(
-                      scale: scale,
-                      child: OkeyTileWidget(
-                        tile: m.tile ?? OkeyTile.falseJoker(),
-                        faceDown: !_faceUp(m),
-                        width: w,
-                        height: h,
-                        tight: true,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
+        child: Stack(
+          children: [
+            for (final f in _flights)
+              ..._flightWidgets(f, total: total, w: w, h: h),
+          ],
         ),
       ),
     );
+  }
+
+  List<Widget> _flightWidgets(
+    _Flight f, {
+    required int total,
+    required double w,
+    required double h,
+  }) {
+    final t = ((_clock - f.startedAt).inMicroseconds / total).clamp(0.0, 1.0);
+    if (t >= 1) return const [];
+
+    // Yumuşak giriş/çıkış: taş fırlamaz, "kayar".
+    final e = Curves.easeInOutCubic.transform(t);
+    final center = Offset.lerp(f.from.center, f.to.center, e)!;
+
+    // HAFİF KAVİS: düz bir çizgi mekanik görünüyordu. Yay, yolun ortasında en
+    // yüksek; iki ucunda sıfır.
+    final lift =
+        math.sin(e * math.pi) * (f.from.center - f.to.center).distance * 0.10;
+
+    // Sonda küçülerek yerine oturur; başta hafif büyük "kalkar".
+    final scale = 1.0 + 0.16 * math.sin(e * math.pi);
+    // Yalnızca son çeyrekte söner: yol boyunca net kalsın.
+    final opacity = t < 0.75 ? 1.0 : (1 - (t - 0.75) / 0.25);
+
+    return [
+      Positioned(
+        left: center.dx - w / 2,
+        top: center.dy - h / 2 - lift,
+        child: Opacity(
+          opacity: opacity.clamp(0.0, 1.0),
+          child: Transform.scale(
+            scale: scale,
+            child: OkeyTileWidget(
+              tile: f.flash.tile ?? OkeyTile.falseJoker(),
+              faceDown: !_faceUp(f.flash),
+              width: w,
+              height: h,
+              tight: true,
+            ),
+          ),
+        ),
+      ),
+    ];
   }
 }

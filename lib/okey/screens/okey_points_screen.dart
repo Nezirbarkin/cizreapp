@@ -5,6 +5,7 @@ import '../providers/okey_points_provider.dart';
 import '../services/okey_ad_reward.dart';
 import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
+import '../widgets/okey_coin_rain.dart';
 import '../widgets/okey_leaderboard_view.dart';
 
 /// Okey puanları: bakiye, saatlik hediye, reklamla puan ve skor tablosu.
@@ -67,47 +68,49 @@ class _OkeyPointsViewState extends State<_OkeyPointsView> {
       });
     }
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: OkeyColors.screenBackground,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: OkeyUI.text,
-          title: const Text(
-            'Çiplerim',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-          bottom: const TabBar(
-            labelColor: OkeyColors.accentGold,
-            unselectedLabelColor: OkeyUI.textDim,
-            indicatorColor: OkeyColors.accentGold,
-            tabs: [
-              Tab(text: 'Çiplerim', icon: Icon(Icons.stars, size: 18)),
-              Tab(
-                text: 'Skor tablosu',
-                icon: Icon(Icons.leaderboard, size: 18),
-              ),
-            ],
-          ),
-        ),
-        body: Container(
-          decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
-          child: SafeArea(
-            top: false,
-            child: TabBarView(
-              children: [
-                _WalletTab(
-                  provider: provider,
-                  adBusy: _adBusy,
-                  onWatchAd: () => _watchAd(context),
+    return OkeyCoinRain(
+      child: DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          backgroundColor: OkeyColors.screenBackground,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            foregroundColor: OkeyUI.text,
+            title: const Text(
+              'Çiplerim',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            bottom: TabBar(
+              labelColor: OkeyColors.accentGold,
+              unselectedLabelColor: OkeyUI.textDim,
+              indicatorColor: OkeyColors.accentGold,
+              tabs: const [
+                Tab(text: 'Çiplerim', icon: Icon(Icons.stars, size: 18)),
+                Tab(
+                  text: 'Skor tablosu',
+                  icon: Icon(Icons.leaderboard, size: 18),
                 ),
-                const OkeyLeaderboardView(),
               ],
+            ),
+          ),
+          body: Container(
+            decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
+            child: SafeArea(
+              top: false,
+              child: TabBarView(
+                children: [
+                  _WalletTab(
+                    provider: provider,
+                    adBusy: _adBusy,
+                    onWatchAd: () => _watchAd(context),
+                  ),
+                  const OkeyLeaderboardView(),
+                ],
+              ),
             ),
           ),
         ),

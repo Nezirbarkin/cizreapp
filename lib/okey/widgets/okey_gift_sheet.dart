@@ -144,10 +144,10 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
         margin: const EdgeInsets.all(10),
         constraints: BoxConstraints(maxHeight: maxSheetHeight),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF16556E), OkeyColors.screenBackground],
+            colors: [const Color(0xFF16556E), OkeyColors.screenBackground],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
@@ -171,15 +171,15 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
               const SizedBox(height: OkeyUI.gapSm),
               // BAŞLIK VE AÇIKLAMA TEK SATIRDA: yatay ekranda her satır,
               // ızgaradan çalınan bir sıra demek.
-              const Row(
+              Row(
                 children: [
                   Icon(
                     Icons.card_giftcard,
                     size: 18,
                     color: OkeyColors.accentGold,
                   ),
-                  SizedBox(width: 7),
-                  Text('HEDİYE GÖNDER', style: OkeyUI.title),
+                  const SizedBox(width: 7),
+                  const Text('HEDİYE GÖNDER', style: OkeyUI.title),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -231,8 +231,8 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                     future: _catalog,
                     builder: (context, snap) {
                       if (snap.connectionState != ConnectionState.done) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
                           child: Center(
                             child: CircularProgressIndicator(
                               color: OkeyColors.accentGold,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/okey_sound_service.dart';
+
 import 'okey_theme.dart';
 
 /// 101 Okey modülünün ORTAK TASARIM SİSTEMİ.
@@ -241,7 +243,9 @@ class OkeyCard extends StatelessWidget {
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(OkeyUI.radius),
       child: InkWell(
-        onTap: onTap,
+        // Dokunulabilir kart da bir düğmedir: tık sesi buradan gelir
+        // (bkz. [withOkeyTapSound]).
+        onTap: withOkeyTapSound(onTap),
         borderRadius: BorderRadius.circular(OkeyUI.radius),
         child: decorated,
       ),
@@ -381,7 +385,7 @@ class OkeyButton extends StatelessWidget {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
           child: InkWell(
-            onTap: enabled ? onPressed : null,
+            onTap: enabled ? withOkeyTapSound(onPressed) : null,
             borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -487,18 +491,23 @@ class OkeyStatTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final Color color;
+
+  /// `null` ise aktif MASA TEMASININ altın vurgusu kullanılır — bu artık
+  /// bir derleme zamanı sabiti değil (bkz. OkeyTableTheme), o yüzden
+  /// varsayılan değer burada değil [build] içinde çözülür.
+  final Color? color;
 
   const OkeyStatTile({
     super.key,
     required this.icon,
     required this.label,
     required this.value,
-    this.color = OkeyColors.accentGold,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? OkeyColors.accentGold;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -552,18 +561,17 @@ class OkeyStatTile extends StatelessWidget {
 /// Küçük durum rozeti.
 class OkeyPill extends StatelessWidget {
   final String text;
-  final Color color;
+
+  /// `null` ise aktif MASA TEMASININ altın vurgusu kullanılır (bkz.
+  /// OkeyStatTile.color üzerindeki not — aynı gerekçe).
+  final Color? color;
   final IconData? icon;
 
-  const OkeyPill({
-    super.key,
-    required this.text,
-    this.color = OkeyColors.accentGold,
-    this.icon,
-  });
+  const OkeyPill({super.key, required this.text, this.color, this.icon});
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? OkeyColors.accentGold;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

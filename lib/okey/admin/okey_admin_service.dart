@@ -161,11 +161,20 @@ class OkeySettingsData {
 
 /// Sistem kazancı özeti.
 class OkeyRevenueSummary {
+  /// NET kazanç: oda ücretleri + komisyonlar − bot masalarında BASILAN çip.
   final int total;
   final int roomFees;
   final int commissions;
   final int today;
   final int pointsInCirculation;
+
+  /// Bot masalarında kasanın pota koyduğu (yani DOLAŞIMA BASTIĞI) toplam çip.
+  ///
+  /// Defterde eksi işaretli durur; burada ARTI gelir, çünkü kart "ne kadar
+  /// ödedik" sorusunu cevaplıyor. [total] bu tutarı zaten düşmüştür —
+  /// yoksa "Toplam Kazanç neden düştü" sorusunun cevabı hiçbir yerde
+  /// görünmezdi.
+  final int botStakes;
 
   const OkeyRevenueSummary({
     required this.total,
@@ -173,6 +182,7 @@ class OkeyRevenueSummary {
     required this.commissions,
     required this.today,
     required this.pointsInCirculation,
+    this.botStakes = 0,
   });
 
   static const empty = OkeyRevenueSummary(
@@ -181,6 +191,7 @@ class OkeyRevenueSummary {
     commissions: 0,
     today: 0,
     pointsInCirculation: 0,
+    botStakes: 0,
   );
 
   factory OkeyRevenueSummary.fromMap(Map<String, dynamic> m) =>
@@ -191,6 +202,7 @@ class OkeyRevenueSummary {
         today: (m['today_revenue'] as num?)?.toInt() ?? 0,
         pointsInCirculation:
             (m['total_points_in_circulation'] as num?)?.toInt() ?? 0,
+        botStakes: (m['bot_stake_total'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -1037,6 +1049,24 @@ class OkeyAdminService {
   Future<int> setGiftRecipientPercent(int percent) async {
     final v = await _client.rpc(
       'okey_admin_set_gift_percent',
+      params: {'p_percent': percent},
+    );
+    return (v as num?)?.toInt() ?? percent;
+  }
+
+  /// Kaybeden BOT koltuğunun pota koyduğu masa puanı yüzdesi.
+  ///
+  /// Botun cüzdanı yok; bu payı KASA fonlar. 0 yazmak botları ekonominin
+  /// dışında bırakır — o zaman botlarla oynanan masada pot boş kalır ve
+  /// kazanan yalnızca kendi masa puanını geri alır.
+  Future<int> botStakePercent() async {
+    final v = await _client.rpc('okey_admin_get_bot_stake_percent');
+    return (v as num?)?.toInt() ?? 100;
+  }
+
+  Future<int> setBotStakePercent(int percent) async {
+    final v = await _client.rpc(
+      'okey_admin_set_bot_stake_percent',
       params: {'p_percent': percent},
     );
     return (v as num?)?.toInt() ?? percent;

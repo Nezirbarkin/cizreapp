@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -9,9 +11,12 @@ import '../services/okey_ad_reward.dart';
 import '../services/okey_guest_auth.dart';
 import '../services/okey_invite_service.dart';
 import '../services/okey_room_service.dart';
+import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
+import '../widgets/okey_coin_rain.dart';
 import '../widgets/okey_leaderboard_view.dart';
+import '../widgets/okey_table_settings_dialog.dart';
 import 'okey_create_room_screen.dart';
 import 'okey_game_screen.dart';
 import 'okey_points_screen.dart';
@@ -114,7 +119,7 @@ class _OkeySessionGateState extends State<_OkeySessionGate> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
+                Icon(
                   Icons.casino_outlined,
                   size: 64,
                   color: OkeyColors.accentGold,
@@ -188,6 +193,35 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   /// Reklam yükleniyor/gösteriliyor — düğme iki kez tetiklenmesin.
   bool _adBusy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // MASA TEMASI — masaya oturmadan da okunur ki lobideki "Tema" düğmesi
+    // ilk açılışta kayıtlı seçimi göstersin (bkz. OkeyGameProvider._init'te
+    // aynı çağrı; ikinci çağrılarda kendini kısa devre yapar).
+    unawaited(OkeyTableThemePrefs.instance.load());
+  }
+
+  /// Masaya oturmadan da tema seçilebilsin diye lobiden açılan kısayol
+  /// (kullanıcı isteği, 2026-09-14: "oyuncu tema seçebilsin ayardan").
+  void _openThemePicker() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: OkeyColors.screenBackground,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        title: const Text('Masa teması', style: TextStyle(color: Colors.white)),
+        content: const SizedBox(width: 420, child: OkeyTableThemePicker()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _watchAd() async {
     final provider = context.read<OkeyPointsProvider>();
     setState(() => _adBusy = true);
@@ -220,11 +254,13 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   /// düşük giriş) ile eşleştirir. Ayarını seçmek isteyen MASA AÇ'ı
   /// kullanır — "hızlı" bir akışın ilk adımı bir ayar ekranı olamaz.
   Future<void> _quickMatch(BuildContext context) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final lobby = context.read<OkeyLobbyProvider>();
     final roomId = await lobby.quickMatch();
     if (!context.mounted) return;
     if (roomId == null) {
-      _toast(context, lobby.error ?? 'Eşleştirme yapılamadı.');
+      _toast(messenger, lobby.error ?? 'Eşleştirme yapılamadı.');
       return;
     }
     await Navigator.of(
@@ -234,6 +270,8 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   }
 
   Future<void> _createRoom(BuildContext context) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final choice = await Navigator.of(context).push<OkeyRoomOptions>(
       MaterialPageRoute(builder: (_) => const OkeyCreateRoomScreen()),
     );
@@ -254,7 +292,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     if (roomId == null) {
       final err = lobby.error ?? 'Oda kurulamadı';
       _toast(
-        context,
+        messenger,
         err.contains('insufficient_points')
             ? 'Yeterli çipin yok. Hediye al ya da reklam izle.'
             : err,
@@ -269,6 +307,8 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   }
 
   Future<void> _joinByCode(BuildContext context) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final controller = TextEditingController();
     final code = await showDialog<String>(
       context: context,
@@ -306,7 +346,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     if (!context.mounted) return;
 
     if (roomId == null) {
-      _toast(context, lobby.error ?? 'Odaya katılınamadı');
+      _toast(messenger, lobby.error ?? 'Odaya katılınamadı');
       return;
     }
     Navigator.of(
@@ -324,13 +364,15 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     BuildContext context,
     OkeyRoomInvite invite,
   ) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final lobby = context.read<OkeyLobbyProvider>();
     final points = context.read<OkeyPointsProvider>();
     final roomId = await lobby.acceptInvite(invite.inviteId);
     if (!context.mounted) return;
 
     if (roomId == null) {
-      _toast(context, lobby.error ?? 'Davete katılınamadı');
+      _toast(messenger, lobby.error ?? 'Davete katılınamadı');
       return;
     }
     points.refresh();
@@ -340,6 +382,8 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   }
 
   Future<void> _joinRoom(BuildContext context, OkeyRoom room) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final lobby = context.read<OkeyLobbyProvider>();
     final seat = await lobby.joinRoom(roomId: room.id);
     if (!context.mounted) return;
@@ -347,7 +391,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     if (seat == null) {
       final err = lobby.error ?? 'Odaya katılınamadı';
       _toast(
-        context,
+        messenger,
         err.contains('room_full')
             ? 'Masa doldu.'
             : err.contains('insufficient_points')
@@ -363,10 +407,15 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     ).push(MaterialPageRoute(builder: (_) => OkeyRoomScreen(roomId: room.id)));
   }
 
-  static void _toast(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  /// Mesaji, cagiran metodun BASINDA yakalanmis messenger uzerinden gosterir.
+  ///
+  /// Eskiden `ScaffoldMessenger.of(context)` burada, yani await'lerden SONRA
+  /// cagriliyordu. Kullanici bu arada lobiden cikarsa element deactive olur;
+  /// `context.mounted` o pencerede hala true dondugu icin ustteki korumalar
+  /// tutmuyor ve arama "Looking up a deactivated widget's ancestor is unsafe"
+  /// atiyordu.
+  static void _toast(ScaffoldMessengerState messenger, String message) {
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Masayı İZLEMEYE başla.
@@ -375,9 +424,11 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   /// olsaydı ekran açılıp RLS yüzünden boş bir masa gösterirdi: izleme izni
   /// tam olarak o kayıttan doğuyor.
   Future<void> _watchRoom(BuildContext context, OkeyRoom room) async {
+    // Messenger ilk await'ten ONCE yakalanir; bkz. [_toast].
+    final messenger = ScaffoldMessenger.of(context);
     final matchId = room.currentMatchId;
     if (matchId == null) {
-      _toast(context, 'Bu masada şu an oynanan bir el yok.');
+      _toast(messenger, 'Bu masada şu an oynanan bir el yok.');
       return;
     }
     try {
@@ -386,7 +437,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
       if (!context.mounted) return;
       final raw = e.toString();
       _toast(
-        context,
+        messenger,
         raw.contains('already_seated')
             ? 'Bu masada zaten oturuyorsun.'
             : raw.contains('room_is_private')
@@ -410,244 +461,261 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     final lobby = context.watch<OkeyLobbyProvider>();
     final points = context.watch<OkeyPointsProvider>();
 
-    return OkeyScreen(
-      title: '101 Okey',
-      onRefresh: () async {
-        await lobby.refresh();
-        await points.refresh();
-      },
-      actions: [
-        _PointsChip(points: points),
-        // SKOR TABLOSU üst barda: eskiden yalnızca puan ekranının ikinci
-        // sekmesindeydi, yani sıralamayı görmek için iki dokunuş ve bir
-        // ekran değişimi gerekiyordu.
-        IconButton(
-          icon: const Icon(Icons.leaderboard),
-          tooltip: 'Skor tablosu',
-          onPressed: _openLeaderboard,
-        ),
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          tooltip: 'Yenile',
-          onPressed: () {
-            lobby.refresh();
-            points.refresh();
-          },
-        ),
-      ],
-      slivers: [
-        if (lobby.activeRoom != null)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, OkeyUI.gap),
-              child: _ResumeCard(room: lobby.activeRoom!),
-            ),
+    // BONUS lobiden de alınabiliyor; çip yağmuru masaya özel değil
+    // (bkz. OkeyCoinRain).
+    return OkeyCoinRain(
+      child: OkeyScreen(
+        title: '101 Okey',
+        onRefresh: () async {
+          await lobby.refresh();
+          await points.refresh();
+        },
+        actions: [
+          _PointsChip(points: points),
+          // MASA TEMASI — kullanıcı isteği, 2026-09-14: "oyuncu tema
+          // seçebilsin ayardan". Masaya oturmadan da seçilebilsin diye
+          // burada, ayrıca masa içindeki Ayarlar diyaloğunda da var.
+          IconButton(
+            icon: const Icon(Icons.palette_outlined),
+            tooltip: 'Masa teması',
+            onPressed: _openThemePicker,
           ),
+          // SKOR TABLOSU üst barda: eskiden yalnızca puan ekranının ikinci
+          // sekmesindeydi, yani sıralamayı görmek için iki dokunuş ve bir
+          // ekran değişimi gerekiyordu.
+          IconButton(
+            icon: const Icon(Icons.leaderboard),
+            tooltip: 'Skor tablosu',
+            onPressed: _openLeaderboard,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Yenile',
+            onPressed: () {
+              lobby.refresh();
+              points.refresh();
+            },
+          ),
+        ],
+        slivers: [
+          if (lobby.activeRoom != null)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, OkeyUI.gap),
+                child: _ResumeCard(room: lobby.activeRoom!),
+              ),
+            ),
 
-        // ARKADAŞ DAVETLERİ — bildirimi kaçıranın daveti görebileceği yer.
-        // En üstte durur: davet, lobideki her şeyden daha zaman duyarlıdır
-        // (masa dolar ya da oyun başlar, davet düşer).
-        if (lobby.pendingInvites.isNotEmpty) ...[
+          // ARKADAŞ DAVETLERİ — bildirimi kaçıranın daveti görebileceği yer.
+          // En üstte durur: davet, lobideki her şeyden daha zaman duyarlıdır
+          // (masa dolar ya da oyun başlar, davet düşer).
+          if (lobby.pendingInvites.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: const OkeySectionHeader(label: 'Seni davet edenler'),
+              ),
+            ),
+            SliverList.separated(
+              itemCount: lobby.pendingInvites.length,
+              separatorBuilder: (_, _) => const SizedBox(height: OkeyUI.gapSm),
+              itemBuilder: (_, i) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: _InviteCard(
+                  invite: lobby.pendingInvites[i],
+                  onAccept: () =>
+                      _acceptInvite(context, lobby.pendingInvites[i]),
+                  onDecline: () =>
+                      lobby.declineInvite(lobby.pendingInvites[i].inviteId),
+                ),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gap)),
+          ],
+
+          // BİRİNCİL EYLEMLER — ekranın en üstünde, tek satır.
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: const OkeySectionHeader(label: 'Seni davet edenler'),
-            ),
-          ),
-          SliverList.separated(
-            itemCount: lobby.pendingInvites.length,
-            separatorBuilder: (_, _) => const SizedBox(height: OkeyUI.gapSm),
-            itemBuilder: (_, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: _InviteCard(
-                invite: lobby.pendingInvites[i],
-                onAccept: () => _acceptInvite(context, lobby.pendingInvites[i]),
-                onDecline: () =>
-                    lobby.declineInvite(lobby.pendingInvites[i].inviteId),
+              child: Column(
+                children: [
+                  // OTOMATİK EŞLEŞTİR — BİRİNCİL eylem (kullanıcı isteği,
+                  // 2026-09-07). "Hangi masa?" ve "kaç kişi bekleyeceğim?"
+                  // sorularını oyuncuya hiç sormaz: tek dokunuşla ya var olan
+                  // bir masaya oturur ya da yeni masa açılır ve süre dolunca
+                  // boş koltuklar botlarla dolar.
+                  //
+                  // MASA AÇ'ın ÜSTÜNDE ve tam genişlikte: oyuncuların çoğu
+                  // "oynamak" istiyor, "masa kurmak" değil. Masa kurmak artık
+                  // ikincil — ayarlarını kendi seçmek isteyenin yolu.
+                  SizedBox(
+                    width: double.infinity,
+                    child: OkeyButton(
+                      label: 'OTOMATİK EŞLEŞTİR',
+                      icon: Icons.bolt,
+                      tone: OkeyButtonTone.primary,
+                      onPressed: () => _quickMatch(context),
+                    ),
+                  ),
+                  const SizedBox(height: OkeyUI.gapSm),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: OkeyButton(
+                          label: 'MASA AÇ',
+                          icon: Icons.add_circle_outline,
+                          tone: OkeyButtonTone.secondary,
+                          onPressed: () => _createRoom(context),
+                        ),
+                      ),
+                      const SizedBox(width: OkeyUI.gapSm),
+                      Expanded(
+                        flex: 2,
+                        child: OkeyButton(
+                          label: 'KOD',
+                          icon: Icons.vpn_key,
+                          tone: OkeyButtonTone.ghost,
+                          onPressed: () => _joinByCode(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gap)),
-        ],
 
-        // BİRİNCİL EYLEMLER — ekranın en üstünde, tek satır.
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Column(
-              children: [
-                // OTOMATİK EŞLEŞTİR — BİRİNCİL eylem (kullanıcı isteği,
-                // 2026-09-07). "Hangi masa?" ve "kaç kişi bekleyeceğim?"
-                // sorularını oyuncuya hiç sormaz: tek dokunuşla ya var olan
-                // bir masaya oturur ya da yeni masa açılır ve süre dolunca
-                // boş koltuklar botlarla dolar.
-                //
-                // MASA AÇ'ın ÜSTÜNDE ve tam genişlikte: oyuncuların çoğu
-                // "oynamak" istiyor, "masa kurmak" değil. Masa kurmak artık
-                // ikincil — ayarlarını kendi seçmek isteyenin yolu.
-                SizedBox(
-                  width: double.infinity,
-                  child: OkeyButton(
-                    label: 'OTOMATİK EŞLEŞTİR',
-                    icon: Icons.bolt,
-                    tone: OkeyButtonTone.primary,
-                    onPressed: () => _quickMatch(context),
+          // PUAN KAZAN — hediye ve reklam artık HER ZAMAN burada.
+          //
+          // Eskiden hediye kartı yalnızca hazır olduğunda görünüyor, "reklam
+          // izle" ise puan ekranının içinde saklıydı. Oyuncunun puanı bittiği
+          // an yapabileceği iki şey de bir başka ekranın arkasındaydı.
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _EarnCard(
+                      icon: Icons.card_giftcard,
+                      color: const Color(0xFF9CCC65),
+                      title: 'Saatlik hediye',
+                      subtitle: points.canClaimGift
+                          ? '${points.wallet.hourlyGiftPoints} çip hazır'
+                          : points.giftCountdownText,
+                      actionLabel: points.canClaimGift ? 'AL' : 'BEKLE',
+                      enabled: points.canClaimGift && !points.isBusy,
+                      busy: points.isBusy,
+                      onTap: points.claimHourlyGift,
+                    ),
                   ),
-                ),
-                const SizedBox(height: OkeyUI.gapSm),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: OkeyButton(
-                        label: 'MASA AÇ',
-                        icon: Icons.add_circle_outline,
-                        tone: OkeyButtonTone.secondary,
-                        onPressed: () => _createRoom(context),
-                      ),
+                  const SizedBox(width: OkeyUI.gapSm),
+                  Expanded(
+                    child: _EarnCard(
+                      icon: Icons.ondemand_video,
+                      color: const Color(0xFF80D8FF),
+                      title: 'Reklam izle',
+                      subtitle: '${points.wallet.adRewardPoints} çip',
+                      actionLabel: 'İZLE',
+                      enabled: !_adBusy && !points.isBusy,
+                      busy: _adBusy,
+                      onTap: _watchAd,
                     ),
-                    const SizedBox(width: OkeyUI.gapSm),
-                    Expanded(
-                      flex: 2,
-                      child: OkeyButton(
-                        label: 'KOD',
-                        icon: Icons.vpn_key,
-                        tone: OkeyButtonTone.ghost,
-                        onPressed: () => _joinByCode(context),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
 
-        // PUAN KAZAN — hediye ve reklam artık HER ZAMAN burada.
-        //
-        // Eskiden hediye kartı yalnızca hazır olduğunda görünüyor, "reklam
-        // izle" ise puan ekranının içinde saklıydı. Oyuncunun puanı bittiği
-        // an yapabileceği iki şey de bir başka ekranın arkasındaydı.
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _EarnCard(
-                    icon: Icons.card_giftcard,
-                    color: const Color(0xFF9CCC65),
-                    title: 'Saatlik hediye',
-                    subtitle: points.canClaimGift
-                        ? '${points.wallet.hourlyGiftPoints} çip hazır'
-                        : points.giftCountdownText,
-                    actionLabel: points.canClaimGift ? 'AL' : 'BEKLE',
-                    enabled: points.canClaimGift && !points.isBusy,
-                    busy: points.isBusy,
-                    onTap: points.claimHourlyGift,
-                  ),
+          // İZLENEBİLİR MASALAR — oyunu SÜREN masalar. Açık masaların üstünde
+          // durur çünkü oyun başlamış bir masayı izlemek anında mümkündür;
+          // açık bir masada ise üç kişi daha beklemek gerekir.
+          if (lobby.liveRooms.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
+                child: OkeySectionHeader(
+                  label: 'Canlı masalar — izle',
+                  trailing: OkeyPill(text: '${lobby.liveRooms.length}'),
                 ),
-                const SizedBox(width: OkeyUI.gapSm),
-                Expanded(
-                  child: _EarnCard(
-                    icon: Icons.ondemand_video,
-                    color: const Color(0xFF80D8FF),
-                    title: 'Reklam izle',
-                    subtitle: '${points.wallet.adRewardPoints} çip',
-                    actionLabel: 'İZLE',
-                    enabled: !_adBusy && !points.isBusy,
-                    busy: _adBusy,
-                    onTap: _watchAd,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              sliver: SliverList.separated(
+                itemCount: lobby.liveRooms.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: OkeyUI.gapSm),
+                itemBuilder: (context, i) => _LiveRoomCard(
+                  room: lobby.liveRooms[i],
+                  onWatch: () => _watchRoom(context, lobby.liveRooms[i]),
+                ),
+              ),
+            ),
+          ],
 
-        // İZLENEBİLİR MASALAR — oyunu SÜREN masalar. Açık masaların üstünde
-        // durur çünkü oyun başlamış bir masayı izlemek anında mümkündür;
-        // açık bir masada ise üç kişi daha beklemek gerekir.
-        if (lobby.liveRooms.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
               child: OkeySectionHeader(
-                label: 'Canlı masalar — izle',
-                trailing: OkeyPill(text: '${lobby.liveRooms.length}'),
+                label: 'Açık masalar',
+                trailing: lobby.rooms.isEmpty
+                    ? null
+                    : OkeyPill(text: '${lobby.rooms.length}'),
               ),
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            sliver: SliverList.separated(
-              itemCount: lobby.liveRooms.length,
-              separatorBuilder: (_, _) => const SizedBox(height: OkeyUI.gapSm),
-              itemBuilder: (context, i) => _LiveRoomCard(
-                room: lobby.liveRooms[i],
-                onWatch: () => _watchRoom(context, lobby.liveRooms[i]),
-              ),
-            ),
-          ),
-        ],
 
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
-            child: OkeySectionHeader(
-              label: 'Açık masalar',
-              trailing: lobby.rooms.isEmpty
-                  ? null
-                  : OkeyPill(text: '${lobby.rooms.length}'),
-            ),
-          ),
-        ),
-
-        if (lobby.isLoading && lobby.rooms.isEmpty)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 48),
-              child: Center(
-                child: CircularProgressIndicator(color: OkeyColors.accentGold),
-              ),
-            ),
-          )
-        else if (lobby.rooms.isEmpty)
-          SliverToBoxAdapter(
-            child: OkeyEmptyState(
-              icon: Icons.casino_outlined,
-              title: 'Açık masa yok',
-              message: 'İlk masayı sen aç, oyuncular gelsin.',
-              action: SizedBox(
-                width: 220,
-                child: OkeyButton(
-                  label: 'MASA AÇ',
-                  icon: Icons.add_circle_outline,
-                  tone: OkeyButtonTone.primary,
-                  onPressed: () => _createRoom(context),
+          if (lobby.isLoading && lobby.rooms.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: OkeyColors.accentGold,
+                  ),
                 ),
               ),
+            )
+          else if (lobby.rooms.isEmpty)
+            SliverToBoxAdapter(
+              child: OkeyEmptyState(
+                icon: Icons.casino_outlined,
+                title: 'Açık masa yok',
+                message: 'İlk masayı sen aç, oyuncular gelsin.',
+                action: SizedBox(
+                  width: 220,
+                  child: OkeyButton(
+                    label: 'MASA AÇ',
+                    icon: Icons.add_circle_outline,
+                    tone: OkeyButtonTone.primary,
+                    onPressed: () => _createRoom(context),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              sliver: SliverList.separated(
+                itemCount: lobby.rooms.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: OkeyUI.gapSm),
+                itemBuilder: (context, i) =>
+                    _RoomCard(
+                          room: lobby.rooms[i],
+                          onJoin: () => _joinRoom(context, lobby.rooms[i]),
+                        )
+                        // Sıralı giriş; gecikme 6 karttan sonra tavan yapar ki
+                        // uzun listelerde son kartlar dakikalarca beklemesin.
+                        .animate(delay: (40 * i.clamp(0, 6)).ms)
+                        .fadeIn(duration: 250.ms)
+                        .slideY(begin: 0.06, end: 0, curve: Curves.easeOut),
+              ),
             ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            sliver: SliverList.separated(
-              itemCount: lobby.rooms.length,
-              separatorBuilder: (_, _) => const SizedBox(height: OkeyUI.gapSm),
-              itemBuilder: (context, i) =>
-                  _RoomCard(
-                        room: lobby.rooms[i],
-                        onJoin: () => _joinRoom(context, lobby.rooms[i]),
-                      )
-                      // Sıralı giriş; gecikme 6 karttan sonra tavan yapar ki
-                      // uzun listelerde son kartlar dakikalarca beklemesin.
-                      .animate(delay: (40 * i.clamp(0, 6)).ms)
-                      .fadeIn(duration: 250.ms)
-                      .slideY(begin: 0.06, end: 0, curve: Curves.easeOut),
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -739,11 +807,7 @@ class _ResumeCard extends StatelessWidget {
       },
       child: Row(
         children: [
-          const Icon(
-            Icons.play_circle_fill,
-            color: OkeyColors.accentGold,
-            size: 30,
-          ),
+          Icon(Icons.play_circle_fill, color: OkeyColors.accentGold, size: 30),
           const SizedBox(width: OkeyUI.gap),
           const Expanded(
             child: Column(

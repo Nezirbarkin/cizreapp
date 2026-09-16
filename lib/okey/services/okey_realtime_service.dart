@@ -23,6 +23,12 @@ class OkeyRealtimeService {
     required void Function() onHandChanged,
     required void Function() onMeldsChanged,
     required void Function() onMovesChanged,
+    // HIZLI MESAJ — kullanıcı isteği, 2026-09-14: "Bol Şanslar", "Tebrikler"
+    // vb. butonlar, sesli olsun. Postgres tablosuna hiç YAZILMAZ: ephemeral
+    // bir realtime broadcast'tir, aynı kanalın (`okey_match:$matchId`)
+    // ÜSTÜNDE taşınır — hediyeler gibi ayrı bir tablo/kanal gerekmez, çünkü
+    // burada saklanacak bir kayıt (bakiye, geçmiş) yok.
+    void Function(Map<String, dynamic> payload)? onQuickPhrase,
   }) {
     final channelName = 'okey_match:$matchId';
     final existing = _client.channel(channelName);
@@ -31,6 +37,9 @@ class OkeyRealtimeService {
     final uid = _client.auth.currentUser?.id;
 
     final channel = _client.channel(channelName);
+    if (onQuickPhrase != null) {
+      channel.onBroadcast(event: 'quick_phrase', callback: onQuickPhrase);
+    }
     channel.onPostgresChanges(
       event: PostgresChangeEvent.all,
       schema: 'public',
@@ -83,6 +92,25 @@ class OkeyRealtimeService {
 
     channel.subscribe();
     _channel = channel;
+  }
+
+  /// HIZLI MESAJI masadaki DİĞER oyunculara yayınlar.
+  ///
+  /// ASLA hata fırlatmaz: gönderilemezse sessizce yutulur — mesaj zaten
+  /// göndereninin kendi ekranında anında gösterilmiş/seslendirilmiştir
+  /// (bkz. OkeyGameProvider.sendQuickPhrase), yayın yalnızca MASADAKİLERE
+  /// ulaştırır.
+  Future<void> sendQuickPhrase({required int seatNo, required String text}) async {
+    final channel = _channel;
+    if (channel == null) return;
+    try {
+      await channel.sendBroadcastMessage(
+        event: 'quick_phrase',
+        payload: {'seat': seatNo, 'text': text},
+      );
+    } catch (_) {
+      // Ağ/kanal sorunuysa sessizce düşer.
+    }
   }
 
   /// Masaya gönderilen hediyeler — oda kimliği bilinir bilinmez abone olunur.

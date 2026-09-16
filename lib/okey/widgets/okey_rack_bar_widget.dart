@@ -104,28 +104,48 @@ class OkeyRackBarWidget extends StatelessWidget {
           final maxRow = (constraints.maxHeight - chrome) / 2;
           if (maxRow > 0 && rowH > maxRow) rowH = maxRow;
         }
-        // Tavan, ölçü sözleşmesindeki tavanla AYNI olmalı: burada 46'da
-        // kalınca ıstaka, metrics 62px'lik bir satır hesapladığında bile
-        // 46'ya kırpılıyor ve tam genişlik ıstakanın tüm kazancı çöpe
-        // gidiyordu (taşlar küçük kalıyor, gövde ortada boş uzuyordu).
-        return _buildRack(rowH.clamp(10.0, 68.0).toDouble());
+        // SLOT GENİŞLİĞİ DE BURADAN ÇIKAR (performans, 2026-09-09).
+        //
+        // Eskiden her satırın İÇİNDE ayrı bir LayoutBuilder vardı, yalnızca
+        // "mevcut genişliği 16'ya böl" demek için. Bir LayoutBuilder ise
+        // ucuz bir sarmalayıcı değil: alt ağacını YERLEŞİM SIRASINDA yeniden
+        // kurar, yani her ölçüm turunda 16 slotun tamamı yeniden inşa edilir
+        // ve o iş, kareyi hazırlayan normal build turuyla birleştirilemez.
+        //
+        // Oysa genişlik zaten BURADAN türetilebilir: satırların gördüğü
+        // genişlik, ıstakanın genişliğinden yalnızca yatay gövde dolgusu
+        // kadar eksiktir (bkz. [chromePadding]). Tek bir LayoutBuilder yeter.
+        final rowWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth - (showChrome ? _chromePadding.horizontal : 0)
+            : null;
+        return _buildRack(rowH.clamp(10.0, 68.0).toDouble(), rowWidth);
       },
     );
   }
 
-  Widget _buildRack(double rowHeight) {
-    const perRow = OkeyRackLayout.slotsPerRow;
-    // GÖVDE, taş satırlarının ALTINDA ve dolgunun DIŞINDA durmalı: painter
-    // ıstakanın tamamını (üst pah, ara raf, ön çıta) çizer, oysa satırlar o
-    // şeritlerin arasına yerleşir. Bu yüzden dolgu Container'ın değil,
-    // Stack'in İÇİNDEKİ satırların işidir.
-    const chromePadding = EdgeInsets.fromLTRB(
-      4,
-      okeyRackTopBorder + okeyRackVerticalPadding,
-      4,
-      okeyRackLedgeHeight + okeyRackVerticalPadding,
-    );
+  /// GÖVDE DOLGUSU — tek kaynak.
+  ///
+  /// Gövde (painter) taş satırlarının ALTINDA ve dolgunun DIŞINDA durmalı:
+  /// painter ıstakanın tamamını (üst pah, ara raf, ön çıta) çizer, oysa
+  /// satırlar o şeritlerin arasına yerleşir. Bu yüzden dolgu Container'ın
+  /// değil, Stack'in İÇİNDEKİ satırların işidir.
+  ///
+  /// Yatay payı slot genişliği hesabı da okur (bkz. [build]); ikisi ayrı
+  /// sabitlerden beslenseydi biri değişince taşlar sessizce kayardı.
+  static const EdgeInsets _chromePadding = EdgeInsets.fromLTRB(
+    4,
+    okeyRackTopBorder + okeyRackVerticalPadding,
+    4,
+    okeyRackLedgeHeight + okeyRackVerticalPadding,
+  );
 
+  Widget _buildRack(double rowHeight, double? rowWidth) {
+    const perRow = OkeyRackLayout.slotsPerRow;
+    // Genişlik bilinmiyorsa (sınırsız kutu) eski varsayılana düşülür — taş
+    // hiç çizilemesin diye sıfıra inmez.
+    final slotWidth = (rowWidth != null && rowWidth > 0)
+        ? rowWidth / perRow
+        : 30.0;
     return Stack(
       children: [
         // Kendi gövdesini çizen yol (ıstaka tek başına kurulduğunda) da AYNI
@@ -152,7 +172,7 @@ class OkeyRackBarWidget extends StatelessWidget {
             ),
           ),
         Padding(
-          padding: showChrome ? chromePadding : EdgeInsets.zero,
+          padding: showChrome ? _chromePadding : EdgeInsets.zero,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(OkeyRackLayout.rowCount, (row) {
@@ -184,6 +204,7 @@ class OkeyRackBarWidget extends StatelessWidget {
                     hiddenOkeySlots: hiddenOkeySlots,
                     onDoubleTap: onDoubleTap,
                     rowHeight: rowHeight,
+                    slotWidth: slotWidth,
                   ),
                 ),
               );
@@ -216,6 +237,12 @@ class _RackRow extends StatelessWidget {
   final void Function(int slotIndex)? onDoubleTap;
   final double rowHeight;
 
+  /// Bir slotun genişliği — ıstakanın TEK LayoutBuilder'ında hesaplanır
+  /// (bkz. OkeyRackBarWidget.build). Satırın kendi ölçüsünü alması için
+  /// burada ikinci bir LayoutBuilder kurmak, 16 slotu her yerleşim turunda
+  /// yeniden inşa etmek demekti.
+  final double slotWidth;
+
   const _RackRow({
     required this.startIndex,
     required this.count,
@@ -236,6 +263,7 @@ class _RackRow extends StatelessWidget {
     required this.hiddenOkeySlots,
     required this.onDoubleTap,
     required this.rowHeight,
+    required this.slotWidth,
   });
 
   @override
@@ -253,45 +281,38 @@ class _RackRow extends StatelessWidget {
     // taşı slotun ortasında yüzdürüp aralarında boşluk bırakıyordu.
     return SizedBox(
       height: rowHeight,
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final slotW = c.hasBoundedWidth && c.maxWidth > 0
-              ? c.maxWidth / count
-              : 30.0;
-          return Row(
-            children: List.generate(count, (i) {
-              final slotIndex = startIndex + i;
-              final tile = slotIndex < slots.length ? slots[slotIndex] : null;
-              // Expanded + AÇIK ölçü birlikte kullanılır:
-              //  * Expanded: 16 slotun toplamı genişliği ASLA aşamaz
-              //    (yuvarlama hatası taşma yaratmaz),
-              //  * açık ölçü: taş slotu tam doldurur, aralarında boşluk kalmaz.
-              return Expanded(
-                child: _RackSlot(
-                  slotWidth: slotW,
-                  slotHeight: rowHeight,
-                  slotIndex: slotIndex,
-                  tile: tile,
-                  selected: selectedIndices.contains(slotIndex),
-                  canSelect: canSelect,
-                  canDrag: canDrag,
-                  hintProcessable: processableIndices.contains(slotIndex),
-                  hintMeldable: meldableIndices.contains(slotIndex),
-                  hintRisky: riskyIndices.contains(slotIndex),
-                  inCompleteMeld: completeMeldSlots.contains(slotIndex),
-                  endsGroup: groupEndSlots.contains(slotIndex),
-                  hiddenOkey: hiddenOkeySlots.contains(slotIndex),
-                  onDoubleTap: onDoubleTap,
-                  onTap: onTap,
-                  onMove: onMove,
-                  onDragStart: onDragStart,
-                  onDragEnd: onDragEnd,
-                  onDrawDropped: onDrawDropped,
-                ),
-              );
-            }),
+      child: Row(
+        children: List.generate(count, (i) {
+          final slotIndex = startIndex + i;
+          final tile = slotIndex < slots.length ? slots[slotIndex] : null;
+          // Expanded + AÇIK ölçü birlikte kullanılır:
+          //  * Expanded: 16 slotun toplamı genişliği ASLA aşamaz
+          //    (yuvarlama hatası taşma yaratmaz),
+          //  * açık ölçü: taş slotu tam doldurur, aralarında boşluk kalmaz.
+          return Expanded(
+            child: _RackSlot(
+              slotWidth: slotWidth,
+              slotHeight: rowHeight,
+              slotIndex: slotIndex,
+              tile: tile,
+              selected: selectedIndices.contains(slotIndex),
+              canSelect: canSelect,
+              canDrag: canDrag,
+              hintProcessable: processableIndices.contains(slotIndex),
+              hintMeldable: meldableIndices.contains(slotIndex),
+              hintRisky: riskyIndices.contains(slotIndex),
+              inCompleteMeld: completeMeldSlots.contains(slotIndex),
+              endsGroup: groupEndSlots.contains(slotIndex),
+              hiddenOkey: hiddenOkeySlots.contains(slotIndex),
+              onDoubleTap: onDoubleTap,
+              onTap: onTap,
+              onMove: onMove,
+              onDragStart: onDragStart,
+              onDragEnd: onDragEnd,
+              onDrawDropped: onDrawDropped,
+            ),
           );
-        },
+        }),
       ),
     );
   }
@@ -371,15 +392,8 @@ class _RackSlot extends StatelessWidget {
         ? (slotWidth - groupGap).clamp(8.0, slotWidth)
         : slotWidth;
 
-    final Widget visual = t == null
-        ? Container(
-            width: slotWidth,
-            height: slotHeight,
-            // Şeffaf ama BOYANAN bir kutu: görünmez olmasına rağmen dokunma
-            // ve sürükle-bırak testlerine yakalanır. Tamamen boş bir SizedBox
-            // hit-test almaz ve boş slota taş bırakılamaz hale gelirdi.
-            color: Colors.transparent,
-          )
+    final Widget? visual = t == null
+        ? null
         : (hiddenOkey
               // Okey taşı kapalı (arkası dönük) — çift basınca açılır
               ? OkeyTileWidget(
@@ -409,10 +423,19 @@ class _RackSlot extends StatelessWidget {
                 ));
 
     // Taş slotun soluna yaslanır; artan pay sağda boşluk olarak kalır.
+    //
+    // BOŞ SLOTTA hizalayacak bir şey yok: kutu, ŞEFFAF AMA BOYANAN tek bir
+    // katman olarak kalır. Görünmez olmasına rağmen dokunma ve sürükle-bırak
+    // testlerine yakalanır; tamamen boş bir SizedBox hit-test almaz ve boş
+    // slota taş bırakılamaz hale gelirdi. (Eskiden burada ayrıca bir
+    // Container + Align duruyordu — ıstakadaki 11 boş slotun her biri için
+    // iki fazla render nesnesi.)
     final Widget aligned = SizedBox(
       width: slotWidth,
       height: slotHeight,
-      child: Align(alignment: Alignment.centerLeft, child: visual),
+      child: visual == null
+          ? const ColoredBox(color: Colors.transparent)
+          : Align(alignment: Alignment.centerLeft, child: visual),
     );
 
     final Widget tappable = GestureDetector(

@@ -1,25 +1,37 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
-/// Masanın ARKA PLANI — koyu turkuaz-mavi zemin üzerine kabartma damask
-/// (kıvrım/yaprak) motifi.
+import '../theme/okey_table_theme.dart';
+import '../theme/okey_theme.dart';
+
+/// Masanın ARKA PLANI — MASA TEMASININ zemin tonu üzerine, o temaya özgü
+/// bir kabartma DESENİ (bkz. [OkeyBackdropPattern]).
 ///
 /// ## Neden CustomPainter, neden bir görsel değil
 ///
 /// Referans masanın zemini tek renk değil: merkezden dışa açılan bir ışık,
 /// üzerine düzenli aralıklarla yerleşmiş, zeminden yalnızca birkaç ton açık
-/// KABARTMA kıvrımlar var. Bunu bir PNG ile yapmak (a) her ekran oranında
-/// ya gerilir ya kırpılır, (b) uygulamanın boyutunu büyütür, (c) koyu/açık
-/// varyantı için ikinci bir dosya ister. Vektörel çizim her çözünürlükte
-/// keskin kalır ve tek bir [RepaintBoundary] arkasında BİR KEZ boyanır —
-/// taşlar hareket ettikçe yeniden çizilmez.
+/// KABARTMA bir doku var. Bunu bir PNG ile yapmak (a) her ekran oranında
+/// ya gerilir ya kırpılır, (b) uygulamanın boyutunu büyütür, (c) her tema
+/// için ayrı bir dosya ister. Vektörel çizim her çözünürlükte keskin kalır
+/// ve tek bir [RepaintBoundary] arkasında BİR KEZ boyanır — taşlar hareket
+/// ettikçe yeniden çizilmez.
 ///
-/// ## Motifin kabartma hissi nereden geliyor
+/// ## Neden DÖRT AYRI desen, tek bir renklendirilmiş motif değil
 ///
-/// Tek bir açık çizgi "boyanmış" görünür. Kabartma, İKİ çizginin üst üste
-/// binmesinden doğar: önce 1.5px aşağı kaydırılmış KOYU bir kopya (gölge),
-/// sonra tam yerinde AÇIK olan asıl çizgi. Işık yönü masanın geri
+/// Önceki sürümde her tema AYNI soluk kıvrım/yaprak (scroll) motifini
+/// tekrarlıyordu, yalnızca rengi değişiyordu — kullanıcı bunu ("solukları
+/// kaldır") ve masaya özgü bir yüzey istediğini bildirdi (2026-09-15).
+/// Artık her tema KENDİ malzemesini taklit eden bir doku taşır: Yeşil
+/// Çuha'da çapraz keçe dokuması, Kırmızı Kadife'de gerçek bir kadife
+/// koltuğun düğmelemesi, Gece Modu'nda modern bir nokta ızgarası;
+/// Kahvehane'de ise BİLEREK hiçbir desen yok — yalnızca temiz bir ışık
+/// havuzu (bkz. [_paintWeave], [_paintTufted], [_paintGrid]).
+///
+/// ## Desenin kabartma hissi nereden geliyor
+///
+/// Tek bir açık çizgi/nokta "boyanmış" görünür. Kabartma, İKİ kopyanın üst
+/// üste binmesinden doğar: önce hafifçe kaydırılmış KOYU bir kopya (gölge),
+/// sonra tam yerinde AÇIK olan asıl çizgi/nokta. Işık yönü masanın geri
 /// kalanıyla aynı: yukarıdan-soldan.
 class OkeyDamaskBackground extends StatelessWidget {
   /// Motifin zeminden ne kadar ayrıştığı (0 = düz zemin, 1 = referans).
@@ -41,84 +53,64 @@ class OkeyDamaskBackground extends StatelessWidget {
 class _DamaskPainter extends CustomPainter {
   final double strength;
 
-  const _DamaskPainter({required this.strength});
+  /// AKTİF TEMANIN anahtarı — [shouldRepaint] yalnızca [strength]'i
+  /// karşılaştırsaydı, kullanıcı Ayarlar'dan tema değiştirdiğinde (strength
+  /// aynı kalırken renkler değiştiğinde) zemin YENİDEN BOYANMAZDI.
+  final String _themeKey = OkeyTableThemePrefs.instance.current.value.key;
 
-  // --- Zemin tonları (referanstan örneklendi) ----------------------------
-  static const _deep = Color(0xFF0C3F57);
-  static const _mid = Color(0xFF17607D);
-  static const _light = Color(0xFF2380A0);
+  _DamaskPainter({required this.strength});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
+    // SONSUZ/GEÇERSİZ ÖLÇÜ KORUMASI: bu widget her zaman SINIRLI bir kutu
+    // içinde kullanılır (bkz. OkeyRoomBackdrop'ta Positioned.fill), ama
+    // `CustomPaint(size: Size.infinite)` sınırsız kısıtlar altında (ör.
+    // yanlış kurulmuş bir test ağacı) gerçekten SONSUZ bir `size` alabilir.
+    // Aşağıdaki desen döngüleri `size.width`/`size.height`i üst sınır
+    // olarak kullanır; sonsuz bir üst sınır SONSUZ DÖNGÜ demektir. Erken
+    // çıkış bunu imkânsız kılar.
+    if (size.isEmpty || !size.width.isFinite || !size.height.isFinite) {
+      return;
+    }
     final rect = Offset.zero & size;
+    final deep = OkeyColors.damaskDeep;
+    final mid = OkeyColors.damaskMid;
+    final light = OkeyColors.damaskLight;
 
     // 1) ZEMİN — merkezden dışa açılan ışık. Düz bir renk, masaya
     //    "yuvarlaklık" vermiyordu; bu üç duraklı radyal, ortadaki oyun
-    //    alanını kenarlardan bir tık öne çıkarır.
+    //    alanını kenarlardan bir tık öne çıkarır. Üç durak da aktif MASA
+    //    TEMASINDAN gelir (bkz. OkeyTableTheme.damask*).
     canvas.drawRect(
       rect,
       Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(0, -0.05),
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.05),
           radius: 0.95,
-          colors: [_light, _mid, _deep],
-          stops: [0.0, 0.55, 1.0],
+          colors: [light, mid, deep],
+          stops: const [0.0, 0.55, 1.0],
         ).createShader(rect),
     );
 
-    if (strength <= 0) return;
-
-    // 2) MOTİF IZGARASI — hücre ölçüsü ekranla büyür ki telefonda kalabalık,
-    //    tablette seyrek görünmesin.
-    final cell = (size.height * 0.30).clamp(90.0, 260.0);
-    final motif = _motifPath(cell);
-
-    final shadow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..strokeWidth = cell * 0.055
-      ..color = const Color(0xFF04222F).withValues(alpha: 0.30 * strength);
-
-    final light = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..strokeWidth = cell * 0.045
-      ..color = const Color(0xFF7FD0E4).withValues(alpha: 0.14 * strength);
-
-    canvas.save();
-    canvas.clipRect(rect);
-
-    final cols = (size.width / cell).ceil() + 2;
-    final rows = (size.height / cell).ceil() + 2;
-
-    for (var r = -1; r < rows; r++) {
-      for (var col = -1; col < cols; col++) {
-        // Tek satırlar YARIM hücre kaydırılır: ızgara "tuğla" gibi dizilir,
-        // düz bir dama tahtası gibi değil. Damask desenlerinin tamamı bu
-        // kaydırmayı kullanır; olmazsa desen mekanik görünür.
-        final dx = col * cell + (r.isOdd ? cell / 2 : 0);
-        final dy = r * cell;
-
-        canvas.save();
-        canvas.translate(dx, dy);
-        // Sütunlar dönüşümlü AYNALANIR — motifin tekrarı gözle yakalanmaz.
-        if ((col + r).isEven) {
-          canvas.translate(cell, 0);
-          canvas.scale(-1, 1);
-        }
-        canvas.save();
-        canvas.translate(0, cell * 0.02);
-        canvas.drawPath(motif, shadow);
-        canvas.restore();
-        canvas.drawPath(motif, light);
-        canvas.restore();
+    // 2) DESEN — HANGİ desenin çizileceği aktif MASA TEMASINDAN gelir (bkz.
+    //    OkeyBackdropPattern). Kahvehane'de `plain` seçilidir: desen HİÇ
+    //    çizilmez, yalnızca yukarıdaki ışık havuzu kalır (kullanıcı isteği,
+    //    2026-09-15: "arka plandaki solukları kaldır").
+    if (strength > 0) {
+      canvas.save();
+      canvas.clipRect(rect);
+      switch (OkeyColors.backdropPattern) {
+        case OkeyBackdropPattern.plain:
+          break;
+        case OkeyBackdropPattern.weave:
+          _paintWeave(canvas, size, strength);
+        case OkeyBackdropPattern.tufted:
+          _paintTufted(canvas, size, strength);
+        case OkeyBackdropPattern.grid:
+          _paintGrid(canvas, size, strength);
       }
+      canvas.restore();
     }
-
-    canvas.restore();
 
     // 3) VİNYET — kenarlar koyulaşır, göz masanın ortasında kalır.
     canvas.drawRect(
@@ -130,47 +122,127 @@ class _DamaskPainter extends CustomPainter {
           colors: [
             const Color(0x00000000),
             const Color(0x00000000),
-            const Color(0xFF001A26).withValues(alpha: 0.42),
+            OkeyColors.damaskVignette.withValues(alpha: 0.42),
           ],
           stops: const [0.0, 0.55, 1.0],
         ).createShader(rect),
     );
   }
 
-  /// Bir hücrelik damask motifi: büyük kıvrım (scroll) + iki yaprak.
-  ///
-  /// Tüm koordinatlar 0..1 aralığında yazılıp [s] ile ölçeklenir; böylece
-  /// motif her hücre boyunda aynı orana sahip olur.
-  static Path _motifPath(double s) {
-    final p = Path();
-    double x(double v) => v * s;
-    double y(double v) => v * s;
+  // -------------------------------------------------------------------
+  // DESENLER — her biri GERÇEK bir yüzeyi taklit eder, hepsi aynı "kabartma"
+  // dilini konuşur: koyu bir gölge kopyası + hemen üstünde açık bir asıl
+  // çizgi/nokta. `strength` (0..1) genel şiddeti ölçekler.
+  // -------------------------------------------------------------------
 
-    // Ana kıvrım — dıştan içe sarılan bir spiral.
-    p.moveTo(x(0.08), y(0.72));
-    p.cubicTo(x(-0.02), y(0.34), x(0.28), y(0.02), x(0.56), y(0.14));
-    p.cubicTo(x(0.82), y(0.25), x(0.78), y(0.58), x(0.52), y(0.58));
-    p.cubicTo(x(0.34), y(0.58), x(0.31), y(0.37), x(0.47), y(0.34));
+  /// ÇAPRAZ KEÇE DOKUMASI (Yeşil Çuha) — köşegen iki yönde ince çizgiler,
+  /// baklava (diamond) deseni. Gerçek okey çuhasının dokunma hissi budur:
+  /// tek yönlü bir tarama değil, ÖRGÜLÜ bir yüzey.
+  void _paintWeave(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.055).clamp(22.0, 46.0);
+    final shadow = Paint()
+      ..strokeWidth = 1.1
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.22 * strength);
+    final light = Paint()
+      ..strokeWidth = 0.8
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.10 * strength);
 
-    // Sağ yaprak.
-    p.moveTo(x(0.58), y(0.70));
-    p.cubicTo(x(0.86), y(0.66), x(1.02), y(0.86), x(0.90), y(1.02));
+    void diagonals(Paint paint, double offset) {
+      for (var x = -size.height + offset; x < size.width; x += step) {
+        canvas.drawLine(
+          Offset(x, 0),
+          Offset(x + size.height, size.height),
+          paint,
+        );
+      }
+      for (var x = offset; x < size.width + size.height; x += step) {
+        canvas.drawLine(
+          Offset(x, 0),
+          Offset(x - size.height, size.height),
+          paint,
+        );
+      }
+    }
 
-    // Sol yaprak.
-    p.moveTo(x(0.18), y(0.80));
-    p.cubicTo(x(0.36), y(0.88), x(0.34), y(1.04), x(0.18), y(1.04));
+    diagonals(shadow, 0.9);
+    diagonals(light, 0);
+  }
 
-    // Tepe tomurcuğu — motifin üst boşluğunu kapatan küçük yay.
-    p.addArc(
-      Rect.fromCircle(center: Offset(x(0.62), y(0.06)), radius: s * 0.07),
-      math.pi * 0.15,
-      math.pi * 1.3,
-    );
+  /// KADİFE DÜĞMELEMESİ (Kırmızı Kadife) — chesterfield tarzı: düzenli
+  /// aralıklı yumuşak düğmeler + komşularını bağlayan kırışık çizgiler.
+  /// "Kadife" adını taşıyan tek temanın zemini gerçekten kadife gibi
+  /// OKUNSUN diye — düz bir renk lekesi değil, dolgulu bir yüzey.
+  void _paintTufted(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.16).clamp(64.0, 130.0);
+    final half = step / 2;
+    final creaseShadow = Paint()
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.22 * strength);
+    final creaseLight = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.09 * strength);
+    final buttonShadow = Paint()
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.30 * strength);
+    final buttonHighlight = Paint()
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.22 * strength);
 
-    return p;
+    final cols = (size.width / step).ceil() + 2;
+    final rows = (size.height / step).ceil() + 2;
+    final r = step * 0.09;
+
+    for (var row = -1; row < rows; row++) {
+      for (var col = -1; col < cols; col++) {
+        final cx = col * step.toDouble();
+        final cy = row * step.toDouble();
+        final center = Offset(cx, cy);
+
+        // KIRIŞIK ÇİZGİLERİ — her düğme yalnızca İKİ AŞAĞI köşegenine
+        // (güneydoğu/güneybatı) bağlanır. Yukarı yöndeki çizgiler ayrıca
+        // çizilmez: onlar ÜSTTEKİ komşu düğmenin kendi güney çizgileridir —
+        // ızgara her kenarı TAM BİR KEZ çizerek kendini tamamlar, ayrı bir
+        // "üst satır" hesabına gerek kalmaz. Sonuç: her dört düğmenin
+        // arasında kapanmış bir baklava (chesterfield) deseni.
+        final se = center.translate(half, half);
+        final sw = center.translate(-half, half);
+        canvas.drawLine(center.translate(0, 1), se.translate(0, 1), creaseShadow);
+        canvas.drawLine(center.translate(0, 1), sw.translate(0, 1), creaseShadow);
+        canvas.drawLine(center, se, creaseLight);
+        canvas.drawLine(center, sw, creaseLight);
+
+        // DÜĞME — koyu bir gölge halkası + tam ortada ışığı yakalayan nokta.
+        canvas.drawCircle(center.translate(0.6, 1.1), r, buttonShadow);
+        canvas.drawCircle(center, r * 0.62, buttonHighlight);
+      }
+    }
+  }
+
+  /// MODERN NOKTA IZGARASI (Gece Modu) — ince, soğuk tonlu düzenli noktalar
+  /// + aralarındaki hayalet çizgiler. Ahşap/kadife değil, fırçalanmış
+  /// çeliğe yakışan dijital bir doku.
+  void _paintGrid(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.09).clamp(34.0, 70.0);
+    final line = Paint()
+      ..strokeWidth = 0.7
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.06 * strength);
+    final dot = Paint()
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.20 * strength);
+
+    for (var x = 0.0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
+    }
+    for (var y = 0.0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
+    }
+    for (var y = 0.0; y < size.height; y += step) {
+      for (var x = 0.0; x < size.width; x += step) {
+        canvas.drawCircle(Offset(x, y), 1.4, dot);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(_DamaskPainter oldDelegate) =>
-      oldDelegate.strength != strength;
+      oldDelegate.strength != strength || oldDelegate._themeKey != _themeKey;
 }

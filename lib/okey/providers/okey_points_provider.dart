@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../services/okey_points_service.dart';
+import '../services/okey_sound_service.dart';
 
 /// Okey cüzdanı + saatlik hediye + reklam ödülü + skor tablosu state'i.
 class OkeyPointsProvider with ChangeNotifier {
@@ -51,6 +52,23 @@ class OkeyPointsProvider with ChangeNotifier {
   int get points => _wallet.points;
   bool get canClaimGift => _wallet.canClaimHourly;
   int get secondsUntilGift => _wallet.secondsUntilNextGift;
+
+  /// ÇİP YAĞMURU SİNYALİ — her kazançta bir artar.
+  ///
+  /// ## Neden bir sayaç, bir bayrak değil
+  ///
+  /// Bir `bool` "yağmur yağsın" der ama SÖNDÜRMEK için ikinci bir çağrı
+  /// ister; o çağrı unutulursa ekran her build'de yeniden yağar. Artan bir
+  /// sayaçta ise sinyal DEĞİŞİMİN kendisidir: katman iki değeri karşılaştırıp
+  /// animasyonu bir kez başlatır, temizlik gerekmez.
+  ///
+  /// ## Neden provider'da
+  ///
+  /// Bonus üç ayrı yerden alınabiliyor (masa üstü şeridi, lobi, çip ekranı).
+  /// Animasyonu düğmeye bağlasaydık aynı efekti üç kez yazardık ve reklam
+  /// ödülü — düğmesi olmayan dördüncü yol — hiç yağmur göstermezdi.
+  int get coinRainSignal => _coinRainSignal;
+  int _coinRainSignal = 0;
 
   /// "12:34" biçiminde kalan süre.
   String get giftCountdownText {
@@ -103,6 +121,37 @@ class OkeyPointsProvider with ChangeNotifier {
     _notify();
   }
 
+  /// ÇİP SESİ — kazanç CÜZDANA GEÇTİĞİNDE (kullanıcı isteği, 2026-09-07:
+  /// "bonus al tıkladığında çip (para sesi) vs çıksın").
+  ///
+  /// ## Neden dokunuşta değil, SUNUCU ONAYINDAN SONRA
+  ///
+  /// Düğmeye basmak kazanmak demek değil: süre dolmadıysa ya da ağ koparsa
+  /// sunucu reddeder. Sesi dokunuşa bağlamak, hiç gelmemiş bir ödülü
+  /// duyurmak olurdu — üstelik en çok basılan an tam da "daha erken" anıdır.
+  ///
+  /// ## Neden BEKLENMİYOR
+  ///
+  /// Ses tamamen opsiyoneldir (kapalı olabilir, dosya yüklenmemiş olabilir):
+  /// cüzdanın güncellenmesini bir ses dosyasının açılmasına bağlamak,
+  /// kazancın ekrana geç yansıması demekti. Hata da yutulur — sessiz bir
+  /// bonus, alınamayan bir bonustan iyidir.
+  void _playCoinSound() {
+    // ÖNCE load(): bonus masadan DIŞARIDA da alınabiliyor (lobi, çip ekranı)
+    // ve oralarda ses servisi hiç açılmamış olabilir. Açılmadan çalınırsa
+    // "ses efektleri kapalı" tercihi okunmamış olur ve kapalıyken bile ses
+    // çıkardı. load() kendini kısa devre yapar, ikinci çağrıda bedava.
+    unawaited(() async {
+      try {
+        final sound = OkeySoundService.instance;
+        await sound.load();
+        await sound.play(OkeySound.coin);
+      } catch (_) {
+        // sessiz bonus, alınamayan bonustan iyidir
+      }
+    }());
+  }
+
   /// Saatlik hediyeyi al. Süre dolmadıysa sunucu reddeder.
   Future<void> claimHourlyGift() async {
     if (_isBusy) return;
@@ -112,6 +161,8 @@ class OkeyPointsProvider with ChangeNotifier {
     try {
       final newPoints = await _service.claimHourlyGift();
       _info = '+${_wallet.hourlyGiftPoints} çip kazandın!';
+      _playCoinSound();
+      _coinRainSignal++;
       _wallet = OkeyWallet(
         points: newPoints,
         lastHourlyClaimAt: DateTime.now(),
@@ -140,6 +191,8 @@ class OkeyPointsProvider with ChangeNotifier {
     try {
       final newPoints = await _service.claimAdReward(sessionId);
       _info = '+${_wallet.adRewardPoints} çip kazandın!';
+      _playCoinSound();
+      _coinRainSignal++;
       _wallet = OkeyWallet(
         points: newPoints,
         lastHourlyClaimAt: _wallet.lastHourlyClaimAt,

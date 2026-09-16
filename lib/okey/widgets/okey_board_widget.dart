@@ -107,9 +107,6 @@ class OkeyBoardWidget extends StatelessWidget {
   final void Function(int meldId, int fromSlot)? onTileDroppedOnMeld;
   final VoidCallback? onDragEnd;
 
-  /// Tahta boşken gösterilecek ipucu yazısı.
-  final String emptyHint;
-
   /// Masadaki taşın ÜST SINIR genişliği (bkz. sınıf yorumu).
   final double? tileWidth;
   final double? tileHeight;
@@ -129,7 +126,6 @@ class OkeyBoardWidget extends StatelessWidget {
     this.onTapMeld,
     this.onTileDroppedOnMeld,
     this.onDragEnd,
-    this.emptyHint = 'Açılan perler masaya buraya serilir',
     this.tileWidth,
     this.tileHeight,
     this.okeyTile,
@@ -137,26 +133,15 @@ class OkeyBoardWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (melds.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Text(
-            emptyHint,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0x3DFFFFFF),
-              fontSize: 11,
-              height: 1.35,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ),
-      );
-    }
+    // TAHTA BOŞKEN HİÇBİR ŞEY YAZILMAZ (kullanıcı isteği, 2026-09-08).
+    //
+    // Burada "Açılan perler masaya buraya serilir" diye bir ipucu duruyordu
+    // ve tam da tablanın ortasına, "CizreApp 101 OKEY" filigranının ÜSTÜNE
+    // biniyordu: elin ilk turlarında masanın göbeğinde iki üst üste yazı
+    // görünüyordu. İpucu zaten bir kez okunup bir daha gerekmeyen bir
+    // bilgiydi; filigran ise masanın kendi dekoru. Boş tabla artık sadece
+    // filigranı gösterir.
+    if (melds.isEmpty) return const SizedBox.expand();
 
     return LayoutBuilder(
       builder: (context, c) {

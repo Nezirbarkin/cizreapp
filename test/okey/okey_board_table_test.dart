@@ -204,12 +204,14 @@ void main() {
       expect(find.byType(OkeyTileWidget), findsNWidgets(2));
     });
 
-    testWidgets('boş tabloda ipucu yazısı gösterilir', (tester) async {
-      await pump(
-        tester,
-        const OkeyBoardWidget(melds: [], emptyHint: 'buraya serilir'),
-      );
-      expect(find.text('buraya serilir'), findsOneWidget);
+    // Kullanıcı isteği (2026-09-08): "açılan perler masaya... yazısını
+    // CizreApp 101 Okey üstünden kaldır". İpucu tam da keçedeki marka
+    // filigranının üstüne biniyordu.
+    testWidgets('boş tablada HİÇBİR ipucu yazısı yoktur', (tester) async {
+      await pump(tester, const OkeyBoardWidget(melds: []));
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Text), findsNothing);
+      expect(find.byType(OkeyTileWidget), findsNothing);
     });
   });
 }

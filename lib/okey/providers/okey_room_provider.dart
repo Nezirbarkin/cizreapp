@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/okey_models.dart';
 import '../services/okey_room_service.dart';
+import '../services/okey_sound_service.dart';
 
 /// Bekleme odası ekranının state'i. Gerçek realtime kanalı yok (Faz D'nin
 /// maç ekranında var) — bunun yerine oda 'waiting' durumdayken hafif bir
@@ -32,6 +33,10 @@ class OkeyRoomProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   Timer? _pollTimer;
+
+  /// Koltuklar EN AZ BİR KEZ okundu mu — ilk okumada katılım sesi çalmaz
+  /// (bkz. [_announceJoins]).
+  bool _seatsSeen = false;
 
   OkeyRoomProvider(this.roomId) {
     // KRİTİK: refresh() burada DOĞRUDAN çağrılırsa, ilk await'ten önceki
@@ -99,7 +104,9 @@ class OkeyRoomProvider with ChangeNotifier {
         _service.getSeats(roomId),
       ]);
       _room = results[0] as OkeyRoom;
-      _seats = results[1] as List<OkeyRoomSeat>;
+      final seats = results[1] as List<OkeyRoomSeat>;
+      _announceJoins(seats);
+      _seats = seats;
       _error = null;
     } catch (e) {
       _error = 'Oda bilgisi alınamadı: $e';
@@ -107,6 +114,73 @@ class OkeyRoomProvider with ChangeNotifier {
       _isLoading = false;
       _notify();
     }
+  }
+
+  /// KOLTUĞA BİRİ OTURDU MU — oturduysa katılım sesini çalar.
+  ///
+  /// Bekleme odasının kendi realtime kanalı yok; koltuklar üç saniyede bir
+  /// sessizce yoklanıyor. Yani masa, oyuncu ekrana bakmıyorken doluyordu ve
+  /// bunu haber veren hiçbir şey yoktu (kullanıcı isteği, 2026-09-08:
+  /// "oyuncu katılırken ses çıkartın").
+  ///
+  /// İLK YÜKLEMEDE SUSAR: odaya girdiğinde zaten oturmuş olan üç kişi için
+  /// üst üste üç ses çalmak "üç kişi şu an geldi" demek olurdu.
+  ///
+  /// KİMLİĞE DEĞİL, KOLTUĞA BAKAR: bir koltuk boşken doluysa katılımdır.
+  /// Aynı koltuktaki oyuncunun değişmesi (biri kalktı, yerine başkası
+  /// oturdu) da katılımdır ve o da duyulur.
+  ///
+  /// SES BİR KEZ ÇALAR: aynı yoklamada iki koltuk birden dolduysa (örneğin
+  /// uygulama arka plandayken) iki ses üst üste binerdi.
+  void _announceJoins(List<OkeyRoomSeat> next) {
+    // Yoklama, oda 'waiting' değilken de tazeleme yapar; masa başladıktan
+    // sonra "katıldı" sesi anlamsızdır.
+    if (_room?.status != 'waiting') {
+      _seatsSeen = true;
+      return;
+    }
+    if (!_seatsSeen) {
+      _seatsSeen = true;
+      return;
+    }
+    if (seatJoined(before: _seats, after: next)) {
+      unawaited(OkeySoundService.instance.play(OkeySound.playerJoin));
+    }
+  }
+
+  /// İki koltuk okuması arasında BİRİ OTURDU MU.
+  ///
+  /// Saf fonksiyon: kararın kendisi test edilebilsin diye ayrıldı (sağlayıcı
+  /// Supabase'siz kurulamıyor).
+  ///
+  /// KİMLİĞE DEĞİL, KOLTUĞA BAKAR: boş bir koltuk dolduysa katılımdır. Aynı
+  /// koltuktaki oyuncunun DEĞİŞMESİ (biri kalktı, yerine başkası oturdu) da
+  /// katılımdır — masaya yeni biri gelmiştir.
+  ///
+  /// BOTU AYIRMAZ. Yalnız insanlar için çalsaydı sessizlik "gelen bottu"
+  /// demenin en açık yolu olurdu (bkz. OkeySound.playerJoin).
+  @visibleForTesting
+  static bool seatJoined({
+    required List<OkeyRoomSeat> before,
+    required List<OkeyRoomSeat> after,
+  }) {
+    String? occupantOf(List<OkeyRoomSeat> seats, int seatNo) {
+      for (final s in seats) {
+        if (s.seatNo != seatNo) continue;
+        if (s.isEmpty) return null;
+        // Bot koltuğunun user_id'si yoktur; kimliği bot profilidir. İkisi de
+        // yoksa (profili tanımlanmamış bot) koltuk numarası kimlik sayılır.
+        return s.userId ?? s.botProfileId ?? 'seat-${s.seatNo}';
+      }
+      return null;
+    }
+
+    for (var seatNo = 0; seatNo < 4; seatNo++) {
+      final was = occupantOf(before, seatNo);
+      final now = occupantOf(after, seatNo);
+      if (now != null && now != was) return true;
+    }
+    return false;
   }
 
   Future<void> toggleReady() async {

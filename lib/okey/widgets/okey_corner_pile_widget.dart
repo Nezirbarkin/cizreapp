@@ -98,8 +98,28 @@ class OkeyCornerPileWidget extends StatelessWidget {
   /// ile türetilir, böylece masadaki her taş aynı oranda kalır.
   final double size;
 
-  /// Avatar dairesinin çapı (bkz. [OkeyTableMetrics.avatarSize]).
+  /// Avatar dairesinin ÜST SINIR çapı (bkz. [OkeyTableMetrics.avatarSize]).
+  ///
+  /// Yatay plakada asıl ölçü [plateHeight]'ten türer; bu sayı yalnızca tavan
+  /// görevi görür.
   final double? avatarSize;
+
+  /// YATAY plakanın (üst şerit / konsol) sabit yüksekliği.
+  ///
+  /// Kullanıcı isteği (2026-09-08): "profil resimleri daha büyük göster,
+  /// yeniden tasarla, taşma olmasın".
+  ///
+  /// ## Neden dışarıdan bir yükseklik
+  ///
+  /// Plaka eskiden doğal boyunda büyüyor, sığmayınca da bir [FittedBox] onu
+  /// TOPTAN küçültüyordu. Yani avatarı büyütmenin hiçbir yolu yoktu: her
+  /// büyütme aynı oranda geri küçültülüyor, üstelik adı ve sayaçları da
+  /// birlikte kısıyordu. Artık plaka içine konduğu şeridin boyunu ALIR ve
+  /// avatar o boydan türer — büyütmek için şeridi büyütmek yeter
+  /// (bkz. [OkeyTableMetrics.seatPlateHeight]).
+  ///
+  /// Verilmezse eski davranış sürer (doğal boy + küçülterek sığdırma).
+  final double? plateHeight;
 
   /// Kartın masadaki kenarı.
   final OkeySeatSide side;
@@ -157,6 +177,7 @@ class OkeyCornerPileWidget extends StatelessWidget {
     this.maxWidth,
     this.parts = OkeySeatParts.both,
     this.avatarSize,
+    this.plateHeight,
     this.onProfileTap,
   });
 
@@ -289,8 +310,13 @@ class OkeyCornerPileWidget extends StatelessWidget {
               ? c.maxHeight
               : 200.0;
           // Avatar, levhanın genişliği kadar bir KARE; ama levha çok kısaysa
-          // (çok kısa ekran) yüksekliğin üçte birini geçemez.
-          final avatarBox = (w - 4).clamp(0.0, h * 0.34);
+          // (çok kısa ekran) boyunun bir sınırını geçemez.
+          //
+          // 2026-09-08: sınır 0,34 → 0,44 (kullanıcı isteği "profil resimleri
+          // daha büyük"). Kalan boy dikey ada ve sayaçlara yetiyor: ad zaten
+          // 90° döndürülmüş, yani ihtiyacı olan yer sütunun boyu değil
+          // GENİŞLİĞİ.
+          final avatarBox = (w - 4).clamp(0.0, h * 0.44);
 
           return Column(
             children: [
@@ -375,6 +401,22 @@ class OkeyCornerPileWidget extends StatelessWidget {
   // ---------------------------------------------------------------------
 
   Widget _identityCard() {
+    // YATAY PLAKA v5 (2026-09-08) — AVATAR PLAKANIN BOYUNU DOLDURUR.
+    //
+    // Eski hali sabit ~30px'lik bir daire + yanında iki satır yazıydı ve
+    // hepsi bir FittedBox içinde toptan küçülüyordu; sonuç, üst şeritte
+    // 28 piksellik bir "nokta"ydı. Yeni düzen plakanın yüksekliğini
+    // dışarıdan alır ([plateHeight]) ve avatarı o boydan türetir: avatar
+    // artık plakanın en büyük öğesi, ad ve sayaçlar onun yanında.
+    //
+    // TAŞMA YAPISAL OLARAK İMKÂNSIZ:
+    //   * dikey eksen — plaka SABİT yükseklikte, avatar dolgu düşülerek
+    //     hesaplanır, yazı sütunu Column yerine sabit satırlarla değil
+    //     FittedBox ile sığar;
+    //   * yatay eksen — ad ve sayaçlar Flexible bir sütundadır, adın kendi
+    //     ellipsis'i var; plaka azami genişlikte durur.
+    if (!_vertical && plateHeight != null) return _horizontalPlate();
+
     final d = avatarSize ?? 30.0;
 
     final Widget content = _vertical
@@ -402,19 +444,96 @@ class OkeyCornerPileWidget extends StatelessWidget {
             ],
           );
 
-    return Container(
-      constraints: BoxConstraints(maxWidth: _vertical ? 108 : 220),
+    return _plateShell(
+      maxWidth: _vertical ? 108 : 220,
       padding: EdgeInsets.symmetric(
         horizontal: _vertical ? 6 : 7,
         vertical: _vertical ? 6 : 4,
       ),
+      // Ad + sayaçlar sütunu, kartın azami genişliğini birkaç piksel
+      // aşabiliyordu ("RenderFlex overflowed by 2.0 pixels"). İçindeki
+      // metinler sabit ölçülü olduğu için kendi küçülme yolları yok;
+      // küçültmeyi burada veriyoruz.
+      child: FittedBox(fit: BoxFit.scaleDown, child: content),
+    );
+  }
+
+  /// Üst şerit / konsol plakası — yüksekliği DIŞARIDAN gelir.
+  Widget _horizontalPlate() {
+    final h = plateHeight!;
+    const padV = 2.5;
+    // Kenarlık plakanın İÇİNDEN yer yer: Container, decoration'ın kenarlığını
+    // çocuğa dolgu olarak ekler. Hesaba katılmazsa avatar plakadan iki-üç
+    // piksel taşar ve Row onu ezerek yamultur (yuvarlak avatar ovalleşir).
+    final borderW = isCurrentTurn ? 1.4 : 1.0;
+
+    // Avatar plakanın İÇ yüksekliğini TAM doldurur ama [avatarSize] tavanını
+    // aşmaz: çok yüksek bir şeritte avatar plakayı bir madalyona çevirirdi.
+    final d = (h - padV * 2 - borderW * 2)
+        .clamp(16.0, avatarSize ?? 56.0)
+        .toDouble();
+
+    // Yazı avatarla birlikte büyür: 30 piksellik avatarın yanında 11,5 punto
+    // ad doğruydu, 46 piksellik avatarın yanında küçük kalıyor.
+    final nameSize = (d * 0.30).clamp(10.0, 15.0).toDouble();
+    final counterSize = (d * 0.24).clamp(8.5, 12.0).toDouble();
+
+    return _plateShell(
+      maxWidth: 260,
+      height: h,
+      padding: const EdgeInsets.fromLTRB(4, padV, 8, padV),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _avatar(d),
+          SizedBox(width: (d * 0.16).clamp(5.0, 9.0)),
+          // Flexible + mainAxisSize.min: yazı sütunu ne kadar yer varsa onu
+          // alır, plakayı ittirmez. Sabit genişlik verilseydi kısa adlarda
+          // plakanın sağı boş kalır, uzun adlarda taşardı.
+          //
+          // İçerideki FittedBox İKİ EKSENİ birden korur: ad + sayaçlar sabit
+          // puntolu satırlar, çok alçak bir plakada (26 piksel taban) dikeyde
+          // de sığmayabilir. Kendi küçülme yolları olmadığı için burada
+          // veriliyor — plakanın kendisi bozulmuyor, yalnız yazı küçülüyor.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _nameText(fontSize: nameSize),
+                  SizedBox(height: (d * 0.06).clamp(2.0, 4.0)),
+                  _counters(fontSize: counterSize),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Plakanın ortak kabuğu: gradyan, kenarlık, gölge, sıra vurgusu.
+  Widget _plateShell({
+    required Widget child,
+    required double maxWidth,
+    required EdgeInsets padding,
+    double? height,
+  }) {
+    return Container(
+      height: height,
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      padding: padding,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isCurrentTurn ? _plateTurn : _plateDark,
         ),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(height == null ? 7 : 9),
         border: Border.all(
           color: isCurrentTurn
               ? _plateTurnBorder
@@ -431,24 +550,20 @@ class OkeyCornerPileWidget extends StatelessWidget {
             const BoxShadow(color: Color(0x66A8D14A), blurRadius: 14),
         ],
       ),
-      // Ad + sayaçlar sütunu, kartın azami genişliğini birkaç piksel
-      // aşabiliyordu ("RenderFlex overflowed by 2.0 pixels"). İçindeki
-      // metinler sabit ölçülü olduğu için kendi küçülme yolları yok;
-      // küçültmeyi burada veriyoruz.
-      child: FittedBox(fit: BoxFit.scaleDown, child: content),
+      child: child,
     );
   }
 
-  Widget _nameText() {
+  Widget _nameText({double? fontSize}) {
     return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: _vertical ? 92 : 130),
+      constraints: BoxConstraints(maxWidth: _vertical ? 92 : 150),
       child: Text(
         _name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         textAlign: _vertical ? TextAlign.center : TextAlign.left,
         style: TextStyle(
-          fontSize: _vertical ? 10.5 : 11.5,
+          fontSize: fontSize ?? (_vertical ? 10.5 : 11.5),
           height: 1.0,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.1,
@@ -466,17 +581,21 @@ class OkeyCornerPileWidget extends StatelessWidget {
   /// ANLIK PUAN dar levhada (compact) da gösterilir, ceza gösterilmez: ceza
   /// el bitene kadar değişmez ve el sonu kartında zaten okunur; anlık puan
   /// ise her hamlede değişen, masaya bakarken gerçekten gereken sayıdır.
-  Widget _counters({bool compact = false}) {
+  Widget _counters({bool compact = false, double? fontSize}) {
     if (isThinking && !compact) {
       return const _Pulse(fade: true, child: _ThinkingDots());
     }
     if (seat == null) return const SizedBox.shrink();
 
     final fg = isCurrentTurn ? const Color(0xCC10220A) : OkeyV3.textDim;
+    // Sayaçlar avatarla birlikte büyür (bkz. _horizontalPlate); verilmezse
+    // eski ölçü.
+    final fs = fontSize ?? 9.5;
+    final dotSize = (fs * 0.32).clamp(3.0, 4.5);
 
     Widget dot() => Container(
-      width: 3,
-      height: 3,
+      width: dotSize,
+      height: dotSize,
       decoration: BoxDecoration(
         color: fg.withValues(alpha: 0.4),
         shape: BoxShape.circle,
@@ -491,19 +610,19 @@ class OkeyCornerPileWidget extends StatelessWidget {
         if (isOpened) ...[
           Icon(
             Icons.lock_open,
-            size: 10,
+            size: fs * 1.05,
             color: isCurrentTurn
                 ? const Color(0xFF10220A)
                 : const Color(0xFF9BE87C),
           ),
           const SizedBox(width: 3),
         ],
-        _TileCountIcon(color: fg),
+        _TileCountIcon(color: fg, size: fs),
         const SizedBox(width: 3),
         Text(
           '$tileCount',
           style: TextStyle(
-            fontSize: 9.5,
+            fontSize: fs,
             height: 1.0,
             fontWeight: FontWeight.w800,
             color: fg,
@@ -517,7 +636,7 @@ class OkeyCornerPileWidget extends StatelessWidget {
         const SizedBox(width: 5),
         OkeyOpenPointsText(
           points: openPoints,
-          fontSize: 9.5,
+          fontSize: fs,
           color: isCurrentTurn
               ? const Color(0xFF10220A)
               : OkeyColors.accentGold,
@@ -529,7 +648,7 @@ class OkeyCornerPileWidget extends StatelessWidget {
           Text(
             '$score',
             style: TextStyle(
-              fontSize: 9.5,
+              fontSize: fs,
               height: 1.0,
               fontWeight: FontWeight.w800,
               color: isCurrentTurn ? const Color(0xFF10220A) : OkeyV3.turn,
@@ -548,19 +667,37 @@ class OkeyCornerPileWidget extends StatelessWidget {
         ? const Color(0x2EFFFFFF)
         : (isCurrentTurn ? const Color(0xFFEAFFB8) : OkeyColors.avatarRing);
 
+    // HALKA KALINLIĞI ÇAPLA BÜYÜR: sabit 2 piksel, 46 piksellik bir avatarın
+    // etrafında ipliğe dönüşüyor, sıra vurgusu (parlak halka) okunmuyordu.
+    final ring = (d * 0.055).clamp(1.5, 3.0).toDouble();
+
     return Container(
       width: d,
       height: d,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: const Color(0xFF06222B),
-        border: Border.all(color: ringColor, width: 2),
+        border: Border.all(color: ringColor, width: ring),
+        boxShadow: [
+          // Koyu plakanın üstünde avatarı ayıran ince gölge. Büyüdükçe
+          // gerekli oldu: küçük daire zaten "rozet" gibi okunuyordu, büyüğü
+          // halkasız düz bir leke gibi duruyor.
+          BoxShadow(
+            color: const Color(0x73000000),
+            blurRadius: d * 0.10,
+            offset: Offset(0, d * 0.04),
+          ),
+        ],
       ),
       child: ClipOval(
         child: (seat?.avatarUrl != null)
             ? Image.network(
                 seat!.avatarUrl!,
                 fit: BoxFit.cover,
+                // Yükleme sırasında ikon gösterilir; boş bir daire "bu
+                // oyuncunun fotoğrafı yok" demek gibi okunuyordu.
+                loadingBuilder: (_, child, progress) =>
+                    progress == null ? child : _avatarIcon(d),
                 errorBuilder: (_, _, _) => _avatarIcon(d),
               )
             : _avatarIcon(d),
@@ -744,15 +881,24 @@ class OkeyCornerPileWidget extends StatelessWidget {
 
 /// Kalan taş sayısının yanındaki minik "iki taş" ikonu.
 class _TileCountIcon extends StatelessWidget {
-  final Color color;
+  /// `null` ise aktif MASA TEMASININ soluk metin tonu kullanılır — artık
+  /// derleme zamanı sabiti değil (bkz. OkeyTableTheme).
+  final Color? color;
 
-  const _TileCountIcon({this.color = OkeyV3.textFaint});
+  /// Yanındaki rakamla aynı punto — ikon tek başına sabit kalırsa büyüyen
+  /// plakada sayaçların yanında minik bir çizgi çiftine dönüşüyordu.
+  final double size;
+
+  const _TileCountIcon({this.color, this.size = 9.5});
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? OkeyV3.textFaint;
+    final barW = (size * 0.32).clamp(2.5, 4.5);
+    final barH = (size * 0.85).clamp(7.0, 12.0);
     Widget bar() => Container(
-      width: 3,
-      height: 8,
+      width: barW,
+      height: barH,
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(1),

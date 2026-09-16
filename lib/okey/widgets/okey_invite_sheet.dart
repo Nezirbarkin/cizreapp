@@ -166,7 +166,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.person_add_alt_1,
                       size: 20,
                       color: OkeyColors.accentGold,
@@ -222,7 +222,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
 
   Widget _buildBody(ScrollController controller) {
     if (_loading) {
-      return const Center(
+      return Center(
         child: CircularProgressIndicator(color: OkeyColors.accentGold),
       );
     }
@@ -362,7 +362,7 @@ class _JoinCodeRow extends StatelessWidget {
       },
       child: Row(
         children: [
-          const Icon(Icons.vpn_key, size: 16, color: OkeyColors.accentGold),
+          Icon(Icons.vpn_key, size: 16, color: OkeyColors.accentGold),
           const SizedBox(width: OkeyUI.gapSm),
           const Expanded(
             child: Text('Davet kodunu kopyala', style: OkeyUI.caption),
@@ -370,7 +370,7 @@ class _JoinCodeRow extends StatelessWidget {
           Text(
             code,
             maxLines: 1,
-            style: const TextStyle(
+            style: TextStyle(
               color: OkeyColors.accentGold,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.5,

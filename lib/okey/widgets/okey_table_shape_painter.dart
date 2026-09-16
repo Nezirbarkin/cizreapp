@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 
 /// KAMERANIN masaya bakış açısı (derece).
@@ -72,7 +73,12 @@ class OkeyTableFeltPainter extends CustomPainter {
   /// Rakip ıstakaları çizilsin mi? (test/önizleme için kapatılabilir)
   final bool showOpponentRacks;
 
-  const OkeyTableFeltPainter({
+  /// AKTİF TEMANIN anahtarı — [shouldRepaint] yalnızca ölçüleri
+  /// karşılaştırsaydı, kullanıcı Ayarlar'dan tema değiştirdiğinde (ölçüler
+  /// aynı kalırken renkler değiştiğinde) masa YENİDEN BOYANMAZDI.
+  final String _themeKey = OkeyTableThemePrefs.instance.current.value.key;
+
+  OkeyTableFeltPainter({
     this.sidePodWidth = 0,
     this.topBandHeight = 0,
     this.showOpponentRacks = true,
@@ -148,11 +154,15 @@ class OkeyTableFeltPainter extends CustomPainter {
     final inner = RRect.fromRectAndRadius(innerRect, innerRadius);
 
     // 4) Vinyet: masanın üst-ortasına düşen lamba.
+    //
+    // ARTIK `const` DEĞİL: renkler aktif MASA TEMASINDAN okunur (bkz.
+    // OkeyTableTheme) — kullanıcı Ayarlar'dan tema değiştirdiğinde bu beş
+    // durak da değişmeli, derleme zamanında donmuş kalamaz.
     canvas.drawRRect(
       inner,
       Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(0, -0.45),
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.45),
           radius: 1.05,
           colors: [
             OkeyColors.feltHighlight,
@@ -161,7 +171,7 @@ class OkeyTableFeltPainter extends CustomPainter {
             OkeyColors.tableFeltDeep,
             OkeyColors.feltRim,
           ],
-          stops: [0.0, 0.2, 0.45, 0.78, 1.0],
+          stops: const [0.0, 0.2, 0.45, 0.78, 1.0],
         ).createShader(innerRect),
     );
 
@@ -218,6 +228,15 @@ class OkeyTableFeltPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
+    // İki damar rengi ve şiddeti aktif MASA TEMASINDAN gelir: ahşap
+    // temalarda tam şiddet, Gece Modu'nda (fırçalanmış çelik) neredeyse
+    // sıfıra iner — orada belirgin bir ahşap lifi yanlış okunurdu.
+    final grainLight = OkeyColors.railGrainLight;
+    final grainDark = OkeyColors.railGrainDark;
+    final grainOpacity = OkeyColors.railGrainOpacity;
+    Color scaled(Color c) =>
+        c.withValues(alpha: (c.a * grainOpacity).clamp(0.0, 1.0));
+
     // Kenar başına 3 damar; her biri rayın kalınlığı içinde rastgele bir
     // derinlikte akar ve hafifçe dalgalanır.
     for (var edge = 0; edge < 4; edge++) {
@@ -225,9 +244,7 @@ class OkeyTableFeltPainter extends CustomPainter {
         final depth = rail * (0.2 + rnd.nextDouble() * 0.6);
         paint
           ..strokeWidth = 0.6 + rnd.nextDouble() * 0.9
-          ..color = (rnd.nextBool()
-              ? const Color(0x33FFD9A0)
-              : const Color(0x40402008));
+          ..color = (rnd.nextBool() ? scaled(grainLight) : scaled(grainDark));
 
         final path = Path();
         final wobble = 0.8 + rnd.nextDouble() * 1.6;
@@ -378,7 +395,8 @@ class OkeyTableFeltPainter extends CustomPainter {
   bool shouldRepaint(OkeyTableFeltPainter old) =>
       old.sidePodWidth != sidePodWidth ||
       old.topBandHeight != topBandHeight ||
-      old.showOpponentRacks != showOpponentRacks;
+      old.showOpponentRacks != showOpponentRacks ||
+      old._themeKey != _themeKey;
 }
 
 /// Bir ISTAKAYI GERÇEK BİR 3B KUTU olarak çizer.
@@ -460,14 +478,17 @@ void paintOkeyRackBox(
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
   );
 
+  // Kutunun tüm yüzey renkleri aktif MASA TEMASINDAN gelir (bkz.
+  // OkeyTableTheme.rackBox*) — Kahvehane'de ceviz, Gece Modu'nda fırçalanmış
+  // çelik gibi okunur; geometri (projeksiyon) hiçbiri temada değişmez.
   // ---- 1) ARKA PANONUN DIŞ YÜZÜ (en uzak) --------------------------------
   canvas.drawPath(
     quad(backTopL, backTopR, backBotR, backBotL),
-    Paint()..color = const Color(0xFF6B4113),
+    Paint()..color = OkeyColors.rackBoxBack,
   );
 
   // ---- 2) UÇ KAPAKLAR (yan yüzeyler) -------------------------------------
-  final capPaint = Paint()..color = const Color(0xFF8A5A20);
+  final capPaint = Paint()..color = OkeyColors.rackBoxCap;
   canvas.drawPath(quad(backTopL, frontTopL, frontBotL, backBotL), capPaint);
   canvas.drawPath(quad(backTopR, frontTopR, frontBotR, backBotR), capPaint);
 
@@ -478,10 +499,10 @@ void paintOkeyRackBox(
     quad(backTopL, backTopR, frontTopR, frontTopL),
     Paint()
       ..shader =
-          const LinearGradient(
+          LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFF2CB84), Color(0xFFCE9748)],
+            colors: OkeyColors.rackBoxTop,
           ).createShader(
             topRect.isEmpty ? const Rect.fromLTWH(0, 0, 1, 1) : topRect,
           ),
@@ -494,7 +515,7 @@ void paintOkeyRackBox(
   final grooveFrontL = p(-hl + depth * 0.25, hd * 0.35, height * 0.44);
   canvas.drawPath(
     quad(grooveBackL, grooveBackR, grooveFrontR, grooveFrontL),
-    Paint()..color = const Color(0x8A2E1808),
+    Paint()..color = OkeyColors.rackBoxGroove,
   );
 
   // ---- 5) ÖN YÜZEY (en yakın, dudak) -------------------------------------
@@ -503,10 +524,10 @@ void paintOkeyRackBox(
     quad(frontTopL, frontTopR, frontBotR, frontBotL),
     Paint()
       ..shader =
-          const LinearGradient(
+          LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFE6B871), Color(0xFF9A6526)],
+            colors: OkeyColors.rackBoxFront,
           ).createShader(
             frontRect.isEmpty ? const Rect.fromLTWH(0, 0, 1, 1) : frontRect,
           ),
@@ -516,10 +537,10 @@ void paintOkeyRackBox(
   final edge = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1
-    ..color = const Color(0x8AFFE6BE);
+    ..color = OkeyColors.rackBoxEdgeBright;
   canvas.drawPath(quad(backTopL, backTopR, frontTopR, frontTopL), edge);
   canvas.drawPath(
     quad(frontTopL, frontTopR, frontBotR, frontBotL),
-    edge..color = const Color(0x4DFFE6BE),
+    edge..color = OkeyColors.rackBoxEdgeDim,
   );
 }

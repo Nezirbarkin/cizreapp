@@ -127,6 +127,10 @@ class _OkeyMatchResultScreenState extends State<OkeyMatchResultScreen> {
     final onRematch = widget.onRematch;
     if (roomId == null || onRematch == null || _rematchBusy) return;
 
+    // Messenger await'ten ONCE: `mounted` deactive-ama-unmount-olmamis
+    // pencerede hala true doner ve `ScaffoldMessenger.of(context)` orada
+    // "Looking up a deactivated widget's ancestor is unsafe" atar.
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _rematchBusy = true);
     try {
       final newRoomId = await _service.rematch(roomId);
@@ -137,9 +141,7 @@ class _OkeyMatchResultScreenState extends State<OkeyMatchResultScreen> {
       onRematch(context, newRoomId);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_rematchError('$e'))));
+      messenger.showSnackBar(SnackBar(content: Text(_rematchError('$e'))));
     } finally {
       // DÜĞME ASLA KİLİTLİ KALMAZ.
       //
@@ -748,7 +750,7 @@ class _PayoutLine extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.stars, size: 12, color: OkeyColors.accentGold),
+              Icon(Icons.stars, size: 12, color: OkeyColors.accentGold),
               const SizedBox(width: 3),
               Text(
                 '+${_fmt(payout.won)} kazandı',

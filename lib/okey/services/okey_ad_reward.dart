@@ -23,45 +23,42 @@ Future<void> okeyWatchRewardedAd({
   required OkeyPointsProvider provider,
 }) async {
   final messenger = ScaffoldMessenger.of(context);
+  // Reklam yükleme + gösterim + SSV doğrulaması saniyeler sürebilir; kullanıcı
+  // bu arada ekrandan çıkarsa widget "deactivated" olur ve SnackBar göstermek
+  // yakalanmamış async hata fırlatır. Her await'ten sonra context.mounted ile
+  // korunur.
+  void snack(String message) {
+    if (!context.mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   try {
     final ads = RewardedAdService();
     final ready = await ads.preload();
     if (!ready) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Şu an gösterilecek reklam yok.')),
-      );
+      snack('Şu an gösterilecek reklam yok.');
       return;
     }
 
     final result = await ads.showAndVerify();
 
     if (!result.isSuccess) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            result.isPending
-                ? 'Reklam doğrulaması sürüyor, birazdan tekrar dene.'
-                : (result.errorMessage ?? 'Reklam tamamlanmadı.'),
-          ),
-        ),
+      snack(
+        result.isPending
+            ? 'Reklam doğrulaması sürüyor, birazdan tekrar dene.'
+            : (result.errorMessage ?? 'Reklam tamamlanmadı.'),
       );
       return;
     }
 
     final sessionId = result.rewardSessionId;
     if (sessionId.isEmpty || sessionId == 'test') {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Test reklamı — puan yalnızca gerçek reklamda verilir.',
-          ),
-        ),
-      );
+      snack('Test reklamı — puan yalnızca gerçek reklamda verilir.');
       return;
     }
 
     await provider.claimAdReward(sessionId);
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('Reklam hatası: $e')));
+    snack('Reklam hatası: $e');
   }
 }

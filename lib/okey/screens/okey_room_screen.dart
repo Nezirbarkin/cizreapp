@@ -63,7 +63,7 @@ class _OkeyRoomViewState extends State<_OkeyRoomView> {
     }
 
     if (provider.isLoading && room == null) {
-      return const OkeyScreen(
+      return OkeyScreen(
         title: 'Bekleme odası',
         slivers: [
           SliverFillRemaining(
@@ -264,7 +264,7 @@ class _InviteFriendCard extends StatelessWidget {
           showOkeyInviteSheet(context, roomId: roomId, joinCode: joinCode),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.person_add_alt_1,
             size: 22,
             color: OkeyColors.accentGold,
@@ -308,7 +308,7 @@ class _JoinCodeCard extends StatelessWidget {
       },
       child: Row(
         children: [
-          const Icon(Icons.vpn_key, size: 18, color: OkeyColors.accentGold),
+          Icon(Icons.vpn_key, size: 18, color: OkeyColors.accentGold),
           const SizedBox(width: OkeyUI.gapSm),
           const Text('Davet kodu', style: OkeyUI.body),
           const SizedBox(width: OkeyUI.gap),
@@ -321,7 +321,7 @@ class _JoinCodeCard extends StatelessWidget {
               child: Text(
                 code,
                 maxLines: 1,
-                style: const TextStyle(
+                style: TextStyle(
                   color: OkeyColors.accentGold,
                   fontWeight: FontWeight.w900,
                   fontSize: 18,

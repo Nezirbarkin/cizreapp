@@ -20,6 +20,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../theme/okey_theme.dart';
+
 // ---------------------------------------------------------------------------
 // ORTAK YÜZEY
 // ---------------------------------------------------------------------------
@@ -44,10 +46,14 @@ class _HudSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Dolgusuz (gradyansız) yüzey aktif MASA TEMASININ HUD tonunu kullanır
+    // (bkz. OkeyTableTheme.hudFill/hudBorder) — böylece altın sayacı ve masa
+    // puanı çipi gibi düz zeminler de tema değişince keçeyle birlikte kayar,
+    // sabit lacivert kalmaz.
     final body = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: gradient == null ? const Color(0xF00A2733) : null,
+        color: gradient == null ? OkeyColors.hudFill : null,
         gradient: gradient == null
             ? null
             : LinearGradient(
@@ -57,7 +63,7 @@ class _HudSurface extends StatelessWidget {
               ),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: borderColor ?? const Color(0x3DFFFFFF),
+          color: borderColor ?? OkeyColors.hudBorder,
           width: 1.1,
         ),
         boxShadow: const [

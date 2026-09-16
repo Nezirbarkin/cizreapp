@@ -209,13 +209,27 @@ class OkeyTableMetrics {
     final short = math.min(w, boardH);
 
     // Üst şerit: altın sayacı + bonus, karşıdaki oyuncu, mağaza + ikonlar.
-    final topStrip = (h * 0.095).clamp(28.0, 50.0).toDouble();
+    //
+    // 2026-09-08: 0,095 → 0,135 (tavan 50 → 68). Kullanıcı isteği "profil
+    // resimleri daha büyük". Karşıdaki oyuncunun plakası bu şeridin İÇİNE
+    // sığmak zorunda ve fazlası FittedBox ile küçültülüyordu; yani avatarı
+    // büyütmek şeridi büyütmeden mümkün değildi — sadece plakanın tamamı
+    // küçültülür, avatar yine 28 pikselde kalırdı.
+    final topStrip = (h * 0.135).clamp(38.0, 68.0).toDouble();
 
     // Konsol: hamle düğmeleri + kendi kartım + skor balonu. Dokunulabilir
-    // kalmalı (>=34px) ama masayı yutmamalı.
-    final console = (h * 0.095).clamp(32.0, 50.0).toDouble();
+    // kalmalı (>=34px) ama masayı yutmamalı. Üst şeritle aynı gerekçeyle
+    // yükseldi ama daha ölçülü: konsolda plakanın yanında dört hamle düğmesi
+    // var, şeritte ise yalnız sayaçlar.
+    final console = (h * 0.115).clamp(36.0, 58.0).toDouble();
 
-    final avatar = (short * 0.115).clamp(22.0, 44.0).toDouble();
+    // AVATAR ÇAPI — 0,115 → 0,150 (tavan 44 → 56).
+    //
+    // Bu bir ÜST SINIRDIR: yatay plakalarda avatar gerçekte şeridin
+    // yüksekliğinden türer (bkz. horizontalPlateHeight), dikey levhalarda ise
+    // sütun genişliğinden. Sayı yine de gerekiyor çünkü hediye rozeti ve
+    // sonuç kartı ondan ölçü alıyor.
+    final avatar = (short * 0.150).clamp(28.0, 56.0).toDouble();
 
     // ISKARTA TAŞI: hem genişlikten hem yükseklikten sınırlanır. Yalnızca
     // ikisinin küçüğüne bağlanınca, ıstaka masanın yüksekliğini kısınca
@@ -226,8 +240,14 @@ class OkeyTableMetrics {
         .toDouble();
 
     // Kenar sütunu: içine ıskarta taşı + dikey oyuncu levhası girer.
+    //
+    // 2026-09-08: 0,078 → 0,088. Dikey levhanın avatarı sütun genişliği
+    // kadar bir KAREDİR; sütunu genişletmek, avatarı büyütmenin tek yolu.
+    // Bedeli per tablasından iki kez ~9 piksel — tabla zaten alana göre
+    // ölçü çözüyor, o kadarını taş boyunu fark edilir biçimde değiştirmeden
+    // soğuruyor.
     final side = math
-        .max((w * 0.078).clamp(46.0, 96.0).toDouble(), discardW + 10)
+        .max((w * 0.088).clamp(52.0, 104.0).toDouble(), discardW + 10)
         .toDouble();
 
     final infoW = (w * 0.088).clamp(52.0, 118.0).toDouble();
@@ -324,6 +344,21 @@ class OkeyTableMetrics {
 
   /// Üst şeridin sol ucundaki altın + bonus grubunun genişliği.
   double get hudColumnWidth => (width * 0.28).clamp(120.0, 300.0).toDouble();
+
+  /// YATAY oyuncu plakasının (üst şerit / konsol) yüksekliği.
+  ///
+  /// Plaka bu ölçüyü DIŞARIDAN alır, doğal boyunda kalıp FittedBox ile
+  /// küçültülmez: küçültme avatarı da metni de birlikte kısıyordu, yani
+  /// avatarı büyütmenin hiçbir yolu yoktu. Artık avatar plakanın boyundan
+  /// türer — şerit ne kadar yüksekse avatar o kadar büyük.
+  ///
+  /// [top] false ise konsol ölçüsü döner (kendi plakam biraz daha alçaktır,
+  /// çünkü konsolu dört hamle düğmesiyle paylaşır).
+  /// 4 piksel: şeridin plakaya bıraktığı dolgu. Üst şerit 3+1, konsol 2+2
+  /// dolgu kullanıyor (bkz. OkeyTableScaffold) — yani plaka kutuyu TAM
+  /// doldurur, bir piksel bile küçültülmez.
+  double seatPlateHeight({bool top = true}) =>
+      ((top ? topStripHeight : consoleHeight) - 4).clamp(26.0, 64.0);
 
   // ---------------------------------------------------------------------
   // KONSOL (masanın alt kenarı)

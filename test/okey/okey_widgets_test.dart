@@ -280,10 +280,9 @@ void main() {
         ),
         size: const Size(1000, 500),
       );
-      expect(
-        find.textContaining('perler masaya buraya serilir'),
-        findsOneWidget,
-      );
+      // BOŞ TABLA SESSİZDİR (kullanıcı isteği, 2026-09-08): ipucu yazısı
+      // keçedeki "CizreApp 101 OKEY" filigranının üstüne biniyordu.
+      expect(find.byType(Text), findsNothing);
 
       await _pump(
         tester,
@@ -327,7 +326,13 @@ void main() {
           isDrawSource: true,
         ),
       );
-      expect(find.text('10'), findsOneWidget);
+      // Iskarta taşının rakamı artık Canvas'a çiziliyor, bir Text widget
+      // DEĞİL (bkz. OkeyTileWidget.debugNumberText) — ad ve sayaç hâlâ düz
+      // Text olduğu için onlar aynı kaldı.
+      expect(
+        tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget)).debugNumberText,
+        '10',
+      );
       expect(find.text('Ali'), findsOneWidget);
       expect(find.text('21'), findsOneWidget);
     });
@@ -513,9 +518,19 @@ void main() {
         ),
         size: const Size(1000, 500),
       );
-      // Kapalı taşın sayısı görünmemeli, açık olanınki görünmeli
-      expect(find.text('2'), findsNothing, reason: 'okey kapalı olmalı');
-      expect(find.text('7'), findsOneWidget);
+      // Kapalı taşın sayısı görünmemeli, açık olanınki görünmeli. Rakam
+      // artık Canvas'a çiziliyor (bkz. OkeyTileWidget.debugNumberText).
+      final rackTiles = tester
+          .widgetList<OkeyTileWidget>(find.byType(OkeyTileWidget))
+          .toList();
+      final hiddenOkey = rackTiles.firstWhere(
+        (w) => w.tile.color == OkeyColor.blue && w.tile.number == 2,
+      );
+      expect(hiddenOkey.debugNumberText, isNull, reason: 'okey kapalı olmalı');
+      final visibleSeven = rackTiles.firstWhere(
+        (w) => w.tile.color == OkeyColor.red && w.tile.number == 7,
+      );
+      expect(visibleSeven.debugNumberText, '7');
     });
 
     testWidgets('çift basınca onDoubleTap doğru slot ile tetiklenir', (
@@ -571,7 +586,14 @@ void main() {
         ),
         size: const Size(1000, 500),
       );
-      expect(find.text('2'), findsOneWidget, reason: 'yardımsızda okey açık');
+      final okeyTile = tester
+          .widgetList<OkeyTileWidget>(find.byType(OkeyTileWidget))
+          .firstWhere((w) => w.tile.color == OkeyColor.blue && w.tile.number == 2);
+      expect(
+        okeyTile.debugNumberText,
+        '2',
+        reason: 'yardımsızda okey açık',
+      );
     });
   });
 
@@ -649,21 +671,17 @@ void main() {
         tester,
         OkeyTileWidget(tile: OkeyTile.numbered(OkeyColor.black, 1)),
       );
-      expect(find.text('1'), findsOneWidget);
-
-      // Sayının ALTINDA, taşın rengiyle aynı renkte dolu bir çember olmalı
-      final circle = tester.widgetList<Container>(find.byType(Container)).where(
-        (c) {
-          final d = c.decoration;
-          return d is BoxDecoration &&
-              d.shape == BoxShape.circle &&
-              d.color == const Color(0xFF212121); // siyah taş rengi
-        },
-      );
+      // Rakam VE altındaki dolu çember artık ikisi de Canvas'a, TEK
+      // painter'da çiziliyor (bkz. OkeyTileWidget class dokümanı,
+      // "TAŞIN YÜZÜ TEK BİR ÇİZİMDİR") — ne bir Text ne bir Container var.
+      // İkisi de AYNI `color`den türediği için (bkz. _glyphFor: `pipColor:
+      // color`), rengin doğruluğu ikisini birden kanıtlar.
+      final w = tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget));
+      expect(w.debugNumberText, '1');
       expect(
-        circle.length,
-        1,
-        reason: 'aynı renkte tek bir dolu çember olmalı',
+        w.debugGlyphColor,
+        const Color(0xFF212121), // siyah taş rengi
+        reason: 'rakam ve altındaki dolu çember aynı renkte olmalı',
       );
     });
 
@@ -683,12 +701,19 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('13'), findsOneWidget);
+      expect(
+        tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget)).debugNumberText,
+        '13',
+      );
     });
 
     testWidgets('joker taşında çember yerine ikon var', (tester) async {
       await _pump(tester, const OkeyTileWidget(tile: OkeyTile.falseJoker()));
-      expect(find.byIcon(Icons.auto_awesome), findsOneWidget);
+      // İkon artık `Icon` widget'ı değil, taşın diğer rakamlarıyla AYNI
+      // Canvas painter'ında çiziliyor (bkz. OkeyTileWidget.debugShowsJokerIcon).
+      final w = tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget));
+      expect(w.debugShowsJokerIcon, isTrue);
+      expect(w.debugNumberText, isNull, reason: 'joker rakam göstermemeli');
     });
 
     testWidgets('sayı taşı, joker ve kapalı taş hatasız kurulur', (
@@ -709,7 +734,11 @@ void main() {
           ],
         ),
       );
-      expect(find.text('13'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final first = tester
+          .widgetList<OkeyTileWidget>(find.byType(OkeyTileWidget))
+          .first;
+      expect(first.debugNumberText, '13');
     });
   });
 }

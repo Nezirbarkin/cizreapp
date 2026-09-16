@@ -30,6 +30,16 @@ class OkeyMyHand {
   final String? seriesPairsTurnToken;
   final int seriesPairsTurnCount;
 
+  /// YANDAN ALDIĞIM TAŞI GERİ KOYDUĞUM TURUN kimliği
+  /// (`okey_matches.turn_token`), yoksa null.
+  ///
+  /// RULES.md §4: geri konan taş O TURDA bir daha alınamaz. Sunucu kuralı
+  /// `okey_internal_draw_for_seat` içinde uyguluyor; bu alan yalnızca
+  /// arayüzün ıskartayı sönük göstermesi için gelir — düğme basılıp
+  /// reddedilmesin diye. Tur devredince maçın token'ı değişir, karşılaştırma
+  /// kendiliğinden bozulur: ayrıca sıfırlanması gerekmez.
+  final String? sideDrawUndoneToken;
+
   const OkeyMyHand({
     required this.tiles,
     required this.isOpeningDone,
@@ -38,6 +48,7 @@ class OkeyMyHand {
     this.penaltyPoints = 0,
     this.seriesPairsTurnToken,
     this.seriesPairsTurnCount = 0,
+    this.sideDrawUndoneToken,
   });
 
   const OkeyMyHand.empty()
@@ -47,7 +58,13 @@ class OkeyMyHand {
       wentForPairs = false,
       penaltyPoints = 0,
       seriesPairsTurnToken = null,
-      seriesPairsTurnCount = 0;
+      seriesPairsTurnCount = 0,
+      sideDrawUndoneToken = null;
+
+  /// [matchTurnToken] turunda yandan çekme kapalı mı? (bkz.
+  /// [sideDrawUndoneToken])
+  bool sideDrawBlockedInTurn(String? matchTurnToken) =>
+      sideDrawUndoneToken != null && sideDrawUndoneToken == matchTurnToken;
 
   /// [matchTurnToken] için geçerli sayaç: token eskiyse hak yeniden tamdır.
   int pairsLaidInTurn(String matchTurnToken) =>
@@ -59,6 +76,22 @@ class OkeyMyHand {
 /// Ses ve UÇAN TAŞ için kullanılır; masanın durumu bundan türetilmez
 /// (tek doğruluk kaynağı her zaman maç/el satırlarıdır).
 typedef OkeyMoveRow = ({int id, int seatNo, String action, OkeyTile? tile});
+
+/// `okey_match_snapshot` cevabı — masanın bir andaki tam hali.
+///
+/// Tek bir RPC turunda gelen bu paket, eskiden yedi ayrı sorgunun
+/// (maç, el, perler, taş sayıları, hamleler, barajlar, geri koyma hakkı)
+/// karşılığıdır (bkz. [OkeyGameService.getSnapshot]).
+typedef OkeyTableSnapshot = ({
+  OkeyMatch match,
+  OkeyMyHand hand,
+  List<OkeyTableMeld> melds,
+  Map<int, int> counts,
+  List<OkeyMoveRow> moves,
+  Map<int, String> barajs,
+  ({int minPoints, int minPairs})? requiredOpening,
+  bool canUndoSideDraw,
+});
 
 /// Maç içi RPC/veri çağrıları için ince istemci katmanı. Gerçek doğrulama
 /// her zaman sunucudaki SECURITY DEFINER RPC'lerde.
@@ -82,25 +115,29 @@ class OkeyGameService {
         .from('okey_player_hands')
         .select(
           'tiles, is_opening_done, opened_with_pairs, went_for_pairs, '
-          'penalty_points, series_pairs_turn_token, series_pairs_turn_count',
+          'penalty_points, series_pairs_turn_token, series_pairs_turn_count, '
+          'side_draw_undone_token',
         )
         .eq('match_id', matchId)
         .eq('user_id', uid)
         .maybeSingle();
     if (row == null) return const OkeyMyHand.empty();
-    return OkeyMyHand(
-      tiles: (row['tiles'] as List)
-          .map((t) => OkeyTile.fromMap(t as Map<String, dynamic>))
-          .toList(),
-      isOpeningDone: row['is_opening_done'] as bool? ?? false,
-      openedWithPairs: row['opened_with_pairs'] as bool? ?? false,
-      wentForPairs: row['went_for_pairs'] as bool? ?? false,
-      penaltyPoints: (row['penalty_points'] as num?)?.toInt() ?? 0,
-      seriesPairsTurnToken: row['series_pairs_turn_token'] as String?,
-      seriesPairsTurnCount:
-          (row['series_pairs_turn_count'] as num?)?.toInt() ?? 0,
-    );
+    return _handFromMap(row);
   }
+
+  static OkeyMyHand _handFromMap(Map<String, dynamic> row) => OkeyMyHand(
+    tiles: (row['tiles'] as List)
+        .map((t) => OkeyTile.fromMap(t as Map<String, dynamic>))
+        .toList(),
+    isOpeningDone: row['is_opening_done'] as bool? ?? false,
+    openedWithPairs: row['opened_with_pairs'] as bool? ?? false,
+    wentForPairs: row['went_for_pairs'] as bool? ?? false,
+    penaltyPoints: (row['penalty_points'] as num?)?.toInt() ?? 0,
+    seriesPairsTurnToken: row['series_pairs_turn_token'] as String?,
+    seriesPairsTurnCount:
+        (row['series_pairs_turn_count'] as num?)?.toInt() ?? 0,
+    sideDrawUndoneToken: row['side_draw_undone_token'] as String?,
+  );
 
   /// Bu maçtaki son hamle — masaya İLK girişte "nereden devam ediyorum"
   /// işaretini koymak için (o hamle oynatılmaz, yalnızca kimliği not edilir).
@@ -203,21 +240,142 @@ class OkeyGameService {
     return result;
   }
 
-  Future<OkeyMatch> drawFromDeck(String matchId) async {
-    final row = await _client.rpc(
-      'okey_take_turn_action',
-      params: {'p_match_id': matchId, 'p_action': 'draw_deck'},
-    );
-    return OkeyMatch.fromMap(row as Map<String, dynamic>);
+  /// MASANIN TAMAMI TEK OKUMADA (performans, 2026-09-13).
+  ///
+  /// [getSnapshot] yoksa (eski sunucu) null döner ve çağıran eski yola —
+  /// yedi ayrı sorguya — düşer. Bayrak KÜTÜPHANE düzeyindedir: her masada
+  /// yeniden denemenin anlamı yok.
+  static bool _snapshotSupported = true;
+
+  /// Masa durumunun tamamı: maç, kendi elim, masadaki perler, rakiplerin taş
+  /// sayıları, son hamleler, baraj rozetleri ve "geri koy" hakkı.
+  ///
+  /// Eskiden bunların her biri ayrı bir ağ turuydu; paralel gitseler bile
+  /// toplam gecikme en yavaş turdan aşağı inemiyor, üstelik her biri kendi
+  /// PostgREST maliyetini ödüyordu. Tek RPC hepsini tek planda toplar.
+  ///
+  /// [afterMoveId] null ise yalnızca SON hamle döner (masaya ilk girişte
+  /// "nereden devam ediyorum" işareti); doluysa ondan sonraki en çok 6 hamle
+  /// eskiden yeniye sıralı gelir — [getMovesSince] ile aynı sözleşme.
+  Future<OkeyTableSnapshot?> getSnapshot(
+    String matchId, {
+    int? afterMoveId,
+  }) async {
+    if (!_snapshotSupported) return null;
+    try {
+      final row =
+          await _client.rpc(
+                'okey_match_snapshot',
+                params: {
+                  'p_match_id': matchId,
+                  'p_after_move_id': afterMoveId,
+                },
+              )
+              as Map<String, dynamic>;
+
+      final handRow = row['hand'] as Map<String, dynamic>?;
+      final counts = <int, int>{};
+      for (final c in (row['counts'] as List? ?? const [])) {
+        final m = c as Map<String, dynamic>;
+        counts[(m['seat_no'] as num).toInt()] =
+            (m['tile_count'] as num).toInt();
+      }
+      final barajs = <int, String>{};
+      for (final b in (row['barajs'] as List? ?? const [])) {
+        final m = b as Map<String, dynamic>;
+        final seat = (m['seat_no'] as num?)?.toInt();
+        final kind = m['kind'] as String?;
+        if (seat != null && kind != null) barajs[seat] = kind;
+      }
+      return (
+        match: OkeyMatch.fromMap(row['match'] as Map<String, dynamic>),
+        hand: handRow == null
+            ? const OkeyMyHand.empty()
+            : _handFromMap(handRow),
+        melds: [
+          for (final m in (row['melds'] as List? ?? const []))
+            OkeyTableMeld.fromMap(m as Map<String, dynamic>),
+        ],
+        counts: counts,
+        moves: [
+          for (final m in (row['moves'] as List? ?? const []))
+            _moveRow(m as Map<String, dynamic>),
+        ],
+        barajs: barajs,
+        requiredOpening: switch (row['required_opening']) {
+          final Map<String, dynamic> r => (
+            minPoints: (r['min_points'] as num?)?.toInt() ?? 101,
+            minPairs: (r['min_pairs'] as num?)?.toInt() ?? 5,
+          ),
+          _ => null,
+        },
+        canUndoSideDraw: row['can_undo_side_draw'] == true,
+      );
+    } catch (e) {
+      if (!_isMissingFunction(e)) rethrow;
+      _snapshotSupported = false;
+      return null;
+    }
   }
 
-  Future<OkeyMatch> drawFromDiscard(String matchId) async {
-    final row = await _client.rpc(
-      'okey_take_turn_action',
-      params: {'p_match_id': matchId, 'p_action': 'draw_discard'},
-    );
-    return OkeyMatch.fromMap(row as Map<String, dynamic>);
+  /// SUNUCU ÇEKİLEN TAŞI DA DÖNDÜREBİLİYOR MU? (performans, 2026-09-08)
+  ///
+  /// `okey_take_turn_action_v2` yalnızca maç satırını değil, ÇEKİLEN TAŞI da
+  /// döndürür — böylece istemci çektiği taşı görmek için ikinci bir ağ turu
+  /// atmak zorunda kalmaz. Fonksiyon henüz yayınlanmamış bir sunucuda yoksa
+  /// (PostgREST `PGRST202`) bayrak indirilir ve oturum boyunca eski çağrı
+  /// kullanılır; oyun HİÇBİR ŞEKİLDE kesintiye uğramaz.
+  ///
+  /// Sınıf değil KÜTÜPHANE düzeyinde: her provider yeni bir servis kuruyor,
+  /// örnek alanı olsaydı her masada yeniden denenirdi.
+  static bool _drawV2Supported = true;
+
+  static bool _isMissingFunction(Object e) {
+    if (e is PostgrestException) {
+      if (e.code == 'PGRST202' || e.code == '42883') return true;
+      final msg = e.message.toLowerCase();
+      return msg.contains('could not find the function') ||
+          msg.contains('does not exist');
+    }
+    return false;
   }
+
+  /// Çekme/atma — [drawn] YALNIZCA çekme hamlelerinde ve yalnızca sunucu v2
+  /// destekliyorsa dolu gelir.
+  Future<({OkeyMatch match, OkeyTile? drawn})> _turnAction(
+    String matchId,
+    String action, {
+    OkeyTile? tile,
+  }) async {
+    final params = <String, dynamic>{
+      'p_match_id': matchId,
+      'p_action': action,
+      if (tile != null) 'p_tile': tile.toMap(),
+    };
+    if (_drawV2Supported) {
+      try {
+        final row = await _client.rpc('okey_take_turn_action_v2',
+            params: params) as Map<String, dynamic>;
+        final drawn = row['drawn'] as Map<String, dynamic>?;
+        return (
+          match: OkeyMatch.fromMap(row['match'] as Map<String, dynamic>),
+          drawn: drawn == null ? null : OkeyTile.fromMap(drawn),
+        );
+      } catch (e) {
+        if (!_isMissingFunction(e)) rethrow;
+        _drawV2Supported = false;
+      }
+    }
+    final row = await _client.rpc('okey_take_turn_action', params: params);
+    return (match: OkeyMatch.fromMap(row as Map<String, dynamic>), drawn: null);
+  }
+
+  Future<({OkeyMatch match, OkeyTile? drawn})> drawFromDeck(String matchId) =>
+      _turnAction(matchId, 'draw_deck');
+
+  Future<({OkeyMatch match, OkeyTile? drawn})> drawFromDiscard(
+    String matchId,
+  ) => _turnAction(matchId, 'draw_discard');
 
   /// RULES.md §4 — YANDAN ALINAN TAŞI GERİ KOY.
   ///
@@ -247,15 +405,8 @@ class OkeyGameService {
   }
 
   Future<OkeyMatch> discard(String matchId, OkeyTile tile) async {
-    final row = await _client.rpc(
-      'okey_take_turn_action',
-      params: {
-        'p_match_id': matchId,
-        'p_action': 'discard',
-        'p_tile': tile.toMap(),
-      },
-    );
-    return OkeyMatch.fromMap(row as Map<String, dynamic>);
+    final result = await _turnAction(matchId, 'discard', tile: tile);
+    return result.match;
   }
 
   /// RULES.md §3 — seri/grup ile ([isPairs] false) veya çift ile ([isPairs]
@@ -355,6 +506,14 @@ class OkeyGameService {
       params: {'p_match_id': matchId},
     );
     return r == true;
+  }
+
+  /// Oyuncu maç sırasında "Masadan ayrıl" dediğinde çağrılır: koltuğu
+  /// kalıcı olarak AI'ya devreder (bkz. migration 20260915000001) ve sırası
+  /// oysa turu hemen oynatır — diğer oyuncular 90 sn'lik "kayıp mı?"
+  /// belirsizliğini beklemez.
+  Future<void> leaveMatchSeat(String matchId) async {
+    await _client.rpc('okey_leave_match_seat', params: {'p_match_id': matchId});
   }
 
   /// Sırası gelen koltuk botsa onun hamlesini oynatır.

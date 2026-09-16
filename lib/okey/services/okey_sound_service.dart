@@ -69,6 +69,37 @@ enum OkeySound {
 
   /// Geçersiz hamle / hata
   error,
+
+  /// ÇİP KAZANILDI — saatlik bonus ya da reklam ödülü cüzdana düştü
+  /// (kullanıcı isteği, 2026-09-07: "bonus al tıkladığında çip (para sesi)
+  /// vs çıksın").
+  coin,
+
+  /// ISTAKADA (takozda) taş oynatıldı — seçildi ya da başka slota taşındı.
+  ///
+  /// [discardTile]'dan AYRI bir ses: ıstaka oyuncunun önündedir, masaya
+  /// atma değildir. Aynı sesi kullansaydık ıstakada taş kaydırmak "taş
+  /// attım" gibi duyulurdu.
+  rackTile,
+
+  /// ARAYÜZ DÜĞMESİ tıklandı (AT, SERİ AÇ, ÇİFT DİZ, HUD ikonları...).
+  ///
+  /// Bilinçli olarak taş sesine benzemez: düğmeye basmak hamlenin
+  /// kendisi değil, isteğidir.
+  buttonTap,
+
+  /// BEKLEME ODASINA BİR OYUNCU OTURDU (kullanıcı isteği, 2026-09-08:
+  /// "oyuncu katılırken ses çıkartın").
+  ///
+  /// Bekleme odası sessizce yoklanır: koltuklar üç saniyede bir tazelenir ve
+  /// masa, oyuncu ekrana bakmıyorken dolar. Ses, oyuncunun ekranı izlemeden
+  /// masanın dolduğunu anlamasını sağlayan tek işaret.
+  ///
+  /// BOT OTURDUĞUNDA DA ÇALAR. Yalnız insanlar için çalsaydı sessizlik "bu
+  /// gelen bir bottu" demenin en açık yolu olurdu — masadaki her şeyin botu
+  /// gizlemesi ilkesiyle çelişirdi (bkz. OkeyRoomSeat.displayLabel,
+  /// OkeyCornerPileWidget.isThinking).
+  playerJoin,
 }
 
 /// Bir ses olayının uygulama paketindeki ÖRNEK dosyası.
@@ -103,6 +134,14 @@ extension OkeySoundAsset on OkeySound {
         return 'laugh.wav';
       case OkeySound.error:
         return 'error.wav';
+      case OkeySound.coin:
+        return 'coin.wav';
+      case OkeySound.rackTile:
+        return 'rack.wav';
+      case OkeySound.buttonTap:
+        return 'click.wav';
+      case OkeySound.playerJoin:
+        return 'join.wav';
     }
   }
 
@@ -127,8 +166,39 @@ extension OkeySoundAsset on OkeySound {
       case OkeySound.processTile:
         await HapticFeedback.selectionClick();
         break;
+      case OkeySound.coin:
+        // Çip kazanmak KÜÇÜK ama iyi bir haber: hafif ama iki katmanlı
+        // (tek bir tık, ödülü bir hamleyle aynı ağırlıkta gösterirdi).
+        await HapticFeedback.mediumImpact();
+        break;
+      case OkeySound.rackTile:
+      case OkeySound.buttonTap:
+        // Saniyede birkaç kez tetiklenebilir: en hafif geri bildirim.
+        await HapticFeedback.selectionClick();
+        break;
+      case OkeySound.playerJoin:
+        // Masaya biri oturdu: bir hamle değil, bir HABER. Bildirim
+        // seslerindeki orta şiddet.
+        await HapticFeedback.mediumImpact();
+        break;
     }
   }
+}
+
+/// Bir düğme geri çağrısını ARAYÜZ TIK SESİYLE sarar.
+///
+/// Okey'deki düğmelerin hepsi birkaç ortak parçadan geçer ([OkeyButton],
+/// [OkeyCard], eylem çubuğundaki `_Control`); tık sesini tek tek her
+/// `onPressed`'e eklemek yerine o parçalarda bu sarmalayıcı kullanılır —
+/// yeni bir düğme eklendiğinde sesi hatırlamak gerekmez.
+///
+/// `null` geri çağrı `null` döner: kapalı düğme ses de çıkarmaz.
+VoidCallback? withOkeyTapSound(VoidCallback? onTap) {
+  if (onTap == null) return null;
+  return () {
+    unawaited(OkeySoundService.instance.play(OkeySound.buttonTap));
+    onTap();
+  };
 }
 
 /// Okey masasının ses efektleri.
@@ -225,6 +295,19 @@ class OkeySoundService {
   /// bu alan olmadan her çağrı çalan parçayı BAŞA sarıyordu.
   String? _playingUrl;
 
+  /// [startMusic] ÇAĞRI SAYACI — eş zamanlı çağrıların birbirini ezmesini
+  /// önler.
+  ///
+  /// Bu metot bağımsız üç yerden üst üste tetiklenebilir: Okey masası
+  /// açılışı, kullanıcının sonraki/önceki dokunuşu ve şarkı doğal olarak
+  /// bitince otomatik geçiş. İki çağrı iç içe girdiğinde ikisi de aynı
+  /// `_musicPlayer` üzerinde çalışır; DAHA ÖNCE başlayıp DAHA SONRA biten
+  /// bir çağrı, kendi (artık eski) parça bilgisini en son yazan taraf
+  /// olabiliyordu — ekranda "2. şarkı" yazarken aslında 3. şarkı çalıyordu.
+  /// Her çağrı kendi sıra numarasını alır; yalnızca hâlâ EN GÜNCEL çağrı
+  /// olan taraf sonucu yazar.
+  int _playOp = 0;
+
   /// Çalan şarkının KONUMU ve UZUNLUĞU — "şimdi çalıyor" panelindeki
   /// ilerleme çubuğu ve süre yazısı için.
   ///
@@ -253,6 +336,53 @@ class OkeySoundService {
   /// Ses altyapısı bu ortamda hiç çalışmıyor (eklenti yok / platform
   /// desteklemiyor). Bir kez tespit edilince bir daha denenmez.
   bool _audioUnavailable = false;
+
+  /// TARAYICI OTOMATİK OYNATMA KİLİDİ.
+  ///
+  /// Web'de tarayıcı, kullanıcı sayfayla ETKİLEŞMEDEN önce ses çalmayı
+  /// reddeder (NotAllowedError). Bu kısıt olmasaydı sorun yoktu; ama
+  /// [_tryPlay] o hatayı "dosya yok" sanıp efekti [_missing] listesine
+  /// yazıyor, müzik denemesi de sessizce düşüyordu — web'de hiçbir sesin
+  /// gelmemesinin sebebi buydu. Bu bayrak, ilk dokunuştan ÖNCEKİ
+  /// başarısızlıkların KALICI sayılmasını engeller.
+  ///
+  /// Mobil/masaüstünde böyle bir kısıt yok: doğrudan açık başlar.
+  bool _userGestured = !kIsWeb;
+
+  /// SES EKLENTİSİ BU BUILD'DE HİÇ YOK (MissingPluginException).
+  ///
+  /// [_audioUnavailable]'dan ayrı tutulur: ilk kullanıcı dokunuşu
+  /// ([notifyUserGesture]) otomatik oynatma kilidinden kaynaklanan
+  /// başarısızlıkları temizler, ama eksik eklentiyi temizlememelidir —
+  /// aksi halde her açılışta bir tur daha MissingPluginException fırlar.
+  bool _audioPluginMissing = false;
+
+  void _markAudioPluginMissing() {
+    _audioPluginMissing = true;
+    _audioUnavailable = true;
+  }
+
+  /// Sık tetiklenen arayüz seslerinin (düğme tıkı, ıstakada taş) en az
+  /// aralığı. Hızlı art arda dokunuşlar aynı sesi kesip "cırtlak" bir
+  /// tekrar üretiyordu.
+  static const _uiSoundGap = Duration(milliseconds: 55);
+
+  /// Müzik oynatıcısındaki duraklat/devam et/durdur çağrılarının üst
+  /// zaman sınırı.
+  ///
+  /// ESKİDEN 300 ms'ydi. `audioplayers`'ın native `pause()`/`resume()`
+  /// çağrısı — özellikle ses odağı (audio focus) yeniden müzakere
+  /// edilirken veya cihaz biraz yoğunken — bu süreyi ARA SIRA aşıyordu.
+  /// Süre dolduğunda `catch` bloğu devreye girip [_musicPaused] bayrağını
+  /// GÜNCELLEMEDEN çıkıyordu; ama native çağrı arka planda çalışmaya devam
+  /// edip birkaç yüz ms sonra GERÇEKTEN duraklatıyor/devam ettiriyordu.
+  /// Sonuç: düğmenin ikonu ile sesin gerçek durumu birbirinden kopuyor,
+  /// bir sonraki dokunuş "hiçbir şey yapmıyormuş" gibi görünüyordu —
+  /// duraklat/devam et düğmesinin "ara sıra bozulması" buydu. 1200 ms,
+  /// gerçek bir donmayı (eklenti tamamen yanıt vermiyor) hâlâ yakalar ama
+  /// sıradan bir gecikmeyi hataya çevirmez.
+  static const _musicControlTimeout = Duration(milliseconds: 1200);
+  final Map<OkeySound, DateTime> _lastUiSoundAt = {};
 
   /// Admin panelinden yüklenmiş ses dosyalarının URL'leri (sound_key -> url).
   /// Varsa paketteki assets/sounds/ dosyasının YERİNE bunlar çalınır.
@@ -386,6 +516,22 @@ class OkeySoundService {
     }
   }
 
+  /// KULLANICI SAYFAYA İLK KEZ DOKUNDU — web'de ses kilidini açar.
+  ///
+  /// Uygulamanın kökünden (bkz. `main.dart` > [MaterialApp.builder]) her
+  /// işaretçi basışında çağrılır; ilk çağrıdan sonrası bedava döner.
+  /// Etkileşim öncesi tarayıcının reddettiği denemeler yüzünden "eksik"
+  /// işaretlenmiş efektler temizlenir ve durmuş müzik yeniden başlatılır.
+  void notifyUserGesture() {
+    if (_userGestured) return;
+    _userGestured = true;
+    _missing.clear();
+    if (!_audioPluginMissing) _audioUnavailable = false;
+    if (_musicEnabled && _playingUrl == null) {
+      unawaited(startMusic());
+    }
+  }
+
   Future<void> setEnabled(bool value) async {
     _enabled = value;
     if (!value && !_audioUnavailable) {
@@ -452,20 +598,26 @@ class OkeySoundService {
 
     final track = _playlist[_trackIndex];
 
-    // AYNI ŞARKI ZATEN ÇALIYOR → DOKUNMA.
+    // AYNI ŞARKI ZATEN YÜKLÜ → DOKUNMA (çalıyor ya da duraklatılmış, FARK
+    // ETMEZ).
     //
     // Oyun ekranı, yan menü ve müzik açma/kapama hepsi bu metodu çağırıyor.
     // Koşulsuz `play()` çağrısı parçayı her seferinde başa sarıyordu; ekran
-    // değiştirdikçe şarkının baştan başlamasının sebebi buydu.
-    if (!restart &&
-        !_musicPaused &&
-        _musicPlayer != null &&
-        _playingUrl == track.url) {
+    // değiştirdikçe şarkının baştan başlamasının sebebi buydu. ESKİDEN bu
+    // kısa devre yalnızca `!_musicPaused` iken işliyordu — yani kullanıcı
+    // müziği DURAKLATTIKTAN sonra başka bir ekran (ör. Okey masası açılışı,
+    // bkz. OkeyGameProvider._init) bu metodu çağırınca şarkı kullanıcı HİÇBİR
+    // ŞEY YAPMADAN baştan başlıyor ve duraklatma sıfırlanıyordu — "şarkı
+    // kendiliğinden oynatılıyor" şikâyetinin kaynağı buydu. Duraklatılmışken
+    // de aynı parça zaten yüklüyse dokunulmamalı; gerçek bir devam ettirme
+    // [resumeMusicPlayback] üzerinden, kullanıcının kendi isteğiyle olmalı.
+    if (!restart && _musicPlayer != null && _playingUrl == track.url) {
       _currentTrackName = track.name;
       unawaited(_showNowPlayingNotification(_currentTrackName));
       return;
     }
 
+    final myOp = ++_playOp;
     final completer = Completer<void>();
     runZonedGuarded(
       () async {
@@ -510,20 +662,39 @@ class OkeySoundService {
               .play(UrlSource(track.url))
               .timeout(const Duration(seconds: 5));
 
+          // BU ÇAĞRI ARTIK ESKİMİŞ Mİ? Beklerken daha yeni bir startMusic()
+          // çağrısı (ör. kullanıcının art arda "sonraki"ye basması) devreye
+          // girip kendi sonucunu yazmış olabilir — o zaman burası SESSİZCE
+          // çıkar, üzerine yazmaz. Ses zaten en son `play()` neyse onu
+          // çalıyor; mesele yalnızca hangi çağrının durumu KAYDETTİĞİ.
+          if (myOp != _playOp) return;
+
           // Bildirim panelinde şarkı adını göster — çalma başarılı olduysa.
           _musicPaused = false;
           _playingUrl = track.url;
           _currentTrackName = track.name;
           _notifyMusicState();
           unawaited(_showNowPlayingNotification(_currentTrackName));
+        } on MissingPluginException {
+          // Ses eklentisi bu derlemede hic yok (bkz. [_audioPluginMissing]).
+          // Efektlerdeki kararin aynisi: bir daha denemek ayni istisnayi
+          // firlatir, sessizce ve KALICI olarak kapatilir. Bu, çağrının
+          // eski olup olmadığına bakmaz: eklenti cihaz/derleme genelinde
+          // eksik, tek bir çağrıya özgü değil.
+          _markAudioPluginMissing();
+          if (myOp == _playOp) _playingUrl = null;
         } catch (_) {
-          // müzik tamamen opsiyonel
-          _playingUrl = null;
+          // müzik tamamen opsiyonel. AMA bu çağrı eskimişse (daha yeni bir
+          // startMusic() zaten başarıyla yazdıysa) o başarıyı SIFIRLAMA —
+          // aksi hâlde geç kalan bir zaman aşımı, az önce başlayan yeni
+          // şarkıyı ekranda "çalmıyor" gösterirdi.
+          if (myOp == _playOp) _playingUrl = null;
         } finally {
           if (!completer.isCompleted) completer.complete();
         }
       },
-      (_, __) {
+      (error, __) {
+        if (error is MissingPluginException) _markAudioPluginMissing();
         if (!completer.isCompleted) completer.complete();
       },
     );
@@ -585,7 +756,7 @@ class OkeySoundService {
     final p = _musicPlayer;
     if (p == null || _musicPaused) return;
     try {
-      await p.pause().timeout(const Duration(milliseconds: 300));
+      await p.pause().timeout(_musicControlTimeout);
       _musicPaused = true;
       _notifyMusicState();
       unawaited(_showNowPlayingNotification(_currentTrackName));
@@ -609,7 +780,7 @@ class OkeySoundService {
       return;
     }
     try {
-      await p.resume().timeout(const Duration(milliseconds: 300));
+      await p.resume().timeout(_musicControlTimeout);
       _musicPaused = false;
       _notifyMusicState();
       unawaited(_showNowPlayingNotification(_currentTrackName));
@@ -633,7 +804,7 @@ class OkeySoundService {
     final p = _musicPlayer;
     if (p == null) return;
     try {
-      await p.stop().timeout(const Duration(milliseconds: 300));
+      await p.stop().timeout(_musicControlTimeout);
     } catch (_) {
       // durdurulamadıysa da müzik kapalı sayılır
     }
@@ -1050,6 +1221,12 @@ class OkeySoundService {
   /// etkilememelidir.
   Future<void> play(OkeySound sound) async {
     if (!_enabled) return;
+    if (sound == OkeySound.buttonTap || sound == OkeySound.rackTile) {
+      final last = _lastUiSoundAt[sound];
+      final now = DateTime.now();
+      if (last != null && now.difference(last) < _uiSoundGap) return;
+      _lastUiSoundAt[sound] = now;
+    }
     if (_audioUnavailable || _missing.contains(sound)) {
       await _safeHaptic(sound);
       return;
@@ -1084,9 +1261,20 @@ class OkeySoundService {
             await player.play(AssetSource(sound.assetPath));
           }
           finish(true);
+        } on MissingPluginException {
+          // EKLENTİ KAYITLI DEĞİL (örn. web build'i eski bir plugin
+          // registrant ile üretilmişse audioplayers_web bundle'a girmez).
+          // Bu, tek bir dosyanın eksikliği değil ALTYAPININ yokluğudur ve
+          // yeniden denemekle düzelmez: her efekt için tekrar tekrar
+          // MissingPluginException fırlatıp merkezi hata kaydını doldururdu.
+          _markAudioPluginMissing();
+          finish(false);
         } catch (_) {
-          // Dosya yok / oynatılamadı → bu efekti bir daha deneme
-          _missing.add(sound);
+          // Dosya yok / oynatılamadı → bu efekti bir daha deneme.
+          // AMA web'de kullanıcı henüz sayfaya dokunmadıysa hata "dosya
+          // yok" değil, tarayıcının otomatik oynatma kilididir; kalıcı
+          // işaretlenirse ilk dokunuştan sonra da sessiz kalırdı.
+          if (_userGestured) _missing.add(sound);
           if (kDebugMode) {
             debugPrint(
               'OkeySoundService: assets/sounds/${sound.fileName} '
@@ -1097,8 +1285,14 @@ class OkeySoundService {
         }
       },
       (error, stack) {
-        // Eklenti yok / platform desteklemiyor → sesi tamamen devre dışı bırak
-        _audioUnavailable = true;
+        // Eklenti yok / platform desteklemiyor → sesi tamamen devre dışı bırak.
+        // Web'de beklenen hata otomatik oynatma kilididir (kullanıcı sayfaya
+        // dokunmadan ses çalınamaz) ve GEÇİCİDİR; o yüzden web'de yalnızca bu
+        // deneme başarısız sayılır. Tek istisna MissingPluginException:
+        // audioplayers'ın web tarafı bundle'a hiç girmemiş demektir, bir
+        // sonraki denemede de girmeyecektir.
+        if (error is MissingPluginException) _markAudioPluginMissing();
+        if (!kIsWeb) _audioUnavailable = true;
         if (kDebugMode) {
           debugPrint(
             'OkeySoundService: ses altyapısı kullanılamıyor '

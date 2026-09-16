@@ -88,7 +88,7 @@ void main() {
       }
       expect(
         OkeySound.values.length,
-        10,
+        14,
         reason: 'yeni efekt eklendiyse README ve testi güncelle',
       );
     });

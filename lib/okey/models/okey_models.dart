@@ -53,6 +53,40 @@ class OkeyMatch {
     this.highestOpeningPairs = 0,
   });
 
+  /// İYİMSER GÜNCELLEME için kopya (performans, 2026-09-08).
+  ///
+  /// Taş çekme/atma, sunucu cevabını BEKLEMEDEN masada görünür olmalı; o
+  /// yüzden istemci elindeki maç satırının aynısını, yalnızca değişen
+  /// alanlarıyla yeniden kurar. Sunucu cevabı geldiğinde bu kopyanın yerini
+  /// gerçek satır alır — yani kopya hiçbir zaman doğruluk kaynağı olmaz.
+  OkeyMatch copyWith({
+    int? turnSeat,
+    String? turnPhase,
+    DateTime? turnDeadline,
+    int? deckRemaining,
+    Map<int, List<OkeyTile>>? discardPiles,
+  }) => OkeyMatch(
+    id: id,
+    roomId: roomId,
+    status: status,
+    handNo: handNo,
+    dealerSeat: dealerSeat,
+    turnSeat: turnSeat ?? this.turnSeat,
+    turnPhase: turnPhase ?? this.turnPhase,
+    turnToken: turnToken,
+    indicatorTile: indicatorTile,
+    okeyTile: okeyTile,
+    deckRemaining: deckRemaining ?? this.deckRemaining,
+    discardPiles: discardPiles ?? this.discardPiles,
+    scores: scores,
+    openPoints: openPoints,
+    turnDeadline: turnDeadline ?? this.turnDeadline,
+    winnerSeat: winnerSeat,
+    winType: winType,
+    highestOpeningPoints: highestOpeningPoints,
+    highestOpeningPairs: highestOpeningPairs,
+  );
+
   factory OkeyMatch.fromMap(Map<String, dynamic> map) {
     final rawPiles = (map['discard_piles'] as Map<String, dynamic>? ?? {});
     final piles = <int, List<OkeyTile>>{};
@@ -303,6 +337,14 @@ class OkeyRoomSeat {
   final String? userId;
   final bool isReady;
   final bool isBot;
+
+  /// GERÇEK oyuncu uzun süredir (>=90 sn) hiç görünmediği için turu bot
+  /// yapay zekâsına devredildi (bkz. `okey_auto_play_absent`,
+  /// migration 20260913120001). [isBot]'tan AYRIDIR: ekonomi (cüzdan/pot)
+  /// bu koltuğu hâlâ GERÇEK oyuncu sayar — yalnızca hamleyi kimin seçtiği
+  /// değişir, bu yüzden istemci de kimliği/adı DEĞİŞTİRMEZ.
+  final bool isAiControlled;
+
   final String? displayName;
   final String? avatarUrl;
 
@@ -317,6 +359,7 @@ class OkeyRoomSeat {
     required this.seatNo,
     required this.isReady,
     this.isBot = false,
+    this.isAiControlled = false,
     this.userId,
     this.displayName,
     this.avatarUrl,
@@ -324,6 +367,12 @@ class OkeyRoomSeat {
   });
 
   bool get isEmpty => userId == null && !isBot;
+
+  /// Bu turu bot yapay zekâsı mı seçiyor — sıradan bir bot olarak (masaya
+  /// öyle oturmuş) ya da uzun süre kayıp bir oyuncudan devralınarak.
+  /// İstemcinin "bu koltuğun turunu ben mi sürüklemeliyim" kararı ikisinde
+  /// de AYNIDIR (bkz. OkeyGameProvider._maybeScheduleBotTurn).
+  bool get isBotDriven => isBot || isAiControlled;
 
   /// Masada GÖRÜNEN ad.
   ///
@@ -367,6 +416,7 @@ class OkeyRoomSeat {
       userId: map['user_id'] as String?,
       isReady: map['is_ready'] as bool,
       isBot: map['is_bot'] as bool? ?? false,
+      isAiControlled: map['is_ai_controlled'] as bool? ?? false,
       botProfileId: map['bot_profile_id'] as String?,
       displayName: botProfile != null
           ? botProfile['display_name'] as String?

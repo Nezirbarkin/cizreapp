@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/okey_rack_style.dart';
+import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 
 /// MASA AYARLARI DİYALOĞU.
@@ -111,6 +112,8 @@ class _OkeyTableSettingsDialogState extends State<OkeyTableSettingsDialog> {
                   setState(() {});
                 },
               ),
+              const Divider(color: Colors.white12, height: 18),
+              const OkeyTableThemePicker(),
               const Divider(color: Colors.white12, height: 18),
               const OkeyRackStylePicker(),
               const Divider(color: Colors.white12, height: 18),
@@ -344,6 +347,168 @@ class _RackStyleChip extends StatelessWidget {
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
                   color: selected ? const Color(0xFFE8C069) : Colors.white70,
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// MASA TEMASI SEÇİMİ — kullanıcı isteği, 2026-09-14: "okey oyunu yeni bir
+/// tasarım yap, oyuncu tema seçebilsin ayardan".
+///
+/// [OkeyRackStylePicker]le AYNI desen: yatay kaydırılan kartlar, her biri
+/// KENDİ malzemesinin gerçek bir ÖNİZLEMESİ (damask zemin tonu + altın
+/// vurgu) — salt bir renk noktası değil. Takoz seçiminden AYRI bir bileşen
+/// çünkü ikisi farklı şeyi kaplar (masa zemini / ıstaka ahşabı), ama bir
+/// tema seçildiğinde eşleşen ıstaka da otomatik önerilir (bkz.
+/// OkeyTableThemePrefs.select) — bu yüzden ikisi aynı diyalogda ALT ALTA
+/// durur: kullanıcı üstteki temayı değiştirince alttaki takozun da
+/// değiştiğini görür.
+class OkeyTableThemePicker extends StatelessWidget {
+  const OkeyTableThemePicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<OkeyTableTheme>(
+      valueListenable: OkeyTableThemePrefs.instance.current,
+      builder: (context, selected, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.palette, color: Colors.white70, size: 20),
+              const SizedBox(width: 12),
+              const Text(
+                'Masa teması',
+                style: TextStyle(color: Colors.white, fontSize: 14),
+              ),
+              const Spacer(),
+              Flexible(
+                child: Text(
+                  selected.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: Color(0xFFE8C069),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 84,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: OkeyTableTheme.all.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final theme = OkeyTableTheme.all[i];
+                return _TableThemeChip(
+                  theme: theme,
+                  selected: theme.key == selected.key,
+                  onTap: () => OkeyTableThemePrefs.instance.select(theme),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableThemeChip extends StatelessWidget {
+  final OkeyTableTheme theme;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _TableThemeChip({
+    required this.theme,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 112,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? const Color(0xFFE8C069) : const Color(0x33FFFFFF),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ÖNİZLEME: temanın GERÇEK zemin gradyanı — masaya girmeden
+            // "hangi renk" sorusunun cevabı burada, kelimeyle değil gözle.
+            Container(
+              height: 42,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    theme.damaskLight,
+                    theme.damaskMid,
+                    theme.damaskDeep,
+                  ],
+                ),
+                border: Border.all(color: theme.railGradient.first, width: 1.5),
+              ),
+              padding: const EdgeInsets.all(5),
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: theme.accentGold,
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.accentGold.withValues(alpha: 0.6),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 3),
+            Flexible(
+              child: Text(
+                theme.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                  color: selected ? const Color(0xFFE8C069) : Colors.white70,
+                ),
+              ),
+            ),
+            Flexible(
+              child: Text(
+                theme.description,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 9, color: Colors.white38),
               ),
             ),
           ],

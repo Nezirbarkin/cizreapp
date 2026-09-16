@@ -201,10 +201,10 @@ class _OkeyProfileSheetState extends State<OkeyProfileSheet> {
         margin: const EdgeInsets.all(10),
         constraints: BoxConstraints(maxHeight: screen.height * 0.92),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF16556E), OkeyColors.screenBackground],
+            colors: [const Color(0xFF16556E), OkeyColors.screenBackground],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
@@ -247,7 +247,7 @@ class _OkeyProfileSheetState extends State<OkeyProfileSheet> {
 
                       if (_loading) ...[
                         const SizedBox(height: OkeyUI.gapLg),
-                        const CircularProgressIndicator(
+                        CircularProgressIndicator(
                           color: OkeyColors.accentGold,
                           strokeWidth: 2.5,
                         ),
@@ -401,7 +401,7 @@ class _Header extends StatelessWidget {
                     ),
                     child: Text(
                       card!.winRateLabel,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: OkeyColors.accentGold,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,

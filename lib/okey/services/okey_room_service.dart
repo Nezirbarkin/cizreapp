@@ -111,6 +111,35 @@ class OkeyRoomService {
         .toList();
   }
 
+  /// MASA KURMA SINIRLARI — alt sınır, oda açma ücreti ve cüzdan.
+  ///
+  /// Üçü de istemcide yoktur (`okey_settings` RLS ile kapalı), oysa "istediğin
+  /// puanla aç" ekranının üst sınırı göstermesi gerekir. El başına tavanı
+  /// istemci hesaplar, çünkü el sayısı ekranda değişir:
+  ///
+  ///     tavan = (cüzdan - oda ücreti) ~/ el sayısı
+  ///
+  /// Sunucu son sözü söylemeye devam eder (`create_okey_room`): bu çağrı bir
+  /// kolaylıktır, izin kapısı değil.
+  Future<({int minEntryFee, int roomCreationFee, int walletPoints})>
+  roomLimits() async {
+    final rows = await _client.rpc('okey_room_limits');
+    final list = (rows as List?) ?? const [];
+    if (list.isEmpty) {
+      return (
+        minEntryFee: minEntryFee,
+        roomCreationFee: 0,
+        walletPoints: 0,
+      );
+    }
+    final m = list.first as Map<String, dynamic>;
+    return (
+      minEntryFee: (m['min_entry_fee'] as num?)?.toInt() ?? minEntryFee,
+      roomCreationFee: (m['room_creation_fee'] as num?)?.toInt() ?? 0,
+      walletPoints: (m['wallet_points'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// [gameMode]: 'katlamasiz' | 'katlamali', [teamMode]: 'essiz' | 'esli'
   /// (RULES.md §5).
   /// MASA SADECE PUANLA AÇILIR: [entryFee] en az [minEntryFee] olmalıdır.

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/okey_room_service.dart';
 import '../theme/okey_theme.dart';
@@ -56,6 +57,76 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
   static const _handOptions = OkeyCreateRoomScreen.handOptions;
   static const _feeOptions = [100, 250, 500, 1000, 5000];
 
+  /// SUNUCUDAKİ SINIRLAR — alt sınır, oda açma ücreti, cüzdan.
+  ///
+  /// Üçü de `okey_settings`/`okey_wallets` içinde ve istemciye kapalı; tek
+  /// çağrıda alınır (bkz. OkeyRoomService.roomLimits). Gelene kadar ekran
+  /// çalışır: alt sınır istemcideki sabitten, üst sınır "bilinmiyor"dan
+  /// okunur ve son sözü zaten sunucu söyler.
+  ({int minEntryFee, int roomCreationFee, int walletPoints})? _limits;
+
+  late final TextEditingController _feeCtrl = TextEditingController(
+    text: '$_entryFee',
+  );
+
+  int get _minFee => _limits?.minEntryFee ?? OkeyRoomService.minEntryFee;
+
+  /// EL BAŞINA TAVAN. Gerçek kısıt `create_okey_room` içindeki
+  /// `oda ücreti + çip × el ≤ cüzdan` hesabıdır; bölme burada yapılır çünkü
+  /// el sayısı ekranda değişiyor.
+  ///
+  /// Sınırlar henüz gelmediyse 0 döner — "tavan bilinmiyor" demektir ve
+  /// [_FeeField] o durumda üst sınır göstermez, kısıtlamaz.
+  int get _maxFeePerHand {
+    final l = _limits;
+    if (l == null) return 0;
+    final spendable = l.walletPoints - l.roomCreationFee;
+    if (spendable <= 0) return 0;
+    return spendable ~/ _totalHands;
+  }
+
+  /// Seçilen çip hem alt sınırı geçiyor hem cüzdana sığıyor mu?
+  bool get _feeValid =>
+      _entryFee >= _minFee && (_limits == null || _entryFee <= _maxFeePerHand);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLimits();
+  }
+
+  @override
+  void dispose() {
+    _feeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLimits() async {
+    try {
+      final l = await OkeyRoomService().roomLimits();
+      if (!mounted) return;
+      _limits = l;
+      // Alt sınır sunucuda yükselmişse seçili tutar onunla hizalanır.
+      // _setFee zaten setState çağırır.
+      _setFee(_entryFee < l.minEntryFee ? l.minEntryFee : _entryFee);
+    } catch (_) {
+      // Sessiz: ekran sınırlar olmadan da çalışır, sunucu yine doğrular.
+    }
+  }
+
+  /// Tutarı hem alana hem duruma yazar (rozet ↔ alan asla ayrışmaz).
+  void _setFee(int v) {
+    _entryFee = v;
+    final text = '$v';
+    if (_feeCtrl.text != text) {
+      _feeCtrl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
   Widget _pad(Widget child) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 14),
     child: child,
@@ -72,6 +143,12 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
         isPrivate: _isPrivate,
         entryFee: _entryFee,
         totalHands: _totalHands,
+        minFee: _minFee,
+        maxFeePerHand: _maxFeePerHand,
+        // ÇİP GEÇERSİZSE KUR DÜĞMESİ KAPALI: sunucu zaten reddederdi
+        // (APP:entry_fee_too_low / APP:insufficient_points), ama oyuncuya
+        // sebebi burada, basmadan önce söylenir.
+        canCreate: _feeValid,
         onCreate: () => Navigator.of(context).pop<OkeyRoomOptions>((
           gameMode: _gameMode,
           teamMode: _teamMode,
@@ -196,9 +273,9 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
               icon: Icons.stars,
               title: 'Masa çipi (el başına)',
               subtitle:
-                  'EL SAYISIYLA ÇARPILIR: seçtiğin çip × kaç el. '
+                  'EL SAYISIYLA ÇARPILIR: yazdığın çip × kaç el. '
                   'Her oyuncudan düşülür, kazanan potu alır '
-                  '(en az ${OkeyRoomService.minEntryFee})',
+                  '(en az $_minFee)',
             ),
           ),
         ),
@@ -212,7 +289,31 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
               // el sayısı değiştikçe seçenek şeridinin tamamının değişmesi
               // demek olurdu — seçilen şey değişmediği halde.
               labelOf: (v) => '$v / el',
-              onSelected: (v) => setState(() => _entryFee = v),
+              onSelected: _setFee,
+            ),
+          ),
+        ),
+        // SERBEST TUTAR (kullanıcı isteği, 2026-09-13: "istediği puanla
+        // açabilsin", "istenirse tüm puanını masaya koyabilsin").
+        //
+        // Hazır rozetler KISAYOL olarak kalır: en sık seçilen beş tutar için
+        // klavye açmanın anlamı yok. Alan onların yerini değil, ARASINI
+        // doldurur.
+        SliverToBoxAdapter(
+          child: _pad(
+            Padding(
+              padding: const EdgeInsets.only(top: OkeyUI.gapSm),
+              child: _FeeField(
+                controller: _feeCtrl,
+                minFee: _minFee,
+                maxFeePerHand: _maxFeePerHand,
+                totalHands: _totalHands,
+                limitsKnown: _limits != null,
+                onChanged: (v) => setState(() => _entryFee = v),
+                onAllIn: _maxFeePerHand >= _minFee
+                    ? () => _setFee(_maxFeePerHand)
+                    : null,
+              ),
             ),
           ),
         ),
@@ -291,6 +392,11 @@ class _Summary extends StatelessWidget {
   final bool isPrivate;
   final int entryFee;
   final int totalHands;
+  final int minFee;
+
+  /// 0 ise "tavan bilinmiyor" (sınırlar henüz gelmedi).
+  final int maxFeePerHand;
+  final bool canCreate;
   final VoidCallback onCreate;
 
   const _Summary({
@@ -300,6 +406,9 @@ class _Summary extends StatelessWidget {
     required this.isPrivate,
     required this.entryFee,
     required this.totalHands,
+    required this.minFee,
+    required this.maxFeePerHand,
+    required this.canCreate,
     required this.onCreate,
   });
 
@@ -335,9 +444,14 @@ class _Summary extends StatelessWidget {
         ),
         const SizedBox(height: OkeyUI.gapSm),
         Text(
-          'Masa çipi: $entryFee × $totalHands el = '
-          '${entryFee * totalHands} çip. Masayı açınca oda ücretiyle '
-          'birlikte düşer, kazanan potu alır.',
+          canCreate
+              ? 'Masa çipi: $entryFee × $totalHands el = '
+                    '${entryFee * totalHands} çip. Masayı açınca oda ücretiyle '
+                    'birlikte düşer, kazanan potu alır.'
+              : (entryFee < minFee
+                    ? 'Masa çipi en az $minFee olmalı.'
+                    : 'Çipin yetmiyor: $totalHands el için el başına en çok '
+                          '$maxFeePerHand koyabilirsin.'),
           textAlign: TextAlign.center,
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
@@ -348,7 +462,101 @@ class _Summary extends StatelessWidget {
           label: 'ODAYI KUR',
           icon: Icons.add_circle_outline,
           tone: OkeyButtonTone.primary,
-          onPressed: onCreate,
+          onPressed: canCreate ? onCreate : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// SERBEST MASA ÇİPİ — istenen tutar yazılır, "TÜMÜ" cüzdanın tamamını koyar.
+///
+/// Alan yalnızca RAKAM kabul eder ve BOŞ bırakılabilir: yazarken her tuşta
+/// "en az 100" diye bağırmak, 1000 yazmak isteyen oyuncuya üç kez hata
+/// göstermek demekti. Geçerlilik alt çubukta, KUR düğmesinin yanında söylenir
+/// (bkz. [_Summary.canCreate]) — orası kararın verildiği yer.
+class _FeeField extends StatelessWidget {
+  final TextEditingController controller;
+  final int minFee;
+
+  /// 0 ise tavan bilinmiyor (sınırlar henüz gelmedi): üst sınır yazılmaz.
+  final int maxFeePerHand;
+  final int totalHands;
+  final bool limitsKnown;
+  final ValueChanged<int> onChanged;
+
+  /// null ise cüzdan alt sınırı bile karşılamıyor demektir.
+  final VoidCallback? onAllIn;
+
+  const _FeeField({
+    required this.controller,
+    required this.minFee,
+    required this.maxFeePerHand,
+    required this.totalHands,
+    required this.limitsKnown,
+    required this.onChanged,
+    required this.onAllIn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  // 9 hane: cüzdanın makul üst sınırının çok üstü, ama
+                  // sınırsız bir metni int'e çevirmeye çalışmaktan korur.
+                  LengthLimitingTextInputFormatter(9),
+                ],
+                style: OkeyUI.title,
+                decoration: InputDecoration(
+                  isDense: true,
+                  labelText: 'El başına çip',
+                  labelStyle: OkeyUI.caption,
+                  prefixIcon: Icon(
+                    Icons.stars,
+                    color: OkeyColors.accentGold,
+                    size: 18,
+                  ),
+                  filled: true,
+                  fillColor: OkeyUI.cardFill,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+                    borderSide: const BorderSide(color: OkeyUI.cardBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+                    borderSide: const BorderSide(color: OkeyUI.cardBorder),
+                  ),
+                ),
+                onChanged: (t) => onChanged(int.tryParse(t) ?? 0),
+              ),
+            ),
+            const SizedBox(width: OkeyUI.gapSm),
+            OkeyButton(
+              label: 'TÜMÜ',
+              icon: Icons.all_inclusive,
+              expand: false,
+              onPressed: onAllIn,
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          limitsKnown
+              ? (maxFeePerHand >= minFee
+                    ? 'En az $minFee, en çok $maxFeePerHand '
+                          '(cüzdanının tamamı, $totalHands ele bölünmüş).'
+                    : 'Çipin bu masaya yetmiyor: en az $minFee gerekiyor.')
+              : 'En az $minFee.',
+          style: OkeyUI.caption,
         ),
       ],
     );

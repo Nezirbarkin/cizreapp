@@ -39,8 +39,18 @@ class OkeyWallet {
 }
 
 /// Skor tablosundaki bir satır.
+///
+/// Satır ya gerçek bir oyuncunundur ([userId] dolu) ya da bir bot
+/// kimliğinindir ([botProfileId] dolu) — ikisi birden asla dolmaz. Botun
+/// kullanıcı kimliği yoktur (ekonominin dışındadır, bkz. 20260908180001), bu
+/// yüzden profil kartı ancak profil id'siyle açılabilir.
 class OkeyLeaderboardEntry {
-  final String userId;
+  /// Gerçek oyuncunun kimliği. BOT satırlarında null.
+  final String? userId;
+
+  /// Bot kimliği. Gerçek oyuncu satırlarında null.
+  final String? botProfileId;
+
   final String displayName;
   final String? avatarUrl;
   final int points;
@@ -50,19 +60,21 @@ class OkeyLeaderboardEntry {
   final int? bestMatchScore;
 
   const OkeyLeaderboardEntry({
-    required this.userId,
     required this.displayName,
     required this.points,
     required this.matchesPlayed,
     required this.matchesWon,
     required this.handsWon,
+    this.userId,
+    this.botProfileId,
     this.avatarUrl,
     this.bestMatchScore,
   });
 
   factory OkeyLeaderboardEntry.fromMap(Map<String, dynamic> m) =>
       OkeyLeaderboardEntry(
-        userId: m['user_id'] as String,
+        userId: m['user_id'] as String?,
+        botProfileId: m['bot_profile_id'] as String?,
         displayName: m['display_name'] as String? ?? 'Oyuncu',
         avatarUrl: m['avatar_url'] as String?,
         points: (m['points'] as num?)?.toInt() ?? 0,

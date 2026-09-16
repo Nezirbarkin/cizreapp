@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/okey_sound_service.dart';
+
 import '../theme/okey_theme.dart';
 
 /// Aksiyon butonunun görsel tonu.
@@ -91,7 +93,10 @@ class _Control extends StatelessWidget {
           // denemez, NEDEN yapılamadığını söyler (bkz. [onBlockedTap]).
           // Görünüş yine kapalı kalır; açık göstermek yapılamayan bir
           // hamleyi yapılabilir sanmaya yol açardı.
-          onTap: on ? onTap : onBlockedTap,
+          // Tık sesi HER İKİ durumda da çıkar: kapalı düğme de dokunuşa
+          // cevap veriyor (sebebini söylüyor), sessiz kalması "düğme
+          // bozuk" hissi verirdi.
+          onTap: withOkeyTapSound(on ? onTap : onBlockedTap),
           borderRadius: BorderRadius.circular(radius),
           child: Padding(
             padding: padding,
@@ -399,7 +404,7 @@ class OkeyModeBadge extends StatelessWidget {
                 text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 8.5,
                   height: 1.0,
                   fontWeight: FontWeight.w700,
@@ -527,7 +532,7 @@ class OkeyDizCapButton extends StatelessWidget {
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: onPressed,
+            onTap: withOkeyTapSound(onPressed),
             child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(

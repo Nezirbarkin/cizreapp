@@ -6,9 +6,11 @@ import 'okey_admin_widgets.dart';
 
 /// Admin panelinde Okey ayarları + sistem kazancı özeti.
 ///
-/// Sistem kazancı iki kalemden oluşur ve ikisi de buradan ayarlanır:
+/// Sistem kazancı üç kalemden oluşur ve üçü de buradan ayarlanır:
 ///   • Oda kurma ücreti  — masayı açan oyuncudan alınan sabit puan
 ///   • Pot komisyonu (%) — maç sonunda pottan kesilen yüzde
+///   • Bot pot payı (%)  — kaybeden bot koltuğunun pota koyduğu, KASANIN
+///     bastığı tutar; tek EKSİ kalem budur (bkz. 20260908190001)
 class OkeyAdminSettingsTab extends StatefulWidget {
   const OkeyAdminSettingsTab({super.key});
 
@@ -23,6 +25,8 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
   final _turnSeconds = TextEditingController();
   final _roomFee = TextEditingController();
   final _commission = TextEditingController();
+  // Bot koltuğunun pota koyduğu pay — kasa fonlar (bkz. 20260908190001).
+  final _botStake = TextEditingController();
   final _hourlyGift = TextEditingController();
   final _adReward = TextEditingController();
   final _startingPoints = TextEditingController();
@@ -60,6 +64,7 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
       _turnSeconds,
       _roomFee,
       _commission,
+      _botStake,
       _hourlyGift,
       _adReward,
       _startingPoints,
@@ -77,11 +82,17 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
     try {
       final s = await _service.getSettings();
       final r = await _service.revenueSummary();
+      // Bot payı ayrı bir RPC'de yaşıyor (bkz. okey_admin_get_bot_stake_percent);
+      // yine de ANA `try` içinde okunur: ekonomi ayarıdır, hatası yutulup alan
+      // boş bırakılsaydı admin boş alanın üzerine kaydeder ve botlar farkında
+      // olmadan pottan çıkardı.
+      final botStake = await _service.botStakePercent();
       if (!mounted) return;
       _maxScore.text = '${s.maxScore}';
       _turnSeconds.text = '${s.turnSeconds}';
       _roomFee.text = '${s.roomCreationFee}';
       _commission.text = '${s.commissionPercent}';
+      _botStake.text = '$botStake';
       _hourlyGift.text = '${s.hourlyGiftPoints}';
       _adReward.text = '${s.adRewardPoints}';
       _startingPoints.text = '${s.startingPoints}';
@@ -233,6 +244,13 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
       );
       return;
     }
+    final botStake = _v(_botStake);
+    if (botStake != null && (botStake < 0 || botStake > 100)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bot payı %0 ile %100 arasında olmalı')),
+      );
+      return;
+    }
     final penalties = [
       _v(_okeyDiscardPenalty),
       _v(_okeyInHandPenalty),
@@ -261,6 +279,9 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
         mistakeDiscardPenalty: penalties[2],
         sideDrawPenalty: penalties[3],
       );
+      if (botStake != null) {
+        await _service.setBotStakePercent(botStake);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -275,20 +296,42 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
     }
   }
 
-  /// Girilen oranlara göre 4 gerçek oyunculu örnek masanın canlı hesabı.
+  /// Girilen oranlara göre iki örnek masanın canlı hesabı.
+  ///
+  /// İKİ masa gösterilir çünkü ekonominin iki ayrı yüzü var: dört insanın
+  /// oturduğu masada kasa KAZANIR (komisyon), botlu masada kasa ÖDER (bot
+  /// payını o basar). Yalnız birincisi gösterildiği sürece "bot payı"
+  /// alanının bütçeye ne yaptığı hiçbir yerde görünmüyordu.
+  ///
+  /// Kazanandan masa ücreti alınmadığı için (bkz. 20260905000004) brüt pot
+  /// yalnız KAYBEDENLERİN koyduğudur: dört insanlı masada 3 pay.
   String get _example {
     const fee = 100;
     final comm = _v(_commission) ?? 0;
     final room = _v(_roomFee) ?? 0;
-    const gross = fee * 4;
-    final commission = (gross * comm) ~/ 100;
-    final net = gross - commission;
-    return '4 gerçek oyuncu, 100 çip giriş ücretiyle:\n'
-        '• Brüt pot: $gross\n'
-        '• Komisyon (%$comm): $commission\n'
-        '• Kazanan alır: $net   (net kârı: ${net - fee})\n'
-        '• Oda kurma ücreti: $room\n'
-        '• TOPLAM SİSTEM KAZANCI: ${commission + room}';
+    final bot = _v(_botStake) ?? 0;
+
+    const humanPot = fee * 3; // 3 kaybeden insan
+    final humanCommission = (humanPot * comm) ~/ 100;
+    final humanNet = humanPot - humanCommission;
+
+    final botPot = (fee * bot) ~/ 100 * 3; // 3 kaybeden bot
+    final botCommission = (botPot * comm) ~/ 100;
+    final botNet = botPot - botCommission;
+
+    return '100 çip masa puanıyla (kazanandan masa ücreti alınmaz):\n'
+        '\n'
+        '4 GERÇEK OYUNCU\n'
+        '• Kaybedenlerin potu: $humanPot\n'
+        '• Komisyon (%$comm): $humanCommission\n'
+        '• Kazanan alır: $humanNet   (kasa: +$humanCommission)\n'
+        '\n'
+        '1 OYUNCU + 3 BOT\n'
+        '• Botların koyduğu (%$bot): $botPot — bunu KASA basar\n'
+        '• Komisyon (%$comm): $botCommission\n'
+        '• Kazanan alır: $botNet   (kasa: ${botCommission - botPot})\n'
+        '\n'
+        '• Oda kurma ücreti: $room';
   }
 
   Widget _field(TextEditingController c, String label, String helper) {
@@ -384,7 +427,7 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
-        // YATAY ŞERİT: beş kart `Wrap` ile dar ekranda üç satıra iniyor ve
+        // YATAY ŞERİT: altı kart `Wrap` ile dar ekranda üç satıra iniyor ve
         // sekmenin üstünü yiyordu. Kaydırma yüksekliği sabit tutar.
         OkeyStatStrip(
           cards: [
@@ -412,6 +455,15 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
               value: '${_revenue.commissions}',
               gradient: [Colors.orange.shade400, Colors.orange.shade700],
             ),
+            // Kasanın bot masalarında BASTIĞI çip. "Toplam Kazanç" bunu
+            // zaten düşmüştür; ayrı kart olmasaydı toplamın neden düştüğü
+            // hiçbir yerde görünmezdi.
+            OkeyStatCard(
+              icon: Icons.smart_toy,
+              label: 'Bot Payı (ödenen)',
+              value: '-${_revenue.botStakes}',
+              gradient: [Colors.red.shade400, Colors.red.shade700],
+            ),
             OkeyStatCard(
               icon: Icons.stars,
               label: 'Dolaşımdaki Çip',
@@ -436,6 +488,14 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
               _commission,
               'Pot komisyonu (%)',
               'Maç sonunda pottan kesilir. 0 ile 50 arasında olmalı',
+            ),
+            _field(
+              _botStake,
+              'Bot koltuğunun pot payı (%)',
+              'Kaybeden her BOT, masa puanının bu kadarını pota koyar; '
+                  'parayı kasa basar. 0 yazılırsa botlarla oynanan masada '
+                  'pot boş kalır ve kazanan yalnızca kendi masa puanını '
+                  'geri alır',
             ),
             Card(
               color: Colors.blue.shade50,

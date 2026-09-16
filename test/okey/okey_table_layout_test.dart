@@ -1198,9 +1198,15 @@ void _visualsGroup() {
       // SizedBox kullanılsaydı hit-test alamaz, taş boşluğa bırakılamazdı.
       expect(find.byType(DragTarget<OkeyDragPayload>), findsWidgets);
 
-      // Şeffaf ama BOYANAN kutular hit-test alır: slot sayısı kadar olmalı
+      // Şeffaf ama BOYANAN kutular hit-test alır: slot sayısı kadar olmalı.
+      // BOŞ slotlar artık `Container(color: transparent)` DEĞİL, daha hafif
+      // bir `ColoredBox(color: transparent)` (performans, 2026-09-09: bkz.
+      // OkeyRackBarWidget._RackSlot — Container+Align, boş slot başına iki
+      // fazladan render nesnesiydi). İkisi de AYNI şekilde hit-test alır;
+      // `ColoredBox` da `RenderProxyBoxWithHitTestBehavior` üzerinden
+      // varsayılan olarak opak davranır.
       final hitTestable = tester
-          .widgetList<Container>(find.byType(Container))
+          .widgetList<ColoredBox>(find.byType(ColoredBox))
           .where((c) => c.color == Colors.transparent);
       expect(
         hitTestable.length,

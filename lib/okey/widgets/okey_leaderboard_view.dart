@@ -77,9 +77,13 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
 
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
+                  // Satır bir bot kimliğine aitse kart profil id'siyle açılır:
+                  // botun kullanıcı kimliği yoktur ve `userId` null geçilirse
+                  // kart hiç açılmazdı (bkz. OkeyProfileSheet.show).
                   onTap: () => OkeyProfileSheet.show(
                     context,
                     userId: e.userId,
+                    botProfileId: e.botProfileId,
                     name: e.displayName,
                     avatarUrl: e.avatarUrl,
                   ),
@@ -127,7 +131,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                         Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.stars,
                               color: OkeyColors.accentGold,
                               size: 15,
@@ -140,7 +144,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                                 child: Text(
                                   '${e.points}',
                                   maxLines: 1,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: OkeyColors.accentGold,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 13,
@@ -188,7 +192,7 @@ class _AvatarWithRate extends StatelessWidget {
                 value: rate.clamp(0.0, 1.0),
                 strokeWidth: 3,
                 backgroundColor: const Color(0x24FFFFFF),
-                valueColor: const AlwaysStoppedAnimation(OkeyColors.accentGold),
+                valueColor: AlwaysStoppedAnimation(OkeyColors.accentGold),
               ),
             ),
           OkeyAvatar(url: url, size: 34),
