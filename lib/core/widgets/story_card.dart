@@ -5,8 +5,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../utils/image_url.dart';
+import 'text_background.dart';
 import '../../features/social/services/story_service.dart';
 import '../../sehirici/widgets/sehirici_story_card.dart';
+import '../services/app_customization_prefs.dart';
 
 class StoryModel {
   final String id;
@@ -244,12 +246,23 @@ class _StoriesSectionState extends State<StoriesSection> {
   Map<String, String?> _userAvatars = {}; // userId -> avatar_url mapping
   bool _isLoading = true;
   final Set<String> _likingStories = {}; // Beğenme işlemi devam eden story'ler
+  // Özelleştir ekranından: satırın başındaki Şehiriçi kartı gizlenebilir.
+  bool _hideSehirici = false;
+
+  /// Şehiriçi kartı gizliyken listedeki kaydırma miktarı (0), görünürken (1).
+  int get _sehiriciOffset => _hideSehirici ? 0 : 1;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _loadStories();
+    _loadCustomizationPrefs();
+  }
+
+  Future<void> _loadCustomizationPrefs() async {
+    final hideSehirici = await AppCustomizationPrefs.getHideSehiriciCard();
+    if (mounted) setState(() => _hideSehirici = hideSehirici);
   }
 
   Future<void> _loadStories() async {
@@ -404,15 +417,15 @@ class _StoriesSectionState extends State<StoriesSection> {
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _stories.length + 1, // +1 for Şehiriçi card
+          itemCount: _stories.length + _sehiriciOffset, // +1 for Şehiriçi card
           itemBuilder: (context, index) {
-            // İlk öğe Şehiriçi kartı
-            if (index == 0) {
+            // İlk öğe Şehiriçi kartı (gizlenmediyse)
+            if (!_hideSehirici && index == 0) {
               return const SehiriciStoryCard();
             }
-            
-            // Diğer öğeler story'ler (index-1 kullan)
-            final storyIndex = index - 1;
+
+            // Diğer öğeler story'ler (Şehiriçi kaydırmasını çıkar)
+            final storyIndex = index - _sehiriciOffset;
             final story = _stories[storyIndex];
             final username = _usernames[story.userId] ?? 'Bilinmiyor';
             
@@ -462,7 +475,19 @@ class _StoriesSectionState extends State<StoriesSection> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                // Story içerik thumbnail (video önizlemesi)
+                                // Story içerik thumbnail (video önizlemesi).
+                                // Metin hikayesinde görsel yok: zemin + yazı.
+                                if (story.isText)
+                                  TextBackgroundCanvas(
+                                    background: textBackgroundOrDefault(
+                                      story.background,
+                                    ),
+                                    text: (story.textContent ?? '').trim(),
+                                    maxLines: 3,
+                                    fontScale: 0.85,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
                                 CachedNetworkImage(
                                   imageUrl: story.displayUrl,
                                   fit: BoxFit.cover,
@@ -567,10 +592,10 @@ class _StoriesSectionState extends State<StoriesSection> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _stories.length + 1, // +1 for Şehiriçi
+              itemCount: _stories.length + _sehiriciOffset, // +1 for Şehiriçi
               itemBuilder: (context, index) {
-                // İlk öğe Şehiriçi kartı (full mode için özel widget)
-                if (index == 0) {
+                // İlk öğe Şehiriçi kartı (gizlenmediyse, full mode özel widget)
+                if (!_hideSehirici && index == 0) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: SizedBox(
@@ -579,9 +604,9 @@ class _StoriesSectionState extends State<StoriesSection> {
                     ),
                   );
                 }
-                
-                // Diğer öğeler story'ler (index-1 kullan)
-                final storyIndex = index - 1;
+
+                // Diğer öğeler story'ler (Şehiriçi kaydırmasını çıkar)
+                final storyIndex = index - _sehiriciOffset;
                 final story = _stories[storyIndex];
                 final username = _usernames[story.userId] ?? 'Bilinmiyor';
                 final avatarUrl = _userAvatars[story.userId];
@@ -606,6 +631,17 @@ class _StoriesSectionState extends State<StoriesSection> {
                           fit: StackFit.expand,
                           children: [
                             // Story içerik önizlemesi (displayUrl kullanıyoruz - video thumbnail varsa onu gösterir)
+                            // Metin hikayesinde görsel yok: zemin + yazı.
+                            if (story.isText)
+                              TextBackgroundCanvas(
+                                background: textBackgroundOrDefault(
+                                  story.background,
+                                ),
+                                text: (story.textContent ?? '').trim(),
+                                maxLines: 6,
+                                padding: const EdgeInsets.all(14),
+                              )
+                            else
                             CachedNetworkImage(
                               imageUrl: story.displayUrl,
                               fit: BoxFit.cover,

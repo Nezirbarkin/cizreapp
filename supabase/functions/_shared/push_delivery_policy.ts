@@ -64,6 +64,7 @@ const preferenceColumnByType: Record<string, string> = {
   post_like: 'likes_enabled',
   comment: 'comments_enabled',
   post_comment: 'comments_enabled',
+  comment_reply: 'comments_enabled',
   follow: 'followers_enabled',
   follower: 'followers_enabled',
   follow_request: 'followers_enabled',

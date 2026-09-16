@@ -18,6 +18,15 @@ extension on _AdminDashboardScreenState {
   // ==========================================================================
 
   // --- _buildShopsContent ---
+  /// Dukkanlar ekrani. Ust bolum: baslik + aksiyonlar, ozet metrikler, arama,
+  /// hizli filtreler ve siralama. Alt bolum: dukkan kartlari.
+  ///
+  /// Tasma notu: eski surumde baslik ile aksiyon butonlari tek bir `Row`
+  /// icindeydi ve baslik esnek degildi; dar ekranda butonlar tasiyordu.
+  /// Artik dar ekranda butonlar tam genislikte alt alta, genis ekranda
+  /// esnek baslik + sabit butonlar seklinde diziliyor. Kart icindeki tum
+  /// rozet/istatistik satirlari da Wrap ya da Expanded+FittedBox ile
+  /// sinirlandirildi.
   Widget _buildShopsContent() {
     if (_isLoadingShops && _shopsDetailed.isEmpty) {
       _loadAndSetShops();
@@ -25,78 +34,75 @@ extension on _AdminDashboardScreenState {
     }
 
     final shops = _shopsDetailed;
+    final visible = _visibleShops(shops);
 
     return RefreshIndicator(
-      onRefresh: () async {
-        await _loadAndSetShops();
-      },
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Dükkan Yönetimi',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => _showAddShopDialog(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Yeni Dükkan'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple.shade600,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+      onRefresh: _loadAndSetShops,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final isCompact = width < 720;
+          final columns = width >= 1360 ? 3 : (width >= 900 ? 2 : 1);
+          final rowCount = (visible.length / columns).ceil();
 
-            if (shops.isEmpty)
-              Center(
+          return CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.all(32),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(
-                        Icons.store_outlined,
-                        size: 64,
-                        color: Colors.grey.shade400,
-                      ),
+                      _buildShopsToolbar(shops, isCompact),
                       const SizedBox(height: 16),
-                      Text(
-                        'Henüz dükkan yok',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
+                      _buildShopsSummary(shops),
+                      const SizedBox(height: 14),
+                      _buildShopsSearchField(),
+                      const SizedBox(height: 10),
+                      _buildShopsFilterChips(shops),
+                      const SizedBox(height: 10),
+                      _buildShopsResultBar(shops.length, visible.length),
                     ],
                   ),
                 ),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: shops.length,
-                itemBuilder: (context, index) {
-                  final shop = shops[index];
-                  return _buildShopCard(shop);
-                },
               ),
-          ],
-        ),
+              if (visible.isEmpty)
+                SliverToBoxAdapter(child: _buildShopsEmptyState(shops.isEmpty))
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((context, rowIndex) {
+                      final start = rowIndex * columns;
+                      if (columns == 1) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildShopCard(visible[start]),
+                        );
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (var i = 0; i < columns; i++) ...[
+                              if (i > 0) const SizedBox(width: 12),
+                              Expanded(
+                                child: start + i < visible.length
+                                    ? _buildShopCard(visible[start + i])
+                                    : const SizedBox.shrink(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }, childCount: rowCount),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -115,17 +121,574 @@ extension on _AdminDashboardScreenState {
     }
   }
 
+  // ==========================================================================
+  // Filtre / arama / siralama
+  // ==========================================================================
+
+  // --- _shopMatchesFilter ---
+  bool _shopMatchesFilter(Map<String, dynamic> shop, String filter) {
+    switch (filter) {
+      case 'pending':
+        return !(shop['is_approved'] as bool? ?? false);
+      case 'active':
+        return shop['is_active'] as bool? ?? true;
+      case 'passive':
+        return !(shop['is_active'] as bool? ?? true);
+      case 'pinned':
+        return shop['is_pinned'] as bool? ?? false;
+      case 'verified':
+        return shop['is_verified'] as bool? ?? false;
+      case 'admin_courier':
+        return !(shop['has_own_courier'] as bool? ?? false);
+      case 'overridden':
+        return _isShopPricingOverridden(shop);
+      default:
+        return true;
+    }
+  }
+
+  // --- _visibleShops ---
+  /// Arama sorgusu + hizli filtre + siralama uygulanmis liste.
+  List<Map<String, dynamic>> _visibleShops(List<Map<String, dynamic>> shops) {
+    final query = _shopSearchQuery.trim().toLowerCase();
+
+    final list = shops.where((shop) {
+      if (!_shopMatchesFilter(shop, _shopFilter)) return false;
+      if (query.isEmpty) return true;
+      final fields = <dynamic>[
+        shop['name'],
+        shop['slug'],
+        shop['description'],
+        shop['profiles']?['full_name'],
+        shop['profiles']?['username'],
+        shop['profiles']?['email'],
+      ];
+      return fields.whereType<Object>().any(
+        (value) => value.toString().toLowerCase().contains(query),
+      );
+    }).toList();
+
+    int byName(Map<String, dynamic> a, Map<String, dynamic> b) =>
+        (a['name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['name']?.toString() ?? '').toLowerCase(),
+        );
+
+    double money(Map<String, dynamic> shop, String key) =>
+        (shop[key] as num?)?.toDouble() ?? 0;
+
+    switch (_shopSort) {
+      case 'name':
+        list.sort(byName);
+        break;
+      case 'earnings':
+        list.sort(
+          (a, b) =>
+              money(b, 'total_earnings').compareTo(money(a, 'total_earnings')),
+        );
+        break;
+      case 'orders':
+        list.sort(
+          (a, b) => ((b['total_orders'] as num?) ?? 0).compareTo(
+            (a['total_orders'] as num?) ?? 0,
+          ),
+        );
+        break;
+      case 'newest':
+        list.sort((a, b) {
+          final da =
+              DateTime.tryParse(a['created_at']?.toString() ?? '') ??
+              DateTime(1970);
+          final db =
+              DateTime.tryParse(b['created_at']?.toString() ?? '') ??
+              DateTime(1970);
+          return db.compareTo(da);
+        });
+        break;
+      default:
+        // Sabitlenenler once, sonra isim sirasi.
+        list.sort((a, b) {
+          final ap = (a['is_pinned'] as bool? ?? false) ? 0 : 1;
+          final bp = (b['is_pinned'] as bool? ?? false) ? 0 : 1;
+          if (ap != bp) return ap - bp;
+          return byName(a, b);
+        });
+    }
+
+    return list;
+  }
+
+  // --- _shopMoney ---
+  /// Turkce bicimli para etiketi: 12345.6 -> "₺12.345,60".
+  String _shopMoney(double value, {int decimals = 0}) {
+    final fixed = value.abs().toStringAsFixed(decimals);
+    final parts = fixed.split('.');
+    final digits = parts.first;
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write('.');
+      buffer.write(digits[i]);
+    }
+    final sign = value < 0 ? '-' : '';
+    final frac = parts.length > 1 ? ',${parts[1]}' : '';
+    return '$sign₺$buffer$frac';
+  }
+
+  // ==========================================================================
+  // Ust bolum parcalari
+  // ==========================================================================
+
+  // --- _buildShopsToolbar ---
+  Widget _buildShopsToolbar(List<Map<String, dynamic>> shops, bool isCompact) {
+    final pending = shops
+        .where((s) => !(s['is_approved'] as bool? ?? false))
+        .length;
+
+    final title = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Dükkan Yönetimi',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          pending > 0
+              ? '${shops.length} dükkan • $pending tanesi onay bekliyor'
+              : '${shops.length} dükkan • tümü onaylı',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: pending > 0 ? Colors.orange.shade800 : Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+
+    final pricingButton = OutlinedButton.icon(
+      onPressed: _showShopPricingOverrideDialog,
+      icon: const Icon(Icons.price_change_outlined, size: 18),
+      label: const Text(
+        'Teslimat & Min. Sepet',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.purple.shade700,
+        side: BorderSide(color: Colors.purple.shade200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+
+    final addButton = ElevatedButton.icon(
+      onPressed: _showAddShopDialog,
+      icon: const Icon(Icons.add, size: 20),
+      label: const Text(
+        'Yeni Dükkan',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.purple.shade600,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+
+    if (isCompact) {
+      // Dar ekranda butonlar tam genislikte alt alta -> tasma imkansiz.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          title,
+          const SizedBox(height: 14),
+          addButton,
+          const SizedBox(height: 8),
+          pricingButton,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: title),
+        const SizedBox(width: 12),
+        pricingButton,
+        const SizedBox(width: 8),
+        addButton,
+      ],
+    );
+  }
+
+  // --- _buildShopsSummary ---
+  Widget _buildShopsSummary(List<Map<String, dynamic>> shops) {
+    final total = shops.length;
+    final pending = shops
+        .where((s) => !(s['is_approved'] as bool? ?? false))
+        .length;
+    final passive = shops
+        .where((s) => !(s['is_active'] as bool? ?? true))
+        .length;
+    final adminCourier = shops
+        .where((s) => !(s['has_own_courier'] as bool? ?? false))
+        .length;
+    final revenue = shops.fold<double>(
+      0,
+      (sum, s) => sum + ((s['total_earnings'] as num?)?.toDouble() ?? 0),
+    );
+    final commission = shops.fold<double>(
+      0,
+      (sum, s) => sum + ((s['admin_commission_total'] as num?)?.toDouble() ?? 0),
+    );
+
+    // Wrap kullaniliyor: kutucuklar icerik genisliginde kalir, sigmayanlar
+    // alt satira iner; hicbir ekran genisliginde tasma olusmaz.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _shopSummaryTile(
+          icon: Icons.storefront,
+          label: 'Toplam',
+          value: '$total',
+          color: Colors.purple,
+        ),
+        _shopSummaryTile(
+          icon: Icons.pending_actions,
+          label: 'Onay bekleyen',
+          value: '$pending',
+          color: Colors.orange,
+        ),
+        _shopSummaryTile(
+          icon: Icons.visibility_off_outlined,
+          label: 'Pasif',
+          value: '$passive',
+          color: Colors.blueGrey,
+        ),
+        _shopSummaryTile(
+          icon: Icons.local_shipping_outlined,
+          label: 'Admin kuryesi',
+          value: '$adminCourier',
+          color: Colors.teal,
+        ),
+        _shopSummaryTile(
+          icon: Icons.payments_outlined,
+          label: 'Toplam ciro',
+          value: _shopMoney(revenue),
+          color: Colors.green,
+        ),
+        _shopSummaryTile(
+          icon: Icons.percent,
+          label: 'Komisyon',
+          value: _shopMoney(commission),
+          color: Colors.indigo,
+        ),
+      ],
+    );
+  }
+
+  // --- _shopSummaryTile ---
+  Widget _shopSummaryTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required MaterialColor color,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 104),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.shade100),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color.shade700),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: color.shade800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _buildShopsSearchField ---
+  Widget _buildShopsSearchField() {
+    OutlineInputBorder border(Color color, double width) => OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: color, width: width),
+    );
+
+    return TextField(
+      controller: _shopSearchController,
+      onChanged: (value) => setState(() => _shopSearchQuery = value),
+      textInputAction: TextInputAction.search,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: 'Dükkan adı, sahip veya e-posta ara',
+        hintStyle: TextStyle(fontSize: 13.5, color: Colors.grey.shade500),
+        prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey.shade600),
+        suffixIcon: _shopSearchQuery.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Aramayı temizle',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () {
+                  _shopSearchController.clear();
+                  setState(() => _shopSearchQuery = '');
+                },
+              ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
+        ),
+        border: border(Colors.grey.shade300, 1),
+        enabledBorder: border(Colors.grey.shade300, 1),
+        focusedBorder: border(Colors.purple.shade400, 1.4),
+      ),
+    );
+  }
+
+  // --- _buildShopsFilterChips ---
+  Widget _buildShopsFilterChips(List<Map<String, dynamic>> shops) {
+    const filters = <MapEntry<String, String>>[
+      MapEntry('all', 'Tümü'),
+      MapEntry('pending', 'Onay bekleyen'),
+      MapEntry('active', 'Aktif'),
+      MapEntry('passive', 'Pasif'),
+      MapEntry('pinned', 'Sabitlenen'),
+      MapEntry('verified', 'Doğrulanmış'),
+      MapEntry('admin_courier', 'Admin kuryesi'),
+      MapEntry('overridden', 'Fiyat müdahaleli'),
+    ];
+
+    // Yatay kaydirilabilir liste: cip sayisi arttikca satir tasmaz.
+    return SizedBox(
+      height: 36,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        padding: EdgeInsets.zero,
+        itemBuilder: (context, index) {
+          final entry = filters[index];
+          final count = shops
+              .where((s) => _shopMatchesFilter(s, entry.key))
+              .length;
+          final selected = _shopFilter == entry.key;
+          return Padding(
+            padding: EdgeInsets.only(
+              right: index == filters.length - 1 ? 0 : 8,
+            ),
+            child: ChoiceChip(
+              label: Text('${entry.value} ($count)'),
+              selected: selected,
+              onSelected: (_) => setState(() => _shopFilter = entry.key),
+              showCheckmark: false,
+              backgroundColor: Colors.white,
+              selectedColor: Colors.purple.shade600,
+              side: BorderSide(
+                color: selected ? Colors.purple.shade600 : Colors.grey.shade300,
+              ),
+              labelStyle: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : Colors.grey.shade700,
+              ),
+              labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // --- _buildShopsResultBar ---
+  Widget _buildShopsResultBar(int total, int visible) {
+    const sortLabels = <String, String>{
+      'default': 'Sabitlenen önce',
+      'name': 'İsme göre',
+      'earnings': 'Kazanca göre',
+      'orders': 'Siparişe göre',
+      'newest': 'En yeni',
+    };
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            visible == total
+                ? '$total dükkan listeleniyor'
+                : '$total dükkandan $visible tanesi gösteriliyor',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        PopupMenuButton<String>(
+          tooltip: 'Sırala',
+          initialValue: _shopSort,
+          padding: EdgeInsets.zero,
+          position: PopupMenuPosition.under,
+          onSelected: (value) => setState(() => _shopSort = value),
+          itemBuilder: (context) => [
+            for (final entry in sortLabels.entries)
+              PopupMenuItem<String>(
+                value: entry.key,
+                height: 42,
+                child: Text(
+                  entry.value,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.swap_vert, size: 16, color: Colors.grey.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  sortLabels[_shopSort] ?? 'Sırala',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- _buildShopsEmptyState ---
+  Widget _buildShopsEmptyState(bool noShopsAtAll) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 48, 24, 48),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              noShopsAtAll ? Icons.storefront_outlined : Icons.search_off,
+              size: 40,
+              color: Colors.grey.shade400,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            noShopsAtAll ? 'Henüz dükkan yok' : 'Eşleşen dükkan bulunamadı',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            noShopsAtAll
+                ? '"Yeni Dükkan" ile ilk dükkanı ekleyebilirsin.'
+                : 'Arama metnini ya da seçili filtreyi değiştirmeyi dene.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+          ),
+          if (!noShopsAtAll) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () {
+                _shopSearchController.clear();
+                setState(() {
+                  _shopSearchQuery = '';
+                  _shopFilter = 'all';
+                });
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Filtreleri temizle'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.purple.shade700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // Dukkan karti
+  // ==========================================================================
+
   // --- _buildShopCard ---
   Widget _buildShopCard(Map<String, dynamic> shop) {
     final ownerName =
-        shop['profiles']?['full_name'] ??
-        shop['profiles']?['username'] ??
-        'Bilinmeyen';
-    final ownerEmail = shop['profiles']?['email'] ?? '-';
+        (shop['profiles']?['full_name'] ??
+                shop['profiles']?['username'] ??
+                'Bilinmeyen')
+            .toString();
+    final ownerEmail = (shop['profiles']?['email'] ?? '').toString();
     final commission = (shop['commission_rate'] as num?)?.toDouble() ?? 10.0;
     final productCount = shop['product_count'] ?? 0;
     final totalEarnings = (shop['total_earnings'] as num?)?.toDouble() ?? 0.0;
     final netEarnings = (shop['net_earnings'] as num?)?.toDouble() ?? 0.0;
+    final courierDeduction =
+        (shop['courier_deduction'] as num?)?.toDouble() ?? 0.0;
+    final commissionAmount = totalEarnings * (commission / 100);
     final totalOrders = shop['total_orders'] ?? 0;
     final deliveredOrders = shop['delivered_orders'] ?? 0;
     final pendingOrders = shop['pending_orders'] ?? 0;
@@ -136,657 +699,496 @@ extension on _AdminDashboardScreenState {
     final isShopPinned = shop['is_pinned'] as bool? ?? false;
     final hasOwnCourier = shop['has_own_courier'] as bool? ?? false;
     final deliveryFee = (shop['delivery_fee'] as num?)?.toDouble() ?? 0.0;
+    final minOrderAmount = (shop['min_order_amount'] as num?)?.toDouble() ?? 0.0;
+    final deliveryTime = (shop['delivery_time'] as String?)?.trim() ?? '';
+    final logoUrl = (shop['logo_url'] as String?)?.trim() ?? '';
+    final adminCredit = (shop['admin_credit'] as num?)?.toDouble() ?? 0.0;
+    final commissionDebt = (shop['commission_debt'] as num?)?.toDouble() ?? 0.0;
+    final netBalance = adminCredit - commissionDebt;
+    final isOverridden = _isShopPricingOverridden(shop);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: isShopPinned ? 4 : 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isShopPinned
-            ? BorderSide(color: Colors.amber.shade400, width: 2)
-            : BorderSide.none,
+    // Durum seridi rengi: once onay, sonra aktiflik.
+    final MaterialColor accent = !isApproved
+        ? Colors.orange
+        : (!isActive ? Colors.blueGrey : Colors.green);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isShopPinned ? Colors.amber.shade300 : Colors.grey.shade200,
+          width: isShopPinned ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Stack(
-        children: [
-          if (isShopPinned)
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.push_pin,
-                      size: 12,
-                      color: Colors.amber.shade800,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      'Sabitlendi',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.amber.shade800,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
             onTap: () => _showShopDetailDialog(shop),
-            onLongPress: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (ctx) => SafeArea(
+            onLongPress: () => _showShopQuickSheet(shop),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(height: 4, color: accent.shade400),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 6, 14),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ListTile(
-                        leading: Icon(
-                          isShopPinned
-                              ? Icons.push_pin_outlined
-                              : Icons.push_pin,
-                          color: Colors.amber.shade700,
-                        ),
-                        title: Text(
-                          isShopPinned
-                              ? 'Sabitlemeyi Kaldır'
-                              : 'Dükkanı Sabitle',
-                        ),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _togglePin('shops', shop['id'], !isShopPinned);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.orange.shade400,
-                              Colors.orange.shade600,
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.store,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      // --- Baslik satiri ---
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildShopAvatar(logoUrl, accent),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  shop['name'] ?? '-',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (isVerified) ...[
-                                  const SizedBox(width: 6),
-                                  const Icon(
-                                    Icons.verified,
-                                    size: 18,
-                                    color: Colors.blue,
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isApproved
-                                        ? Colors.green.shade100
-                                        : Colors.orange.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    isApproved ? 'Onaylı' : 'Onay Bekliyor',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isApproved
-                                          ? Colors.green.shade700
-                                          : Colors.orange.shade700,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isActive
-                                        ? Colors.blue.shade100
-                                        : Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    isActive ? 'Aktif' : 'Pasif',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isActive
-                                          ? Colors.blue.shade700
-                                          : Colors.grey.shade600,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                // Komisyon Durum Etiketi
-                                Builder(
-                                  builder: (context) {
-                                    final adminCredit =
-                                        (shop['admin_credit'] as num?)
-                                            ?.toDouble() ??
-                                        0;
-                                    final commissionDebt =
-                                        (shop['commission_debt'] as num?)
-                                            ?.toDouble() ??
-                                        0;
-                                    final netBalance =
-                                        adminCredit - commissionDebt;
-
-                                    Color badgeColor;
-                                    IconData badgeIcon;
-                                    String badgeText;
-
-                                    if (netBalance > 0) {
-                                      badgeColor = Colors.green;
-                                      badgeIcon = Icons.arrow_upward;
-                                      badgeText = 'Ödeme';
-                                    } else if (netBalance < 0) {
-                                      badgeColor = Colors.red;
-                                      badgeIcon = Icons.arrow_downward;
-                                      badgeText = 'Borç';
-                                    } else {
-                                      badgeColor = Colors.grey;
-                                      badgeIcon = Icons.balance;
-                                      badgeText = 'Dengede';
-                                    }
-
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: badgeColor.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: badgeColor.withOpacity(0.4),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            badgeIcon,
-                                            size: 10,
-                                            color: badgeColor,
-                                          ),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            badgeText,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w600,
-                                              color: badgeColor,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.person,
-                                  size: 14,
-                                  color: Colors.grey.shade600,
-                                ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    ownerName,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      PopupMenuButton<String>(
-                        icon: Icon(
-                          Icons.more_vert,
-                          color: Colors.grey.shade700,
-                        ),
-                        onSelected: (value) {
-                          switch (value) {
-                            case 'edit':
-                              _showEditShopDialog(shop);
-                              break;
-                            case 'toggle_verified':
-                              _toggleShopVerification(shop);
-                              break;
-                            case 'toggle_approval':
-                              _toggleShopApproval(shop);
-                              break;
-                            case 'toggle_active':
-                              _toggleShopActive(shop);
-                              break;
-                            case 'delete':
-                              _showDeleteShopDialog(shop);
-                              break;
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'edit',
-                            child: Row(
-                              children: [
-                                Icon(Icons.edit, size: 18),
-                                SizedBox(width: 8),
-                                Text('Düzenle'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'toggle_approval',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isApproved
-                                      ? Icons.check_circle
-                                      : Icons.pending,
-                                  size: 18,
-                                  color: isApproved
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(isApproved ? 'Onayı Kaldır' : 'Onayla'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'toggle_active',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isActive
-                                      ? Icons.visibility
-                                      : Icons.visibility_off,
-                                  size: 18,
-                                  color: isActive ? Colors.blue : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(isActive ? 'Pasife Al' : 'Aktife Al'),
-                              ],
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'toggle_verified',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isVerified
-                                      ? Icons.verified
-                                      : Icons.unpublished,
-                                  size: 18,
-                                  color: isVerified ? Colors.blue : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  isVerified ? 'Doğrulamayı Kaldır' : 'Doğrula',
-                                ),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(Icons.delete, size: 18, color: Colors.red),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Sil',
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // İstatistikler
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        // Gelir İstatistikleri
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.inventory_2,
-                                label: 'Ürün',
-                                value: '$productCount',
-                                color: Colors.blue,
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey.shade300,
-                            ),
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.attach_money,
-                                label: 'Kazanç',
-                                value: '₺${totalEarnings.toStringAsFixed(0)}',
-                                color: Colors.green,
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey.shade300,
-                            ),
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.percent,
-                                label: 'Komisyon',
-                                value: '%${commission.toStringAsFixed(0)}',
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Net Kazanc (Kurye + Komisyon Kesilmis)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.teal.shade400,
-                                Colors.teal.shade600,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.account_balance_wallet,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                Row(
                                   children: [
-                                    const Text(
-                                      'Net Kazanc',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
+                                    Flexible(
+                                      child: Text(
+                                        shop['name']?.toString() ?? '-',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: -0.1,
+                                        ),
                                       ),
                                     ),
-                                    if (!hasOwnCourier &&
-                                        (shop['courier_deduction'] as num?)
-                                                ?.toDouble() !=
-                                            0) ...[
-                                      Text(
-                                        'Kurye: -₺${((shop['courier_deduction'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} | Komisyon: -₺${(totalEarnings * (commission / 100)).toStringAsFixed(0)}',
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 10,
-                                        ),
+                                    if (isVerified) ...[
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        Icons.verified,
+                                        size: 15,
+                                        color: Colors.blue,
                                       ),
-                                    ] else ...[
-                                      Text(
-                                        'Komisyon: -₺${(totalEarnings * (commission / 100)).toStringAsFixed(0)}',
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 10,
-                                        ),
+                                    ],
+                                    if (isShopPinned) ...[
+                                      const SizedBox(width: 4),
+                                      Icon(
+                                        Icons.push_pin,
+                                        size: 13,
+                                        color: Colors.amber.shade700,
                                       ),
                                     ],
                                   ],
                                 ),
+                                const SizedBox(height: 3),
+                                _shopMetaLine(Icons.person_outline, ownerName),
+                                if (ownerEmail.isNotEmpty &&
+                                    ownerEmail != '-') ...[
+                                  const SizedBox(height: 2),
+                                  _shopMetaLine(
+                                    Icons.alternate_email,
+                                    ownerEmail,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          _buildShopCardMenu(
+                            shop,
+                            isApproved: isApproved,
+                            isActive: isActive,
+                            isVerified: isVerified,
+                            isShopPinned: isShopPinned,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // --- Durum rozetleri ---
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _shopBadge(
+                              isApproved ? 'Onaylı' : 'Onay bekliyor',
+                              isApproved ? Colors.green : Colors.orange,
+                              icon: isApproved
+                                  ? Icons.check_circle
+                                  : Icons.schedule,
+                            ),
+                            _shopBadge(
+                              isActive ? 'Aktif' : 'Pasif',
+                              isActive ? Colors.blue : Colors.grey,
+                              icon: isActive
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            _shopBalanceBadge(netBalance),
+                            if (isOverridden)
+                              _shopBadge(
+                                'Fiyat müdahalesi',
+                                Colors.deepPurple,
+                                icon: Icons.price_change,
                               ),
-                              Text(
-                                '₺${netEarnings.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // --- Para bloku ---
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _shopMoneyCell(
+                                      label: 'Ciro',
+                                      value: _shopMoney(totalEarnings),
+                                      color: Colors.grey.shade900,
+                                    ),
+                                  ),
+                                  _shopCellDivider(),
+                                  Expanded(
+                                    child: _shopMoneyCell(
+                                      label:
+                                          'Komisyon %${commission.toStringAsFixed(0)}',
+                                      value: '-${_shopMoney(commissionAmount)}',
+                                      color: Colors.orange.shade800,
+                                    ),
+                                  ),
+                                  _shopCellDivider(),
+                                  Expanded(
+                                    child: _shopMoneyCell(
+                                      label: 'Kurye gideri',
+                                      value: hasOwnCourier
+                                          ? '—'
+                                          : '-${_shopMoney(courierDeduction)}',
+                                      color: Colors.blueGrey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.teal.shade100,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.account_balance_wallet_outlined,
+                                      size: 18,
+                                      color: Colors.teal.shade700,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Net kazanç',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.teal.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          _shopMoney(netEarnings, decimals: 2),
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.teal.shade800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        if (hasOwnCourier) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.delivery_dining,
-                                size: 14,
-                                color: Colors.blue,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Kendi Kuryesi Var',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 12),
-                        Divider(height: 1, color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
-                        // Sipariş İstatistikleri
-                        Row(
+                      ),
+                      const SizedBox(height: 12),
+
+                      // --- Sayac rozetleri ---
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.shopping_bag,
-                                label: 'Toplam Sipariş',
-                                value: '$totalOrders',
-                                color: Colors.indigo,
-                              ),
+                            _shopCountPill(
+                              Icons.inventory_2_outlined,
+                              'Ürün',
+                              '$productCount',
+                              Colors.blue,
                             ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey.shade300,
+                            _shopCountPill(
+                              Icons.receipt_long_outlined,
+                              'Sipariş',
+                              '$totalOrders',
+                              Colors.indigo,
                             ),
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.check_circle,
-                                label: 'Teslim Edilen',
-                                value: '$deliveredOrders',
-                                color: Colors.green,
-                              ),
+                            _shopCountPill(
+                              Icons.check_circle_outline,
+                              'Teslim',
+                              '$deliveredOrders',
+                              Colors.green,
                             ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey.shade300,
+                            _shopCountPill(
+                              Icons.hourglass_bottom,
+                              'Bekleyen',
+                              '$pendingOrders',
+                              Colors.amber,
                             ),
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.pending_actions,
-                                label: 'Bekleyen',
-                                value: '$pendingOrders',
-                                color: Colors.amber,
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey.shade300,
-                            ),
-                            Expanded(
-                              child: _buildShopStat(
-                                icon: Icons.cancel,
-                                label: 'İptal',
-                                value: '$cancelledOrders',
-                                color: Colors.red,
-                              ),
+                            _shopCountPill(
+                              Icons.cancel_outlined,
+                              'İptal',
+                              '$cancelledOrders',
+                              Colors.red,
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Kurye ve Teslimat Bilgisi
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: hasOwnCourier
-                          ? Colors.green.shade50
-                          : Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: hasOwnCourier
-                            ? Colors.green.shade200
-                            : Colors.orange.shade200,
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          hasOwnCourier
-                              ? Icons.delivery_dining
-                              : Icons.local_shipping,
-                          size: 16,
-                          color: hasOwnCourier
-                              ? Colors.green.shade700
-                              : Colors.orange.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            hasOwnCourier ? 'Kendi Kuryesi' : 'Admin Kuryesi',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                      const SizedBox(height: 10),
+
+                      // --- Teslimat bilgisi ---
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _shopTagPill(
+                              icon: hasOwnCourier
+                                  ? Icons.delivery_dining
+                                  : Icons.local_shipping,
+                              text: hasOwnCourier
+                                  ? 'Kendi kuryesi'
+                                  : 'Admin kuryesi',
                               color: hasOwnCourier
-                                  ? Colors.green.shade700
-                                  : Colors.orange.shade700,
+                                  ? Colors.green
+                                  : Colors.orange,
                             ),
-                          ),
+                            _shopTagPill(
+                              icon: Icons.payments_outlined,
+                              text:
+                                  'Teslimat ${_shopMoney(deliveryFee, decimals: 2)}',
+                              color: Colors.blueGrey,
+                            ),
+                            if (minOrderAmount > 0)
+                              _shopTagPill(
+                                icon: Icons.shopping_basket_outlined,
+                                text:
+                                    'Min. sepet ${_shopMoney(minOrderAmount, decimals: 2)}',
+                                color: Colors.blueGrey,
+                              ),
+                            if (deliveryTime.isNotEmpty)
+                              _shopTagPill(
+                                icon: Icons.timer_outlined,
+                                text: deliveryTime,
+                                color: Colors.blueGrey,
+                              ),
+                          ],
                         ),
-                        if (!hasOwnCourier) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade700,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '₺${deliveryFee.toStringAsFixed(2)}/teslimat',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                      ),
+
+                      // --- Admin fiyat mudahalesi uyarisi ---
+                      if (isOverridden) ...[
+                        const SizedBox(height: 10),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: InkWell(
+                            onTap: _showShopPricingOverrideDialog,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.orange.shade200,
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    size: 14,
+                                    color: Colors.orange.shade800,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Admin müdahalesi açık — satıcı değeri: '
+                                      '${(shop['pre_override_delivery_fee'] as num?) != null ? 'teslimat ${_shopMoney((shop['pre_override_delivery_fee'] as num).toDouble(), decimals: 2)}' : 'teslimat —'}'
+                                      ', '
+                                      '${(shop['pre_override_min_order_amount'] as num?) != null ? 'min. sepet ${_shopMoney((shop['pre_override_min_order_amount'] as num).toDouble(), decimals: 2)}' : 'min. sepet —'}'
+                                      ', '
+                                      '${_sellerDeliveryTimeLabel(shop)}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        height: 1.35,
+                                        color: Colors.orange.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Sahip Email
-                  Row(
-                    children: [
-                      Icon(Icons.email, size: 14, color: Colors.grey.shade500),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          ownerEmail,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
+                      ],
                     ],
                   ),
-                ],
-              ),
+                ),
+                Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+                _buildShopCardActions(shop, isApproved),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- _buildShopCardMenu ---
+  Widget _buildShopCardMenu(
+    Map<String, dynamic> shop, {
+    required bool isApproved,
+    required bool isActive,
+    required bool isVerified,
+    required bool isShopPinned,
+  }) {
+    return PopupMenuButton<String>(
+      tooltip: 'İşlemler',
+      icon: Icon(Icons.more_vert, size: 20, color: Colors.grey.shade600),
+      position: PopupMenuPosition.under,
+      onSelected: (value) {
+        switch (value) {
+          case 'edit':
+            _showEditShopDialog(shop);
+            break;
+          case 'detail':
+            _openShopDetailScreen(shop);
+            break;
+          case 'toggle_verified':
+            _toggleShopVerification(shop);
+            break;
+          case 'toggle_approval':
+            _toggleShopApproval(shop);
+            break;
+          case 'toggle_active':
+            _toggleShopActive(shop);
+            break;
+          case 'toggle_pin':
+            _toggleShopPin(shop);
+            break;
+          case 'pricing':
+            _showShopPricingOverrideDialog();
+            break;
+          case 'delete':
+            _showDeleteShopDialog(shop);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        _shopMenuItem('detail', Icons.assessment_outlined, 'Detaylı rapor'),
+        _shopMenuItem('edit', Icons.edit_outlined, 'Düzenle'),
+        _shopMenuItem(
+          'toggle_approval',
+          isApproved ? Icons.pending_outlined : Icons.check_circle_outline,
+          isApproved ? 'Onayı kaldır' : 'Onayla',
+          color: isApproved ? Colors.orange : Colors.green,
+        ),
+        _shopMenuItem(
+          'toggle_active',
+          isActive ? Icons.visibility_off : Icons.visibility,
+          isActive ? 'Pasife al' : 'Aktife al',
+          color: isActive ? Colors.grey : Colors.blue,
+        ),
+        _shopMenuItem(
+          'toggle_verified',
+          isVerified ? Icons.unpublished_outlined : Icons.verified_outlined,
+          isVerified ? 'Doğrulamayı kaldır' : 'Doğrula',
+          color: isVerified ? Colors.grey : Colors.blue,
+        ),
+        _shopMenuItem(
+          'toggle_pin',
+          isShopPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          isShopPinned ? 'Sabitlemeyi kaldır' : 'Sabitle',
+          color: Colors.amber.shade700,
+        ),
+        _shopMenuItem(
+          'pricing',
+          Icons.price_change_outlined,
+          'Teslimat & min. sepet',
+          color: Colors.purple,
+        ),
+        const PopupMenuDivider(height: 1),
+        _shopMenuItem('delete', Icons.delete_outline, 'Sil', color: Colors.red),
+      ],
+    );
+  }
+
+  // --- _shopMenuItem ---
+  PopupMenuItem<String> _shopMenuItem(
+    String value,
+    IconData icon,
+    String label, {
+    Color? color,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color ?? Colors.grey.shade700),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: color),
             ),
           ),
         ],
@@ -794,30 +1196,451 @@ extension on _AdminDashboardScreenState {
     );
   }
 
-  // --- _buildShopStat ---
-  Widget _buildShopStat({
+  // --- _buildShopCardActions ---
+  /// Kart alt aksiyon seridi. Her buton `Expanded` + `FittedBox` oldugu icin
+  /// kart ne kadar dar olursa olsun etiketler tasmaz.
+  Widget _buildShopCardActions(Map<String, dynamic> shop, bool isApproved) {
+    return Row(
+      children: [
+        Expanded(
+          child: _shopCardAction(
+            icon: Icons.assessment_outlined,
+            label: 'Detay',
+            color: Colors.blueGrey.shade700,
+            onTap: () => _openShopDetailScreen(shop),
+          ),
+        ),
+        Container(width: 1, height: 34, color: Colors.grey.shade200),
+        Expanded(
+          child: _shopCardAction(
+            icon: Icons.edit_outlined,
+            label: 'Düzenle',
+            color: Colors.indigo.shade600,
+            onTap: () => _showEditShopDialog(shop),
+          ),
+        ),
+        Container(width: 1, height: 34, color: Colors.grey.shade200),
+        Expanded(
+          child: _shopCardAction(
+            icon: isApproved
+                ? Icons.pending_outlined
+                : Icons.check_circle_outline,
+            label: isApproved ? 'Onayı kaldır' : 'Onayla',
+            color: isApproved ? Colors.orange.shade800 : Colors.green.shade700,
+            onTap: () => _toggleShopApproval(shop),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- _shopCardAction ---
+  Widget _shopCardAction({
     required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 11),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 5),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- _openShopDetailScreen ---
+  void _openShopDetailScreen(Map<String, dynamic> shop) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            ShopDetailAdminScreen(shopId: shop['id'].toString()),
+      ),
+    );
+  }
+
+  // --- _toggleShopPin ---
+  Future<void> _toggleShopPin(Map<String, dynamic> shop) async {
+    final next = !(shop['is_pinned'] as bool? ?? false);
+    await _togglePin('shops', shop['id'].toString(), next);
+    if (!mounted) return;
+    setState(() => shop['is_pinned'] = next);
+  }
+
+  // --- _showShopQuickSheet ---
+  /// Karta uzun basinca acilan hizli islem sayfasi.
+  void _showShopQuickSheet(Map<String, dynamic> shop) {
+    final isShopPinned = shop['is_pinned'] as bool? ?? false;
+    final isApproved = shop['is_approved'] as bool? ?? false;
+    final isActive = shop['is_active'] as bool? ?? true;
+    final isVerified = shop['is_verified'] as bool? ?? false;
+
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.storefront, color: Colors.purple.shade600),
+                title: Text(
+                  shop['name']?.toString() ?? '-',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  isApproved ? 'Onaylı dükkan' : 'Onay bekliyor',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              const Divider(height: 1),
+              _shopSheetTile(
+                ctx,
+                icon: isShopPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                label: isShopPinned ? 'Sabitlemeyi kaldır' : 'Dükkanı sabitle',
+                color: Colors.amber.shade700,
+                onTap: () => _toggleShopPin(shop),
+              ),
+              _shopSheetTile(
+                ctx,
+                icon: isApproved
+                    ? Icons.pending_outlined
+                    : Icons.check_circle_outline,
+                label: isApproved ? 'Onayı kaldır' : 'Onayla',
+                color: isApproved ? Colors.orange : Colors.green,
+                onTap: () => _toggleShopApproval(shop),
+              ),
+              _shopSheetTile(
+                ctx,
+                icon: isActive ? Icons.visibility_off : Icons.visibility,
+                label: isActive ? 'Pasife al' : 'Aktife al',
+                color: isActive ? Colors.grey.shade700 : Colors.blue,
+                onTap: () => _toggleShopActive(shop),
+              ),
+              _shopSheetTile(
+                ctx,
+                icon: isVerified
+                    ? Icons.unpublished_outlined
+                    : Icons.verified_outlined,
+                label: isVerified ? 'Doğrulamayı kaldır' : 'Doğrula',
+                color: isVerified ? Colors.grey.shade700 : Colors.blue,
+                onTap: () => _toggleShopVerification(shop),
+              ),
+              _shopSheetTile(
+                ctx,
+                icon: Icons.edit_outlined,
+                label: 'Düzenle',
+                color: Colors.indigo,
+                onTap: () => _showEditShopDialog(shop),
+              ),
+              _shopSheetTile(
+                ctx,
+                icon: Icons.assessment_outlined,
+                label: 'Detaylı rapor',
+                color: Colors.blueGrey.shade700,
+                onTap: () => _openShopDetailScreen(shop),
+              ),
+              const Divider(height: 1),
+              _shopSheetTile(
+                ctx,
+                icon: Icons.delete_outline,
+                label: 'Dükkanı sil',
+                color: Colors.red,
+                onTap: () => _showDeleteShopDialog(shop),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- _shopSheetTile ---
+  Widget _shopSheetTile(
+    BuildContext sheetContext, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      dense: true,
+      leading: Icon(icon, size: 20, color: color),
+      title: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 14, color: color),
+      ),
+      onTap: () {
+        Navigator.pop(sheetContext);
+        onTap();
+      },
+    );
+  }
+
+  // ==========================================================================
+  // Kart ici kucuk parcalar
+  // ==========================================================================
+
+  // --- _buildShopAvatar ---
+  Widget _buildShopAvatar(String logoUrl, MaterialColor accent) {
+    if (logoUrl.isEmpty) return _shopAvatarFallback(accent);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: CachedNetworkImage(
+        imageUrl: logoUrl,
+        width: 48,
+        height: 48,
+        fit: BoxFit.cover,
+        placeholder: (context, url) =>
+            Container(width: 48, height: 48, color: Colors.grey.shade100),
+        errorWidget: (context, url, error) => _shopAvatarFallback(accent),
+      ),
+    );
+  }
+
+  // --- _shopAvatarFallback ---
+  Widget _shopAvatarFallback(MaterialColor accent) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [accent.shade300, accent.shade600],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Icon(Icons.storefront, color: Colors.white, size: 24),
+    );
+  }
+
+  // --- _shopMetaLine ---
+  Widget _shopMetaLine(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: Colors.grey.shade500),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- _shopBadge ---
+  Widget _shopBadge(String text, MaterialColor color, {IconData? icon}) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 200),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.shade200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 11, color: color.shade700),
+              const SizedBox(width: 4),
+            ],
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: color.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- _shopBalanceBadge ---
+  Widget _shopBalanceBadge(double netBalance) {
+    if (netBalance > 0) {
+      return _shopBadge(
+        'Ödeme ${_shopMoney(netBalance)}',
+        Colors.green,
+        icon: Icons.arrow_upward,
+      );
+    }
+    if (netBalance < 0) {
+      return _shopBadge(
+        'Borç ${_shopMoney(netBalance.abs())}',
+        Colors.red,
+        icon: Icons.arrow_downward,
+      );
+    }
+    return _shopBadge('Dengede', Colors.grey, icon: Icons.balance);
+  }
+
+  // --- _shopMoneyCell ---
+  Widget _shopMoneyCell({
     required String label,
     required String value,
     required Color color,
   }) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 20, color: color),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ),
       ],
+    );
+  }
+
+  // --- _shopCellDivider ---
+  Widget _shopCellDivider() {
+    return Container(
+      width: 1,
+      height: 30,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      color: Colors.grey.shade200,
+    );
+  }
+
+  // --- _shopCountPill ---
+  Widget _shopCountPill(
+    IconData icon,
+    String label,
+    String value,
+    MaterialColor color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color.shade600),
+          const SizedBox(width: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: color.shade800,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- _shopTagPill ---
+  /// Wrap cocuklari sinirsiz genislik aldigi icin metin burada acikca
+  /// sinirlaniyor: `delivery_time` serbest metin (60 karaktere kadar) ve
+  /// sinirsiz birakilirsa dar kartta satiri tasiriyor.
+  Widget _shopTagPill({
+    required IconData icon,
+    required String text,
+    required MaterialColor color,
+  }) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 230),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.shade100),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color.shade600),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color.shade800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1534,6 +2357,10 @@ extension on _AdminDashboardScreenState {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        // Uc aksiyon butonu dar ekranda alt alta diziliyor; aralik
+        // verilmezse butonlar birbirine yapisik gorunuyordu.
+        actionsOverflowButtonSpacing: 8,
+        actionsOverflowAlignment: OverflowBarAlignment.center,
         title: Row(
           children: [
             Container(

@@ -10,13 +10,13 @@ void main() {
   setUpAll(() {
     balanceTypeSql = File(
       'supabase/migrations/20260817000026_profile_feature_purchase_balance_type.sql',
-    ).readAsStringSync();
+    ).readAsStringSync().replaceAll('\r\n', '\n');
     coverPricingSql = File(
       'supabase/migrations/20260817000027_profile_feature_cover_kind_and_pricing.sql',
-    ).readAsStringSync();
+    ).readAsStringSync().replaceAll('\r\n', '\n');
     pointsPurchaseSql = File(
       'supabase/migrations/20260818000006_profile_feature_points_purchase.sql',
-    ).readAsStringSync();
+    ).readAsStringSync().replaceAll('\r\n', '\n');
   });
 
   test('yeni bakiye işlem tipi kendi tek başına migration dosyasında eklenir', () {

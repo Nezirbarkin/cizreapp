@@ -7,8 +7,10 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart' show Position;
 import '../../../core/models/category_model.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/app_about_settings.dart';
 import '../../../core/models/post_model.dart';
@@ -29,6 +31,7 @@ import '../../../core/services/favorite_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
+import '../../../core/services/app_customization_prefs.dart';
 import '../services/category_service.dart';
 import '../services/shop_service.dart';
 import '../services/product_service.dart';
@@ -88,6 +91,15 @@ class _MarketScreenState extends State<MarketScreen> {
   List<Shop> _shops = [];
   List<Product> _discountedProducts = [];
   List<Story> _stories = [];
+
+  /// Dükkan kartlarında uzaklık göstermek için kullanıcının konumu.
+  /// null = izin yok veya konum alınamadı → uzaklık satırı gizlenir.
+  Position? _userPosition;
+  bool _isEnablingDistances = false;
+
+  /// Uzaklık gösterilebilecek (koordinatı kayıtlı) en az bir dükkan var mı.
+  bool get _anyShopHasCoordinates =>
+      _shops.any((s) => s.latitude != null && s.longitude != null);
   List<DailyDeal> _deals = [];
   List<Post> _recentPosts = [];
   Map<String, Map<String, dynamic>> _postUsersMap = {}; // userId -> user data
@@ -135,6 +147,8 @@ class _MarketScreenState extends State<MarketScreen> {
   // Sadece fırsat kartları geri sayımını tetikler; tüm ekranı rebuild ETMEZ.
   final ValueNotifier<int> _dealTick = ValueNotifier<int>(0);
   bool _courierServiceActive = false;
+  // Özelleştir ekranından: kurye ikonu servis açıkken de gizlenebilir.
+  bool _hideCourierIcon = false;
 
   @override
   void initState() {
@@ -144,6 +158,7 @@ class _MarketScreenState extends State<MarketScreen> {
     // ⚡ iOS PERFORMANCE: Başlatma işlemlerini PARALEL yap
     _loadData();
     _loadCourierServiceStatus();
+    _loadCustomizationPrefs();
 
     // Arka planda yükle - kullanıcıyı bekletmez
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -153,6 +168,10 @@ class _MarketScreenState extends State<MarketScreen> {
         _loadNotificationCount().catchError((_) {}),
         _loadChatUnreadCount().catchError((_) {}),
       ]);
+      // Dükkan kartlarında uzaklık göstermek için konum. İzin İSTENMEZ;
+      // yalnızca kullanıcı daha önce izin verdiyse konum okunur, aksi halde
+      // kartlarda uzaklık satırı hiç görünmez.
+      _loadUserPositionForDistances();
     });
 
     // Geri sayım için timer başlat (her saniye güncelle)
@@ -325,6 +344,11 @@ class _MarketScreenState extends State<MarketScreen> {
     } catch (e) {
       debugPrint('Kurye servisi durumu yüklenemedi: $e');
     }
+  }
+
+  Future<void> _loadCustomizationPrefs() async {
+    final hideCourierIcon = await AppCustomizationPrefs.getHideCourierIcon();
+    if (mounted) setState(() => _hideCourierIcon = hideCourierIcon);
   }
 
   Future<void> _loadData() async {
@@ -734,7 +758,7 @@ class _MarketScreenState extends State<MarketScreen> {
           // Moto kurye iconu (sohbet ikonunun üstünde) - sadece aktif olduğunda göster
           // Web ve mobilde sohbet ikonuyla aynı boşluğu koruması için
           // FloatingMessageButton'ın bottom + yüksekliğine (56) göre hesaplanır.
-          if (_courierServiceActive)
+          if (_courierServiceActive && !_hideCourierIcon)
             Positioned(
               right: kIsWeb ? 28 : 20,
               bottom: kIsWeb ? 170 : 210,
@@ -1170,6 +1194,64 @@ class _MarketScreenState extends State<MarketScreen> {
               ),
             ),
           ),
+
+          // Uzaklık gösterimi için tek satırlık opt-in. Konum izni zaten
+          // varsa hiç görünmez (uzaklıklar doğrudan kartlarda çıkar).
+          // Hiçbir dükkanın koordinatı yoksa da gösterilmez - izin verilse
+          // bile gösterilecek uzaklık olmazdı.
+          if (_userPosition == null && _anyShopHasCoordinates)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: InkWell(
+                  onTap: _isEnablingDistances ? null : _enableShopDistances,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blueGrey.shade100),
+                    ),
+                    child: Row(
+                      children: [
+                        if (_isEnablingDistances)
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          Icon(
+                            Icons.near_me_outlined,
+                            size: 15,
+                            color: Colors.blueGrey.shade700,
+                          ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Dükkanların size uzaklığını göster',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blueGrey.shade800,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right,
+                          size: 16,
+                          color: Colors.blueGrey.shade400,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
@@ -2041,10 +2123,43 @@ class _MarketScreenState extends State<MarketScreen> {
     );
   }
 
+  /// Konum izni ZATEN verilmişse kullanıcının konumunu alır; izin yoksa
+  /// hiçbir şey sormaz ve kartlarda uzaklık gösterilmez.
+  Future<void> _loadUserPositionForDistances() async {
+    final position = await UserDistanceService.positionIfAllowed();
+    if (!mounted || position == null) return;
+    setState(() => _userPosition = position);
+  }
+
+  /// Kullanıcı "uzaklığı göster"e dokunduğunda: önce konum açıklaması +
+  /// izin (Play Prominent Disclosure), sonra konum. Reddederse sessizce
+  /// eski haline döner, kartlarda uzaklık çıkmaz.
+  Future<void> _enableShopDistances() async {
+    setState(() => _isEnablingDistances = true);
+    final position = await UserDistanceService.requestPosition(context);
+    if (!mounted) return;
+    setState(() {
+      _isEnablingDistances = false;
+      _userPosition = position;
+    });
+  }
+
+  /// Dükkanın kullanıcıya uzaklığı ("850 m" / "1,2 km"). Konum ya da dükkan
+  /// koordinatı yoksa null döner ve kartta bu satır hiç çizilmez.
+  String? _shopDistanceLabel(Shop shop) {
+    final meters = UserDistanceService.distanceMeters(
+      from: _userPosition,
+      targetLat: shop.latitude,
+      targetLng: shop.longitude,
+    );
+    return meters == null ? null : UserDistanceService.format(meters);
+  }
+
   Widget _buildShopCard(Shop shop) {
     // Sipariş alma durumu kontrolü
     final bool isOrdersClosed =
         !_globalOrdersEnabled || !shop.isAcceptingOrders;
+    final String? distanceLabel = _shopDistanceLabel(shop);
 
     return Opacity(
       opacity: isOrdersClosed ? 0.55 : 1.0,
@@ -2165,6 +2280,29 @@ class _MarketScreenState extends State<MarketScreen> {
                                           ),
                                         ),
                                       ),
+                                      // "Gel Al" etiketi
+                                      if (shop.pickupEnabled)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blue.shade600,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Text(
+                                              '🏪 Gel Al',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       // Kupon var etiketi
                                       FutureBuilder<int>(
                                         future: _couponCountCache.putIfAbsent(
@@ -2248,6 +2386,28 @@ class _MarketScreenState extends State<MarketScreen> {
                                       style: TextStyle(
                                         color: Colors.grey.shade600,
                                         fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                  // Kullanıcıya uzaklık (konum izni varsa).
+                                  // Flexible: dar ekranda taşma yerine kısalır.
+                                  if (distanceLabel != null) ...[
+                                    const SizedBox(width: 8),
+                                    Icon(
+                                      Icons.near_me,
+                                      size: 13,
+                                      color: Colors.blueGrey.shade600,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Flexible(
+                                      child: Text(
+                                        distanceLabel,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Colors.blueGrey.shade700,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   ],

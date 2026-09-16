@@ -279,6 +279,82 @@ serve(async (req) => {
   try {
     const body = await req.json();
 
+    // ═════════════════════════════════════════════════════════════
+    // SUNUCU TARAFI ALICI COZUMLEME  (20260907110001)
+    // ═════════════════════════════════════════════════════════════
+    // `profiles.email` sutunu `authenticated` rolunden kaldiriliyor;
+    // istemci artik alici adresini okuyamaz ve gonderemez. Bunun yerine
+    // KIMI hedefledigini bildirir, adresi burada service_role cozer:
+    //
+    //   { to_role: "admin" }              -> tum adminler
+    //   { to_order_customer: "<uuid>" }   -> siparisin musterisi
+    //   { to_shop_owner: "<uuid>" }       -> dukkan sahibi
+    //
+    // Eski `to` alani hala destekleniyor (geriye donuk uyumluluk); bu
+    // alanlardan biri verildiginde `to` UZERINE YAZILIR.
+    if (!body.to && (body.to_role || body.to_order_customer || body.to_shop_owner)) {
+      const resolverClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      let resolved: string | string[] | null = null;
+
+      if (body.to_role === "admin") {
+        const { data } = await resolverClient
+          .from("profiles").select("email").eq("role", "admin");
+        resolved = (data ?? [])
+          .map((r: { email: string | null }) => r.email)
+          .filter((e: string | null): e is string => !!e);
+      } else if (body.to_order_customer) {
+        const { data } = await resolverClient
+          .from("orders").select("profiles!orders_user_id_fkey(email)")
+          .eq("id", body.to_order_customer).maybeSingle();
+        resolved = (data as { profiles?: { email?: string } } | null)
+          ?.profiles?.email ?? null;
+      } else if (body.to_shop_owner) {
+        const { data } = await resolverClient
+          .from("shops").select("profiles!shops_owner_id_fkey(email)")
+          .eq("id", body.to_shop_owner).maybeSingle();
+        resolved = (data as { profiles?: { email?: string } } | null)
+          ?.profiles?.email ?? null;
+      }
+
+      if (!resolved || (Array.isArray(resolved) && resolved.length === 0)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "recipient_not_found" }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 404,
+          },
+        );
+      }
+
+      // Coklu alici: her birine ayni govdeyi gonder.
+      if (Array.isArray(resolved)) {
+        let sent = 0;
+        for (const address of resolved) {
+          const single = await fetch(req.url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: req.headers.get("Authorization") ?? "",
+            },
+            body: JSON.stringify({ ...body, to: address, to_role: undefined }),
+          });
+          if (single.ok) sent++;
+        }
+        return new Response(
+          JSON.stringify({ success: sent > 0, sent, total: resolved.length }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: sent > 0 ? 200 : 500,
+          },
+        );
+      }
+
+      body.to = resolved;
+    }
+
     // Mod 2: Dart tarafından doğrudan çağrılan mod (type, to, data)
     if (body.type && body.to && body.data) {
       const directReq = body as DirectRequest;

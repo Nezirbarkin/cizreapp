@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
+import 'core/theme/app_map_style.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/favorites_provider.dart';
@@ -28,6 +30,7 @@ import 'features/auth/screens/register_screen.dart';
 import 'features/auth/screens/register_screen_v2.dart';
 import 'features/auth/screens/reset_password_screen.dart';
 import 'features/auth/screens/reset_password_confirm_screen.dart';
+import 'features/auth/screens/choose_username_screen.dart';
 import 'features/main/screens/main_screen.dart';
 import 'features/onboarding/widgets/onboarding_gate.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
@@ -235,6 +238,25 @@ void main() async {
       log('⚠️ Initialization error: $e');
     }
 
+    // "Beni Hatırla" kontrolü: Supabase oturumu cihazda varsayılan olarak
+    // kalıcıdır. Kullanıcı bir önceki girişte tiki kaldırdıysa (remember_me
+    // == false), bu soğuk açılışta kalıcı oturum bilinçli olarak sonlandırılır
+    // ve kullanıcı tekrar giriş ekranıyla karşılaşır. Tercih hiç
+    // ayarlanmadıysa (ilk kurulum / eski sürümden güncelleme) varsayılan
+    // true'dur - mevcut davranış bozulmaz.
+    if (supabaseInitialized) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final rememberMe = prefs.getBool(kRememberMePrefsKey) ?? true;
+        if (!rememberMe && Supabase.instance.client.auth.currentSession != null) {
+          await Supabase.instance.client.auth.signOut();
+          log('🔒 Beni Hatırla kapalıydı, önceki oturum sonlandırıldı');
+        }
+      } catch (e) {
+        log('⚠️ Beni Hatırla kontrolü hatası: $e');
+      }
+    }
+
     // Hata loglarini merkezi analitige bagla. Supabase hazir olmadan
     // baglamiyoruz; insert zaten oturum gerektiriyor ve erken baglamak
     // yalnizca bosa giden denemeler uretirdi.
@@ -377,6 +399,12 @@ class _CizreAppState extends State<CizreApp> {
           PushNotificationService.setNavigatorKey(_navigatorKey);
         }
         
+        // Harita görünümü tercihi (Otomatik/Açık/Koyu) — ilk harita açılır
+        // açılmaz doğru stille çizilsin diye burada okunuyor. Yoksa harita
+        // bir kare varsayılan stille çiziliyor, sonra tercih gelince
+        // değişiyordu.
+        MapThemePreference.ensureLoaded();
+
         // Otomatik tema değişimi - uygulama her açıldığında tema otomatik değişsin
         ThemeProvider.applyAutoThemeOnLaunch().then((_) {
           // Tema değiştiğinde UI'ı güncelle
@@ -491,6 +519,24 @@ class _CizreAppState extends State<CizreApp> {
         try {
           PresenceService.instance.dispose();
         } catch (_) {}
+      }
+
+      // Yarım kalmış Google/Apple kaydını soğuk başlangıçta da yakala.
+      // register/login ekranlarındaki needsUsernameSetup() kontrolü yalnızca
+      // AuthChangeEvent.signedIn'de (aktif oturum açarken) çalışır. Kullanıcı
+      // ChooseUsernameScreen'i tamamlamadan uygulamayı kapatıp tekrar açarsa
+      // signedIn hiç tetiklenmez, kalıcı oturumla doğrudan MainScreen açılır.
+      // initialSession YALNIZ soğuk başlangıçta kalıcı oturum geri
+      // yüklenirken bir kez ateşlenir ve signedIn ile birlikte tetiklenmez
+      // (bkz. gotrue GoTrueClient.setInitialSession), bu yüzden register/
+      // login ekranlarındaki kontrolle çakışmaz.
+      if (event == AuthChangeEvent.initialSession && session != null) {
+        needsUsernameSetup().then((needs) {
+          if (!needs) return;
+          _navigatorKey.currentState?.push(
+            MaterialPageRoute(builder: (_) => const ChooseUsernameScreen()),
+          );
+        });
       }
     });
     }
@@ -776,9 +822,14 @@ class _CizreAppState extends State<CizreApp> {
       }
     }
     
-    // Web'de MainScreen
+    // Web'de MainScreen.
+    // NOT: Web'de OnboardingGate KULLANILMAZ. Tarayıcıda uygulama açılmadan
+    // önce web/index.html içindeki tanıtım (promo) ekranı gösteriliyor
+    // (Admin Panel > Tanıtım Videosu (Web)); ardından bir de 6 adımlı
+    // onboarding açılması ziyaretçiye üst üste iki tanıtım demek olurdu.
+    // Mobilde onboarding olduğu gibi kalır.
     print('🏠 Loading main screen');
-    return const OnboardingGate(child: MainScreen());
+    return const MainScreen();
   }
 
   @override
@@ -795,7 +846,24 @@ class _CizreAppState extends State<CizreApp> {
           // Web'de scroll davranışını özelleştir - tarayıcı scroll kaymasını önle
           scrollBehavior: kIsWeb ? const _WebScrollBehavior() : null,
           builder: (context, child) {
-            return child ?? const SizedBox.shrink();
+            // İKİ KÖK SARMALAYICI:
+            //
+            // 1) Listener — TARAYICI SES KİLİDİ. Web'de tarayıcı, kullanıcı
+            //    sayfayla etkileşmeden ses çalmayı reddeder. İlk dokunuşta
+            //    ses servisine haber verilir; o ana kadar reddedilmiş
+            //    efektleri "eksik" saymaktan vazgeçer ve müziği başlatır.
+            //    (Mobilde böyle bir kısıt yok; çağrı ilk seferde döner.)
+            //
+            // 2) OkeyLandscapeStage — okey masası açıkken web/masaüstünde
+            //    görüntüyü yatay tutar. Diyaloglar da dönsün diye
+            //    Navigator'ın ÜSTÜNDE, yani burada durmak zorunda.
+            return Listener(
+              onPointerDown: (_) =>
+                  OkeySoundService.instance.notifyUserGesture(),
+              child: OkeyLandscapeStage(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            );
           },
           // Web'de URL'ye göre doğrudan doğru ekranı yükle
           home: _getInitialScreen(),

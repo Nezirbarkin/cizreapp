@@ -13,6 +13,7 @@ import '../../../core/services/maps_api_key_service.dart';
 import '../../market/screens/address_picker_screen.dart';
 import 'package_history_screen.dart';
 import '../widgets/couriers_map_card.dart';
+import 'package:uuid/uuid.dart';
 
 class SendPackageScreen extends StatefulWidget {
   const SendPackageScreen({super.key});
@@ -60,23 +61,18 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
   // dönüşür. Session başına tek bir key kullanırız.
   late final String _paketIdempotencyKey;
 
-  static String _generateUuid() {
-    // Hafif bir v4 üretici: 16 byte random.
-    final r = DateTime.now().microsecondsSinceEpoch;
-    final bytes = List<int>.generate(
-      16,
-      (i) => ((r * (i + 1)) ^ (i * 0x9E3779B1)) & 0xFF,
-    );
-    bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
-    bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 1
-    String hex(int b) => b.toRadixString(16).padLeft(2, '0');
-    final h = bytes.map(hex).join();
-    return '${h.substring(0, 8)}-'
-        '${h.substring(8, 12)}-'
-        '${h.substring(12, 16)}-'
-        '${h.substring(16, 20)}-'
-        '${h.substring(20)}';
-  }
+  /// Paket gönderme idempotency anahtarı.
+  ///
+  /// ESKİ UYGULAMA BOZUKTU: "16 byte random" diyordu ama hiç rastgelelik
+  /// yoktu — her byte `(mikrosaniye * (i+1)) ^ (i * K)` idi ve 0xFF ile
+  /// maskeleniyordu. İki zaman damgası 256 µs'nin katı kadar farklıysa
+  /// `r ≡ r' (mod 256)` olduğu için 16 byte'ın TAMAMI aynı çıkıyordu.
+  /// Yani iki ayrı paket isteği ~1/256 olasılıkla AYNI idempotency
+  /// anahtarını üretiyor, meşru bir istek "tekrar" sayılabiliyordu.
+  ///
+  /// Artık kriptografik olarak güvenli `uuid` paketi kullanılıyor
+  /// (pubspec'te zaten mevcuttu).
+  static String _generateUuid() => const Uuid().v4();
 
   List<Map<String, dynamic>> _serviceNotices = [];
 
@@ -845,14 +841,23 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
 
   Future<List<Map<String, dynamic>>> _fetchNearbyCoriers() async {
     try {
-      final couriers = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, last_known_lat, last_known_lng')
-          .eq('role', 'courier')
-          .not('last_known_lat', 'is', null)
-          .not('last_known_lng', 'is', null)
-          .limit(5);
-      return List<Map<String, dynamic>>.from(couriers);
+      // Kurye konumlari artik ham okunmuyor: get_nearby_couriers
+      // SECURITY DEFINER RPC'si BULANIKLASTIRILMIS koordinat (approx_lat/
+      // approx_lng) donduruyor ve bayat kayitlari eliyor. Boylece hicbir
+      // kullanici bir kuryenin tam konumunu goremiyor.
+      final couriers = await Supabase.instance.client.rpc(
+        'get_nearby_couriers',
+        params: {
+          // Alis adresi secilmediyse Cizre merkezini referans al.
+          'p_origin_lat': _pickupAddress?.latitude ?? 37.3247,
+          'p_origin_lng': _pickupAddress?.longitude ?? 42.1911,
+          'p_max_km': 25.0,
+          'p_max_age_seconds': 900,
+        },
+      );
+      return List<Map<String, dynamic>>.from(
+        (couriers as List).take(5).map((e) => Map<String, dynamic>.from(e as Map)),
+      );
     } catch (e) {
       debugPrint('Yakın kuryeler yükleme hatası: $e');
       return [];

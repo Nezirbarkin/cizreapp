@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
 import '../models/user_model.dart';
 import '../services/privacy_service.dart';
+import '../services/app_customization_prefs.dart';
 import '../../features/chat/services/presence_service.dart';
 import '../navigation/app_navigator.dart';
 import '../../features/favorites/screens/favorites_screen.dart';
@@ -15,6 +16,7 @@ import '../../features/market/screens/order_history_screen.dart';
 import '../../features/profile/screens/support_center_screen.dart';
 import '../../features/profile/screens/notification_settings_screen.dart';
 import '../../features/profile/screens/account_settings_screen.dart';
+import '../../features/profile/screens/customize_screen.dart';
 import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
@@ -24,7 +26,6 @@ import '../../sehirici/sehirici.dart';
 import '../../okey/okey.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/market/screens/my_coupons_screen.dart';
-import '../../okey/services/okey_sound_service.dart';
 import 'balance_header_widget.dart';
 import 'now_playing_panel.dart';
 
@@ -56,6 +57,11 @@ class _SettingsSidebarState extends State<SettingsSidebar>
   bool _isGhostMode = false;
   bool _isLoadingPrivacy = false;
 
+  // Özelleştir — "101 Okey" kısayolu gizlenmiş mi? (bkz. CustomizeScreen)
+  bool _hide101OkeyButton = false;
+  // Özelleştir — en üstteki müzik çalar kartı gizlenmiş mi? (bkz. CustomizeScreen)
+  bool _hideMusicPlayer = false;
+
   // Arka plan müziği — Okey'den bağımsız, uygulama genelinde çalışır.
   bool _musicLoading = true;
   bool _hasMusic = false;
@@ -68,6 +74,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     super.initState();
     _loadPrivacySettings();
     _loadMusicState();
+    _loadCustomizationSettings();
     // Müzik uygulama genelinde TEK servisten çalıyor; bildirim panelinden
     // ya da Okey masasından yapılan değişiklik bu satırdaki oynatıcıya da
     // yansımalı.
@@ -116,9 +123,11 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     }
 
     try {
+      // Acik sutun listesi: `select()` (SELECT *) profiles uzerindeki
+      // sutun bazli GRANT ile calismaz (bkz. 20260907110001).
       final response = await Supabase.instance.client
           .from('profiles')
-          .select()
+          .select('id, username, full_name, avatar_url, role')
           .eq('id', userId)
           .maybeSingle();
 
@@ -223,6 +232,21 @@ class _SettingsSidebarState extends State<SettingsSidebar>
       }
     } catch (e) {
       debugPrint('Gizlilik ayarları yüklenirken hata: $e');
+    }
+  }
+
+  /// "Özelleştir" ekranında yapılan tercihleri okur — sidebar her açıldığında
+  /// TAZELENİR (yeni bir [_SettingsSidebarState] kurulur), yani kullanıcı
+  /// özelleştirme ekranından döndükten sonra menüyü tekrar açtığında güncel
+  /// tercih burada görülür.
+  Future<void> _loadCustomizationSettings() async {
+    final hide101Okey = await AppCustomizationPrefs.getHide101OkeyButton();
+    final hideMusicPlayer = await AppCustomizationPrefs.getHideMusicPlayer();
+    if (mounted) {
+      setState(() {
+        _hide101OkeyButton = hide101Okey;
+        _hideMusicPlayer = hideMusicPlayer;
+      });
     }
   }
 
@@ -376,7 +400,10 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                             Row(
                               children: [
                                 Expanded(
-                                  child: (!_musicLoading && _hasMusic)
+                                  child:
+                                      (!_musicLoading &&
+                                          _hasMusic &&
+                                          !_hideMusicPlayer)
                                       ? NowPlayingPanel(
                                           trackName: _currentTrackName,
                                           playing: _musicOn,
@@ -593,23 +620,24 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                     );
                                   },
                                 ),
-                              _buildPanelButton(
-                                context: context,
-                                icon: Icons.casino,
-                                title: '101 Okey',
-                                subtitle: 'Online Oyun',
-                                color: Colors.deepPurple,
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const OkeyLobbyScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
+                              if (!_hide101OkeyButton)
+                                _buildPanelButton(
+                                  context: context,
+                                  icon: Icons.casino,
+                                  title: '101 Okey',
+                                  subtitle: 'Online Oyun',
+                                  color: Colors.deepPurple,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const OkeyLobbyScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
                               const SizedBox(height: 24),
 
                               // Hesabım bölümü
@@ -715,6 +743,22 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                     MaterialPageRoute(
                                       builder: (context) =>
                                           const AccountSettingsScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              _buildMenuItem(
+                                context: context,
+                                icon: Icons.dashboard_customize_outlined,
+                                title: 'Özelleştir',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const CustomizeScreen(),
                                     ),
                                   );
                                 },

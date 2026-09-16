@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:hive/hive.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
 
@@ -130,8 +130,51 @@ class AnalyticsService {
         return _truncate('$path:${match.group(2)}', 120);
       }
     }
+    // DOSYA/SATIR YOKSA HIC OLMAZSA WIDGET ADI.
+    //
+    // Release derlemesinde kaynak konumlari cikarilmis olur: bir build()
+    // icinde patlayan "Null check operator used on a null value" gibi
+    // hatalarda hem yigin izi hem tani metni tamamen framework karesidir ve
+    // yukaridaki tarama bos doner — admin panelinde "hangi ekran?" sorusu
+    // cevapsiz kalir. Flutter tani metni bu durumda bile hatayi ureten
+    // widget'in TIPINI tasir; onu yazmak "bilinmiyor"dan cok daha iyidir.
+    final widget = _errorCausingWidget(diagnostics);
+    if (widget != null) return _truncate('widget: $widget', 120);
     return null;
   }
+
+  /// `FlutterErrorDetails` metnindeki "The relevant error-causing widget was"
+  /// satirinin ARDINDAN gelen widget tipini dondurur.
+  static String? _errorCausingWidget(String? diagnostics) {
+    if (diagnostics == null || diagnostics.isEmpty) return null;
+    final match = _errorCausingWidgetPattern.firstMatch(diagnostics);
+    final raw = match?.group(1)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    // Satirin bicimi: "<widget> <olusturma konumu>". Konum bilinmiyorsa
+    // (release/profil derlemesi) Flutter oraya duz "null" yazar; ilk
+    // bosluga kadar olan parca her iki durumda da widget'in kendisidir.
+    // `Widget.toStringShort()` bosluk icermez ("MyCard", "Text-[<'k'>]").
+    var name = raw.split(RegExp(r'\s')).first;
+    final paren = name.indexOf('(');
+    if (paren > 0) name = name.substring(0, paren);
+    return name.isEmpty ? null : name;
+  }
+
+  static final RegExp _errorCausingWidgetPattern = RegExp(
+    r'error-causing widget was:?\s*(.+)',
+  );
+
+  /// Test kancasi.
+  ///
+  /// [_extractOrigin] saf bir metin donusumu — Supabase, Hive ya da widget
+  /// agaci gerektirmez — ama private oldugu icin dogrudan cagrilamiyor.
+  /// Admin panelindeki "Son Hatalar" listesinin okunabilirligi tamamen bu
+  /// donusume bagli oldugu icin regresyon testi ile korunuyor.
+  @visibleForTesting
+  static String? extractOriginForTest(
+    StackTrace? stackTrace,
+    String? diagnostics,
+  ) => _extractOrigin(stackTrace, diagnostics);
 
   static final RegExp _appFramePattern = RegExp(
     r'(?:package:cizreapp/|/lib/)([\w/]+\.dart):(\d+)',

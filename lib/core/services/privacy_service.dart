@@ -66,6 +66,19 @@ class PrivacyService {
       AppLogger.debug('Online status updated successfully');
       return true;
     } catch (e, stackTrace) {
+      // AĞ KOPUKLUĞU HATA DEĞİLDİR.
+      //
+      // Bu çağrı bir HEARTBEAT: uygulama ön plana/arka plana her geçişte ve
+      // periyodik olarak tekrar ediliyor. Kullanıcı tüneldeyken, sekmeyi
+      // kapatırken ya da wifi değiştirirken atılan istek düşer
+      // ("ClientException: Failed to fetch" / SocketException). Bunu
+      // AppLogger.error ile yazmak merkezi hata tablosunu — dolayısıyla admin
+      // panelindeki "Son Hatalar" listesini — düzeltilecek bir şey olmayan
+      // kayıtlarla dolduruyordu. Bir sonraki heartbeat zaten yeniden dener.
+      if (_isTransientNetworkFailure(e)) {
+        AppLogger.warning('Online status heartbeat skipped (network): $e');
+        return false;
+      }
       AppLogger.error(
         'Error updating online status',
         error: e,
@@ -73,6 +86,22 @@ class PrivacyService {
       );
       return false;
     }
+  }
+
+  /// Geçici ağ kopukluğu mu? (yeniden denemeyle kendiliğinden düzelen sınıf)
+  ///
+  /// Web'de tarayıcı `ClientException: Failed to fetch`, mobilde
+  /// `SocketException` üretir; ikisi de "sunucu/istemci bozuk" demek değildir.
+  static bool _isTransientNetworkFailure(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('failed to fetch') ||
+        text.contains('socketexception') ||
+        text.contains('clientexception') ||
+        text.contains('connection closed') ||
+        text.contains('connection reset') ||
+        text.contains('network is unreachable') ||
+        text.contains('timeoutexception') ||
+        text.contains('timed out');
   }
 
   /// Kullanıcının *tercihini* (çevrimiçi görünüp görünmeyeceğini) günceller.

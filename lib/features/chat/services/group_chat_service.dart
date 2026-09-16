@@ -4,6 +4,7 @@ import '../../../core/models/group_model.dart';
 import '../../../core/models/group_message_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/utils/app_logger.dart';
+import '../../../core/utils/search_query.dart';
 
 class GroupChatService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -308,7 +309,7 @@ class GroupChatService {
         .from('groups')
         .select('id, name, description, avatar_url, is_private, member_count, created_at')
         .eq('is_private', false)
-        .ilike('name', '%$searchTerm%')
+        .ilike('name', '%${escapeLikeWildcards(searchTerm)}%')
         .order('member_count', ascending: false)
         .limit(50);
 

@@ -24,6 +24,8 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
   List<Order> _allOrders = [];
   bool _isLoading = true;
   Set<String> _reviewedOrders = {}; // Değerlendirilmiş siparişleri takip et
+  // "Teslim Aldım" isteği gönderilen Gel Al siparişi (buton kilidi için)
+  String? _confirmingPickupOrderId;
   
   final List<OrderStatus> _statuses = [
     OrderStatus.pending,
@@ -47,6 +49,62 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
     _sectionController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// "Gel Al" siparişinde müşterinin teslim onayı. Onay geri alınamaz
+  /// (sipariş kapanır, satıcı kazancı işlenir) - önce sorulur.
+  Future<void> _confirmPickupReceived(Order order) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Teslim Aldınız mı?'),
+        content: const Text(
+          'Siparişi mağazadan teslim aldığınızı onaylıyorsunuz. '
+          'Bu işlem geri alınamaz ve sipariş tamamlanmış sayılır.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Evet, Teslim Aldım'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _confirmingPickupOrderId = order.id);
+    try {
+      await _orderService.confirmPickupReceived(order.id);
+      await _loadOrders();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Siparişiniz tamamlandı. Afiyet olsun!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Teslim onayı başarısız: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _confirmingPickupOrderId = null);
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -462,6 +520,40 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
                   ),
                 ),
                 
+                // "Gel Al" teslim onayı - sipariş bu onayla kapanır.
+                // "Siparişiniz Hazır" bildirimi kullanıcıyı bu ekrana
+                // getirdiği için buton burada da bulunmak zorunda.
+                if (order.isPickup && order.status == OrderStatus.ready) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _confirmingPickupOrderId == order.id
+                          ? null
+                          : () => _confirmPickupReceived(order),
+                      icon: _confirmingPickupOrderId == order.id
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text('Teslim Aldım'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+
                 // Değerlendir Butonu - Sadece teslim edilmiş siparişler için
                 if (order.status == OrderStatus.delivered && !_reviewedOrders.contains(order.id)) ...[
                   const SizedBox(height: 12),

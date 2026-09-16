@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/contact_lookup_service.dart';
 
 /// Bakiyeli kullanıcıların detaylı kazanç/harcama dökümü
 /// (`admin_users_with_balance` + `admin_user_spending_summary`).
@@ -83,9 +84,17 @@ class _UsersWithBalanceTabWidgetState
         final supabase = Supabase.instance.client;
         final txResponse = await supabase
             .from('balance_transactions')
-            .select('user_id, profiles!inner(full_name, phone), net_amount')
+            .select('user_id, profiles!inner(id, full_name), net_amount')
             .eq('status', 'completed')
             .order('created_at', ascending: false);
+
+        // Telefon gomulu sorgudan CIKARILDI (profiles.phone
+        // authenticated'a kapatiliyor, 20260907110001); admin icin
+        // admin_profiles_contact RPC'sinden aliniyor.
+        final balanceContacts = await ContactLookupService()
+            .adminContactsByUserId((txResponse as List)
+                .map((tx) => tx['user_id']?.toString() ?? '')
+                .where((e) => e.isNotEmpty));
 
         // Kullanıcıları ve son bakiyelerini grupla
         final Map<String, Map<String, dynamic>> userMap = {};
@@ -95,7 +104,7 @@ class _UsersWithBalanceTabWidgetState
             userMap[userId] = {
               'user_id': userId,
               'full_name': tx['profiles']?['full_name'] ?? 'Bilinmeyen',
-              'phone': tx['profiles']?['phone'] ?? '-',
+              'phone': balanceContacts[userId]?['phone'] ?? '-',
             };
           }
         }

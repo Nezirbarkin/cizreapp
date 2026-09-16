@@ -189,6 +189,13 @@ extension on _AdminDashboardScreenState {
             is_pinned,
             has_own_courier,
             delivery_fee,
+            min_order_amount,
+            delivery_time,
+            pre_override_delivery_fee,
+            pre_override_min_order_amount,
+            pre_override_delivery_time,
+            admin_pricing_override_at,
+            admin_pricing_override_note,
             created_at,
             admin_credit,
             commission_debt,
@@ -350,7 +357,7 @@ extension on _AdminDashboardScreenState {
 
       var query = Supabase.instance.client.from('orders').select('''
             *,
-            profiles!orders_user_id_fkey(id, username, full_name, email, avatar_url, phone),
+            profiles!orders_user_id_fkey(id, username, full_name, avatar_url),
             shops(id, name, owner_id, commission_rate, has_own_courier),
             order_items(id, product_id, product_name, product_image_url, price, quantity)
           ''');
@@ -370,26 +377,67 @@ extension on _AdminDashboardScreenState {
       final orders = List<Map<String, dynamic>>.from(response);
       debugPrint('✅ ${orders.length} sipariş yüklendi');
 
-      // Kurye bilgilerini toplu olarak çek
       final orderIds = orders.map((o) => o['id'] as String).toList();
+
+      // Musteri iletisimi (email/phone) artik gomulu sorgudan GELMIYOR:
+      // bu sutunlar profiles uzerinde authenticated'a kapatiliyor
+      // (20260907110001). Iliski dogrulayan order_customer_contact RPC'si
+      // ile alinip AYNI ic ice yapiya geri yaziliyor, boylece asagi
+      // akistaki order['profiles']['phone'] okumalari degismiyor.
+      final contactLookup = ContactLookupService();
+      final customerContacts =
+          await contactLookup.customerContactsByOrderId(orderIds);
+      for (final order in orders) {
+        final contact = customerContacts[order['id']?.toString()];
+        if (contact == null) continue;
+        final profile = order['profiles'];
+        if (profile is Map) {
+          profile['email'] = contact['email'];
+          profile['phone'] = contact['phone'];
+        }
+      }
+
+      // Kurye bilgilerini toplu olarak çek
       Map<String, Map<String, dynamic>> courierInfoMap = {};
+      final courierContacts =
+          await contactLookup.courierContactsByOrderId(orderIds);
 
       if (orderIds.isNotEmpty) {
         try {
           final courierAssignments = await Supabase.instance.client
               .from('courier_assignments')
               .select('''
-                id, order_id, status, picked_up_at, delivered_at,
-                courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
+                id, order_id, status, assigned_at, picked_up_at, delivered_at,
+                courier:profiles!courier_assignments_courier_id_fkey(id, full_name)
               ''')
               .inFilter('order_id', orderIds);
 
-          for (var assignment in courierAssignments) {
+          // Bir siparişin birden çok atama satırı olabilir (admin yönlendirmeyi
+          // kaldırıp yeniden atadığında iptal edilmiş satır kalır). İptal
+          // edilmiş atamalar kurye bilgisi saymaz; kalanlardan en yenisi
+          // geçerlidir.
+          final sortedAssignments =
+              List<Map<String, dynamic>>.from(
+                courierAssignments.where((a) => a['status'] != 'cancelled'),
+              )..sort((a, b) {
+                final aAt =
+                    DateTime.tryParse(a['assigned_at']?.toString() ?? '') ??
+                    DateTime.fromMillisecondsSinceEpoch(0);
+                final bAt =
+                    DateTime.tryParse(b['assigned_at']?.toString() ?? '') ??
+                    DateTime.fromMillisecondsSinceEpoch(0);
+                return bAt.compareTo(aAt);
+              });
+
+          for (var assignment in sortedAssignments) {
             final orderId = assignment['order_id'] as String;
+            if (courierInfoMap.containsKey(orderId)) continue;
             courierInfoMap[orderId] = {
               'courier_name':
                   assignment['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
-              'courier_phone': assignment['courier']?['phone'] ?? '',
+              // Telefon gomulu sorgudan degil, iliski dogrulayan
+              // order_courier_contacts RPC'sinden geliyor.
+              'courier_phone': courierContacts[orderId]?['phone'] ?? '',
               'status': assignment['status'] ?? 'pending',
               'picked_up_at': assignment['picked_up_at'],
               'delivered_at': assignment['delivered_at'],
@@ -491,13 +539,35 @@ extension on _AdminDashboardScreenState {
           .from('user_reports')
           .select('''
             *,
-            reporter:profiles!user_reports_reporter_id_fkey(id, username, full_name, email, avatar_url),
-            reported:profiles!user_reports_reported_user_id_fkey(id, username, full_name, email, avatar_url)
+            reporter:profiles!user_reports_reporter_id_fkey(id, username, full_name, avatar_url),
+            reported:profiles!user_reports_reported_user_id_fkey(id, username, full_name, avatar_url)
           ''')
           .order('created_at', ascending: false)
           .limit(100);
 
       final reports = List<Map<String, dynamic>>.from(response);
+
+      // E-posta gomulu sorgudan cikarildi (profiles.email authenticated'a
+      // kapatiliyor, 20260907110001). Admin icin admin_profiles_contact
+      // RPC'siyle geri harmanlaniyor; ic ice yapi ayni kaliyor.
+      final reportUserIds = <String>{};
+      for (final r in reports) {
+        for (final key in const ['reporter', 'reported']) {
+          final p = r[key];
+          if (p is Map && p['id'] != null) reportUserIds.add(p['id'].toString());
+        }
+      }
+      final reportContacts =
+          await ContactLookupService().adminContactsByUserId(reportUserIds);
+      for (final r in reports) {
+        for (final key in const ['reporter', 'reported']) {
+          final p = r[key];
+          if (p is Map && p['id'] != null) {
+            p['email'] = reportContacts[p['id'].toString()]?['email'];
+          }
+        }
+      }
+
       debugPrint('✅ ${reports.length} şikayet yüklendi');
       return reports;
     } catch (e, stackTrace) {
@@ -514,12 +584,14 @@ extension on _AdminDashboardScreenState {
           .from('post_reports')
           .select('''
             *,
-            reporter:profiles!post_reports_reporter_id_fkey(id, username, full_name, email, avatar_url),
+            reporter:profiles!post_reports_reporter_id_fkey(id, username, full_name, avatar_url),
             reported_post:posts!post_reports_reported_post_id_fkey(id, content, user_id)
           ''')
           .order('created_at', ascending: false);
       debugPrint('✅ Gönderi şikayetleri yüklendi: ${response.length} adet');
-      return List<Map<String, dynamic>>.from(response);
+      final postReports = List<Map<String, dynamic>>.from(response);
+      await _mergeAdminContacts(postReports, const ['reporter']);
+      return postReports;
     } catch (e) {
       debugPrint('❌ Gönderi şikayetleri yüklenirken hata: $e');
       // Hata mesajını sakla, UI'da göstermek için
@@ -530,17 +602,28 @@ extension on _AdminDashboardScreenState {
   // --- _loadSupportTickets ---
   Future<List<Map<String, dynamic>>> _loadSupportTickets() async {
     try {
+      // profiles.email gomusu kaldirildi (20260907110001); admin icin
+      // admin_profiles_contact RPC'sinden aliniyor.
       final response = await Supabase.instance.client
           .from('support_tickets')
-          .select('*, profiles(email, username)')
+          .select('*, profiles(id, username)')
           .order('created_at', ascending: false)
           .limit(100);
 
-      // Format ve user email ekle
       final tickets = List<Map<String, dynamic>>.from(response);
+      final ticketUserIds = <String>{};
+      for (final t in tickets) {
+        final p = t['profiles'];
+        if (p is Map && p['id'] != null) ticketUserIds.add(p['id'].toString());
+      }
+      final ticketContacts =
+          await ContactLookupService().adminContactsByUserId(ticketUserIds);
       for (var ticket in tickets) {
-        if (ticket['profiles'] != null) {
-          ticket['user_email'] = ticket['profiles']['email'] ?? '-';
+        final p = ticket['profiles'];
+        if (p is Map && p['id'] != null) {
+          final email = ticketContacts[p['id'].toString()]?['email'];
+          p['email'] = email;
+          ticket['user_email'] = email ?? '-';
         }
       }
 
@@ -593,7 +676,7 @@ extension on _AdminDashboardScreenState {
               id,
               name,
               owner_id,
-              profiles(email, username)
+              profiles(id, username)
             )
           ''')
           .order('created_at', ascending: false)
@@ -1289,6 +1372,35 @@ extension on _AdminDashboardScreenState {
     } catch (e) {
       debugPrint('Kurye odeme istekleri yuklenirken hata: $e');
       return [];
+    }
+  }
+}
+
+/// Gomulu profil map'lerine, iliski dogrulayan RPC'den gelen iletisim
+/// bilgilerini geri yazar. `profiles.email` / `profiles.phone` sutunlari
+/// `authenticated` rolunden kaldirildigi icin (20260907110001) bu alanlar
+/// artik PostgREST embed'i ile GELMEZ.
+Future<void> _mergeAdminContacts(
+  List<Map<String, dynamic>> rows,
+  List<String> embedKeys,
+) async {
+  final ids = <String>{};
+  for (final row in rows) {
+    for (final key in embedKeys) {
+      final p = row[key];
+      if (p is Map && p['id'] != null) ids.add(p['id'].toString());
+    }
+  }
+  if (ids.isEmpty) return;
+  final contacts = await ContactLookupService().adminContactsByUserId(ids);
+  for (final row in rows) {
+    for (final key in embedKeys) {
+      final p = row[key];
+      if (p is Map && p['id'] != null) {
+        final c = contacts[p['id'].toString()];
+        p['email'] = c?['email'];
+        p['phone'] = c?['phone'];
+      }
     }
   }
 }

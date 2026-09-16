@@ -28,6 +28,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   bool _hasReturnRequest = false;
   // Bekleyen iptal talebi (admin onayı bekliyorsa)
   CancellationRequest? _pendingCancellation;
+  // "Gel Al" teslim onayı gönderiliyor
+  bool _isConfirmingPickup = false;
 
   @override
   void initState() {
@@ -137,6 +139,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             _buildPaymentMethodCard(),
             const SizedBox(height: 16),
 
+            // "Gel Al" siparişinde teslim onayı (sipariş bu onayla kapanır)
+            _buildPickupReceivedCard(),
+
             // İptal ve İade Butonları
             _buildActionButtons(),
             const SizedBox(height: 24),
@@ -144,6 +149,129 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// "Gel Al" siparişi hazır olduğunda müşteriye teslim onayı kartı.
+  /// Sipariş bu onayla kapanır; satıcının kazancı da bu anda işlenir.
+  Widget _buildPickupReceivedCard() {
+    if (!_currentOrder.isPickup ||
+        _currentOrder.status != OrderStatus.ready) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.storefront, color: Colors.blue.shade700),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Siparişiniz mağazada hazır',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Ürünleri mağazadan teslim aldıktan sonra aşağıdaki butona basın. '
+            'Sipariş bu onayla tamamlanır.',
+            style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isConfirmingPickup ? null : _confirmPickupReceived,
+              icon: _isConfirmingPickup
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check_circle_outline),
+              label: const Text('Teslim Aldım'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Onay dialogu + RPC. Geri alınamaz bir adım olduğu için önce sorulur.
+  Future<void> _confirmPickupReceived() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Teslim Aldınız mı?'),
+        content: const Text(
+          'Siparişi mağazadan teslim aldığınızı onaylıyorsunuz. '
+          'Bu işlem geri alınamaz ve sipariş tamamlanmış sayılır.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Evet, Teslim Aldım'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _isConfirmingPickup = true);
+    try {
+      await _orderService.confirmPickupReceived(_currentOrder.id);
+      await _loadOrderDetails();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Siparişiniz tamamlandı. Afiyet olsun!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Teslim onayı başarısız: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConfirmingPickup = false);
+    }
   }
 
   Widget _buildActionButtons() {

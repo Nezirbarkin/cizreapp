@@ -66,7 +66,44 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
       const PaymentMethodSettings.allEnabled();
 
   Map<String, ShopCartSummary> _shopSummaries = {};
-  double _grandTotal = 0;
+
+  // "Gel Al": shopId -> seçili mi. Yalnızca pickup_enabled=true olan
+  // dükkanlar için gösterilir; seçiliyse o dükkanın teslimat ücreti alınmaz.
+  final Map<String, bool> _pickupByShop = {};
+
+  /// `summary`'nin pickup seçimine göre görüntü/hesaplama için düzeltilmiş
+  /// hâli. `_shopSummaries` DB'den gelen ham veriyi taşır; pickup seçimi
+  /// yalnız ekranda tutulur, burada üstüne bindirilir.
+  ShopCartSummary _effectiveSummary(ShopCartSummary summary) {
+    if (_pickupByShop[summary.shopId] != true) return summary;
+    return ShopCartSummary(
+      shopId: summary.shopId,
+      shopName: summary.shopName,
+      items: summary.items,
+      subtotal: summary.subtotal,
+      deliveryFee: 0,
+      total: summary.total - summary.deliveryFee,
+      freeDeliveryMinAmount: summary.freeDeliveryMinAmount,
+      isFreeDelivery: summary.isFreeDelivery,
+      discount: summary.discount,
+      couponCode: summary.couponCode,
+      pickupEnabled: summary.pickupEnabled,
+    );
+  }
+
+  double get _effectiveGrandTotal => _shopSummaries.values
+      .fold(0.0, (sum, s) => sum + _effectiveSummary(s).total);
+
+  /// Sepette en az bir dükkan "Gel Al" seçildi mi. Çoklu sipariş grubunda
+  /// ödeme yöntemi TEK olduğu için (tüm siparişler aynı payment_method ile
+  /// yazılır), gruptaki herhangi bir Gel Al tüm grubu bakiye ödemesine
+  /// zorlar - Gel Al siparişleri peşin tahsil edilir.
+  bool get _anyPickupSelected => _pickupByShop.values.any((v) => v);
+
+  /// Bakiye ile ödeme admin toggle'ı açık mı. Kapalıysa "Gel Al" hiç
+  /// gösterilmez (tamamlanamayacak bir akışa sokmamak için).
+  bool get _balancePaymentAvailable =>
+      _paymentSettings.isAvailable(PaymentMethod.balance);
 
   @override
   void initState() {
@@ -161,7 +198,6 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
 
       setState(() {
         _shopSummaries = summaries;
-        _grandTotal = total;
         _isLoading = false;
       });
     } catch (e) {
@@ -183,16 +219,16 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
 
       // Bakiye ile ödeme kontrolü
       if (_selectedPaymentMethod == PaymentMethod.balance) {
-        if (_userBalance < _grandTotal) {
+        if (_userBalance < _effectiveGrandTotal) {
           setState(() => _isPlacingOrder = false);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'Yetersiz bakiye! Mevcut: ₺${_userBalance.toStringAsFixed(2)}, Gerekli: ₺${_grandTotal.toStringAsFixed(2)}',
+                  'Yetersiz bakiye! Mevcut: ₺${_userBalance.toStringAsFixed(2)}, Gerekli: ₺${_effectiveGrandTotal.toStringAsFixed(2)}',
                 ),
                 backgroundColor: Colors.orange,
-              ),
+),
             );
           }
           return;
@@ -299,6 +335,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         discountByShop: discountByShop,
         couponIdByShop: couponIdByShop,
         couponDiscountByShop: couponDiscountByShop,
+        pickupByShop: Map<String, bool>.from(_pickupByShop),
       );
 
       // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
@@ -410,7 +447,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         String paymentInfo = '';
         if (_selectedPaymentMethod == PaymentMethod.balance) {
           paymentInfo =
-              ' (₺${_grandTotal.toStringAsFixed(2)} bakiyenizden ödendi)';
+              ' (₺${_effectiveGrandTotal.toStringAsFixed(2)} bakiyenizden ödendi)';
         }
 
         showDialog(
@@ -868,7 +905,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Text('₺${summary.total.toStringAsFixed(2)}'),
+                      Text('₺${_effectiveSummary(summary).total.toStringAsFixed(2)}'),
                     ],
                   ),
                 ),
@@ -882,7 +919,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   Text(
-                    '₺${_grandTotal.toStringAsFixed(2)}',
+                    '₺${_effectiveGrandTotal.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -1237,6 +1274,31 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                 ),
               ),
             ),
+            if (summary.pickupEnabled && _balancePaymentAvailable) ...[
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _pickupByShop[summary.shopId] ?? false,
+                onChanged: (value) => setState(() {
+                  _pickupByShop[summary.shopId] = value ?? false;
+                  // Gruptaki herhangi bir Gel Al tüm siparişi bakiyeye taşır;
+                  // seçim kalkarsa kullanıcı yeniden diğer yöntemleri seçebilir.
+                  if (_anyPickupSelected) {
+                    _selectedPaymentMethod = PaymentMethod.balance;
+                  }
+                }),
+                title: const Text(
+                  '🏪 Gel Al (Mağazadan Teslim)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                subtitle: const Text(
+                  'Bu dükkandan kurye beklemeden teslim alın - teslimat ücreti '
+                  'alınmaz, sipariş tutarı bakiyenizden tahsil edilir',
+                  style: TextStyle(fontSize: 11),
+                ),
+              ),
+            ],
             const Divider(height: 24),
 
             // Ürünler
@@ -1316,7 +1378,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Teslimat:'),
-                Text('₺${summary.deliveryFee.toStringAsFixed(2)}'),
+                Text('₺${_effectiveSummary(summary).deliveryFee.toStringAsFixed(2)}'),
               ],
             ),
             const Divider(height: 16),
@@ -1328,7 +1390,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  '₺${summary.total.toStringAsFixed(2)}',
+                  '₺${_effectiveSummary(summary).total.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.green.shade700,
@@ -1360,8 +1422,36 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            // Sepette "Gel Al" varsa ödeme yalnızca bakiyeden yapılır. Grup
+            // siparişinde ödeme yöntemi tek olduğu için bu tüm siparişleri
+            // kapsar - kullanıcıya nedeni açıkça yazılır.
+            if (_anyPickupSelected)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Sepetinizde Gel Al siparişi olduğu için ödeme '
+                          'bakiyenizden peşin tahsil edilir.',
+                          style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             // Kapıda Nakit - admin toggle'ı (order_cod_enabled) ile
-            if (_paymentSettings.isAvailable(PaymentMethod.cash))
+            if (!_anyPickupSelected && _paymentSettings.isAvailable(PaymentMethod.cash))
               RadioListTile<PaymentMethod>(
                 value: PaymentMethod.cash,
                 groupValue: _selectedPaymentMethod,
@@ -1373,7 +1463,8 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                 activeColor: Colors.orange.shade700,
               ),
             // Kapıda Banka/Kredi Kartı - admin toggle'ı (order_card_on_delivery_enabled) ile
-            if (_paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
+            if (!_anyPickupSelected &&
+                _paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
               RadioListTile<PaymentMethod>(
                 value: PaymentMethod.cardOnDelivery,
                 groupValue: _selectedPaymentMethod,
@@ -1575,7 +1666,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                   ],
                 ),
                 Text(
-                  '₺${_grandTotal.toStringAsFixed(2)}',
+                  '₺${_effectiveGrandTotal.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,

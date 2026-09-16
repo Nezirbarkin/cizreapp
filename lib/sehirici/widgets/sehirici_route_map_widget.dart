@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../models/sehirici_models.dart';
 import '../models/sehirici_route_model.dart';
 import '../providers/sehirici_location_provider.dart';
+import '../../core/theme/app_map_style.dart';
+import '../../core/widgets/map_controls.dart';
 
 /// Hat rotasını harita üzerinde gösteren widget.
 ///
@@ -126,30 +128,78 @@ class _SehiriciRouteMapWidgetState extends State<SehiriciRouteMapWidget> {
     // Harita bounds
     final bounds = _calculateBounds();
 
-    return GoogleMap(
-      onMapCreated: (controller) {
-        _mapController = controller;
-        // Animasyonsuz anında sığdır (açılışı hızlandırır).
-        _mapController.moveCamera(
-          CameraUpdate.newLatLngBounds(bounds, 100),
-        );
-      },
-      initialCameraPosition: CameraPosition(
-        target: LatLng(
-          widget.line.stops[0].lat,
-          widget.line.stops[0].lng,
-        ),
-        zoom: 13,
+    return MapStyleBuilder(
+      builder: (context, mapStyle) => _buildSurface(context, bounds, mapStyle),
+    );
+  }
+
+  Widget _buildSurface(
+    BuildContext context,
+    LatLngBounds bounds,
+    String mapStyle,
+  ) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        children: [
+          GoogleMap(
+            style: mapStyle,
+            onMapCreated: (controller) {
+              _mapController = controller;
+              // Animasyonsuz anında sığdır (açılışı hızlandırır).
+              _mapController.moveCamera(
+                CameraUpdate.newLatLngBounds(bounds, 100),
+              );
+            },
+            initialCameraPosition: CameraPosition(
+              target: LatLng(
+                widget.line.stops[0].lat,
+                widget.line.stops[0].lng,
+              ),
+              zoom: 13,
+            ),
+            polylines: _polylines,
+            markers: _markers,
+            myLocationEnabled: false,
+            // Google'ın gömülü gri zoom kutuları yerine cam kontroller.
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            trafficEnabled: false,
+            // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+            tiltGesturesEnabled: false,
+            buildingsEnabled: false,
+            mapType: MapType.normal,
+          ),
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: MapGlassControls(
+              children: [
+                const MapThemeToggleButton(),
+                MapGlassButton(
+                  icon: Icons.zoom_out_map,
+                  tooltip: 'Hattı sığdır',
+                  onPressed: () => _mapController.animateCamera(
+                    CameraUpdate.newLatLngBounds(_calculateBounds(), 100),
+                  ),
+                ),
+                MapGlassButton(
+                  icon: Icons.add,
+                  tooltip: 'Yakınlaştır',
+                  onPressed: () =>
+                      _mapController.animateCamera(CameraUpdate.zoomIn()),
+                ),
+                MapGlassButton(
+                  icon: Icons.remove,
+                  tooltip: 'Uzaklaştır',
+                  onPressed: () =>
+                      _mapController.animateCamera(CameraUpdate.zoomOut()),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      polylines: _polylines,
-      markers: _markers,
-      myLocationEnabled: false,
-      zoomControlsEnabled: true,
-      trafficEnabled: false,
-      buildingsEnabled: true,
-      mapType: Theme.of(context).brightness == Brightness.dark
-          ? MapType.normal
-          : MapType.normal,
     );
   }
 

@@ -467,6 +467,73 @@ serve(async (req: Request) => {
     // user_id'yi authenticated user'dan al (güvenlik)
     requestData.user_id = user.id;
 
+    // ═════════════════════════════════════════════════════════════
+    // SUNUCU-OTORITER FIYATLAMA  (20260907130001)
+    // ═════════════════════════════════════════════════════════════
+    // Istemcinin gonderdigi price / subtotal / delivery_fee /
+    // coupon_discount / total alanlari YOK SAYILIR. Tutar, urun ve kupon
+    // kayitlarindan yeniden hesaplanir. Ayni birim fiyat fonksiyonunu
+    // order_items trigger'i da kullanir, boylece iki yol asla ayrismaz.
+    const repriceItems = requestData.order_data.items.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      flash_sale_id: (item as { flash_sale_id?: string }).flash_sale_id ?? null,
+    }));
+
+    const { data: repriced, error: repriceError } = await supabase.rpc(
+      "reprice_cart_internal",
+      {
+        p_items: repriceItems,
+        p_coupon_id: requestData.order_data.coupon_id ?? null,
+        p_delivery_fee: requestData.order_data.delivery_fee ?? 0,
+      },
+    );
+
+    if (repriceError || !repriced) {
+      console.error("reprice_cart_failed:", repriceError?.message);
+      return new Response(
+        JSON.stringify({
+          error: "Sepet fiyatlandirilamadi. Lutfen sepetinizi yenileyip tekrar deneyin.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const clientTotal = Number(requestData.order_data.total ?? 0);
+    const serverTotal = Number(repriced.total);
+    if (Math.abs(clientTotal - serverTotal) > 0.01) {
+      // Yalnizca tutarlar loglanir; kart/kisisel veri loglanmaz.
+      console.warn("payment_init_amount_mismatch", {
+        userId: user.id,
+        clientTotal,
+        serverTotal,
+      });
+    }
+
+    // Finansal alanlari sunucu degerleriyle DEGISTIR. Bundan sonrasi
+    // (payment_transactions.amount, callback_data, iyzico basketItems)
+    // tamamen sunucu tutarini kullanir.
+    const repricedItems = repriced.items as Array<{
+      product_id: string;
+      product_name: string;
+      quantity: number;
+      price: number;
+    }>;
+    requestData.order_data.items = repricedItems.map((it, idx) => ({
+      ...requestData.order_data.items[idx],
+      product_id: it.product_id,
+      product_name: it.product_name,
+      quantity: it.quantity,
+      price: Number(it.price),
+    }));
+    requestData.order_data.subtotal = Number(repriced.subtotal);
+    requestData.order_data.delivery_fee = Number(repriced.delivery_fee);
+    requestData.order_data.coupon_discount = Number(repriced.coupon_discount);
+    requestData.order_data.total = serverTotal;
+
     // Client IP
     const clientIp =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||

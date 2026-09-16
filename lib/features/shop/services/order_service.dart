@@ -40,6 +40,7 @@ class OrderService {
     InvoiceInfo? invoiceInfo, // Fatura bilgileri eklendi
     String? couponId, // Uygulanan kupon (orders.coupon_id)
     double couponDiscount = 0, // Kupon indirimi (orders.coupon_discount)
+    bool isPickup = false, // "Gel Al": true ise müşteri mağazadan teslim alacak
   }) async {
     try {
       debugPrint('🛒 ORDER: Sipariş oluşturuluyor...');
@@ -47,8 +48,24 @@ class OrderService {
       debugPrint('  └─ shopId: $shopId');
       debugPrint('  └─ total: $total');
 
+      // Savunma amaçlı: "Gel Al" siparişinde teslimat ücreti her zaman 0'dır.
+      // Çağıran ekran unutsa/yanlış hesapsa bile hem sütun hem de toplam
+      // burada düzeltilir — aksi halde DB'de delivery_fee=0 görünürken müşteri
+      // toplamda teslimat ücretini ödemiş olurdu (sessiz fazla tahsilat).
+      // Her iki checkout ekranı da total'ı "subtotal - indirim + deliveryFee"
+      // formülüyle kurduğu için fazlalığı düşmek güvenli.
+      final effectiveDeliveryFee = isPickup ? 0.0 : deliveryFee;
+      var effectiveTotal = total;
+      if (isPickup && deliveryFee > 0) {
+        effectiveTotal = total - deliveryFee;
+        debugPrint(
+          '⚠️ ORDER: Gel Al siparişinde teslimat ücreti (₺$deliveryFee) '
+          'gönderilmiş; toplam ₺$total → ₺$effectiveTotal olarak düzeltildi',
+        );
+      }
+
       // 0 TL siparişler için kullanıcı başı limit kontrolü
-      if (total <= 0) {
+      if (effectiveTotal <= 0) {
         // İptal edilen siparişleri sayma: kullanıcı iptal ettiyse hakkı geri döner.
         final freeOrderResponse = await _supabase
             .from('orders')
@@ -95,14 +112,16 @@ class OrderService {
         'payment_method': paymentMethod.name,
         'payment_status': 'pending',
         'subtotal': subtotal,
-        'delivery_fee': deliveryFee,
+        'delivery_fee': effectiveDeliveryFee,
         'discount': discount,
-        'total': total,
+        'total': effectiveTotal,
         // Kupon kaydı: coupon_id/coupon_discount eskiden hiç yazılmıyordu
         // (model okuyordu ama insert atlıyordu). Artık yazılıyor; kullanım
         // sayacı ayrıca use_coupon RPC ile artırılır.
         if (couponId != null) 'coupon_id': couponId,
         'coupon_discount': couponDiscount,
+        // "Gel Al": true ise müşteri mağazadan teslim alacak, kurye devreye girmez.
+        'is_pickup': isPickup,
         // Komisyon alanları trigger tarafından otomatik doldurulacak.
         'status': 'pending',
         'notes': notes,
@@ -192,7 +211,7 @@ class OrderService {
             userId: shopOwnerId,
             type: 'new_order',
             title: 'Yeni Sipariş!',
-            content: '$customerName - ₺${total.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
+            content: '$customerName - ₺${effectiveTotal.toStringAsFixed(2)} tutarında yeni sipariş geldi!',
             actorId: userId,
             actorName: customerName,
             entityId: order.id,
@@ -384,6 +403,7 @@ class OrderService {
         // Email gönder (asenkron, hata uygulamayı engellemez)
         _emailService.sendDeliveryNotificationEmail(
           userId: updatedOrder.userId,
+          orderId: updatedOrder.id,
           orderNumber: updatedOrder.orderNumberInt?.toString() ?? updatedOrder.id,
           shopName: updatedOrder.shopName ?? 'Dükkan',
           totalAmount: updatedOrder.totalAmount,
@@ -435,6 +455,25 @@ class OrderService {
       return updatedOrder;
     } catch (e) {
       throw Exception('Sipariş durumu güncellenirken hata: $e');
+    }
+  }
+
+  /// "Gel Al" siparişinde müşterinin teslim onayı (ready -> delivered).
+  ///
+  /// Doğrudan UPDATE yerine `confirm_pickup_order_received` SECURITY DEFINER
+  /// RPC'si kullanılır: sahiplik, pickup olma, "hazır" durumu ve ödeme
+  /// kontrolleri sunucuda yapılır; satıcı kazancı/bakiye trigger'ları da bu
+  /// güncellemeyle normal akışında tetiklenir.
+  Future<void> confirmPickupReceived(String orderId) async {
+    try {
+      await _supabase.rpc(
+        'confirm_pickup_order_received',
+        params: {'p_order_id': orderId},
+      );
+      debugPrint('✅ Gel Al siparişi teslim alındı olarak işaretlendi: $orderId');
+    } catch (e) {
+      debugPrint('❌ Gel Al teslim onayı hatası: $e');
+      rethrow;
     }
   }
 
@@ -641,6 +680,7 @@ class OrderService {
     Map<String, double>? discountByShop, // shopId -> indirim tutarı (kupon vb.)
     Map<String, String?>? couponIdByShop, // shopId -> kupon id (orders.coupon_id)
     Map<String, double>? couponDiscountByShop, // shopId -> kupon indirimi (orders.coupon_discount)
+    Map<String, bool>? pickupByShop, // shopId -> "Gel Al" seçildi mi
   }) async {
     try {
       debugPrint('🛒 MULTI-SHOP ORDER: Çok dükkanlı sipariş oluşturuluyor...');
@@ -677,8 +717,13 @@ class OrderService {
               .select('delivery_fee, has_own_courier, commission_rate')
               .eq('id', shopId)
               .single();
-          
-          final deliveryFee = (shopResponse['delivery_fee'] as num?)?.toDouble() ?? 15.0;
+
+          // "Gel Al" seçilen dükkanda teslimat ücreti alınmaz (müşteri
+          // mağazadan bizzat teslim alır, kurye devreye girmez).
+          final isPickup = pickupByShop?[shopId] ?? false;
+          final deliveryFee = isPickup
+              ? 0.0
+              : (shopResponse['delivery_fee'] as num?)?.toDouble() ?? 15.0;
           final commissionRate = (shopResponse['commission_rate'] as num?)?.toDouble() ?? 10.0;
           final commissionAmount = subtotal * (commissionRate / 100);
           // İndirim (kupon vb.) discountByShop'tan; eski kod 'discount': 0
@@ -726,7 +771,11 @@ class OrderService {
             'order_number': orderNumber,
             'user_id': userId,
             'shop_id': shopId,
-            'delivery_address_text': deliveryAddressText,
+            // "Gel Al" seçilen dükkanda ortak teslimat adresi yerine sabit bir
+            // pickup etiketi yazılır; diğer dükkanlar ortak adresi kullanmaya
+            // devam eder (adres parametresi fonksiyon genelinde tek).
+            'delivery_address_text':
+                isPickup ? 'Gel Al - Mağazadan Teslim' : deliveryAddressText,
             'address_id': addressId,
             'customer_phone': customerPhone, // Müşteri telefonu eklendi
             'payment_method': paymentMethod.name,
@@ -738,6 +787,7 @@ class OrderService {
             // Kupon kaydı (multi-shop): eskiden yazılmıyordu.
             if (couponId != null) 'coupon_id': couponId,
             'coupon_discount': couponDiscount,
+            'is_pickup': isPickup,
             'status': 'pending',
             'notes': notes,
             'order_group_id': orderGroupId,

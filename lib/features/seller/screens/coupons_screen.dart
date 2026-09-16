@@ -391,15 +391,36 @@ class _CouponsScreenState extends State<CouponsScreen> {
   Future<void> _showCouponStats(String couponId) async {
     try {
       // Kupon kullanımlarını al
+      // profiles.email gomusu kaldirildi (20260907110001). Kuponlar
+      // global/admin yonetiminde oldugu icin iletisim bilgisi
+      // admin_coupon_usage_contacts RPC'sinden aliniyor; admin degilse
+      // RPC bos doner ve liste e-postasiz calisir.
       final usagesResponse = await _supabase
           .from('coupon_usages')
           .select('''
             *,
-            profiles!coupon_usages_user_id_fkey(full_name, email),
+            profiles!coupon_usages_user_id_fkey(id, full_name),
             orders(order_number_int, total, created_at)
           ''')
           .eq('coupon_id', couponId)
           .order('used_at', ascending: false);
+
+      try {
+        final contactRows = await _supabase.rpc(
+          'admin_coupon_usage_contacts',
+          params: {'p_coupon_id': couponId},
+        );
+        final emailByUsageId = <String, dynamic>{
+          for (final r in (contactRows as List))
+            (r as Map)['usage_id'].toString(): r['email'],
+        };
+        for (final u in (usagesResponse as List)) {
+          final p = (u as Map)['profiles'];
+          if (p is Map) p['email'] = emailByUsageId[u['id'].toString()];
+        }
+      } catch (e) {
+        debugPrint('Kupon kullanim iletisimi alinamadi (admin degil?): $e');
+      }
 
       final usages = List<Map<String, dynamic>>.from(usagesResponse);
       final totalDiscount = usages.fold<double>(

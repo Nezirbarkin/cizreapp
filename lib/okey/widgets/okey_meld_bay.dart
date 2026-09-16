@@ -220,14 +220,14 @@ class _BayPainter extends CustomPainter {
       'CizreApp',
       brandSize,
       center.translate(0, -fontSize * 0.82 + 1.2),
-      const Color(0x40000000),
+      const Color(0x2E000000),
       brandSize * 0.16,
     );
     text(
       'CizreApp',
       brandSize,
       center.translate(0, -fontSize * 0.82),
-      const Color(0x73FFFFFF),
+      const Color(0x50FFFFFF),
       brandSize * 0.16,
     );
 
@@ -236,14 +236,14 @@ class _BayPainter extends CustomPainter {
       '101',
       fontSize,
       center.translate(0, -fontSize * 0.22 + 1.6),
-      const Color(0x4D000000),
+      const Color(0x38000000),
       1,
     );
     text(
       '101',
       fontSize,
       center.translate(0, -fontSize * 0.22),
-      const Color(0x59FFFFFF),
+      const Color(0x3EFFFFFF),
       1,
     );
 
@@ -257,13 +257,13 @@ class _BayPainter extends CustomPainter {
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(ribbon, Radius.circular(ribbonH * 0.22)),
-      Paint()..color = const Color(0x40000000),
+      Paint()..color = const Color(0x2E000000),
     );
     text(
       'OKEY',
       ribbonH * 0.62,
       ribbon.center,
-      const Color(0x8AFFFFFF),
+      const Color(0x63FFFFFF),
       ribbonH * 0.14,
     );
   }

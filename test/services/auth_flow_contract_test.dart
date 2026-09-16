@@ -9,7 +9,7 @@ void main() {
     test('aktif giriş ekranı kullanıcı adı için AuthService kullanır', () {
       final source = File(
         'lib/features/auth/screens/login_screen_v2.dart',
-      ).readAsStringSync();
+      ).readAsStringSync().replaceAll('\r\n', '\n');
 
       expect(source, contains('_authService.signInWithIdentifier('));
       expect(
@@ -20,7 +20,7 @@ void main() {
     });
 
     test('yerel Auth e-posta OTP uzunluğu 6 olarak sabittir', () {
-      final config = File('supabase/config.toml').readAsStringSync();
+      final config = File('supabase/config.toml').readAsStringSync().replaceAll('\r\n', '\n');
 
       expect(
         RegExp(r'\[auth\.email\][\s\S]*?otp_length\s*=\s*6').hasMatch(config),
@@ -31,7 +31,7 @@ void main() {
     test('şifre kurtarma ekranı tam 6 OTP kutusu kullanır', () {
       final source = File(
         'lib/features/auth/screens/reset_password_screen.dart',
-      ).readAsStringSync();
+      ).readAsStringSync().replaceAll('\r\n', '\n');
 
       expect(source, contains('List.generate(\n    6,'));
       expect(source, contains('if (code.length != 6)'));

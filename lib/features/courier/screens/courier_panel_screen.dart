@@ -48,6 +48,24 @@ String _shopNameOf(Map<String, dynamic> order) {
   return 'Dükkan';
 }
 
+/// Bir sipariş satırından dükkanın telefon/adres/konum bilgisini güvenli
+/// şekilde okur ('shops' ilişkisi Map değilse veya alan boşsa null döner).
+String? _shopFieldOf(Map<String, dynamic> order, String field) {
+  final shops = order['shops'];
+  if (shops is! Map) return null;
+  final value = shops[field];
+  if (value is String && value.isNotEmpty) return value;
+  return null;
+}
+
+double? _shopLatLngOf(Map<String, dynamic> order, String field) {
+  final shops = order['shops'];
+  if (shops is! Map) return null;
+  final value = shops[field];
+  if (value is num) return value.toDouble();
+  return null;
+}
+
 class CourierPanelScreen extends StatefulWidget {
   const CourierPanelScreen({super.key});
 
@@ -349,13 +367,17 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
         return;
       }
 
-      // Profil bilgilerini al
-      final profileData = await Supabase.instance.client
-          .from('profiles')
-          .select()
-          .eq('id', userId)
-          .single();
-      _profile = Map<String, dynamic>.from(profileData);
+      // Profil bilgilerini al.
+      // Kurye paneli kendi email/phone alanlarini da kullaniyor; bunlar
+      // profiles uzerinde authenticated'a kapatilacagi icin (20260907110001)
+      // tam satir SECURITY DEFINER get_my_profile() RPC'sinden alinir.
+      final profileData =
+          await Supabase.instance.client.rpc('get_my_profile');
+      if (profileData == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      _profile = Map<String, dynamic>.from(profileData as Map);
 
       // Kurye online GÖRÜNME TERCİHİ DB'den yüklenir (önceden default true
       // gösteriliyordu, bu yüzden gerçek durumu yansıtmıyordu).
@@ -1903,7 +1925,13 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                 'total': r['total'],
                 'shop_id': r['shop_id'],
                 'shop_name': r['shop_name'],
-                'shops': {'name': r['shop_name']},
+                'shops': {
+                  'name': r['shop_name'],
+                  'phone': r['shop_phone'],
+                  'address': r['shop_address'],
+                  'latitude': r['shop_latitude'],
+                  'longitude': r['shop_longitude'],
+                },
                 'created_at': r['created_at'],
                 // RPC order status döndürmez; havuz yalnızca
                 // confirmed/preparing/ready siparişleri içerir.
@@ -1937,7 +1965,13 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             'total': r['order_total'],
             'shop_id': r['shop_id'],
             'shop_name': r['shop_name'],
-            'shops': {'name': r['shop_name']},
+            'shops': {
+              'name': r['shop_name'],
+              'phone': r['shop_phone'],
+              'address': r['shop_address'],
+              'latitude': r['shop_latitude'],
+              'longitude': r['shop_longitude'],
+            },
             'created_at': r['created_at'],
             'status': r['order_status'] ?? 'ready',
             'delivery_address_text': r['delivery_address_text'],
@@ -1949,6 +1983,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             'offer_id': r['offer_id'],
             'fee_amount': r['fee_amount'],
             'is_routed_offer': true,
+            // Admin doğrudan bu kuryeye yönlendirdiyse kartta ayrıca belirtilir
+            // (devredilen işten farkı: sipariş havuza hiç düşmedi).
+            'routed_by_admin': r['routed_by_admin'] == true,
             '_type': 'order',
           };
         }).toList();
@@ -1984,7 +2021,13 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
             'delivery_address_text': a['delivery_address_text'],
             'customer_phone': a['customer_phone'],
             'created_at': a['created_at'],
-            'shops': {'name': a['shop_name']},
+            'shops': {
+              'name': a['shop_name'],
+              'phone': a['shop_phone'],
+              'address': a['shop_address'],
+              'latitude': a['shop_latitude'],
+              'longitude': a['shop_longitude'],
+            },
             'order_items': normalizedItems,
             'assignment_id': a['assignment_id'],
             'assignment_status': a['assignment_status'],
@@ -2344,6 +2387,39 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                             color: Colors.grey.shade600,
                           ),
                         ),
+                        if (order['routed_by_admin'] == true) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.indigo.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.verified_user,
+                                  size: 12,
+                                  color: Colors.indigo.shade700,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Yönetici sana yönlendirdi',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.indigo.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -2618,6 +2694,55 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
               ),
               const SizedBox(height: 24),
 
+              // Dükkan Bilgileri (teslim alım noktası)
+              if (_shopFieldOf(order, 'phone') != null || _shopFieldOf(order, 'address') != null) ...[
+                const Text(
+                  'Dükkan Bilgileri',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_shopFieldOf(order, 'address') != null)
+                        Row(
+                          children: [
+                            Icon(Icons.storefront, color: Colors.grey.shade600, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_shopFieldOf(order, 'address')!)),
+                            IconButton(
+                              icon: const Icon(Icons.directions, color: Colors.blue),
+                              tooltip: 'Haritada Gör',
+                              onPressed: () => _navigateToShop(order),
+                            ),
+                          ],
+                        ),
+                      if (_shopFieldOf(order, 'phone') != null)
+                        Row(
+                          children: [
+                            Icon(Icons.phone, color: Colors.grey.shade600, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_shopFieldOf(order, 'phone')!)),
+                            IconButton(
+                              icon: const Icon(Icons.phone, color: Colors.green),
+                              tooltip: 'Dükkanı Ara',
+                              onPressed: () => _callCustomer(_shopFieldOf(order, 'phone')!),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // Teslimat Adresi
               if (order['delivery_address_text'] != null) ...[
                 const Text(
@@ -2790,6 +2915,47 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     );
   }
 
+  /// Dükkanın adres/telefon bilgisini gösteren kompakt satır (varsa ara ve
+  /// haritada göster aksiyonlarıyla). Veri yoksa boş widget döner (kurye
+  /// eski, henüz güncellenmemiş bir siparişe bakıyor olabilir).
+  Widget _buildShopContactRow(Map<String, dynamic> order) {
+    final phone = _shopFieldOf(order, 'phone');
+    final address = _shopFieldOf(order, 'address');
+    final hasLatLng =
+        _shopLatLngOf(order, 'latitude') != null && _shopLatLngOf(order, 'longitude') != null;
+    if (phone == null && address == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(Icons.storefront, size: 16, color: Colors.grey.shade600),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              address ?? phone!,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (address != null || hasLatLng)
+            IconButton(
+              icon: const Icon(Icons.directions, color: Colors.blue),
+              tooltip: 'Dükkanı Haritada Gör',
+              onPressed: () => _navigateToShop(order),
+            ),
+          if (phone != null)
+            IconButton(
+              icon: const Icon(Icons.phone, color: Colors.green),
+              tooltip: 'Dükkanı Ara',
+              onPressed: () => _callCustomer(phone),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMyOrderCard(Map<String, dynamic> order) {
     final items = order['order_items'] as List? ?? [];
     final shopName = _shopNameOf(order);
@@ -2830,6 +2996,7 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
               ],
             ),
             const SizedBox(height: 12),
+            _buildShopContactRow(order),
             if (order['delivery_address_text'] != null) ...[
               Row(
                 children: [
@@ -3229,6 +3396,26 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
     final uri = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=$encodedAddress',
     );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  /// Dükkanın konumunu haritada açar. Lat/lng varsa koordinat üzerinden
+  /// (adres metninden daha isabetli), yoksa adres metnini arayarak açar.
+  void _navigateToShop(Map<String, dynamic> order) async {
+    final lat = _shopLatLngOf(order, 'latitude');
+    final lng = _shopLatLngOf(order, 'longitude');
+    final Uri uri;
+    if (lat != null && lng != null) {
+      uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    } else {
+      final address = _shopFieldOf(order, 'address');
+      if (address == null) return;
+      uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}',
+      );
+    }
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }

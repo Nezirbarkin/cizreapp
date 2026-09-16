@@ -74,6 +74,10 @@ class Post {
   // kullanır; bu alan yalnızca eski satırları temsil eder ve görselin
   // kaybolmaması için fromJson'de images'a katılır.
   final String? imageUrl;
+  // Arka planli metin gonderileri (DB: posts.background). Yalnizca gorselsiz
+  // gonderilerde anlamlidir; kimlik lib/core/widgets/text_background.dart
+  // paletine bakar. NULL veya taninmayan kimlik = SADE metin gonderisi.
+  final String? background;
   final String? location;
   final double? latitude;
   final double? longitude;
@@ -100,6 +104,7 @@ class Post {
     this.content,
     this.images = const [],
     this.imageUrl,
+    this.background,
     this.location,
     this.latitude,
     this.longitude,
@@ -125,6 +130,7 @@ class Post {
     String? content,
     List<String>? images,
     String? imageUrl,
+    String? background,
     String? location,
     double? latitude,
     double? longitude,
@@ -149,6 +155,7 @@ class Post {
       content: content ?? this.content,
       images: images ?? this.images,
       imageUrl: imageUrl ?? this.imageUrl,
+      background: background ?? this.background,
       location: location ?? this.location,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
@@ -176,6 +183,7 @@ class Post {
       'content': content,
       'images': images,
       if (imageUrl != null) 'image_url': imageUrl,
+      if (background != null) 'background': background,
       'location': location,
       'latitude': latitude,
       'longitude': longitude,
@@ -202,22 +210,32 @@ class Post {
   /// hem de düz posts tablosundan (yazar alanları null) çalışır.
   /// Geriye dönük uyumluluk: author_username/author_full_name/author_avatar_url
   /// de okunur (cache restore senaryoları için).
+  /// Ayrıca ham `posts` tablosu üzerinden PostgREST embed'iyle gelen
+  /// `posts(*, profiles(username, full_name, avatar_url))` şeklindeki iç
+  /// içe `profiles` alt-nesnesi de son fallback olarak okunur (favoriler
+  /// gibi view kullanmayan sorgular için).
   factory Post.fromJson(Map<String, dynamic> json) {
+    final profilesJson = json['profiles'] as Map<String, dynamic>?;
     // View'dan gelen düz alanlar: username, full_name, avatar_url, role, is_verified
     // Veya cache'den gelen: author_username, author_full_name, ...
     final username = json['author_username'] as String? ??
-        json['username'] as String?;
+        json['username'] as String? ??
+        profilesJson?['username'] as String?;
     final fullName = json['author_full_name'] as String? ??
-        json['full_name'] as String?;
+        json['full_name'] as String? ??
+        profilesJson?['full_name'] as String?;
     final avatarUrl = json['author_avatar_url'] as String? ??
-        json['avatar_url'] as String?;
+        json['avatar_url'] as String? ??
+        profilesJson?['avatar_url'] as String?;
     final isVerified = json['author_is_verified'] as bool? ??
         json['is_verified'] as bool? ??
         false;
     final role = AuthorRole.fromString(
       json['author_role'] as String? ?? json['role'] as String?,
     );
-    final profileExists = json['author_profile_exists'] as bool? ?? true;
+    final profileExists = json['author_profile_exists'] as bool? ??
+        (profilesJson != null ? true : null) ??
+        true;
 
     // Görseller: ana kolon images[] (text[]). image_url legacy tek-görsel
     // kolonudur; images boş ama image_url varsa onu gösterim için images'a
@@ -237,6 +255,9 @@ class Post {
       content: json['content'] as String?,
       images: images,
       imageUrl: imageUrl,
+      // Gorselli gonderide arka plan cizilmez; DB'de eski bir deger kalmis
+      // olsa bile burada dusurulur ki feed/izgara tutarli olsun.
+      background: images.isEmpty ? json['background'] as String? : null,
       location: json['location'] as String?,
       latitude: json['latitude'] != null ? (json['latitude'] as num).toDouble() : null,
       longitude: json['longitude'] != null ? (json['longitude'] as num).toDouble() : null,
@@ -273,6 +294,10 @@ class PostComment {
   final String? authorFullName;
   final String? authorAvatarUrl;
 
+  /// Bu yorum başka bir yoruma yanıtsa o yorumun id'si (DB: parent_comment_id).
+  /// Null ise ana (üst düzey) yorumdur.
+  final String? parentCommentId;
+
   PostComment({
     required this.id,
     required this.postId,
@@ -283,6 +308,7 @@ class PostComment {
     this.authorUsername,
     this.authorFullName,
     this.authorAvatarUrl,
+    this.parentCommentId,
   });
 
   /// Gösterilecek ad: tam ad > kullanıcı adı > jenerik.
@@ -308,6 +334,7 @@ class PostComment {
       'content': content,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+      if (parentCommentId != null) 'parent_comment_id': parentCommentId,
     };
   }
 
@@ -331,6 +358,7 @@ class PostComment {
           (json['author_full_name'] ?? profileMap['full_name']) as String?,
       authorAvatarUrl:
           (json['author_avatar_url'] ?? profileMap['avatar_url']) as String?,
+      parentCommentId: json['parent_comment_id'] as String?,
     );
   }
 }
@@ -341,9 +369,18 @@ const Object _unset = Object();
 class Story {
   final String id;
   final String userId;
+  // Metin hikayelerinde (mediaType == 'text') gorsel yoktur; DB'de image_url
+  // NULL gelir ve burada bos string'e duser. Bos string kontrolu yerine
+  // [isText] kullanin.
   final String imageUrl;
   final String? thumbnailUrl; // Video thumbnail URL (isteğe bağlı)
-  final String mediaType; // 'image' or 'video'
+  final String mediaType; // 'image', 'video' veya 'text'
+  /// Arka planli metin hikayesinin zemin kimligi
+  /// (lib/core/widgets/text_background.dart).
+  final String? background;
+
+  /// Metin hikayesinin yazisi (DB: stories.text_content).
+  final String? textContent;
   final int viewsCount;
   final int likesCount;
   final DateTime createdAt;
@@ -363,9 +400,11 @@ class Story {
   Story({
     required this.id,
     required this.userId,
-    required this.imageUrl,
+    this.imageUrl = '',
     this.thumbnailUrl,
     this.mediaType = 'image',
+    this.background,
+    this.textContent,
     this.viewsCount = 0,
     this.likesCount = 0,
     required this.createdAt,
@@ -383,7 +422,10 @@ class Story {
   bool get isExpired => DateTime.now().isAfter(expiresAt);
   bool get isVideo => mediaType == 'video';
   bool get isImage => mediaType == 'image';
-  
+
+  /// Arka planli metin hikayesi mi? Gorsel/video yoktur, [textContent] cizilir.
+  bool get isText => mediaType == 'text';
+
   // Video için thumbnail URL, yoksa video URL
   String get displayUrl => isVideo && thumbnailUrl != null ? thumbnailUrl! : imageUrl;
 
@@ -393,6 +435,8 @@ class Story {
     String? imageUrl,
     String? thumbnailUrl,
     String? mediaType,
+    String? background,
+    String? textContent,
     int? viewsCount,
     int? likesCount,
     DateTime? createdAt,
@@ -414,6 +458,8 @@ class Story {
       imageUrl: imageUrl ?? this.imageUrl,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       mediaType: mediaType ?? this.mediaType,
+      background: background ?? this.background,
+      textContent: textContent ?? this.textContent,
       viewsCount: viewsCount ?? this.viewsCount,
       likesCount: likesCount ?? this.likesCount,
       createdAt: createdAt ?? this.createdAt,
@@ -435,9 +481,11 @@ class Story {
     return {
       'id': id,
       'user_id': userId,
-      'image_url': imageUrl,
+      'image_url': imageUrl.isEmpty ? null : imageUrl,
       if (thumbnailUrl != null) 'thumbnail_url': thumbnailUrl,
       'media_type': mediaType,
+      if (background != null) 'background': background,
+      if (textContent != null) 'text_content': textContent,
       'views_count': viewsCount,
       'likes_count': likesCount,
       'created_at': createdAt.toIso8601String(),
@@ -453,9 +501,12 @@ class Story {
     return Story(
       id: json['id'] as String,
       userId: json['user_id'] as String,
-      imageUrl: json['image_url'] as String,
+      // Metin hikayelerinde image_url NULL gelir.
+      imageUrl: json['image_url'] as String? ?? '',
       thumbnailUrl: json['thumbnail_url'] as String?,
       mediaType: json['media_type'] as String? ?? 'image',
+      background: json['background'] as String?,
+      textContent: json['text_content'] as String?,
       viewsCount: json['views_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
       createdAt: DateTime.parse(json['created_at'] as String),

@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../../../core/models/category_model.dart';
+import '../../../core/utils/search_query.dart';
 
 class CategoryService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -151,7 +152,7 @@ class CategoryService {
           .from('categories')
           .select()
           .eq('is_active', true)
-          .or('name.ilike.%$query%,description.ilike.%$query%')
+          .or(buildIlikeOrFilter(const ['name', 'description'], query))
           .order('display_order', ascending: true)
           .limit(20);
 

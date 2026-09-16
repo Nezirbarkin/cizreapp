@@ -410,6 +410,7 @@ class PushNotificationService {
       case 'post_like':
       case 'comment':
       case 'post_comment':
+      case 'comment_reply':
       case 'mention':
       case 'post_mention':
       case 'post':

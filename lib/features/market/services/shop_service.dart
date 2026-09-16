@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/utils/search_query.dart';
 
 /// Shop cache result - similar to StaleCacheResult
 class ShopCacheResult<T> {
@@ -186,7 +187,7 @@ class ShopService {
           .select()
           .eq('is_active', true)
           .eq('is_approved', true)
-          .or('name.ilike.%$query%,description.ilike.%$query%')
+          .or(buildIlikeOrFilter(const ['name', 'description'], query))
           .order('is_pinned', ascending: false)
           .order('created_at', ascending: false);
 

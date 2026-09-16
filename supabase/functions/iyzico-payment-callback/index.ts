@@ -405,23 +405,18 @@ async function sendNotifications(
     // 2. MÜŞTERİYE push notification
     // ─────────────────────────────────────────────
     try {
-      const { data: customerProfile } = await supabase
-        .from("profiles")
-        .select("full_name, fcm_token")
-        .eq("id", userId)
-        .single();
-
-      if (customerProfile?.fcm_token) {
-        console.log("📤 Müşteriye push notification gönderiliyor...");
-        await supabase.functions.invoke("send-push-notification", {
-          body: {
-            fcm_token: customerProfile.fcm_token,
-            title: "Ödeme Başarılı! 🎉",
-            body: `Siparişiniz (#${orderNumber}) başarıyla oluşturuldu.`,
-            data: { type: "order_created", order_id: orderId },
-          },
-        });
-      }
+      // GUVENLI PUSH HATTI: dogrudan send-push-notification CAGRILMAZ.
+      // notifications'a yazilir; notifications_outbox_trigger kaydi
+      // notification_outbox'a alir, process-notification-outbox gonderir.
+      // Boylece fcm_token bu fonksiyonda hic okunmaz; tekrar/kayip kontrolu
+      // tek yerde (outbox) yapilir.
+      await supabase.from("notifications").insert({
+        user_id: userId,
+        type: "order",
+        title: "Ödeme Başarılı!",
+        content: `Siparişiniz (#${orderNumber}) başarıyla oluşturuldu.`,
+        entity_id: orderId,
+      });
     } catch (custErr) {
       console.warn("⚠️ Müşteri bildirim hatası:", custErr);
     }
@@ -432,23 +427,12 @@ async function sendNotifications(
     // ─────────────────────────────────────────────
     if (shopOwnerId && shopOwnerId !== userId) {
       try {
-        const { data: sellerProfile } = await supabase
-          .from("profiles")
-          .select("full_name, fcm_token")
-          .eq("id", shopOwnerId)
-          .single();
+        // sellerProfile fetch KALDIRILDI: yalniz fcm_token icin
+        // vardi, push artik outbox uzerinden gidiyor.
 
-        if (sellerProfile?.fcm_token) {
-          console.log("📤 Satıcıya push notification gönderiliyor...");
-          await supabase.functions.invoke("send-push-notification", {
-            body: {
-              fcm_token: sellerProfile.fcm_token,
-              title: "🎉 Mağazanıza Yeni Sipariş!",
-              body: `${shopName} - #${orderNumber} tutarında yeni sipariş alındı (₺${totalStr}).`,
-              data: { type: "seller_new_order", order_id: orderId, shop_id: order.shop_id },
-            },
-          });
-        }
+        // Dogrudan push KALDIRILDI: ayni akistaki notifications insert'i
+        // outbox trigger'i uzerinden push'u zaten gonderiyor; bu blok
+        // bildirimi ikinci kez yolluyordu.
 
         // DB bildirimi (notifications tablosu) — satıcı
         // ÖNEMLİ: notifications.type CHECK constraint sadece şu değerleri kabul eder:
@@ -519,7 +503,7 @@ async function sendNotifications(
     try {
       const { data: admins } = await supabase
         .from("profiles")
-        .select("id, full_name, fcm_token")
+        .select("id")
         .eq("role", "admin");
 
       if (admins && admins.length > 0) {
@@ -535,16 +519,9 @@ async function sendNotifications(
         });
 
           // Push notification
-          if (admin.fcm_token) {
-            await supabase.functions.invoke("send-push-notification", {
-              body: {
-                fcm_token: admin.fcm_token,
-                title: "🛒 Yeni Sipariş Alındı!",
-                body: `${shopName} dükkanına ₺${totalStr} tutarında yeni sipariş (#${orderNumber}).`,
-                data: { type: "admin_new_order", order_id: orderId, shop_id: order.shop_id },
-              },
-            });
-          }
+          // Dogrudan push KALDIRILDI: ayni akistaki notifications insert'i
+          // outbox trigger'i uzerinden push'u zaten gonderiyor; bu blok
+          // bildirimi ikinci kez yolluyordu.
         }
         console.log(`✅ ${admins.length} admin'e bildirim gönderildi`);
 

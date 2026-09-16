@@ -1,0 +1,107 @@
+-- =============================================================================
+-- !!! HENÜZ UYGULANMADI — YENİ İSTEMCİ SÜRÜMÜ MAĞAZADA YAYILDIKTAN SONRA !!!
+-- =============================================================================
+-- Bu dosyanın uzantısı bilinçli olarak `.sql.txt`: yanlışlıkla
+-- `supabase db push` / toplu migration çalıştırmasıyla erken uygulanmasın.
+-- Uygulamaya hazır olduğunda `.sql` olarak yeniden adlandırın.
+--
+-- NE YAPAR
+-- --------
+-- `public.profiles` tablosunda `authenticated` rolünün TABLO seviyesi SELECT
+-- yetkisini kaldırır. Sütun seviyesi GRANT'ler 20260907110001 ile zaten
+-- yerinde olduğu için, bu satır çalıştığı anda şu 22 sütun `authenticated`
+-- için okunamaz hale gelir:
+--
+--   email, phone,
+--   invoice_type, invoice_full_name, invoice_tax_number, invoice_tc_no,
+--   invoice_tax_office, invoice_address, invoice_email, invoice_saved_at,
+--   fcm_token, delete_confirmation_code, delete_confirmation_expires_at,
+--   is_admin, is_suspicious, suspicious_reason, suspicious_flagged_at,
+--   last_known_lat, last_known_lng, last_known_heading,
+--   last_location_update, platform
+--
+-- NEDEN BEKLİYOR
+-- --------------
+-- PostgreSQL'de sütun bazlı GRANT varken `SELECT *` çalışmaz (tüm sütunlara
+-- yetki ister). Mağazadaki v1.3.0+35 istemcisinde `profiles` üzerinde 5 adet
+-- argümansız `.select()` vardı; biri oturum açılış yolundaydı. 2026-09-07'de
+-- denendi, canlıda `permission denied for table profiles` alındı ve geri
+-- alındı (20260907110002).
+--
+-- ÖN KOŞULLAR (2026-09-08 itibarıyla TAMAMLANDI)
+-- ---------------------------------------------
+--  [x] 5 adet `SELECT *` açık sütun listesine / get_my_profile() RPC'sine
+--      çevrildi.
+--  [x] email / phone / last_known_lat / last_known_lng okuyan 24 çağrı
+--      noktası ilişki doğrulayan RPC'lere taşındı:
+--        public.admin_profiles_contact(uuid[])        -> admin
+--        public.order_customer_contact(uuid[])        -> dükkan sahibi/kurye/müşteri/admin
+--        public.order_courier_contacts(uuid[])        -> dükkan sahibi/kurye/müşteri/admin
+--        public.admin_coupon_usage_contacts(uuid)     -> admin
+--        public.get_my_profile()                      -> kendi profili
+--        public.get_nearby_couriers(...)              -> bulanık kurye konumu
+--      (20260907160001 + 20260907160002)
+--  [x] E-posta gönderimi adresi istemcide hiç okumuyor; alıcıyı
+--      `send-email` / `send-order-email` edge function'ları service_role ile
+--      çözüyor (to_role / to_order_customer / to_shop_owner).
+--  [x] `flutter analyze` temiz, 1852 test geçiyor.
+--  [x] Doğrulama taraması: lib/ içinde hassas sütun okuması 0,
+--      `profiles` üzerinde `SELECT *` 0.
+--
+--  [ ] YENİ İSTEMCİ SÜRÜMÜ MAĞAZADA YAYINLANDI ve kullanıcılara ULAŞTI
+--      <-- KALAN TEK KOŞUL
+--
+-- UYGULAMA
+-- --------
+--   supabase db query --linked --file <bu dosya>
+--
+-- GERİ ALMA (bir şey kırılırsa, anında)
+-- ------------------------------------
+--   GRANT SELECT ON TABLE public.profiles TO authenticated;
+--   NOTIFY pgrst, 'reload schema';
+-- =============================================================================
+
+-- DİKKAT: Tablo seviyesi GRANT, sütun seviyesi GRANT'leri YUTAR.
+-- 20260907110002 tablo SELECT'ini geri verdiği için 20260907110001'in
+-- sütun GRANT'leri artık ayrı kayıt olarak durmuyor. Bu canlıda
+-- ROLLBACK'li bir dry-run ile doğrulandı (2026-09-08): yalnız REVOKE
+-- çalıştırılsaydı `authenticated` profiles üzerinde SIFIR sütun görecek
+-- ve uygulama tamamen kırılacaktı.
+--
+-- Bu yüzden REVOKE ve GRANT AYNI transaction içinde, sırayla yapılır.
+
+BEGIN;
+
+REVOKE SELECT ON TABLE public.profiles FROM authenticated;
+
+GRANT SELECT (
+  -- kimlik / görünen profil
+  id, username, full_name, avatar_url, banner_url, cover_url,
+  bio, website, location, gender,
+  -- rol & durum
+  role, status, is_verified, delivered_count,
+  -- varlık / gizlilik tercihleri
+  is_online, is_online_enabled, is_ghost_mode, show_last_seen, last_seen,
+  profile_is_public, messages_enabled, allow_messages_from_non_followers,
+  -- zaman damgaları (public_profiles_safe / public_profiles_chat kullanıyor)
+  created_at, updated_at,
+  -- OAuth kayıt akışı (20260916000001_oauth_signup_needs_username.sql)
+  needs_username
+) ON public.profiles TO authenticated;
+
+COMMIT;
+
+NOTIFY pgrst, 'reload schema';
+
+-- Doğrulama: aşağıdaki sorgu authenticated için 24 satır dönmeli ve
+-- still_leaking_pii sütunu 0 olmalı.
+--
+--   select grantee, count(*) as cols,
+--          count(*) filter (where column_name in
+--            ('email','phone','invoice_tc_no','fcm_token',
+--             'delete_confirmation_code','last_known_lat','last_known_lng')
+--          ) as still_leaking_pii
+--   from information_schema.column_privileges
+--   where table_schema='public' and table_name='profiles'
+--     and privilege_type='SELECT'
+--   group by grantee order by grantee;

@@ -93,11 +93,13 @@ class _CourierDocumentsScreenState extends State<CourierDocumentsScreen> {
       }
 
       // Profil adı/telefonu varsayılan olarak formu doldurur.
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, phone')
-          .eq('id', _userId)
-          .maybeSingle();
+      // Kendi profili: `phone` profiles uzerinde authenticated'a
+      // kapatilacak (20260907110001), tam satir get_my_profile() ile alinir.
+      final profileRes =
+          await Supabase.instance.client.rpc('get_my_profile');
+      final profile = profileRes == null
+          ? null
+          : Map<String, dynamic>.from(profileRes as Map);
 
       final doc = await Supabase.instance.client
           .from('courier_documents')

@@ -590,9 +590,15 @@ extension on _AdminDashboardScreenState {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () async {
+                  // Messenger await'ten ONCE cozulur: await sirasinda ekran
+                  // agactan cikarsa element deactive olur ve `mounted` hala
+                  // true oldugu icin `ScaffoldMessenger.of(context)`
+                  // "Looking up a deactivated widget's ancestor is unsafe"
+                  // atiyordu.
+                  final messenger = ScaffoldMessenger.of(context);
                   await _cacheService.clearCache();
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('Cache temizlendi')),
                     );
                     setState(() {});
@@ -698,9 +704,10 @@ extension on _AdminDashboardScreenState {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
+                  final messenger = ScaffoldMessenger.of(context);
                   _performanceService.clearMetrics();
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('Metrikler temizlendi')),
                     );
                     setState(() {});

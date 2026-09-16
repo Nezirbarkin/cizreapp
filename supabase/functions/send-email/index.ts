@@ -14,7 +14,9 @@ const corsHeaders = {
 
 interface EmailRequest {
   type: "order_delivered" | "order_confirmed";
-  to: string;
+  to?: string;
+  /** Adres yerine hedef siparis; e-posta sunucuda cozulur. */
+  to_order_customer?: string;
   data: {
     customerName: string;
     orderNumber: string;
@@ -76,7 +78,37 @@ serve(async (req) => {
     }
 
     const body: EmailRequest = await req.json();
-    const { type, to, data } = body;
+
+    // ═════════════════════════════════════════════════════════════
+    // SUNUCU TARAFI ALICI COZUMLEME  (20260907110001)
+    // ═════════════════════════════════════════════════════════════
+    // `profiles.email` sutunu `authenticated` rolunden kaldiriliyor.
+    // Istemci artik adres gonderemez; yalnizca KIMI hedefledigini bildirir:
+    //   { to_order_customer: "<order uuid>" }
+    // Adres burada service_role baglaminda cozulur.
+    let resolvedTo = body.to;
+    const targetOrderId = (body as { to_order_customer?: string }).to_order_customer;
+    if (!resolvedTo && targetOrderId) {
+      const { data: row } = await supabase
+        .from("orders")
+        .select("profiles!orders_user_id_fkey(email)")
+        .eq("id", targetOrderId)
+        .maybeSingle();
+      resolvedTo = (row as { profiles?: { email?: string } } | null)
+        ?.profiles?.email ?? undefined;
+    }
+    if (!resolvedTo) {
+      return new Response(
+        JSON.stringify({ success: false, error: "recipient_not_found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const { type, data } = body;
+    const to = resolvedTo;
 
     let subject: string;
     let html: string;

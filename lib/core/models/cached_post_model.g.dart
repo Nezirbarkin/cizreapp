@@ -29,13 +29,14 @@ class CachedPostAdapter extends TypeAdapter<CachedPost> {
       updatedAt: fields[9] as DateTime,
       cachedAt: fields[10] as DateTime,
       isActive: fields[11] as bool,
+      background: fields[12] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, CachedPost obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -59,7 +60,9 @@ class CachedPostAdapter extends TypeAdapter<CachedPost> {
       ..writeByte(10)
       ..write(obj.cachedAt)
       ..writeByte(11)
-      ..write(obj.isActive);
+      ..write(obj.isActive)
+      ..writeByte(12)
+      ..write(obj.background);
   }
 
   @override

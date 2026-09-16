@@ -10,6 +10,7 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/post_view_service.dart';
 import '../../../core/widgets/mention_autocomplete_field.dart';
 import '../../../core/widgets/skeleton_loader.dart';
+import '../../../core/widgets/text_background.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../services/post_service.dart';
 import '../services/post_report_service.dart';
@@ -28,12 +29,82 @@ class PostDetailScreen extends StatefulWidget {
   State<PostDetailScreen> createState() => _PostDetailScreenState();
 }
 
+/// Yorum listesindeki tek bir satır: ana yorum ya da bir yanıt.
+/// Ekran, düz `_comments` listesini bu satırlara dönüştürüp gösterir —
+/// böylece her yanıtın hangi ana yorumun altında ve kime cevap olarak
+/// gittiği (üst yorum derinlikte kaç olursa olsun) açıkça görünür.
+class _CommentRow {
+  final PostComment comment;
+  final bool isReply;
+  final String? replyToDisplayName;
+
+  _CommentRow({
+    required this.comment,
+    required this.isReply,
+    this.replyToDisplayName,
+  });
+}
+
+/// [comments] (parent_comment_id ile) bir ağaca dönüştürülüp düz bir satır
+/// listesine yayılır: her ana yorumun hemen ardından, o başlığa ait TÜM
+/// yanıtlar (yanıta yanıtlar dahil) kronolojik sırayla gelir. Böylece iç
+/// içe geçmiş bir görsel yapı kurmadan "kime yanıt verildiği" her satırda
+/// ayrı ayrı gösterilebilir.
+List<_CommentRow> _buildCommentRows(List<PostComment> comments) {
+  final byId = {for (final c in comments) c.id: c};
+
+  bool hasParent(PostComment c) =>
+      c.parentCommentId != null && byId.containsKey(c.parentCommentId);
+
+  String rootIdOf(PostComment c) {
+    var current = c;
+    final visited = <String>{};
+    while (hasParent(current) && visited.add(current.id)) {
+      current = byId[current.parentCommentId]!;
+    }
+    return current.id;
+  }
+
+  // _comments her zaman en yeni en üstte (bkz. PostService.getComments),
+  // bu sırayı ana yorumlar için koruyoruz.
+  final roots = comments.where((c) => !hasParent(c)).toList();
+
+  final repliesByRoot = <String, List<PostComment>>{};
+  for (final c in comments) {
+    if (hasParent(c)) {
+      repliesByRoot.putIfAbsent(rootIdOf(c), () => []).add(c);
+    }
+  }
+
+  final rows = <_CommentRow>[];
+  for (final root in roots) {
+    rows.add(_CommentRow(comment: root, isReply: false));
+    // Yanıtlar fetch sırasında en yeni en üstte geliyor; konuşma gibi
+    // okunması için burada eskiden yeniye çeviriyoruz.
+    final replies = (repliesByRoot[root.id] ?? []).reversed;
+    for (final reply in replies) {
+      final parent = byId[reply.parentCommentId];
+      rows.add(_CommentRow(
+        comment: reply,
+        isReply: true,
+        replyToDisplayName: parent?.displayUsername,
+      ));
+    }
+  }
+  return rows;
+}
+
 class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostService _postService = PostService();
   final PostReportService _postReportService = PostReportService();
   final _profileService = ProfileService();
   final _postViewService = PostViewService();
   final _analyticsService = AnalyticsService();
+
+  /// Gönderinin arka planı (yoksa null → sade metin çizimi).
+  TextBackground? get _postBackground =>
+      textBackgroundById(widget.post.background);
+
   // Admin > Loglar'daki "Ort. Goruntuleme (ms)" karti bu olcume dayaniyor;
   // sure hic gonderilmedigi surece kart kalici olarak 0 gosteriyordu.
   final Stopwatch _viewStopwatch = Stopwatch();
@@ -50,6 +121,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   int _commentsCount = 0;
   // Ekran kapanırken feed'in yenilenmesi gerekiyor mu?
   bool _commentsChanged = false;
+  // Yorum girişinin üstünde "@X'e yanıt veriliyor" çubuğunu tetikler;
+  // null ise yeni yorum ana yorum olarak eklenir.
+  PostComment? _replyingTo;
 
   @override
   void initState() {
@@ -393,12 +467,32 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
     if (confirmed != true) return;
 
-    // Optimistik kaldırma
-    final index = _comments.indexWhere((c) => c.id == comment.id);
-    if (index == -1) return;
+    // DB'de parent_comment_id ON DELETE CASCADE ile tanımlı: bu yorumun
+    // yanıtları da (varsa) otomatik silinir. Optimistik güncellemenin
+    // tutarlı kalması için aynı torun kümesini burada da hesaplayıp
+    // kaldırıyoruz — aksi halde silinen ana yorumun yanıtları, bir sonraki
+    // yeniden çizimde "sahipsiz" kalıp yeni birer ana yorum gibi görünürdü.
+    final toRemove = <String>{comment.id};
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final c in _comments) {
+        if (c.parentCommentId != null &&
+            toRemove.contains(c.parentCommentId) &&
+            toRemove.add(c.id)) {
+          changed = true;
+        }
+      }
+    }
+
+    final removed = _comments.where((c) => toRemove.contains(c.id)).toList();
+    if (removed.isEmpty) return;
     setState(() {
-      _comments.removeAt(index);
-      _commentsCount = (_commentsCount - 1).clamp(0, 1 << 30);
+      _comments.removeWhere((c) => toRemove.contains(c.id));
+      _commentsCount = (_commentsCount - removed.length).clamp(0, 1 << 30);
+      if (_replyingTo != null && toRemove.contains(_replyingTo!.id)) {
+        _replyingTo = null;
+      }
     });
 
     try {
@@ -411,8 +505,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _comments.insert(index, comment);
-        _commentsCount += 1;
+        _comments.addAll(removed);
+        _commentsCount += removed.length;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppErrorHandler.handleError(e))),
@@ -434,12 +528,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
 
     setState(() => _isCommenting = true);
+    final replyTarget = _replyingTo;
 
     try {
       final comment = await _postService.addComment(
         widget.post.id,
         userId,
         text,
+        parentCommentId: replyTarget?.id,
       );
 
       if (!mounted) return;
@@ -448,10 +544,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
       if (comment != null) {
         // Yorum yazar bilgisiyle birlikte döndüğü için listeyi baştan
-        // yüklemeye gerek yok; doğrudan en üste ekleniyor.
+        // yüklemeye gerek yok; doğrudan listeye ekleniyor. Görüntülenme
+        // sırası _buildCommentRows tarafından parent_comment_id'ye göre
+        // yeniden hesaplandığı için ekleme konumu (0. index) önemli değil.
         setState(() {
           _comments.insert(0, comment);
           _commentsCount += 1;
+          _replyingTo = null;
         });
       } else {
         await _loadData();
@@ -665,7 +764,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   }),
 
                   // Content
-                  if (widget.post.content != null && widget.post.content!.isNotEmpty)
+                  // Arka plan seçilmiş metin gönderisi, feed ve profil
+                  // ızgarasıyla AYNI kompozisyonda çizilir; seçilmemişse
+                  // (ve görselli gönderilerde) sade metin.
+                  if (widget.post.content != null &&
+                      widget.post.content!.isNotEmpty &&
+                      _postBackground != null)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: AspectRatio(
+                          aspectRatio: 4 / 3,
+                          child: TextBackgroundCanvas(
+                            background: _postBackground!,
+                            text: widget.post.content!,
+                            padding: const EdgeInsets.all(24),
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (widget.post.content != null &&
+                      widget.post.content!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: _buildCommentWithMentions(widget.post.content!),
@@ -832,90 +952,130 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ),
                     )
                   else
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _comments.length,
-                      itemBuilder: (context, index) {
-                        final comment = _comments[index];
-                        // Yazar bilgisi artık yorumla birlikte geliyor
-                        // (post_comments -> profiles JOIN).
-                        final username = comment.displayUsername;
-                        final fullName = comment.displayName;
-                        final avatarUrl = comment.authorAvatarUrl;
-                        final currentUserId =
-                            Supabase.instance.client.auth.currentUser?.id;
-                        // Kendi yorumunu herkes, gönderindeki yorumu da sen
-                        // silebilirsin (DB politikası da aynı kuralı uygular).
-                        final canDelete = currentUserId != null &&
-                            (comment.userId == currentUserId ||
-                                widget.post.userId == currentUserId);
+                    Builder(builder: (context) {
+                      // Düz _comments listesi burada ana yorum + altındaki
+                      // yanıtlar şeklinde gruplu bir satır listesine
+                      // dönüştürülüyor (bkz. _buildCommentRows).
+                      final rows = _buildCommentRows(_comments);
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: rows.length,
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          final comment = row.comment;
+                          // Yazar bilgisi artık yorumla birlikte geliyor
+                          // (post_comments -> profiles JOIN).
+                          final username = comment.displayUsername;
+                          final fullName = comment.displayName;
+                          final avatarUrl = comment.authorAvatarUrl;
+                          final currentUserId =
+                              Supabase.instance.client.auth.currentUser?.id;
+                          // Kendi yorumunu herkes, gönderindeki yorumu da sen
+                          // silebilirsin (DB politikası da aynı kuralı uygular).
+                          final canDelete = currentUserId != null &&
+                              (comment.userId == currentUserId ||
+                                  widget.post.userId == currentUserId);
 
-                        return ListTile(
-                          onTap: () {
-                            // Kullanıcıya tıklayınca profil ekranına git
-                            if (comment.userId == currentUserId) {
-                              // Kendi profili
-                              Navigator.of(context).pushNamed('/main');
-                            } else {
-                              // Başka kullanıcının profili
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => UserProfileScreen(userId: comment.userId),
-                                ),
-                              );
-                            }
-                          },
-                          leading: CircleAvatar(
-                            radius: 16,
-                            backgroundImage: avatarUrl != null
-                                ? NetworkImage(avatarUrl)
-                                : null,
-                            child: avatarUrl == null
-                                ? Text(
-                                    username.length >= 2
-                                        ? username.substring(0, 2).toUpperCase()
-                                        : username.toUpperCase(),
-                                    style: const TextStyle(fontSize: 12),
-                                  )
-                                : null,
-                          ),
-                          title: Text(
-                            fullName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              _buildCommentWithMentions(comment.content),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formatDate(comment.createdAt),
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade600,
+                          return Padding(
+                            padding: EdgeInsets.only(left: row.isReply ? 44 : 0),
+                            child: ListTile(
+                              onTap: () {
+                                // Kullanıcıya tıklayınca profil ekranına git
+                                if (comment.userId == currentUserId) {
+                                  // Kendi profili
+                                  Navigator.of(context).pushNamed('/main');
+                                } else {
+                                  // Başka kullanıcının profili
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => UserProfileScreen(userId: comment.userId),
+                                    ),
+                                  );
+                                }
+                              },
+                              leading: CircleAvatar(
+                                radius: row.isReply ? 13 : 16,
+                                backgroundImage: avatarUrl != null
+                                    ? NetworkImage(avatarUrl)
+                                    : null,
+                                child: avatarUrl == null
+                                    ? Text(
+                                        username.length >= 2
+                                            ? username.substring(0, 2).toUpperCase()
+                                            : username.toUpperCase(),
+                                        style: const TextStyle(fontSize: 12),
+                                      )
+                                    : null,
+                              ),
+                              title: Text(
+                                fullName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
                                 ),
                               ),
-                            ],
-                          ),
-                          trailing: canDelete
-                              ? IconButton(
-                                  icon: Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                    color: Colors.grey.shade500,
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  if (row.isReply && row.replyToDisplayName != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 2),
+                                      child: Text(
+                                        '↪ @${row.replyToDisplayName} kullanıcısına yanıt',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blueGrey.shade400,
+                                        ),
+                                      ),
+                                    ),
+                                  _buildCommentWithMentions(comment.content),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        _formatDate(comment.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      InkWell(
+                                        onTap: () {
+                                          setState(() => _replyingTo = comment);
+                                        },
+                                        child: Text(
+                                          'Yanıtla',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  tooltip: 'Yorumu sil',
-                                  onPressed: () => _deleteComment(comment),
-                                )
-                              : null,
-                        );
-                      },
-                    ),
+                                ],
+                              ),
+                              trailing: canDelete
+                                  ? IconButton(
+                                      icon: Icon(
+                                        Icons.delete_outline,
+                                        size: 20,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                      tooltip: 'Yorumu sil',
+                                      onPressed: () => _deleteComment(comment),
+                                    )
+                                  : null,
+                            ),
+                          );
+                        },
+                      );
+                    }),
                 ],
               ),
             ),
@@ -923,6 +1083,29 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
           // Comment Input
           const Divider(height: 1),
+          if (_replyingTo != null)
+            Container(
+              width: double.infinity,
+              color: Colors.grey.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.reply, size: 16, color: Colors.grey.shade600),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '@${_replyingTo!.displayUsername} kullanıcısına yanıt veriliyor',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => setState(() => _replyingTo = null),
+                    child: Icon(Icons.close, size: 18, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(8),
@@ -947,7 +1130,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     child: MentionAutocompleteField(
                       controller: _commentController,
                       decoration: InputDecoration(
-                        hintText: 'Yorum yaz... (@kullanıcı ile bahset)',
+                        hintText: _replyingTo != null
+                            ? '@${_replyingTo!.displayUsername} kullanıcısına yanıt yaz...'
+                            : 'Yorum yaz... (@kullanıcı ile bahset)',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),

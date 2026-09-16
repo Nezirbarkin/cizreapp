@@ -17,6 +17,7 @@ import '../../market/services/product_service.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/privacy_service.dart';
+import '../../../core/services/social_access_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
@@ -50,6 +51,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final NotificationService _notificationService = NotificationService();
   final PrivacyService _privacyService = PrivacyService();
   int _unreadNotificationCount = 0;
+
+  /// Keşfet misafirlere açık mı? (app_settings.explore_public_access)
+  /// Ayar okunana kadar güvenli varsayılan: yalnız üyelere açık.
+  bool _exploreIsPublic = SocialAccessService.cachedIsPublic;
 
   // ⚡ iOS PERFORMANCE: Sadece aktif sekmeyi oluştur, diğerlerini lazy yükle
   final Map<int, Widget> _cachedScreens = {};
@@ -85,12 +90,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // çakışmaması için kritik olmayan duyuru/inceleme kontrolleri geciktirilir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadNotificationCount();
+      _loadExploreAccess();
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _checkStartupAnnouncement();
         PendingReviewChecker.checkAndShowPendingReviews(context);
       });
     });
+  }
+
+  /// Keşfet sekmesinin misafirlere açık olup olmadığını okur. Ayar kapalıysa
+  /// (varsayılan) misafir sekmeye girmek istediğinde giriş ekranına yönlendirilir.
+  Future<void> _loadExploreAccess() async {
+    final isPublic = await SocialAccessService.fetchIsPublic();
+    if (!mounted) return;
+    if (isPublic != _exploreIsPublic) {
+      setState(() => _exploreIsPublic = isPublic);
+    }
   }
 
   @override
@@ -402,9 +418,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     return InkWell(
       onTap: () {
-        // Misafir kontrolü - Keşfet ve Profil için
+        // Misafir kontrolü - Keşfet ve Profil için.
+        // Keşfet (index 3) admin ayarı "herkese açık" ise misafire de açılır;
+        // Profil (index 4) her koşulda giriş ister.
         final userId = Supabase.instance.client.auth.currentUser?.id;
-        if (userId == null && (index == 3 || index == 4)) {
+        final exploreBlocked = index == 3 && !_exploreIsPublic;
+        if (userId == null && (exploreBlocked || index == 4)) {
           // Misafir kullanıcı keşfet veya profile tıkladı
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

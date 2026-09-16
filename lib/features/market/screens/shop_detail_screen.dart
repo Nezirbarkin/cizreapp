@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_review_model.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
@@ -54,6 +55,11 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   String? _selectedCategory;
   bool _showOnlyInStock = false;
   bool _isSearching = false;
+
+  // Kullanıcının dükkana uzaklığı (metre). null = henüz hesaplanmadı /
+  // konum izni yok / dükkanın koordinatı kayıtlı değil.
+  double? _distanceMeters;
+  bool _isResolvingDistance = false;
 
   @override
   void initState() {
@@ -503,6 +509,10 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
 
       // Ürünler yüklendikten sonra kategorileri çıkar
       _extractCategories();
+
+      // Dükkana olan uzaklık: izin zaten verilmişse sessizce hesaplanır,
+      // verilmemişse kullanıcıya "Uzaklığı göster" rozeti sunulur.
+      _resolveShopDistance();
     } catch (e) {
       debugPrint('❌ SHOP DETAIL: Hata: $e');
       setState(() => _isLoading = false);
@@ -516,6 +526,107 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
         );
       }
     }
+  }
+
+  /// Dükkana olan uzaklığı, konum izni ZATEN verilmişse hesaplar.
+  /// İzin yoksa kullanıcıya hiçbir şey sormaz (rozet "Uzaklığı göster"
+  /// olarak kalır, dokunulursa [_requestDistance] çalışır).
+  Future<void> _resolveShopDistance() async {
+    final shop = _shop;
+    if (shop?.latitude == null || shop?.longitude == null) return;
+
+    final position = await UserDistanceService.positionIfAllowed();
+    if (!mounted || position == null) return;
+
+    final meters = UserDistanceService.distanceMeters(
+      from: position,
+      targetLat: shop!.latitude,
+      targetLng: shop.longitude,
+    );
+    if (meters != null) setState(() => _distanceMeters = meters);
+  }
+
+  /// Kullanıcı "Uzaklığı göster" rozetine dokunduğunda: önce konum
+  /// açıklaması + izin, sonra hesaplama.
+  Future<void> _requestDistance() async {
+    final shop = _shop;
+    if (shop?.latitude == null || shop?.longitude == null) return;
+
+    setState(() => _isResolvingDistance = true);
+    final position = await UserDistanceService.requestPosition(context);
+    if (!mounted) return;
+
+    final meters = UserDistanceService.distanceMeters(
+      from: position,
+      targetLat: shop!.latitude,
+      targetLng: shop.longitude,
+    );
+    setState(() {
+      _isResolvingDistance = false;
+      _distanceMeters = meters;
+    });
+
+    if (meters == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Uzaklık için konum bilgisi alınamadı'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// Dükkan koordinatı varsa uzaklık rozetini döndürür; yoksa boş widget.
+  Widget _buildDistanceBadge() {
+    final shop = _shop;
+    if (shop?.latitude == null || shop?.longitude == null) {
+      return const SizedBox.shrink();
+    }
+
+    final hasDistance = _distanceMeters != null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: InkWell(
+        onTap: hasDistance || _isResolvingDistance ? null : _requestDistance,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.blueGrey.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blueGrey.shade100),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_isResolvingDistance)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  hasDistance ? Icons.near_me : Icons.near_me_outlined,
+                  size: 13,
+                  color: Colors.blueGrey.shade700,
+                ),
+              const SizedBox(width: 5),
+              Text(
+                hasDistance
+                    ? '${UserDistanceService.format(_distanceMeters!)} uzaklıkta'
+                    : 'Uzaklığı göster',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blueGrey.shade800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // Dükkandaki benzersiz kategorileri çıkar
@@ -898,6 +1009,27 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                       ),
                                     ),
                                   ),
+                                  if (_shop!.pickupEnabled) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade600,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        '🏪 Gel Al',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   const SizedBox(width: 6),
                                   // Kompakt Değerlendirme
                                   GestureDetector(
@@ -1015,6 +1147,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                   ),
                                 ],
                               ),
+                              // Kullanıcının dükkana uzaklığı
+                              _buildDistanceBadge(),
                             ],
                           ),
                         ),

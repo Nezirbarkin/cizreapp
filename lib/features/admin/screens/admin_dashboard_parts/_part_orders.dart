@@ -102,6 +102,10 @@ extension on _AdminDashboardScreenState {
                 ),
                 const SizedBox(height: 16),
 
+                // Teslim onayı bekleyen "Gel Al" siparişleri (2 günden uzun).
+                // Bekleyen yoksa hiç yer kaplamaz.
+                const PendingPickupOrdersCard(),
+
                 // Dükkan Filtresi
                 FutureBuilder<List<Map<String, dynamic>>>(
                   future: _loadShopsForFilter(),
@@ -1602,6 +1606,19 @@ extension on _AdminDashboardScreenState {
             onPressed: () => Navigator.pop(context),
             child: const Text('Kapat'),
           ),
+          // Admin müdahalesi: siparişi istenen kuryenin paneline düşür.
+          if (!(order['is_pickup'] as bool? ?? false))
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _showAssignCourierDialog(order);
+              },
+              icon: const Icon(Icons.two_wheeler, size: 18),
+              label: const Text('Kurye Ata'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.indigo.shade700,
+              ),
+            ),
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(context);

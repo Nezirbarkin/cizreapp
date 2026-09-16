@@ -233,6 +233,9 @@ class Order {
   final String? invoiceAddress;      // Fatura adresi (kurumsal)
   final String? invoiceEmail;        // Fatura e-postası
 
+  // "Gel Al": true ise müşteri mağazadan bizzat teslim alacak (kurye yok)
+  final bool isPickup;
+
   Order({
     required this.id,
     required this.userId,
@@ -280,6 +283,7 @@ class Order {
     this.invoiceTaxOffice,
     this.invoiceAddress,
     this.invoiceEmail,
+    this.isPickup = false,
   });
 
   /// Fatura bilgisi var mı?
@@ -379,6 +383,7 @@ class Order {
       invoiceTaxOffice: json['invoice_tax_office'] as String?,
       invoiceAddress: json['invoice_address'] as String?,
       invoiceEmail: json['invoice_email'] as String?,
+      isPickup: json['is_pickup'] as bool? ?? false,
     );
   }
 
@@ -425,6 +430,7 @@ class Order {
       'invoice_tax_office': invoiceTaxOffice,
       'invoice_address': invoiceAddress,
       'invoice_email': invoiceEmail,
+      'is_pickup': isPickup,
     };
   }
 
@@ -509,6 +515,7 @@ class Order {
     String? invoiceTaxOffice,
     String? invoiceAddress,
     String? invoiceEmail,
+    bool? isPickup,
   }) {
     return Order(
       id: id ?? this.id,
@@ -552,6 +559,7 @@ class Order {
       invoiceTaxOffice: invoiceTaxOffice ?? this.invoiceTaxOffice,
       invoiceAddress: invoiceAddress ?? this.invoiceAddress,
       invoiceEmail: invoiceEmail ?? this.invoiceEmail,
+      isPickup: isPickup ?? this.isPickup,
     );
   }
 }

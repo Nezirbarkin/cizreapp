@@ -4,6 +4,21 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Panelin ortak vurgu paleti.
+///
+/// Plak etiketi, ekolayzır çubukları ve ilerleme çubuğunun dolgusu BİLİNÇLİ
+/// olarak aynı iki tonu paylaşır — bunlar üç ayrı yerde çalınan tesadüfi
+/// renkler değil, kartın kendi "marka rengi". Kart, üstünde durduğu yan
+/// menünün tema rengi ne olursa olsun (kırmızı, yeşil, mavi...) hep aynı
+/// tutarlı kimliğe sahip olsun diye ev sahibi temadan bağımsız tutulur.
+const _kLabelTop = Color(0xFFFF6FAE);
+const _kLabelBottom = Color(0xFFD91A73);
+
+/// Dolu (play/pause) düğmenin gövdesi beyaza yakınken üzerindeki ikon bu
+/// koyu tonu kullanır — plağın en koyu gradyan durağıyla aynı aile, düğmeyi
+/// kapağa görsel olarak bağlar.
+const _kInk = Color(0xFF1E1B27);
+
 /// "ŞİMDİ ÇALIYOR" paneli — arka plan müziğinin uygulama içindeki kartı.
 ///
 /// ## Neden bu tasarım
@@ -26,6 +41,23 @@ import 'package:flutter/services.dart';
 /// Dekoratif animasyonlar arka planda dönmeye devam ederse pil yakar ve
 /// duraklatılmış müzikte yanlış bilgi verir. Bu yüzden her denetleyici
 /// [playing] bayrağına bağlanır: `false` iken hepsi durdurulur.
+///
+/// ## Işık sabit durur, disk onun altından döner
+///
+/// Gerçek bir plak dönerken üzerindeki parlama SABİT KALIR — ışık kaynağı
+/// hareket etmez, disk onun altından geçer. Eski çizimde parlama plağın
+/// İÇİNDEYDİ ve onunla birlikte dönüyordu; bu da "boyanmış" bir doku gibi
+/// duruyor, dönüşü daha az gerçekçi kılıyordu. Şimdi parlama ayrı, DÖNMEYEN
+/// bir katman ([_VinylSheenPainter]) — disk döndükçe ışık üzerinde gerçekten
+/// kayar. Aynı gerekçeyle kapağın altına, onu bir yüzeye oturtan yumuşak bir
+/// zemin gölgesi eklendi: ışık (parlama) + gölge (zemin) ikilisi, düz bir
+/// çizimi hacimli bir nesneye çevirir.
+///
+/// ## Düğme hiyerarşisi: birincil dolu, ikincil hayalet
+///
+/// Duraklat/çal her zaman kartın TEK birincil eylemidir; bu yüzden dolu,
+/// gölgeli, koyu ikonlu bir "topuz" olarak çizilir. Önceki/sonraki ikincil
+/// kalır: yalnızca ikon, arka plan yok — göz önce ortadaki topuza gider.
 class NowPlayingPanel extends StatefulWidget {
   /// Çalan (veya duraklatılmış) şarkının görünen adı.
   final String trackName;
@@ -128,37 +160,44 @@ class _NowPlayingPanelState extends State<NowPlayingPanel>
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 7, 6, 7),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         // Camsı kart: altındaki tema rengini geçirir, kendi rengi yoktur —
-        // kullanıcı temayı değiştirdiğinde panel de onunla değişir.
+        // kullanıcı temayı değiştirdiğinde panel de onunla değişir. Üç
+        // durak, tek düz gradyandan daha "dolgun" bir cam hissi verir.
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: const [0.0, 0.45, 1.0],
           colors: [
-            Colors.white.withValues(alpha: 0.22),
-            Colors.white.withValues(alpha: 0.08),
+            Colors.white.withValues(alpha: 0.28),
+            Colors.white.withValues(alpha: 0.14),
+            Colors.white.withValues(alpha: 0.06),
           ],
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.30)),
+        // İKİ KATMANLI GÖLGE: geniş/yumuşak biri kartı zeminden kaldırır,
+        // dar/koyu biri kenara yakın gerçek bir temas gölgesi verir. Tek
+        // gölge kullanmaktan daha "gerçekçi" bir yükseklik hissi bu ikilinin
+        // birleşiminden gelir.
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.14),
-            blurRadius: 9,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Row(
         children: [
-          _Artwork(
-            spin: _spin,
-            pulse: _pulse,
-            playing: widget.playing,
-            size: 36,
-          ),
-          const SizedBox(width: 9),
+          _Artwork(spin: _spin, pulse: _pulse, playing: widget.playing, size: 40),
+          const SizedBox(width: 11),
           Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -169,13 +208,13 @@ class _NowPlayingPanelState extends State<NowPlayingPanel>
                   animate: widget.playing,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
+                    fontSize: 12.5,
                     height: 1.15,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     letterSpacing: 0.1,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 6),
                 _ProgressLine(
                   progress: widget.progress,
                   playing: widget.playing,
@@ -183,24 +222,28 @@ class _NowPlayingPanelState extends State<NowPlayingPanel>
               ],
             ),
           ),
-          const SizedBox(width: 4),
-          if (widget.showTrackNav)
+          const SizedBox(width: 6),
+          if (widget.showTrackNav) ...[
             _RoundButton(
               icon: Icons.skip_previous_rounded,
               semantic: 'Önceki şarkı',
               onTap: () => _tap(widget.onPrevious),
             ),
+            const SizedBox(width: 3),
+          ],
           _RoundButton.playPause(
             progress: _playPause,
             playing: widget.playing,
             onTap: () => _tap(widget.onPlayPause),
           ),
-          if (widget.showTrackNav)
+          if (widget.showTrackNav) ...[
+            const SizedBox(width: 3),
             _RoundButton(
               icon: Icons.skip_next_rounded,
               semantic: 'Sonraki şarkı',
               onTap: () => _tap(widget.onNext),
             ),
+          ],
         ],
       ),
     );
@@ -229,101 +272,129 @@ class _Artwork extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: AnimatedBuilder(
-        animation: pulse,
-        builder: (context, child) {
-          final t = playing ? Curves.easeInOut.transform(pulse.value) : 0.0;
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.08 + 0.14 * t),
-                  blurRadius: 8 + 8 * t,
-                  spreadRadius: 0.5 + t,
+      // Clip.none: hem zemin gölgesi hem de köşedeki ekolayzır rozeti bu
+      // kutunun DIŞINA taşıyor — Row'daki ayrılan genişlik yine de `size`
+      // olarak kalır, komşu öğeler etkilenmez.
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // ZEMİN GÖLGESİ — kapağın altında, onu havada değil bir yüzeyde
+          // duruyormuş gibi gösteren yumuşak oval gölge.
+          Positioned(
+            left: size * 0.09,
+            right: size * 0.09,
+            bottom: -size * 0.11,
+            child: Container(
+              height: size * 0.16,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.all(
+                  Radius.elliptical(size * 0.41, size * 0.08),
                 ),
-              ],
-            ),
-            child: child,
-          );
-        },
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Plağın kendisi döner; rozet DÖNMEZ (dönseydi çubuklar yan
-            // yatardı), bu yüzden ikisi ayrı katmanda.
-            Positioned.fill(
-              child: RotationTransition(
-                turns: spin,
-                child: CustomPaint(painter: _VinylPainter()),
+                gradient: RadialGradient(
+                  colors: [
+                    Colors.black.withValues(alpha: 0.34),
+                    Colors.black.withValues(alpha: 0),
+                  ],
+                ),
               ),
             ),
-            Positioned(
-              right: -2,
-              bottom: -2,
-              child: _EqualizerBadge(playing: playing, size: size * 0.42),
+          ),
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: pulse,
+              builder: (context, child) {
+                final t = playing ? Curves.easeInOut.transform(pulse.value) : 0.0;
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: _kLabelTop.withValues(alpha: 0.10 + 0.16 * t),
+                        blurRadius: 9 + 9 * t,
+                        spreadRadius: 0.5 + t,
+                      ),
+                    ],
+                  ),
+                  child: child,
+                );
+              },
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Plağın kendisi döner; rozet DÖNMEZ (dönseydi çubuklar
+                  // yan yatardı), bu yüzden ayrı katmanda.
+                  Positioned.fill(
+                    child: RotationTransition(
+                      turns: spin,
+                      child: CustomPaint(painter: _VinylPainter()),
+                    ),
+                  ),
+                  // Parlama da DÖNMEZ — bkz. sınıf üstü "Işık sabit durur"
+                  // notu. IgnorePointer: yalnızca dekoratif, dokunuşu yutmaz.
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(painter: _VinylSheenPainter()),
+                    ),
+                  ),
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: _EqualizerBadge(playing: playing, size: size * 0.42),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Plak: koyu disk + oluklar + pembe etiket + ışık huzmesi.
+/// Plak: radyal gövde + oluklar + pembe etiket + nota.
 ///
-/// Işık huzmesi ŞART: dairesel simetrik bir disk dönerken hiç dönmüyormuş
-/// gibi görünür. Huzme (ve etiketin üstündeki çentik) dönüşü gözle
-/// görülebilir kılan tek ayrıntıdır.
+/// Sheen (ışık huzmesi) BİLEREK burada YOK — o, ayrı ve dönmeyen
+/// [_VinylSheenPainter] katmanında. Bu ayrım olmadan disk dönerken hiç
+/// dönmüyormuş gibi görünürdü (dairesel simetrik bir doku dönüşü gizler);
+/// ayrı katman, gerçek bir ışığın disk altından geçişini taklit eder.
 class _VinylPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final r = size.shortestSide / 2;
 
-    // Gövde.
+    // GÖVDE — merkezi hafif kaydırılmış radyal gradyan, düz bir linear'dan
+    // daha dolgun/plastik bir yüzey hissi verir.
     canvas.drawCircle(
       c,
       r,
       Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF23212B), Color(0xFF0D0C11)],
+        ..shader = const RadialGradient(
+          center: Alignment(-0.3, -0.35),
+          radius: 1.15,
+          colors: [Color(0xFF322D3D), Color(0xFF17151E), Color(0xFF0B0A0F)],
+          stops: [0.0, 0.62, 1.0],
         ).createShader(Rect.fromCircle(center: c, radius: r)),
     );
 
-    // Oluklar.
-    final groove = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..color = Colors.white.withValues(alpha: 0.07);
-    for (var k = 0.52; k < 0.98; k += 0.14) {
-      canvas.drawCircle(c, r * k, groove);
+    // OLUKLAR — dönüşümlü açıklıkta ince çizgi demetleri, gerçek bir plağın
+    // basım oluklarını taklit eder (hepsi aynı tonda olsaydı düz bir desen
+    // gibi görünürdü).
+    var i = 0;
+    for (var k = 0.50; k < 0.97; k += 0.07) {
+      final fade = i.isEven ? 0.045 : 0.095;
+      canvas.drawCircle(
+        c,
+        r * k,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.7
+          ..color = Colors.white.withValues(alpha: fade),
+      );
+      i++;
     }
 
-    // Işık huzmesi — iki karşıt yay.
-    final sheen = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = r * 0.28
-      ..color = Colors.white.withValues(alpha: 0.10);
-    canvas.drawArc(
-      Rect.fromCircle(center: c, radius: r * 0.72),
-      -1.9,
-      0.9,
-      false,
-      sheen,
-    );
-    canvas.drawArc(
-      Rect.fromCircle(center: c, radius: r * 0.72),
-      1.25,
-      0.55,
-      false,
-      sheen..color = Colors.white.withValues(alpha: 0.05),
-    );
-
-    // Etiket.
+    // ETİKET.
     final lr = r * 0.42;
     canvas.drawCircle(
       c,
@@ -332,8 +403,18 @@ class _VinylPainter extends CustomPainter {
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFF69A8), Color(0xFFD91A73)],
+          colors: [_kLabelTop, _kLabelBottom],
         ).createShader(Rect.fromCircle(center: c, radius: lr)),
+    );
+    // Etiketin kenar gölgesi — plağa SONRADAN yapıştırılmış gerçek bir
+    // kağıt etiketin ince kabarıklığı.
+    canvas.drawCircle(
+      c,
+      lr,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.6
+        ..color = Colors.black.withValues(alpha: 0.18),
     );
 
     // Etiketteki nota — kapağı "müzik" yapan işaret.
@@ -348,12 +429,66 @@ class _VinylPainter extends CustomPainter {
       note,
     );
 
-    // İğne deliği.
-    canvas.drawCircle(c, r * 0.05, Paint()..color = const Color(0xFF15141A));
+    // İĞNE DELİĞİ — koyu çekirdek + ince çevre halkası, deliğe derinlik
+    // (gömüklük) hissi katar.
+    canvas.drawCircle(c, r * 0.065, Paint()..color = Colors.black.withValues(alpha: 0.35));
+    canvas.drawCircle(c, r * 0.05, Paint()..color = const Color(0xFF0B0A0F));
   }
 
   @override
   bool shouldRepaint(_VinylPainter oldDelegate) => false;
+}
+
+/// SABİT (dönmeyen) ışık huzmesi katmanı.
+///
+/// Gerçek bir plak dönerken ışık kaynağı hareket etmez; disk onun altından
+/// geçer. Bu yüzden bu katman [_VinylPainter]'ın TERSİNE `RotationTransition`
+/// içinde DEĞİLDİR — sabit kalır, altındaki disk döner. Sonuç: dönüş gözle
+/// gerçekten görülür (statik bir doku değil, üzerinde kayan bir yansıma).
+class _VinylSheenPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.shortestSide / 2;
+
+    canvas.save();
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: c, radius: r)));
+
+    // Geniş, yumuşak çapraz parlama.
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          stops: const [0.0, 0.55],
+          colors: [
+            Colors.white.withValues(alpha: 0.22),
+            Colors.white.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromCircle(center: c, radius: r)),
+    );
+
+    // Küçük, keskin ışık noktası — üst sol, gerçek bir spot ışığı gibi.
+    final hotspot = Offset(c.dx - r * 0.42, c.dy - r * 0.46);
+    canvas.drawCircle(
+      hotspot,
+      r * 0.38,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.55),
+            Colors.white.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromCircle(center: hotspot, radius: r * 0.38)),
+    );
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_VinylSheenPainter oldDelegate) => false;
 }
 
 /// Kapağın köşesindeki oynayan ekolayzır. Müzik durunca çubuklar en alt
@@ -412,8 +547,15 @@ class _EqualizerBadgeState extends State<_EqualizerBadge>
       height: widget.size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFF12111A).withValues(alpha: 0.92),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        color: _kInk.withValues(alpha: 0.92),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.26)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: AnimatedBuilder(
         animation: _c,
@@ -451,7 +593,14 @@ class _EqualizerPainter extends CustomPainter {
     var x = (size.width - total) / 2;
     final bottom = size.height * 0.74;
     final maxH = size.height * 0.48;
-    final paint = Paint()..color = Colors.white.withValues(alpha: 0.95);
+    // TEK bir dikey gradyan tüm çubuklarda paylaşılır: dip koyu pembe, uç
+    // beyaza açar — gerçek bir VU-metre gibi "parlıyor" hissi verir.
+    final paint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [_kLabelBottom, Colors.white],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     for (var i = 0; i < phases.length; i++) {
       final wave = playing
@@ -747,7 +896,7 @@ class _ProgressLine extends StatelessWidget {
                       ? '${_mmss(value.position)} / ${_mmss(value.total)}'
                       : _mmss(value.position),
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.72),
+                    color: Colors.white.withValues(alpha: 0.78),
                     fontSize: 9.5,
                     height: 1,
                     fontWeight: FontWeight.w600,
@@ -765,7 +914,9 @@ class _ProgressLine extends StatelessWidget {
 
 /// Çizginin kendisi. [fraction] null ise (uzunluk henüz bilinmiyor) sağa
 /// doğru süzülen bir parıltı gösterir — "çalışıyor ama nerede olduğunu
-/// bilmiyorum" durumunun dürüst karşılığı.
+/// bilmiyorum" durumunun dürüst karşılığı. Bilinen bir konumda, dolgunun
+/// ucunda küçük bir "topuz" (thumb) durur — modern oynatıcı çubuklarının
+/// imzası, buradaki sürüklenemez ama okunurluğu artırır.
 class _Bar extends StatefulWidget {
   final double? fraction;
   final bool playing;
@@ -777,16 +928,25 @@ class _Bar extends StatefulWidget {
 }
 
 class _BarState extends State<_Bar> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1500),
-  );
+  // Controller initState'te kurulur, alan initializer'inda DEGIL.
+  //
+  // `late final ... = AnimationController(vsync: this)` tembeldir: sarki
+  // uzunlugu biliniyorsa `_indeterminate` hic true olmuyor ve controller'a
+  // yalnizca dispose() icinde dokunuluyordu. Initializer o an calisiyor,
+  // SingleTickerProviderStateMixin.createTicker TickerMode.of(context) okuyor
+  // ve deactive element uzerinde "Looking up a deactivated widget's ancestor
+  // is unsafe" firliyordu (30 gunluk hata listesindeki en sik tekil kaynak).
+  late final AnimationController _c;
 
   bool get _indeterminate => widget.fraction == null && widget.playing;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
     if (_indeterminate) _c.repeat();
   }
 
@@ -808,64 +968,111 @@ class _BarState extends State<_Bar> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // Yükseklik 8: görünen çizgi yine 3px ince kalır, kalan yer thumb'a
+    // taşma alanı sağlar (Positioned + Clip.none yerine sabit yükseklik —
+    // dış Row'un boyunu şaşırtmayan, öngörülebilir bir çözüm).
     return SizedBox(
-      height: 3,
+      height: 8,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final w = constraints.maxWidth;
+          final fraction = widget.fraction;
           return Stack(
+            alignment: Alignment.centerLeft,
             children: [
               // Yol.
-              Positioned.fill(
+              Positioned(
+                left: 0,
+                right: 0,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.20),
+                    color: Colors.white.withValues(alpha: 0.22),
                     borderRadius: BorderRadius.circular(2),
                   ),
+                  child: const SizedBox(height: 3),
                 ),
               ),
-              if (widget.fraction != null)
+              if (fraction != null) ...[
                 // Dolgu. 260 ms'lik yumuşatma, konum bildirimleri arasındaki
                 // sıçramayı akışa çevirir.
-                AnimatedContainer(
+                Positioned(
+                  left: 0,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.linear,
+                    width: w * fraction,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [_kLabelBottom, _kLabelTop],
+                      ),
+                      borderRadius: BorderRadius.circular(2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _kLabelTop.withValues(alpha: 0.55),
+                          blurRadius: 5,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                AnimatedPositioned(
                   duration: const Duration(milliseconds: 260),
                   curve: Curves.linear,
-                  width: w * widget.fraction!,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    borderRadius: BorderRadius.circular(2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        blurRadius: 5,
+                  left: _thumbLeft(w, fraction),
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.28),
+                          blurRadius: 2,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Container(
+                      width: 3.2,
+                      height: 3.2,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _kLabelBottom,
                       ),
-                    ],
+                    ),
                   ),
-                )
-              else if (widget.playing)
+                ),
+              ] else if (widget.playing)
                 // Parıltı Positioned ile DEĞİL, Align ile konumlanır:
                 // Positioned yalnızca Stack'in DOĞRUDAN çocuğu olabilir,
                 // AnimatedBuilder'ın içinden verilseydi çalışma anında
                 // "Incorrect use of ParentDataWidget" ile patlardı.
-                Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _c,
-                    builder: (context, child) => Align(
-                      alignment: Alignment(-1 + 2 * _c.value, 0),
-                      child: child,
-                    ),
-                    child: Container(
-                      width: w * 0.34,
-                      height: 3,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(2),
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.white.withValues(alpha: 0),
-                            Colors.white.withValues(alpha: 0.85),
-                            Colors.white.withValues(alpha: 0),
-                          ],
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  child: SizedBox(
+                    height: 3,
+                    child: AnimatedBuilder(
+                      animation: _c,
+                      builder: (context, child) => Align(
+                        alignment: Alignment(-1 + 2 * _c.value, 0),
+                        child: child,
+                      ),
+                      child: Container(
+                        width: w * 0.34,
+                        height: 3,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(2),
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.white.withValues(alpha: 0),
+                              Colors.white.withValues(alpha: 0.85),
+                              Colors.white.withValues(alpha: 0),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -877,14 +1084,23 @@ class _BarState extends State<_Bar> with SingleTickerProviderStateMixin {
       ),
     );
   }
+
+  /// Thumb'ın sol konumu — çok dar genişliklerde (ör. geçiş anındaki 0
+  /// piksellik ilk kare) `clamp`'in alt sınır > üst sınır olup fırlatmasını
+  /// önler.
+  double _thumbLeft(double w, double fraction) {
+    final maxLeft = w > 8 ? w - 8 : 0.0;
+    return (w * fraction - 4).clamp(0.0, maxLeft);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // KÜÇÜK PARÇALAR
 // ---------------------------------------------------------------------------
 
-/// Dairesel denetim düğmesi. Basıldığında hafifçe küçülür — dokunuşun
-/// kaydedildiğini söyleyen en ucuz geri bildirim.
+/// Dairesel denetim düğmesi. Basıldığında hafifçe küçülür VE arka planı
+/// belirginleşir — dokunuşun kaydedildiğini söyleyen çift katmanlı, ucuz
+/// geri bildirim.
 class _RoundButton extends StatefulWidget {
   final IconData? icon;
   final String semantic;
@@ -919,7 +1135,11 @@ class _RoundButtonState extends State<_RoundButton> {
 
   @override
   Widget build(BuildContext context) {
-    final size = widget.filled ? 30.0 : 24.0;
+    // BİRİNCİL/İKİNCİL HİYERARŞİ: duraklat/çal dolu, gölgeli, koyu ikonlu
+    // bir "topuz"dur — göz önce oraya gider. Önceki/sonraki yalnızca ikon;
+    // arka planları yoktur, geri planda kalırlar (bkz. sınıf üstü not).
+    final size = widget.filled ? 34.0 : 26.0;
+    final glyphColor = widget.filled ? _kInk : Colors.white;
     return Semantics(
       button: true,
       label: widget.semantic,
@@ -932,25 +1152,39 @@ class _RoundButtonState extends State<_RoundButton> {
         child: AnimatedScale(
           scale: _down ? 0.88 : 1,
           duration: const Duration(milliseconds: 110),
-          child: Container(
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
             width: size,
             height: size,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: widget.filled ? 0.24 : 0),
-              border: widget.filled
-                  ? Border.all(color: Colors.white.withValues(alpha: 0.30))
+              color: widget.filled
+                  ? Colors.white.withValues(alpha: _down ? 0.82 : 0.94)
+                  : Colors.white.withValues(alpha: _down ? 0.16 : 0.0),
+              boxShadow: widget.filled
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                      BoxShadow(
+                        color: _kLabelTop.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                      ),
+                    ]
                   : null,
             ),
             child: widget.playPauseProgress != null
                 ? AnimatedIcon(
                     icon: AnimatedIcons.play_pause,
                     progress: widget.playPauseProgress!,
-                    color: Colors.white,
-                    size: 17,
+                    color: glyphColor,
+                    size: 18,
                   )
-                : Icon(widget.icon, color: Colors.white, size: 17),
+                : Icon(widget.icon, color: glyphColor, size: 18),
           ),
         ),
       ),

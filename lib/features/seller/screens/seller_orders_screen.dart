@@ -10,6 +10,7 @@ import '../../../core/widgets/invoice_info_widget.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/services/email_service.dart';
+import '../../../core/services/contact_lookup_service.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
 class SellerOrdersScreen extends StatefulWidget {
@@ -284,18 +285,22 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
               .toSet()
               .toList();
 
+          // Kurye ad/telefonu artik profiles'tan DOGRUDAN okunmuyor:
+          // bu sutunlar authenticated'a kapatiliyor (20260907110001).
+          // order_courier_contacts RPC'si, cagiranin siparisin dukkan
+          // sahibi oldugunu sunucuda dogrulayarak donuyor.
           final Map<String, Map<String, dynamic>> courierProfiles = {};
           if (courierIds.isNotEmpty) {
-            try {
-              final profilesRes = await _supabase
-                  .from('profiles')
-                  .select('id, full_name, phone')
-                  .inFilter('id', courierIds);
-              for (var p in profilesRes) {
-                courierProfiles[p['id'] as String] = Map<String, dynamic>.from(p);
-              }
-            } catch (e) {
-              debugPrint('Kurye profilleri yüklenemedi (RLS olabilir): $e');
+            final byOrder = await ContactLookupService()
+                .courierContactsByOrderId(orderIds.cast<String>());
+            for (final row in byOrder.values) {
+              final cid = row['courier_id']?.toString();
+              if (cid == null) continue;
+              courierProfiles[cid] = {
+                'id': cid,
+                'full_name': row['full_name'],
+                'phone': row['phone'],
+              };
             }
           }
 
@@ -452,10 +457,16 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           // sessiz geçiş tercih edildi).
           return;
         case OrderStatus.ready:
-          // "Sipariş Hazır" bildirimi kaldırıldı - bu durum müşteri tarafında
-          // gereksiz bildirim yoğunluğu yaratıyordu. Müşteri sadece "onaylandı"
-          // ve "yolda" aşamalarında bilgilendirilecek.
-          return;
+          // "Sipariş Hazır" bildirimi genel teslimat siparişlerinde hâlâ
+          // kaldırılmış durumda (gereksiz bildirim yoğunluğu). Ama "Gel Al"
+          // siparişinde müşteri bu bildirimi bekliyor olacak - kurye devreye
+          // girmeyeceği için "hazır" bilgisi olmadan müşteri ne zaman
+          // mağazaya gideceğini bilemez.
+          if (!order.isPickup) return;
+          title = 'Siparişiniz Hazır! 🎉';
+          content = '$shopName siparişinizi hazırladı. Mağazadan teslim alabilirsiniz.';
+          type = 'order_update';
+          break;
         case OrderStatus.onTheWay:
           title = 'Sipariş Yolda';
           content = '$shopName siparişiniz kuryeye teslim edildi ve yola çıktı.';
@@ -1841,7 +1852,30 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                     ),
                   ],
                 ),
-                
+
+                if (order.isPickup) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Text(
+                        '🏪 Gel Al - Müşteri mağazadan teslim alacak',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 16),
                 Container(height: 1, color: Colors.grey.shade200),
                 const SizedBox(height: 16),
@@ -2028,11 +2062,13 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         ),
                       );
                     } else if (!_hasOwnCourier &&
+                        !order.isPickup &&
                         (order.status == OrderStatus.ready ||
                          order.status == OrderStatus.confirmed ||
                          order.status == OrderStatus.preparing)) {
                       // Sipariş hazır ama platform kuryesi henüz atanmamış (sadece kendi
-                      // kuryesi olmayan satıcılar için anlamlıdır).
+                      // kuryesi olmayan satıcılar için anlamlıdır). "Gel Al" siparişinde
+                      // kurye hiç devreye girmeyeceği için bu uyarı yanıltıcı olurdu.
                       return Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Container(
@@ -2180,7 +2216,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   Widget _buildStatusActions(Order order, {String? courierStatus}) {
     // Kuryesi olmayan satıcılar için kurye çağır butonu (sadece hazır durumunda ve kurye atanmamışsa)
     final courierIsDelivered = courierStatus == 'delivered';
+    // "Gel Al" siparişinde müşteri mağazadan bizzat teslim alacağı için
+    // kurye hiçbir aşamada devreye girmemeli.
     final showCallCourierButton = !_hasOwnCourier &&
+        !order.isPickup &&
         order.status == OrderStatus.ready &&
         courierStatus == null;
 
@@ -2253,6 +2292,37 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         );
 
       case OrderStatus.ready:
+        // "Gel Al": kurye yok, "Yola Çıkar" anlamsız. Sipariş müşterinin
+        // "Teslim Aldım" onayıyla kapanır (confirm_pickup_order_received);
+        // satıcının kazancı da o anda işlenir. Burada yalnız bekleme durumu
+        // gösterilir - aksi halde satıcı ekranı tamamen aksiyonsuz kalıyordu.
+        if (order.isPickup) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.storefront, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Müşterinin teslim alması bekleniyor',
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -2566,24 +2636,6 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     return null;
   }
 
-  // Kullanıcı ID'sinden telefon numarasını çek (profiles tablosundan)
-  Future<String?> _getCustomerPhone(String userId) async {
-    try {
-      final response = await _supabase
-          .from('profiles')
-          .select('phone')
-          .eq('id', userId)
-          .maybeSingle();
-      
-      if (response != null) {
-        return response['phone'] as String?;
-      }
-    } catch (e) {
-      debugPrint('Telefon numarası alınırken hata: $e');
-    }
-    return null;
-  }
-
   // Müşteriyi ara
   Future<void> _callCustomer(String phoneNumber) async {
     try {
@@ -2650,18 +2702,22 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     try {
       final response = await _supabase
           .from('courier_assignments')
-          .select('''
-            id, status, picked_up_at, delivered_at,
-            courier:profiles!courier_assignments_courier_id_fkey(id, full_name, phone)
-          ''')
+          .select('id, status, picked_up_at, delivered_at')
           .eq('order_id', orderId)
           .maybeSingle();
-      
+
       if (response == null) return null;
-      
+
+      // Kurye ad/telefonu profiles'tan DOGRUDAN okunmuyor: bu sutunlar
+      // authenticated rolunden kaldiriliyor (20260907110001).
+      // order_courier_contacts RPC'si, cagiranin siparisin dukkan sahibi
+      // (veya kurye/musteri/admin) oldugunu sunucuda dogrular.
+      final contact = (await ContactLookupService()
+          .courierContactsByOrderId([orderId]))[orderId];
+
       return {
-        'courier_name': response['courier']?['full_name'] ?? 'Bilinmeyen Kurye',
-        'courier_phone': response['courier']?['phone'] ?? '',
+        'courier_name': contact?['full_name'] ?? 'Bilinmeyen Kurye',
+        'courier_phone': contact?['phone'] ?? '',
         'status': response['status'] ?? 'pending',
         'picked_up_at': response['picked_up_at'],
         'delivered_at': response['delivered_at'],

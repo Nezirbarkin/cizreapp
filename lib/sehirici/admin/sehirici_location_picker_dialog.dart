@@ -7,6 +7,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../models/sehirici_models.dart';
 import '../utils/sehirici_route_geometry.dart';
+import '../../core/theme/app_map_style.dart';
+import '../../core/widgets/map_controls.dart';
 
 /// Çoklu seçim modunda haritadan toplanan tek bir durak adayı.
 class SehiriciPickedStop {
@@ -334,10 +336,25 @@ class _SehiriciLocationPickerDialogState
     );
   }
 
+  /// Cam zoom butonları için ortak kamera hareketi.
+  Future<void> _zoomBy(double delta) async {
+    final c = await _mapCtl.future;
+    await c.animateCamera(CameraUpdate.zoomBy(delta));
+  }
+
   Widget _map() {
+    // Harita görünümü (Otomatik/Açık/Koyu) harita üstündeki düğmeyle
+    // değiştirilir; MapStyleBuilder tercihi anında uygular.
+    return MapStyleBuilder(
+      builder: (context, mapStyle) => _mapSurface(mapStyle),
+    );
+  }
+
+  Widget _mapSurface(String mapStyle) {
     return Stack(
       children: [
         GoogleMap(
+          style: mapStyle,
           initialCameraPosition: CameraPosition(
             target: LatLng(widget.initialLat, widget.initialLng),
             zoom: widget.initialZoom,
@@ -349,38 +366,32 @@ class _SehiriciLocationPickerDialogState
           markers: _buildMarkers(),
           polylines: _buildPolylines(),
           myLocationButtonEnabled: false,
-          zoomControlsEnabled: true,
+          // Gömülü gri zoom kutuları yerine cam kontroller.
+          zoomControlsEnabled: false,
           mapToolbarEnabled: false,
+          // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+          tiltGesturesEnabled: false,
+          buildingsEnabled: false,
+          mapType: MapType.normal,
+        ),
+        Positioned(
+          right: 12,
+          bottom: 64,
+          child: MapZoomControls(
+            onZoomIn: () => _zoomBy(1),
+            onZoomOut: () => _zoomBy(-1),
+            showThemeToggle: true,
+          ),
         ),
         Positioned(
           left: 12,
           right: 12,
           bottom: 12,
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  const Icon(Icons.touch_app, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isMulti
-                          ? 'Güzergâh üzerinde durak sırasıyla haritaya '
-                              'dokunun. Pinleri sürükleyerek düzeltebilirsiniz.'
-                          : 'Durağın olacağı noktaya dokunun veya pini '
-                              'sürükleyin.',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          child: MapHintBar(
+            text: _isMulti
+                ? 'Güzergâh üzerinde durak sırasıyla haritaya dokunun. '
+                    'Pinleri sürükleyerek düzeltebilirsiniz.'
+                : 'Durağın olacağı noktaya dokunun veya pini sürükleyin.',
           ),
         ),
       ],

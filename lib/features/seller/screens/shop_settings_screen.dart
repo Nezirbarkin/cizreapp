@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/shop_service.dart';
+import '../../../core/models/address_model.dart';
+import '../../market/screens/address_picker_screen.dart';
 
 class ShopSettingsScreen extends StatefulWidget {
   const ShopSettingsScreen({super.key});
@@ -40,6 +42,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   final _descriptionController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  final _emailController = TextEditingController();
   final _minOrderController = TextEditingController();
   final _freeDeliveryController = TextEditingController();
   final _deliveryTimeController = TextEditingController();
@@ -47,6 +50,25 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
 
   // Kurye durumu
   bool _hasOwnCourier = false;
+
+  // Admin fiyat müdahalesi (shops.pre_override_* dolu olduğunda aktif).
+  // Müdahale açıkken canlı teslimat ücreti / min. sepet tutarı admin'in
+  // belirlediği değerdir; bu ekrandaki alanlar satıcının kendi (müdahale
+  // kalkınca geçerli olacak) değerini gösterir ve oraya yazar.
+  double? _adminOverrideDeliveryFee;
+  double? _adminOverrideMinOrder;
+  String? _adminOverrideDeliveryTime;
+  String? _adminOverrideNote;
+
+  bool get _hasAdminPricingOverride =>
+      _adminOverrideDeliveryFee != null ||
+      _adminOverrideMinOrder != null ||
+      _adminOverrideDeliveryTime != null;
+
+  // Mağaza konumu (harita ile seçilir) ve "Gel Al" aktifliği
+  double? _latitude;
+  double? _longitude;
+  bool _pickupEnabled = false;
 
   // Working hours
   Map<String, dynamic> _workingHours = {};
@@ -72,6 +94,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     _descriptionController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _emailController.dispose();
     _minOrderController.dispose();
     _freeDeliveryController.dispose();
     _deliveryTimeController.dispose();
@@ -100,12 +123,40 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
         _descriptionController.text = shop['description'] ?? '';
         _phoneController.text = shop['phone'] ?? '';
         _addressController.text = shop['address'] ?? '';
-        _minOrderController.text = (shop['min_order_amount'] ?? 0).toString();
+        _emailController.text = shop['email'] ?? '';
+        // Admin müdahalesi varsa alanlar satıcının KENDİ değerini gösterir
+        // (pre_override_*); canlı fiyat admin'in koyduğu değerdir ve
+        // aşağıdaki uyarı kutusunda ayrıca belirtilir.
+        final sellerMinOrder = (shop['pre_override_min_order_amount'] as num?)
+            ?.toDouble();
+        final sellerDeliveryFee = (shop['pre_override_delivery_fee'] as num?)
+            ?.toDouble();
+        // Yedekteki boş dize "satıcının süresi yoktu" sentinel'idir.
+        final sellerDeliveryTime =
+            shop['pre_override_delivery_time'] as String?;
+        _adminOverrideMinOrder = sellerMinOrder == null
+            ? null
+            : (shop['min_order_amount'] as num?)?.toDouble();
+        _adminOverrideDeliveryFee = sellerDeliveryFee == null
+            ? null
+            : (shop['delivery_fee'] as num?)?.toDouble();
+        _adminOverrideDeliveryTime = sellerDeliveryTime == null
+            ? null
+            : (shop['delivery_time'] as String? ?? '');
+        _adminOverrideNote = shop['admin_pricing_override_note'] as String?;
+
+        _minOrderController.text =
+            (sellerMinOrder ?? shop['min_order_amount'] ?? 0).toString();
         _freeDeliveryController.text = (shop['free_delivery_min_amount'] ?? 0).toString();
-        _deliveryTimeController.text = shop['delivery_time'] ?? '30-45 dakika';
-        _deliveryFeeController.text = (shop['delivery_fee'] ?? 0).toString();
+        _deliveryTimeController.text =
+            sellerDeliveryTime ?? shop['delivery_time'] ?? '30-45 dakika';
+        _deliveryFeeController.text =
+            (sellerDeliveryFee ?? shop['delivery_fee'] ?? 0).toString();
         _hasOwnCourier = shop['has_own_courier'] ?? false;
         _selectedCategoryId = shop['category_id'];
+        _latitude = (shop['latitude'] as num?)?.toDouble();
+        _longitude = (shop['longitude'] as num?)?.toDouble();
+        _pickupEnabled = shop['pickup_enabled'] ?? false;
 
         _workingHours = shop['working_hours'] != null
             ? Map<String, dynamic>.from(shop['working_hours'])
@@ -169,8 +220,73 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     }
   }
 
+  /// Haritadan mağaza konumu seçtirir; dönen adresten lat/lng (ve adres
+  /// boşsa tam adres metnini) alır. Yeni harita kodu yazmak yerine müşteri
+  /// tarafındaki `AddressPickerScreen` aynen yeniden kullanılıyor.
+  Future<void> _pickShopLocation() async {
+    final result = await Navigator.push<Address>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddressPickerScreen(
+          initialLatitude: _latitude,
+          initialLongitude: _longitude,
+          initialAddress: _addressController.text.trim(),
+        ),
+      ),
+    );
+
+    if (result == null) return;
+    final lat = result.latitude;
+    final lng = result.longitude;
+    if (lat == null || lng == null) return;
+
+    setState(() {
+      _latitude = lat;
+      _longitude = lng;
+      if (_addressController.text.trim().isEmpty) {
+        _addressController.text = result.fullAddress;
+      }
+    });
+  }
+
+  /// "Gel Al" switch'i: telefon/adres/konum tamamlanmadan açılmasına izin
+  /// vermez — müşteri/kurye eksik bilgiyle mağazayı bulamaz.
+  void _onPickupEnabledChanged(bool value) {
+    if (value) {
+      final missingInfo = _phoneController.text.trim().isEmpty ||
+          _addressController.text.trim().isEmpty ||
+          _latitude == null ||
+          _longitude == null;
+      if (missingInfo) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Gel Al\'ı aktif etmeden önce telefon, adres ve haritadan konum bilgisini eksiksiz girin',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+    setState(() => _pickupEnabled = value);
+  }
+
   Future<void> _saveBasicInfo() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // "Gel Al" aktifken konum zorunlu; switch açılırken de kontrol ediliyor
+    // ama kaydetme anında da savunma amaçlı tekrar doğrulanıyor (ör. konum
+    // sonradan temizlenmiş olabilir).
+    if (_pickupEnabled && (_latitude == null || _longitude == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gel Al aktifken mağaza konumunu haritadan seçmelisiniz'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isSaving = true);
     try {
@@ -197,6 +313,10 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
         address: _addressController.text.trim(),
         logoUrl: logoUrl,
         coverImage: coverUrl,
+        email: _emailController.text.trim(),
+        latitude: _latitude,
+        longitude: _longitude,
+        pickupEnabled: _pickupEnabled,
       );
       
 
@@ -578,6 +698,27 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.phone,
+                // Admin ve kurye müşteriye/dükkana ulaşabilsin diye telefon
+                // artık zorunlu. Mevcut boş kayıtlar bloklanmaz, sadece bir
+                // dahaki güncellemede doldurulması istenir.
+                validator: (value) =>
+                    value?.trim().isEmpty ?? true ? 'Telefon gerekli' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'E-posta',
+                  prefixIcon: Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  final v = value?.trim() ?? '';
+                  if (v.isEmpty) return 'E-posta gerekli';
+                  if (!v.contains('@')) return 'Geçerli bir e-posta girin';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -588,8 +729,44 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 2,
+                validator: (value) =>
+                    value?.trim().isEmpty ?? true ? 'Adres gerekli' : null,
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _pickShopLocation,
+                icon: const Icon(Icons.map_outlined),
+                label: Text(
+                  _latitude != null && _longitude != null
+                      ? 'Konum Seçildi — Değiştir'
+                      : 'Haritadan Konum Seç',
+                ),
+              ),
+              if (_latitude != null && _longitude != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Mağaza konumu kaydedildi',
+                      style: TextStyle(color: Colors.green.shade700, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _pickupEnabled,
+                onChanged: _onPickupEnabledChanged,
+                title: const Text('Gel Al (Mağazadan Teslim) Aktif'),
+                subtitle: const Text(
+                  'Müşteriler siparişlerini kurye beklemeden mağazanızdan teslim alabilir',
+                ),
+                activeThumbColor: Colors.orange.shade700,
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -750,7 +927,78 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
               ],
             ),
             const Divider(height: 24),
-            
+
+            // Admin fiyat müdahalesi uyarısı: müdahale kaldırılana kadar
+            // müşteriye gösterilen değer admin'in belirlediği değerdir.
+            if (_hasAdminPricingOverride) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.campaign, color: Colors.amber.shade800),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Yönetici fiyat müdahalesi açık',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Şu an müşterilere uygulanan: '
+                            '${_adminOverrideDeliveryFee != null ? 'teslimat ₺${_adminOverrideDeliveryFee!.toStringAsFixed(2)}' : 'teslimat (değişmedi)'}'
+                            ' • '
+                            '${_adminOverrideMinOrder != null ? 'min. sepet ₺${_adminOverrideMinOrder!.toStringAsFixed(2)}' : 'min. sepet (değişmedi)'}'
+                            ' • '
+                            '${_adminOverrideDeliveryTime != null ? 'süre ${_adminOverrideDeliveryTime!.isEmpty ? '—' : _adminOverrideDeliveryTime!}' : 'süre (değişmedi)'}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Aşağıda girdiğiniz değerler kaydedilir ve yönetici '
+                            'müdahaleyi kaldırdığında otomatik olarak geçerli olur.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                          if (_adminOverrideNote != null &&
+                              _adminOverrideNote!.trim().isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Gerekçe: ${_adminOverrideNote!}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.amber.shade900,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Kurye durumu gösterimi (sadece okuma)
             Container(
               padding: const EdgeInsets.all(16),

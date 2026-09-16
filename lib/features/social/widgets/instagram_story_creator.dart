@@ -6,15 +6,22 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/services/permission_service.dart';
+import '../../../core/widgets/text_background.dart';
 
 // Instagram tarzı story oluşturma widget'ı
 class InstagramStoryCreator extends StatefulWidget {
   final ImagePicker imagePicker;
   final Function(XFile, String) onMediaSelected;
 
+  /// Arka planlı METİN hikayesi seçildiğinde çağrılır (yüklenecek dosya yok).
+  /// Verilmezse "Metin" seçeneği gösterilmez — böylece bu widget'ı kullanan
+  /// eski çağrı yerleri değişmeden çalışır.
+  final void Function(String text, String backgroundId)? onTextStory;
+
   const InstagramStoryCreator({
     required this.imagePicker,
     required this.onMediaSelected,
+    this.onTextStory,
   });
 
   @override
@@ -27,9 +34,23 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
   bool _isUploading = false;
   VideoPlayerController? _videoController;
 
+  // ---- Metin hikayesi durumu ----
+  /// Metin besteci modunda mıyız? (Medya seçimi yerine yazı + zemin.)
+  bool _isTextMode = false;
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocus = FocusNode();
+
+  /// Metin hikayesinin zemini. Hikayede "arka plansız" seçenek YOKTUR:
+  /// görsel olmadığı için yazının üzerine oturacağı bir zemin şart.
+  String _textBackgroundId = kTextBackgrounds.first.id;
+
+  String get _storyText => _textController.text.trim();
+
   @override
   void dispose() {
     _videoController?.dispose();
+    _textController.dispose();
+    _textFocus.dispose();
     super.dispose();
   }
 
@@ -63,23 +84,40 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
     final screenSize = MediaQuery.of(context).size;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
-      height: screenSize.height * 0.92,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          // Üst kısım: Kapat butonu, başlık, İleri butonu
-          _buildTopBar(isDark),
-          // Ana alan: Önizleme veya kamera/galeri placeholder
-          Expanded(
-            child: _buildPreviewArea(isDark),
-          ),
-        ],
+    // Metin modunda klavye açılıyor: sayfa yüksekliğinden klavyeyi düşürmezsek
+    // zemin tuvali klavyenin altında kalıyor ve yazdığını göremiyorsun.
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final maxHeight = screenSize.height * 0.92;
+    final height = (maxHeight - bottomInset).clamp(240.0, maxHeight);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Üst kısım: Kapat butonu, başlık, İleri butonu
+            _buildTopBar(isDark),
+            // Ana alan: Önizleme, metin bestecisi veya kamera/galeri placeholder
+            Expanded(
+              child: _isTextMode
+                  ? _buildTextComposer()
+                  : _buildPreviewArea(isDark),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// "İleri" oku etkin mi? Medya seçildiyse veya metin yazıldıysa.
+  bool get _canProceed {
+    if (_isUploading) return false;
+    return _isTextMode ? _storyText.isNotEmpty : _selectedMedia != null;
   }
 
   Widget _buildTopBar(bool isDark) {
@@ -100,17 +138,30 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Kapat (X) butonu
+            // Kapat (X) / metin modundan geri dön
             IconButton(
-              onPressed: _isUploading ? null : () => Navigator.pop(context),
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: _isUploading
+                  ? null
+                  : () {
+                      if (_isTextMode) {
+                        setState(() => _isTextMode = false);
+                        _textFocus.unfocus();
+                      } else {
+                        Navigator.pop(context);
+                      }
+                    },
+              icon: Icon(
+                _isTextMode ? Icons.arrow_back : Icons.close,
+                color: Colors.white,
+                size: 28,
+              ),
               padding: const EdgeInsets.all(12),
               constraints: const BoxConstraints(),
             ),
             // Başlık
-            const Text(
-              'Hikaye Oluştur',
-              style: TextStyle(
+            Text(
+              _isTextMode ? 'Metin Hikayesi' : 'Hikaye Oluştur',
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -119,12 +170,10 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
             ),
             // İleri butonu
             IconButton(
-              onPressed: _selectedMedia != null && !_isUploading ? _onNext : null,
+              onPressed: _canProceed ? _onNext : null,
               icon: Icon(
                 Icons.arrow_forward,
-                color: _selectedMedia != null && !_isUploading
-                    ? Colors.white
-                    : Colors.white38,
+                color: _canProceed ? Colors.white : Colors.white38,
                 size: 28,
               ),
               padding: const EdgeInsets.all(12),
@@ -250,6 +299,16 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
                       onTap: () => _pickVideo(),
                       isDark: isDark,
                     ),
+                    // Arka planlı metin hikayesi (fotoğraf gerekmez).
+                    if (widget.onTextStory != null) ...[
+                      const SizedBox(width: 24),
+                      _buildQuickOption(
+                        icon: Icons.text_fields_rounded,
+                        label: 'Metin',
+                        onTap: _openTextMode,
+                        isDark: isDark,
+                      ),
+                    ],
                   ],
                 ),
               ],
@@ -314,6 +373,98 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
           ),
         ],
       ),
+    );
+  }
+
+  void _openTextMode() {
+    setState(() {
+      _isTextMode = true;
+      _selectedMedia = null;
+      _mediaType = null;
+    });
+    // Klavye hemen açılsın: kullanıcı ikinci bir dokunuş yapmak zorunda kalmasın.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _textFocus.requestFocus();
+    });
+  }
+
+  /// Arka planlı metin hikayesi bestecisi.
+  ///
+  /// Yazı, gönderi/feed tarafıyla AYNI punto hesabını kullanır
+  /// ([textBackgroundFontSize]); böylece burada gördüğün kompozisyon hikaye
+  /// açıldığında birebir aynı çıkar.
+  Widget _buildTextComposer() {
+    final background = textBackgroundOrDefault(_textBackgroundId);
+
+    return Column(
+      children: [
+        Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: background.gradient),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final shortest = constraints.maxWidth < constraints.maxHeight
+                    ? constraints.maxWidth
+                    : constraints.maxHeight;
+                final fontSize = textBackgroundFontSize(_storyText, shortest);
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 26,
+                    vertical: 24,
+                  ),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: TextField(
+                        controller: _textController,
+                        focusNode: _textFocus,
+                        maxLines: null,
+                        maxLength: 280,
+                        textAlign: TextAlign.center,
+                        textCapitalization: TextCapitalization.sentences,
+                        cursorColor: background.textColor,
+                        onChanged: (_) => setState(() {}),
+                        style: TextStyle(
+                          color: background.textColor,
+                          fontSize: fontSize,
+                          height: 1.3,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                        decoration: InputDecoration(
+                          counterText: '',
+                          border: InputBorder.none,
+                          isDense: true,
+                          hintText: 'Bir şeyler yaz...',
+                          hintStyle: TextStyle(
+                            color: background.textColor.withValues(alpha: 0.55),
+                            fontSize: fontSize,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        Container(
+          color: Colors.black,
+          child: SafeArea(
+            top: false,
+            child: TextBackgroundPicker(
+              selectedId: _textBackgroundId,
+              // Hikayede zemin zorunlu: "sade" seçeneği kapalı.
+              allowNone: false,
+              onSelected: (id) => setState(
+                () => _textBackgroundId = id ?? kTextBackgrounds.first.id,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -739,6 +890,18 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
   }
 
   Future<void> _onNext() async {
+    // Metin hikayesi: yüklenecek dosya yok, doğrudan satır açılır.
+    if (_isTextMode) {
+      final text = _storyText;
+      final onTextStory = widget.onTextStory;
+      if (text.isEmpty || onTextStory == null) return;
+
+      setState(() => _isUploading = true);
+      Navigator.pop(context);
+      onTextStory(text, _textBackgroundId);
+      return;
+    }
+
     if (_selectedMedia == null) return;
 
     setState(() => _isUploading = true);

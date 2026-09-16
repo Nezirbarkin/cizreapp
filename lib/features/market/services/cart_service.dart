@@ -289,21 +289,25 @@ class CartService {
     }
   }
 
-  // Dükkan teslimat bilgilerini getir (delivery_fee ve free_delivery_min_amount)
-  Future<Map<String, double>> getShopDeliveryInfo(String shopId) async {
+  // Dükkan teslimat bilgilerini getir (delivery_fee, free_delivery_min_amount
+  // ve pickup_enabled - "Gel Al" checkout ekranlarının dükkan bazında
+  // gösterilip gösterilmeyeceğini belirlemek için kullanılır)
+  Future<Map<String, dynamic>> getShopDeliveryInfo(String shopId) async {
     try {
       final response = await _supabase
           .from('shops')
-          .select('delivery_fee, free_delivery_min_amount')
+          .select('delivery_fee, free_delivery_min_amount, pickup_enabled')
           .eq('id', shopId)
           .single();
-      
+
       final deliveryFee = (response['delivery_fee'] as num?)?.toDouble() ?? 15.0;
       final freeDeliveryMinAmount = (response['free_delivery_min_amount'] as num?)?.toDouble() ?? 0.0;
-      
+      final pickupEnabled = response['pickup_enabled'] as bool? ?? false;
+
       return {
         'delivery_fee': deliveryFee,
         'free_delivery_min_amount': freeDeliveryMinAmount,
+        'pickup_enabled': pickupEnabled,
       };
     } catch (e) {
       // ignore: avoid_print
@@ -311,6 +315,7 @@ class CartService {
       return {
         'delivery_fee': 15.0,
         'free_delivery_min_amount': 0.0,
+        'pickup_enabled': false,
       };
     }
   }
@@ -318,7 +323,7 @@ class CartService {
   // Dükkan teslimat ücretini getir (geriye uyumluluk için)
   Future<double> getShopDeliveryFee(String shopId) async {
     final info = await getShopDeliveryInfo(shopId);
-    return info['delivery_fee'] ?? 15.0;
+    return (info['delivery_fee'] as num?)?.toDouble() ?? 15.0;
   }
 
   // Ücretsiz teslimat hesapla - sepet toplamına göre teslimat ücreti döndürür
@@ -458,10 +463,12 @@ class CartService {
         final shopId = entry.key;
         final shopItems = entry.value;
         
-        // Dükkan bilgilerini al (teslimat ücreti ve ücretsiz teslimat limiti için)
+        // Dükkan bilgilerini al (teslimat ücreti, ücretsiz teslimat limiti ve
+        // "Gel Al" aktifliği için)
         final deliveryInfo = await getShopDeliveryInfo(shopId);
-        final baseDeliveryFee = deliveryInfo['delivery_fee'] ?? 15.0;
-        final freeDeliveryMinAmount = deliveryInfo['free_delivery_min_amount'] ?? 0.0;
+        final baseDeliveryFee = (deliveryInfo['delivery_fee'] as num?)?.toDouble() ?? 15.0;
+        final freeDeliveryMinAmount = (deliveryInfo['free_delivery_min_amount'] as num?)?.toDouble() ?? 0.0;
+        final pickupEnabled = deliveryInfo['pickup_enabled'] as bool? ?? false;
         final shopName = shopItems.first.shopName ?? 'Dükkan';
         
         // Ara toplam hesapla — `effectivePrice` kullan (discount_price varsa onu)
@@ -490,9 +497,10 @@ class CartService {
           isFreeDelivery: deliveryFee == 0 && freeDeliveryMinAmount > 0,
           discount: clampedDiscount,
           couponCode: coupon?.code,
+          pickupEnabled: pickupEnabled,
         );
       }
-      
+
       return summaries;
     } catch (e) {
       throw Exception('Sepet gruplandırılırken hata: $e');
@@ -515,6 +523,9 @@ class ShopCartSummary {
   /// tutar `groupCartByShop` sırasında buraya yazılır.
   final double discount;
   final String? couponCode;
+  /// Dükkan "Gel Al" (mağazadan teslim) özelliğini aktif etmiş mi.
+  /// true ise checkout ekranında bu dükkan için pickup seçeneği gösterilebilir.
+  final bool pickupEnabled;
 
   ShopCartSummary({
     required this.shopId,
@@ -527,6 +538,7 @@ class ShopCartSummary {
     this.isFreeDelivery = false,
     this.discount = 0,
     this.couponCode,
+    this.pickupEnabled = false,
   });
 
   int get itemCount => items.fold<int>(0, (sum, item) => sum + item.quantity);

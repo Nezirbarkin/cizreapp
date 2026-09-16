@@ -420,7 +420,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       case 'comment':
       case 'post_comment':
-        // Yorum bildirimi - gönderi detayına git
+      case 'comment_reply':
+        // Yorum / yanıt bildirimi - gönderi detayına git
         if (notification.entityId != null) {
           try {
             // Post bilgilerini yükle
@@ -772,6 +773,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'mention':
       case 'comment_mention':
         return Icons.alternate_email;
+      case 'comment_reply':
+        return Icons.reply;
       case 'order':
         return Icons.shopping_cart;
       case 'order_update':
@@ -831,6 +834,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'shop_review':
         return Colors.orange;
       case 'shop_review_reply':
+        return Colors.teal;
+      case 'comment_reply':
         return Colors.teal;
       case 'review_request':
       case 'review_pending':

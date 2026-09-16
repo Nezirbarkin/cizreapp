@@ -29,6 +29,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 // Test edilecek production helper'ları doğrudan import etmek yerine, ekran
 // içindeki mantığı çıkardığımız için burada yeniden üretiyoruz. Bu sayede
@@ -70,24 +71,14 @@ bool isValidCoordinate(double? lat, double? lng) {
   return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
-/// SendPackageScreen._generateUuid'dan birebir kopyalanmış implementasyon.
-/// Üretim kodu değişirse bu test kırılır.
-String generateUuidV4() {
-  final r = DateTime.now().microsecondsSinceEpoch;
-  final bytes = List<int>.generate(
-    16,
-    (i) => ((r * (i + 1)) ^ (i * 0x9E3779B1)) & 0xFF,
-  );
-  bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
-  bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 1
-  String hex(int b) => b.toRadixString(16).padLeft(2, '0');
-  final h = bytes.map(hex).join();
-  return '${h.substring(0, 8)}-'
-      '${h.substring(8, 12)}-'
-      '${h.substring(12, 16)}-'
-      '${h.substring(16, 20)}-'
-      '${h.substring(20)}';
-}
+/// SendPackageScreen._generateUuid ile ayni uretici.
+///
+/// Eski elle yazilmis "v4" uretici bozuktu: her byte
+/// `(mikrosaniye * (i+1)) ^ (i*K)` idi ve 0xFF ile maskeleniyordu; iki
+/// zaman damgasi 256 us'nin kati kadar farkliysa 16 byte'in TAMAMI ayni
+/// cikiyordu. Bu test tam da o cakismayi yakaladi. Uretim kodu artik
+/// `uuid` paketini kullaniyor.
+String generateUuidV4() => const Uuid().v4();
 
 /// _submitRequest'in hata yorumlama mantığı. ÜRETIM KODU İLE BİREBİR AYNI
 /// olmalı; herhangi bir sapma regression testlerinde yakalanır.

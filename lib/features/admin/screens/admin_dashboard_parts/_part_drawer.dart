@@ -333,6 +333,15 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.smart_display_rounded,
+                    title: 'Tanıtım Videosu (Web)',
+                    isSelected: _selectedMenu == 'Tanıtım Videosu (Web)',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Tanıtım Videosu (Web)');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.directions_bus_rounded,
                     title: 'Şehiriçi Yönetimi',
                     isSelected: _selectedMenu == 'Şehiriçi Yönetimi',
@@ -356,6 +365,15 @@ extension on _AdminDashboardScreenState {
                     isSelected: _selectedMenu == 'Görev Yönetimi',
                     onTap: () {
                       setState(() => _selectedMenu = 'Görev Yönetimi');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.smart_toy_outlined,
+                    title: 'Bot Hesapları',
+                    isSelected: _selectedMenu == 'Bot Hesapları',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Bot Hesapları');
                       Navigator.pop(context);
                     },
                   ),

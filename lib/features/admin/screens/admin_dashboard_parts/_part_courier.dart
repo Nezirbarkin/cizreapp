@@ -314,6 +314,27 @@ extension on _AdminDashboardScreenState {
                           color: Colors.grey.shade600,
                         ),
                       ),
+                      if ((courier['phone'] as String?)?.isNotEmpty == true)
+                        Text(
+                          courier['phone'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.warning_amber_rounded,
+                                size: 12, color: Colors.orange.shade700),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Telefon eksik',
+                              style: TextStyle(fontSize: 11, color: Colors.orange.shade700),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),

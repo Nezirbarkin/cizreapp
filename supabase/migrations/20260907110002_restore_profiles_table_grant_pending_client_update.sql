@@ -1,0 +1,43 @@
+-- =============================================================================
+-- 20260907110001 kısmi geri alma: tablo seviyesi SELECT geri veriliyor
+-- =============================================================================
+-- NEDEN
+-- -----
+-- 20260907110001 `REVOKE ALL ON TABLE public.profiles FROM authenticated`
+-- uyguladı. Sütun seviyesi GRANT'ler doğru çalışıyor ANCAK PostgreSQL'de
+-- `SELECT *` ifadesi tablonun TÜM sütunlarına yetki ister; sütun bazlı
+-- GRANT bunu karşılamaz.
+--
+-- Canlıda doğrulandı (authenticated rolü altında):
+--   SELECT *                          -> "permission denied for table profiles"
+--   SELECT id, username, full_name    -> OK
+--
+-- Mağazadaki v1.3.0+35 istemcisinde `profiles` üzerinde 5 adet argümansız
+-- `.select()` (yani SELECT *) çağrısı var:
+--   lib/core/widgets/settings_sidebar.dart:120
+--   lib/features/auth/services/auth_service.dart:293      <-- oturum açılışı
+--   lib/features/courier/screens/courier_panel_screen.dart:354
+--   lib/features/profile/screens/edit_profile_screen.dart:59
+--   lib/features/profile/screens/profile_screen.dart:259
+--
+-- auth_service yolu oturum başlangıcında çalıştığı için REVOKE canlı
+-- kullanıcıları kilitleyebilirdi. Bu yüzden tablo seviyesi SELECT geri
+-- veriliyor.
+--
+-- ÖNEMLİ: Sütun seviyesi GRANT'ler (20260907110001'deki) KALIYOR. Tablo
+-- seviyesi GRANT onları gölgelediği için PII şu an yine okunabilir; bu
+-- migration bilinçli bir geçici geri adımdır.
+--
+-- KALICI ÇÖZÜM SIRASI
+-- -------------------
+--   1. lib/ içindeki 5 `SELECT *` çağrısı açık sütun listesine veya
+--      public.get_my_profile() RPC'sine çevrilir.
+--   2. email/phone/last_known_lat/lng okuyan 24 çağrı RPC'lere taşınır.
+--   3. Yeni istemci sürümü yayınlanır.
+--   4. `REVOKE SELECT ON TABLE public.profiles FROM authenticated;`
+--      tekrar uygulanır (sütun GRANT'leri zaten yerinde).
+-- =============================================================================
+
+GRANT SELECT ON TABLE public.profiles TO authenticated;
+
+NOTIFY pgrst, 'reload schema';

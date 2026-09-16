@@ -369,6 +369,52 @@ class StoryService {
     }
   }
 
+  /// Arka planlı metin hikayesi oluştur (görsel/video yok).
+  ///
+  /// DB tarafında `stories.image_url` NULL olabilir ve `media_type = 'text'`
+  /// için `text_content` zorunludur (20260909100001). Bu yüzden burada da boş
+  /// metin erkenden reddedilir; aksi halde CHECK ihlali kullanıcıya ham
+  /// Postgres hatası olarak dönerdi.
+  Future<Story?> createTextStory({
+    required String userId,
+    required String text,
+    required String background,
+    bool isPinned = false,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw Exception('Hikaye metni boş olamaz');
+    }
+
+    try {
+      final now = DateTime.now().toUtc();
+      final expiresAt = now.add(const Duration(hours: 24));
+
+      final response = await _supabase
+          .from('stories')
+          .insert({
+            'user_id': userId,
+            'image_url': null,
+            'media_type': 'text',
+            'text_content': trimmed,
+            'background': background,
+            'views_count': 0,
+            'is_pinned': isPinned,
+            'created_at': now.toIso8601String(),
+            'expires_at': expiresAt.toIso8601String(),
+          })
+          .select()
+          .maybeSingle();
+
+      if (response == null) return null;
+      debugPrint('Metin hikayesi oluşturuldu: ${response['id']}');
+      return Story.fromJson(response);
+    } catch (e) {
+      debugPrint('Metin hikayesi oluşturma HATASI: $e');
+      throw Exception('Hikaye oluşturulurken hata: $e');
+    }
+  }
+
   // Videoyu yükle ve thumbnail oluştur (tüm işlem bir arada)
   // Hem video URL'sini hem thumbnail URL'sini döndürür
   // Web ve Mobile uyumlu

@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/widgets/text_background.dart';
 import '../services/story_service.dart';
 import 'story_viewers_screen.dart';
 import '../../chat/services/chat_service.dart';
@@ -604,6 +605,13 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                         child: const Center(
                           child: CircularProgressIndicator(color: Colors.white),
                         ),
+                      )
+                    // Arka planlı metin hikayesi: görsel yok, zemin + yazı.
+                    else if (story.isText)
+                      TextBackgroundCanvas(
+                        background: textBackgroundOrDefault(story.background),
+                        text: (story.textContent ?? '').trim(),
+                        padding: const EdgeInsets.fromLTRB(28, 110, 28, 130),
                       )
                     else
                       CachedNetworkImage(

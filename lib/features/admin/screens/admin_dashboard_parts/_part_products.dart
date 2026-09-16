@@ -17,10 +17,29 @@ extension on _AdminDashboardScreenState {
   // Urunler + ekleme/duzenleme/silme dialoglari
   // ==========================================================================
 
+  // --- _refreshProductsList ---
+  /// _productsFuture'i yeniden olusturarak listeyi veritabanindan tazeler.
+  /// Ekleme/duzenleme/silme sonrasi cagrilir; ciplak setState(() {}) burada
+  /// YETERLI DEGIL cunku future artik build icinde degil state alaninda
+  /// tutuluyor (arama her tus vurusunda yeniden sorgu atmasin diye).
+  void _refreshProductsList() {
+    if (!mounted) return;
+    setState(() => _productsFuture = _loadProducts());
+  }
+
+  // --- _toggleProductPin ---
+  Future<void> _toggleProductPin(Map<String, dynamic> product) async {
+    final next = !(product['is_pinned'] as bool? ?? false);
+    await _togglePin('products', product['id'].toString(), next);
+    if (!mounted) return;
+    setState(() => product['is_pinned'] = next);
+  }
+
   // --- _buildProductsContent ---
   Widget _buildProductsContent() {
+    _productsFuture ??= _loadProducts();
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _loadProducts(),
+      future: _productsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -29,10 +48,22 @@ extension on _AdminDashboardScreenState {
           return Center(child: Text('Hata: ${snapshot.error}'));
         }
 
-        final products = snapshot.data ?? [];
+        final allProducts = snapshot.data ?? [];
+        final query = _productSearchQuery.trim().toLowerCase();
+        final products = query.isEmpty
+            ? allProducts
+            : allProducts.where((product) {
+                final name = (product['name'] as String?)?.toLowerCase() ?? '';
+                final shopName =
+                    (product['shops']?['name'] as String?)?.toLowerCase() ??
+                    '';
+                return name.contains(query) || shopName.contains(query);
+              }).toList();
+
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {});
+            _refreshProductsList();
+            await _productsFuture;
           },
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -57,6 +88,43 @@ extension on _AdminDashboardScreenState {
                   ],
                 ),
                 const SizedBox(height: 16),
+                TextField(
+                  controller: _productSearchController,
+                  onChanged: (value) {
+                    setState(() => _productSearchQuery = value);
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Ürün adı veya dükkan adı ara...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _productSearchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _productSearchController.clear();
+                              setState(() => _productSearchQuery = '');
+                            },
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                if (_productSearchQuery.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '${products.length} ürün bulundu',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
 
                 if (products.isEmpty)
                   Center(
@@ -65,18 +133,33 @@ extension on _AdminDashboardScreenState {
                       child: Column(
                         children: [
                           Icon(
-                            Icons.shopping_bag_outlined,
+                            _productSearchQuery.isNotEmpty
+                                ? Icons.search_off
+                                : Icons.shopping_bag_outlined,
                             size: 64,
                             color: Colors.grey.shade400,
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Ürün bulunamadı',
+                            _productSearchQuery.isNotEmpty
+                                ? 'Arama sonucu bulunamadı'
+                                : 'Ürün bulunamadı',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.grey.shade600,
                             ),
                           ),
+                          if (_productSearchQuery.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () {
+                                _productSearchController.clear();
+                                setState(() => _productSearchQuery = '');
+                              },
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Aramayı Temizle'),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -307,11 +390,7 @@ extension on _AdminDashboardScreenState {
                                     onSelected: (value) {
                                       switch (value) {
                                         case 'pin':
-                                          _togglePin(
-                                            'products',
-                                            product['id'],
-                                            !isProductPinned,
-                                          );
+                                          _toggleProductPin(product);
                                           break;
                                         case 'edit':
                                           _showEditProductDialog(product);
@@ -567,7 +646,7 @@ extension on _AdminDashboardScreenState {
 
                       if (mounted) {
                         Navigator.pop(context);
-                        setState(() {});
+                        _refreshProductsList();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Ürün başarıyla eklendi'),
@@ -808,7 +887,7 @@ extension on _AdminDashboardScreenState {
 
                       if (mounted) {
                         Navigator.pop(context);
-                        setState(() {});
+                        _refreshProductsList();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Ürün başarıyla güncellendi'),
@@ -876,7 +955,7 @@ extension on _AdminDashboardScreenState {
 
                 if (mounted) {
                   Navigator.pop(context);
-                  setState(() {});
+                  _refreshProductsList();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Ürün başarıyla silindi'),
@@ -898,7 +977,7 @@ extension on _AdminDashboardScreenState {
 
                     if (mounted) {
                       Navigator.pop(context);
-                      setState(() {});
+                      _refreshProductsList();
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(

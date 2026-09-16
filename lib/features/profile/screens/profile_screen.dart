@@ -10,6 +10,7 @@ import '../../../core/models/post_model.dart';
 import '../../../core/models/analytics_model.dart';
 import '../../../core/services/profile_view_service.dart';
 import '../../../core/services/post_view_service.dart';
+import '../../../core/widgets/text_background.dart';
 import '../../social/services/post_service.dart';
 import '../../social/services/story_service.dart';
 import '../services/follow_request_service.dart';
@@ -29,6 +30,10 @@ import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 import '../../../kullaniciozellikler/widgets/cover_effect_frame.dart';
 import '../../../kullaniciozellikler/screens/my_profile_features_screen.dart';
 import '../../../ilanlar/screens/my_ilanlar_screen.dart';
+import '../widgets/profile_post_grid.dart';
+import '../../social/widgets/social_post_card.dart';
+import '../../social/widgets/send_to_friend_sheet.dart';
+import 'user_profile_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String? userId;
@@ -255,9 +260,11 @@ class _ProfileScreenState extends State<ProfileScreen>
       // 1.5 saniye bekle ve tekrar dene (trigger'ın çalışması için zaman tanı)
       await Future.delayed(const Duration(milliseconds: 1500));
 
+      // Yalnizca varlik kontrolu; tum satiri cekmeye gerek yok.
+      // `select()` (SELECT *) sutun bazli GRANT ile calismaz.
       final existingProfile = await Supabase.instance.client
           .from('profiles')
-          .select()
+          .select('id')
           .eq('id', userId)
           .maybeSingle();
 
@@ -1273,227 +1280,20 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   // ===== GRID GÖRÜNÜMÜ =====
+  // ===== GRID GÖRÜNÜMÜ =====
+  // Izgara tasarımı iki profil ekranında ortak: ProfilePostGrid.
+  // (Gönderi konumu bu görünümde ne okunur ne gösterilir - konum
+  // davranışı bilinçli olarak değiştirilmedi.)
   Widget _buildGridView() {
-    return SliverPadding(
-      padding: const EdgeInsets.all(2),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 2,
-          crossAxisSpacing: 2,
-          childAspectRatio: 1.0,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final post = _userPosts[index];
-          final firstImage = post.images.isNotEmpty ? post.images.first : null;
-
-          return GestureDetector(
-            onTap: () => _navigateToPostDetail(post),
-            child: Container(
-              color: Colors.grey.shade200,
-              child: firstImage != null
-                  ? Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CachedNetworkImage(
-                          imageUrl: firstImage,
-                          fit: BoxFit.cover,
-                          errorWidget: (context, url, error) {
-                            return Container(
-                              color: Colors.grey.shade200,
-                              child: Icon(
-                                Icons.broken_image,
-                                color: Colors.grey.shade400,
-                              ),
-                            );
-                          },
-                        ),
-                        // Çoklu görsel göstergesi
-                        if (post.images.length > 1)
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.6),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.photo_library,
-                                    color: Colors.white,
-                                    size: 12,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    '1/${post.images.length}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        // Beğeni ve yorum overlay
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [
-                                  Colors.black.withOpacity(0.5),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.favorite,
-                                  color: Colors.white,
-                                  size: 12,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${post.likesCount}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Icon(
-                                  Icons.chat_bubble,
-                                  color: Colors.white,
-                                  size: 12,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${post.commentsCount}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
-                  : Center(
-                      child: Stack(
-                        children: [
-                          Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (post.content != null)
-                                  Padding(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Text(
-                                      post.content!,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                      maxLines: 4,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          // Beğeni ve yorum overlay (metin gönderileri için)
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black.withOpacity(0.5),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _likedPostIds.contains(post.id)
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                    color: Colors.white,
-                                    size: 12,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    '${post.likesCount}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.chat_bubble,
-                                    color: Colors.white,
-                                    size: 12,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    '${post.commentsCount}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
-          );
-        }, childCount: _userPosts.length),
-      ),
+    return ProfilePostGrid(
+      posts: _userPosts,
+      likedPostIds: _likedPostIds,
+      onTap: _navigateToPostDetail,
     );
   }
 
   // ===== LİSTE GÖRÜNÜMÜ =====
   Widget _buildListView(bool isOwnProfile) {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final username = _profileData!['username'] ?? 'Kullanıcı';
     final fullName = _profileData!['full_name'] ?? username;
     final avatarUrl = _profileData!['avatar_url'];
@@ -1503,337 +1303,39 @@ class _ProfileScreenState extends State<ProfileScreen>
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate((context, index) {
           final post = _userPosts[index];
-          final firstImage = post.images.isNotEmpty ? post.images.first : null;
-
           return Padding(
             padding: const EdgeInsets.only(bottom: 16),
-            child: Card(
-              elevation: post.isPinned ? 4 : 2,
-              shadowColor: Colors.black.withOpacity(0.1),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: post.isPinned
-                    ? BorderSide(color: Colors.amber.shade400, width: 2)
-                    : BorderSide.none,
+            child: SocialPostCard(
+              post: post,
+              fullName: fullName,
+              username: username,
+              avatarUrl: avatarUrl,
+              authorRole: AuthorRole.unknown,
+              isVerified: false,
+              isLiked: _likedPostIds.contains(post.id),
+              isSaved: _savedPosts.contains(post.id),
+              showOwnPinBadge: true,
+              onTap: () => _navigateToPostDetail(post),
+              onAuthorTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserProfileScreen(userId: post.userId),
+                ),
               ),
-              child: Stack(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Profil başlığı
-                      Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundImage: avatarUrl != null
-                                  ? NetworkImage(avatarUrl)
-                                  : null,
-                              backgroundColor: Colors.grey.shade200,
-                              child: avatarUrl == null
-                                  ? Text(
-                                      username.isNotEmpty
-                                          ? username
-                                                .substring(0, 1)
-                                                .toUpperCase()
-                                          : '?',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          fullName,
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                          overflow: TextOverflow.visible,
-                                          maxLines: 1,
-                                        ),
-                                      ),
-                                      if (post.isPinned) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.amber.shade700,
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                          child: const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.star,
-                                                size: 10,
-                                                color: Colors.white,
-                                              ),
-                                              SizedBox(width: 2),
-                                              Text(
-                                                'Sabitlendi',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  Text(
-                                    '@$username',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (isOwnProfile)
-                              IconButton(
-                                icon: Icon(
-                                  Icons.more_horiz,
-                                  color: Colors.grey.shade600,
-                                  size: 22,
-                                ),
-                                onPressed: () => _showPostMenu(post.id),
-                              ),
-                          ],
-                        ),
+              onLike: () => _toggleLike(post),
+              onComment: () => _navigateToPostDetail(post),
+              onSend: () => sendPostToFriend(context, post),
+              onSave: () => _savePost(post),
+              trailing: isOwnProfile
+                  ? IconButton(
+                      icon: Icon(
+                        Icons.more_horiz,
+                        color: Colors.grey.shade500,
+                        size: 20,
                       ),
-                      // Resim
-                      if (firstImage != null)
-                        GestureDetector(
-                          onTap: () => _navigateToPostDetail(post),
-                          child: Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: post.images.length > 1
-                                    ? const BorderRadius.vertical(
-                                        top: Radius.circular(16),
-                                      )
-                                    : BorderRadius.zero,
-                                child: CachedNetworkImage(
-                                  imageUrl: firstImage,
-                                  width: double.infinity,
-                                  height: 350,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (context, url, error) {
-                                    return Container(
-                                      height: 200,
-                                      color: Colors.grey.shade100,
-                                      child: const Icon(
-                                        Icons.error_outline,
-                                        size: 48,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              // Çoklu görsel göstergesi
-                              if (post.images.length > 1)
-                                Positioned(
-                                  top: 8,
-                                  right: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.6),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.photo_library,
-                                          color: Colors.white,
-                                          size: 14,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '${post.images.length} fotoğraf',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      // İçerik
-                      if (post.content != null && post.content!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                          child: Text(
-                            post.content!,
-                            style: TextStyle(
-                              fontSize: 15,
-                              height: 1.5,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                        ),
-                      // Aksiyon butonları
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                _likedPostIds.contains(post.id)
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                color: _likedPostIds.contains(post.id)
-                                    ? Colors.red
-                                    : Colors.grey.shade700,
-                                size: 26,
-                              ),
-                              onPressed: currentUserId != null
-                                  ? () => _toggleLike(post)
-                                  : null,
-                            ),
-                            InkWell(
-                              onTap: () => _showLikes(post.id),
-                              child: Text(
-                                '${post.likesCount}',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.grey.shade800,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              icon: Icon(
-                                Icons.chat_bubble_outline,
-                                color: Colors.grey.shade700,
-                                size: 24,
-                              ),
-                              onPressed: () => _navigateToPostDetail(post),
-                            ),
-                            Text(
-                              '${post.commentsCount}',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Colors.grey.shade800,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const Spacer(),
-                            // Arkadaşa Gönder
-                            IconButton(
-                              icon: Icon(
-                                Icons.send,
-                                color: Colors.grey.shade700,
-                                size: 22,
-                              ),
-                              onPressed: () => _sendToFriend(post),
-                            ),
-                            // Share
-                            IconButton(
-                              icon: Icon(
-                                Icons.share,
-                                color: Colors.grey.shade700,
-                                size: 22,
-                              ),
-                              onPressed: () => _sharePost(post),
-                            ),
-                            // Kaydet
-                            IconButton(
-                              icon: Icon(
-                                _savedPosts.contains(post.id)
-                                    ? Icons.bookmark
-                                    : Icons.bookmark_border,
-                                color: _savedPosts.contains(post.id)
-                                    ? Colors.orange
-                                    : Colors.grey.shade700,
-                                size: 22,
-                              ),
-                              onPressed: () => _savePost(post),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Tarih - Altta göster
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: Text(
-                          formatRelativeDate(post.createdAt),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Pinned Badge - Stack içinde overlay olarak
-                  if (post.isPinned)
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.shade700,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.push_pin, size: 10, color: Colors.white),
-                            SizedBox(width: 2),
-                            Text(
-                              'Sabitlendi',
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+                      onPressed: () => _showPostMenu(post.id),
+                    )
+                  : null,
             ),
           );
         }, childCount: _userPosts.length),
@@ -2344,124 +1846,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           context,
         ).showSnackBar(SnackBar(content: Text('Konuşma başlatılamadı: $e')));
       }
-    }
-  }
-
-  /// Gönderiyi arkadaşa gönder
-  Future<void> _sendToFriend(Post post) async {
-    try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
-        }
-        return;
-      }
-
-      // Takip edilen kullanıcıları getir
-      final following = await Supabase.instance.client
-          .from('follows')
-          .select(
-            'following_id, profiles!follows_following_id_fkey(full_name, avatar_url)',
-          )
-          .eq('follower_id', currentUserId)
-          .order('created_at', ascending: false);
-
-      if (!mounted) return;
-
-      if (following.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Takip ettiğiniz kimse yok')),
-          );
-        }
-        return;
-      }
-
-      // Takipçi seçim dialogu göster
-      await showModalBottomSheet(
-        context: context,
-        builder: (context) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Arkadaşına Gönder',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: following.length,
-                  itemBuilder: (context, index) {
-                    final user = following[index];
-                    final profile = user['profiles'] as Map<String, dynamic>?;
-                    final name =
-                        profile?['full_name'] as String? ?? 'Kullanıcı';
-                    final avatar = profile?['avatar_url'] as String?;
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: avatar != null
-                            ? NetworkImage(avatar)
-                            : null,
-                        child: avatar == null
-                            ? Text(name[0].toUpperCase())
-                            : null,
-                      ),
-                      title: Text(name),
-                      onTap: () async {
-                        await _sendPostToFriend(user['following_id'], post);
-                        if (mounted) {
-                          final messenger = ScaffoldMessenger.of(context);
-                          Navigator.pop(context);
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '$name adlı kullanıcıya gönderildi',
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
-      }
-    }
-  }
-
-  /// Arkadaşa gönderi bildirimi gönder
-  /// 2026-08-02 push pipeline refaktörü:
-  /// - İstemci doğrudan notifications INSERT etmez, functions.invoke ile
-  ///   push göndermez.
-  /// - public.share_post_with_user RPC'si çağrılır. Sunucu tarafında
-  ///   gönderen auth.uid() ile belirlenir, alıcı + post doğrulanır,
-  ///   self-share reddedilir, title/content server-side üretilir,
-  ///   idempotency (son 60 saniye) uygulanır. Outbox trigger'ı push'u
-  ///   güvenli şekilde planlar.
-  Future<void> _sendPostToFriend(String targetUserId, Post post) async {
-    try {
-      await Supabase.instance.client.rpc(
-        'share_post_with_user',
-        params: {'p_post_id': post.id, 'p_recipient_id': targetUserId},
-      );
-    } catch (e) {
-      debugPrint('Arkadaşa gönder bildirimi gönderilemedi: $e');
     }
   }
 

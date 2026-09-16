@@ -4,6 +4,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/services/courier_stream_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/theme/app_map_style.dart';
+import '../../../core/utils/map_marker_icons.dart';
+import '../../../core/widgets/map_controls.dart';
 
 /// CouriersMapCard için tam ekran mod.
 ///
@@ -37,6 +40,10 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
   bool _isLoading = true;
   Position? _userLocation;
   BitmapDescriptor? _courierIcon;
+  BitmapDescriptor? _courierLabelIcon;
+
+  /// Kurye marker rengi (turuncu) — şehiriçi servis araçlarından ayrışır.
+  static const Color _kCourierColor = Color(0xFFFB8C00);
 
   String? _loadError;
   Map<String, CourierInfo> _couriers = const {};
@@ -132,72 +139,20 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
     }
   }
 
+  /// Kurye marker'ı: kuşbakışı motosiklet + arkasında teslimat kutusu
+  /// (paylaşılan [MapMarkerIcons] çizimi — şehiriçi canlı haritayla aynı
+  /// görsel dil). Üstüne dönmeyen "KURYE" etiketi eklenir.
   Future<void> _ensureCourierIcon() async {
-    if (_courierIcon != null) return;
-    _courierIcon = await _createMotorcycleBitmap();
-  }
-
-  /// Yön oklu kırmızı disk + motor ikonu. rotation=0 → ok yukarı (kuzey).
-  /// flat:true ile haritaya yapışır; marker rotation=heading ile döner.
-  /// (CouriersMapCard ile aynı bitmap.)
-  Future<BitmapDescriptor> _createMotorcycleBitmap() async {
-    const double size = 56;
-    const center = Offset(size / 2, size / 2);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
-
-    // Yumuşak gölge
-    canvas.drawCircle(
-      center + const Offset(0, 3),
-      size / 2 - 5,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    if (_courierIcon != null && _courierLabelIcon != null) return;
+    _courierIcon ??= await MapMarkerIcons.vehicle(
+      shape: MapVehicleShape.motorcycle,
+      color: _kCourierColor,
     );
-    // Beyaz kart zemin
-    canvas.drawCircle(center, size / 2 - 3, Paint()..color = Colors.white);
-    // Kırmızı disk
-    const fill = Color(0xFFE53935);
-    canvas.drawCircle(center, size / 2 - 7, Paint()..color = fill);
-
-    // Yön oku: diskin üstü, dışa bakan üçgen (rotation=0 → kuzey).
-    final arrowPath = Path()
-      ..moveTo(center.dx, center.dy - (size / 2 - 5))
-      ..lineTo(center.dx - 5, center.dy - (size / 2 - 12))
-      ..lineTo(center.dx + 5, center.dy - (size / 2 - 12))
-      ..close();
-    canvas.drawPath(arrowPath, Paint()..color = Colors.white);
-    canvas.drawPath(
-      arrowPath,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+    _courierLabelIcon ??= await MapMarkerIcons.label(
+      text: 'KURYE',
+      background: _kCourierColor,
+      gap: MapMarkerIcons.labelGapFor(MapVehicleShape.motorcycle),
     );
-
-    final iconPainter = TextPainter(textDirection: TextDirection.ltr)
-      ..text = TextSpan(
-        text: String.fromCharCode(Icons.two_wheeler.codePoint),
-        style: TextStyle(
-          fontSize: size * 0.36,
-          fontFamily: Icons.two_wheeler.fontFamily,
-          package: Icons.two_wheeler.fontPackage,
-          color: Colors.white,
-        ),
-      )
-      ..layout();
-    iconPainter.paint(
-      canvas,
-      center - Offset(iconPainter.width / 2, iconPainter.height / 2 + 1),
-    );
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (bytes == null) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    }
-    return BitmapDescriptor.bytes(bytes.buffer.asUint8List());
   }
 
   void _buildMarkers() {
@@ -220,24 +175,36 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
     }
 
     for (final c in _couriers.values) {
+      final position = LatLng(c.lat, c.lng);
       markers.add(
         Marker(
           markerId: MarkerId('courier_${c.id}'),
-          position: LatLng(c.lat, c.lng),
+          position: position,
           infoWindow: InfoWindow(
             title: c.name,
-            snippet: '🏍️ Moto Kurye',
+            snippet: 'Moto kurye',
           ),
           icon: _courierIcon ??
               BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueRed),
-          // heading: 0 = kuzey yukarı. null/0 → rotation 0 (ok kuzeye).
-          // flat: true → disk haritaya yapışır, harita döndükçe kuzey sabit.
+                  BitmapDescriptor.hueOrange),
+          // heading: 0 = kuzey yukarı. null/0 → rotation 0 (motor kuzeye bakar).
+          // flat: true → gövde haritaya yapışır, harita döndükçe kuzey sabit.
           rotation: c.heading ?? 0,
           flat: true,
           anchor: const Offset(0.5, 0.5),
         ),
       );
+      final labelIcon = _courierLabelIcon;
+      if (labelIcon != null) {
+        markers.add(
+          Marker(
+            markerId: MarkerId('courier_${c.id}_label'),
+            position: position,
+            icon: labelIcon,
+            anchor: const Offset(0.5, 1.0),
+          ),
+        );
+      }
     }
 
     if (widget.pickupLat != null && widget.pickupLng != null) {
@@ -351,30 +318,6 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
     _mapController?.animateCamera(CameraUpdate.zoomBy(-1));
   }
 
-  Widget _mapControlButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onPressed,
-  }) {
-    return Material(
-      color: Colors.white,
-      elevation: 3,
-      shadowColor: Colors.black26,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: Tooltip(
-          message: tooltip,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Icon(icon, color: Colors.black87, size: 22),
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   void dispose() {
@@ -391,11 +334,15 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: isDark ? const Color(0xFF181A1F) : const Color(0xFFF6F7F9),
       appBar: AppBar(
         backgroundColor: primary,
         foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         title: const Text('Harita — Yakın Kuryeler'),
         actions: [
           if (_markers.isNotEmpty)
@@ -418,6 +365,7 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
           : Stack(
               children: [
                 GoogleMap(
+                  style: AppMapStyle.of(context),
                   initialCameraPosition: CameraPosition(
                     target: LatLng(
                       _userLocation!.latitude,
@@ -443,8 +391,11 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
                   polylines: _polylines,
                   scrollGesturesEnabled: true,
                   zoomGesturesEnabled: true,
-                  tiltGesturesEnabled: true,
                   rotateGesturesEnabled: true,
+                  // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+                  tiltGesturesEnabled: false,
+                  buildingsEnabled: false,
+                  mapType: MapType.normal,
                   zoomControlsEnabled: false,
                   mapToolbarEnabled: false,
                   myLocationButtonEnabled: false,
@@ -453,40 +404,25 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
                 // Sağ alt köşede zoom in/out butonları
                 Positioned(
                   right: 12,
-                  bottom: 24,
-                  child: Column(
-                    children: [
-                      _mapControlButton(
-                        icon: Icons.add,
-                        tooltip: 'Yakınlaştır',
-                        onPressed: _zoomIn,
-                      ),
-                      const SizedBox(height: 10),
-                      _mapControlButton(
-                        icon: Icons.remove,
-                        tooltip: 'Uzaklaştır',
-                        onPressed: _zoomOut,
-                      ),
-                    ],
+                  bottom: 76,
+                  child: MapZoomControls(
+                    onZoomIn: _zoomIn,
+                    onZoomOut: _zoomOut,
+                    size: 44,
                   ),
                 ),
                 // Boş/hata durumunda ipucu — bir kez SnackBar ile verildi
                 // (yukarıda), overlay haritayı kaplamaz.
 
-                // Alt ipucu şeridi
+                // Alt ipucu şeridi — yüzen cam kart
                 Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    color: Colors.black.withValues(alpha: 0.45),
-                    child: const Text(
-                      '💡 Haritayı parmağınızla kaydırın, iki parmakla yakınlaştırın',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontSize: 12),
-                    ),
+                  left: 12,
+                  right: 12,
+                  bottom: 16,
+                  child: const MapHintBar(
+                    icon: Icons.swipe,
+                    text: 'Haritayı parmağınızla kaydırın, '
+                        'iki parmakla yakınlaştırın',
                   ),
                 ),
               ],

@@ -45,6 +45,9 @@ class Shop {
   // Sabitleme durumu
   final bool isPinned;
 
+  // "Gel Al" (mağazadan teslim) satıcı tarafından aktif mi
+  final bool pickupEnabled;
+
   Shop({
     required this.id,
     required this.ownerId,
@@ -83,6 +86,7 @@ class Shop {
     this.totalPaid,
     this.sellerCategories = const [],
     this.isPinned = false,
+    this.pickupEnabled = false,
   }) : _isOpenManual = isOpen;
 
   // Türkiye saatine göre (UTC+3) dükkan açık mı hesapla
@@ -253,6 +257,7 @@ class Shop {
     double? totalPaid,
     List<String>? sellerCategories,
     bool? isPinned,
+    bool? pickupEnabled,
   }) {
     return Shop(
       id: id ?? this.id,
@@ -292,6 +297,7 @@ class Shop {
       totalPaid: totalPaid ?? this.totalPaid,
       sellerCategories: sellerCategories ?? this.sellerCategories,
       isPinned: isPinned ?? this.isPinned,
+      pickupEnabled: pickupEnabled ?? this.pickupEnabled,
     );
   }
 
@@ -334,6 +340,7 @@ class Shop {
       'total_paid': totalPaid,
       'seller_categories': sellerCategories,
       'is_pinned': isPinned,
+      'pickup_enabled': pickupEnabled,
     };
   }
 
@@ -404,6 +411,7 @@ class Shop {
           ? List<String>.from(json['seller_categories'])
           : const [],
       isPinned: json['is_pinned'] as bool? ?? false,
+      pickupEnabled: json['pickup_enabled'] as bool? ?? false,
     );
   }
 }

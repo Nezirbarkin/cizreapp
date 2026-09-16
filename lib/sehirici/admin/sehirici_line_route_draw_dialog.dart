@@ -10,6 +10,8 @@ import '../providers/sehirici_provider.dart';
 import '../services/sehirici_line_service.dart';
 import '../services/sehirici_road_snap_service.dart';
 import '../utils/sehirici_route_geometry.dart';
+import '../../core/theme/app_map_style.dart';
+import '../../core/widgets/map_controls.dart';
 
 /// Admin için harita üzerinde kalemle rota çizme dialog'u (modernize).
 ///
@@ -777,10 +779,25 @@ class _SehiriciLineRouteDrawDialogState
     });
   }
 
+  /// Cam zoom butonları için ortak kamera hareketi.
+  Future<void> _zoomBy(double delta) async {
+    final c = await _mapCtl.future;
+    await c.animateCamera(CameraUpdate.zoomBy(delta));
+  }
+
   Widget _buildMap() {
+    // Harita görünümü (Otomatik/Açık/Koyu) admin tarafından harita üstündeki
+    // düğmeyle değiştirilir; MapStyleBuilder tercihi anında uygular.
+    return MapStyleBuilder(
+      builder: (context, mapStyle) => _buildMapSurface(mapStyle),
+    );
+  }
+
+  Widget _buildMapSurface(String mapStyle) {
     return Stack(
       children: [
         GoogleMap(
+          style: mapStyle,
           initialCameraPosition: CameraPosition(
             target: _initialTarget,
             zoom: _initialZoom,
@@ -804,58 +821,45 @@ class _SehiriciLineRouteDrawDialogState
                   ),
                 },
           myLocationButtonEnabled: false,
-          zoomControlsEnabled: true,
+          // Gömülü gri zoom kutuları yerine cam kontroller.
+          zoomControlsEnabled: false,
           mapToolbarEnabled: false,
+          // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+          tiltGesturesEnabled: false,
+          buildingsEnabled: false,
+          mapType: MapType.normal,
+        ),
+        Positioned(
+          right: 12,
+          bottom: 64,
+          child: MapZoomControls(
+            onZoomIn: () => _zoomBy(1),
+            onZoomOut: () => _zoomBy(-1),
+            showThemeToggle: true,
+          ),
         ),
         if (_mode == MapDrawMode.draw)
           Positioned(
             top: 12,
             left: 12,
             right: 12,
-            child: Material(
-              color: widget.line.color,
-              borderRadius: BorderRadius.circular(8),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.brush, color: Colors.white, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Çizim modu: haritaya uzun basıp parmağınızı sürükleyin. Bırakınca otomatik sadeleştirilir.',
-                        style: TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            child: MapHintBar(
+              icon: Icons.brush,
+              accentColor: widget.line.color,
+              text: 'Çizim modu: haritaya uzun basıp parmağınızı sürükleyin. '
+                  'Bırakınca otomatik sadeleştirilir.',
             ),
           ),
         Positioned(
           left: 12,
           right: 12,
           bottom: 12,
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  const Icon(Icons.touch_app, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _mode == MapDrawMode.draw
-                          ? 'Çizim modu aktif. Uzun basarak çizin veya tıkla-tıkla nokta ekleyin.'
-                          : 'Nokta eklemek için haritaya dokunun. Noktaları sürükleyerek taşıyabilirsiniz.',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          child: MapHintBar(
+            text: _mode == MapDrawMode.draw
+                ? 'Çizim modu aktif. Uzun basarak çizin veya tıkla-tıkla '
+                    'nokta ekleyin.'
+                : 'Nokta eklemek için haritaya dokunun. Noktaları '
+                    'sürükleyerek taşıyabilirsiniz.',
           ),
         ),
       ],

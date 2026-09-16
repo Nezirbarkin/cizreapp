@@ -289,9 +289,11 @@ class AuthService {
     try {
       // Profil SQL trigger tarafından otomatik oluşturulur
       // Sadece profil var mı kontrol et, yoksa log yaz
+      // Yalnizca varlik kontrolu; tum satiri cekmeye gerek yok.
+      // `select()` (SELECT *) sutun bazli GRANT ile calismaz.
       final existingProfile = await _supabase
           .from('profiles')
-          .select()
+          .select('id')
           .eq('id', userId)
           .maybeSingle();
 

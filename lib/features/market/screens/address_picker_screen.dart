@@ -9,6 +9,8 @@ import 'dart:convert';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/maps_api_key_service.dart';
+import '../../../core/theme/app_map_style.dart';
+import '../../../core/widgets/map_controls.dart';
 
 /// Harita üzerinden adres seçme ekranı (Google Maps ile)
 class AddressPickerScreen extends StatefulWidget {
@@ -610,6 +612,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
             child: Stack(
               children: [
                 GoogleMap(
+                  style: AppMapStyle.of(context),
                   initialCameraPosition: CameraPosition(
                     target: initialPosition,
                     zoom: 15,
@@ -621,8 +624,13 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                   markers: _markers,
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
-                  zoomControlsEnabled: true,
+                  // Gömülü gri zoom kutuları yerine cam kontroller.
+                  zoomControlsEnabled: false,
                   mapToolbarEnabled: false,
+                  // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+                  tiltGesturesEnabled: false,
+                  buildingsEnabled: false,
+                  mapType: MapType.normal,
                 ),
                 // Arama kutusu
                 Positioned(
@@ -631,12 +639,18 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                   right: 12,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .dividerColor
+                            .withValues(alpha: 0.4),
+                      ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withAlpha(25),
-                          blurRadius: 10,
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
@@ -647,11 +661,12 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                             controller: _searchController,
                             decoration: const InputDecoration(
                               hintText: 'Adres ara...',
-                              prefixIcon: Icon(Icons.search),
+                              prefixIcon: Icon(Icons.search, size: 20),
                               border: InputBorder.none,
+                              isDense: true,
                               contentPadding: EdgeInsets.symmetric(
                                 horizontal: 16,
-                                vertical: 14,
+                                vertical: 16,
                               ),
                             ),
                             onSubmitted: (_) => _searchAddress(),
@@ -671,35 +686,47 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                     ),
                   ),
                 ),
-                // Konum butonları
+                // Konum + zoom kontrolleri
                 Positioned(
                   right: 12,
                   bottom: 12,
-                  child: Column(
+                  child: MapGlassControls(
                     children: [
-                      // Mevcut konum
-                      FloatingActionButton.small(
-                        heroTag: 'location',
-                        onPressed: _isLoadingLocation ? null : _getCurrentLocation,
-                        child: _isLoadingLocation
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.my_location),
+                      MapGlassButton(
+                        icon: Icons.my_location,
+                        tooltip: 'Mevcut konumum',
+                        busy: _isLoadingLocation,
+                        onPressed: _getCurrentLocation,
                       ),
-                      const SizedBox(height: 8),
-                      // Cizre merkez
-                      FloatingActionButton.small(
-                        heroTag: 'cizre',
+                      MapGlassButton(
+                        icon: Icons.location_city,
+                        tooltip: 'Cizre merkez',
                         onPressed: _centerOnCizre,
-                        child: const Icon(Icons.location_city),
+                      ),
+                      MapGlassButton(
+                        icon: Icons.add,
+                        tooltip: 'Yakınlaştır',
+                        onPressed: () => _mapController?.animateCamera(
+                          CameraUpdate.zoomIn(),
+                        ),
+                      ),
+                      MapGlassButton(
+                        icon: Icons.remove,
+                        tooltip: 'Uzaklaştır',
+                        onPressed: () => _mapController?.animateCamera(
+                          CameraUpdate.zoomOut(),
+                        ),
                       ),
                     ],
+                  ),
+                ),
+                // Haritaya dokunma ipucu
+                const Positioned(
+                  left: 12,
+                  right: 78,
+                  bottom: 12,
+                  child: MapHintBar(
+                    text: 'Adresin olduğu noktaya dokunun',
                   ),
                 ),
               ],

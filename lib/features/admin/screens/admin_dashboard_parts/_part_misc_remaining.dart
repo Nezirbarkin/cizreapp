@@ -330,10 +330,14 @@ extension on _AdminDashboardScreenState {
         return const AdminAboutSettingsScreen();
       case 'Reklam Ayarları':
         return const AdminAdSettingsScreen();
+      case 'Tanıtım Videosu (Web)':
+        return const WebPromoSettingsScreen();
       case 'Cüzdan Yönetimi':
         return const WalletManagementContent();
       case 'Görev Yönetimi':
         return const TaskManagementContent();
+      case 'Bot Hesapları':
+        return const BotManagementContent();
       case 'Kurye Uyarıları':
         return const CourierNoticesManagementContent();
       case 'Şehiriçi Yönetimi':

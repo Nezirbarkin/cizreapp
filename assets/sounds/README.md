@@ -27,6 +27,10 @@ Bkz. `lib/okey/services/okey_sound_service.dart`.
 | `lose.wav` | Eli rakip kazanınca | inen çekiçli telli çalgı üçlüsü |
 | `laugh.wav` | Rakip "işlek" bir taş atınca — alay efekti | formant vokal sentezi ("ha ha ha") |
 | `error.wav` | Geçersiz hamle / hata | modüle edilmiş testere dalgası zili |
+| `coin.wav` | Bonus/reklam ödülü çipleri cüzdana düşünce | üç jeton düşüşü + madeni paranın inharmonik tınısı |
+| `rack.wav` | Istakada (takozda) taş seçilince veya taşınınca | kuru/yakın taş tıkı + oluğa kayma |
+| `click.wav` | Oyun düğmelerine basınca (AT, SERİ AÇ, HUD...) | kısa mekanik düğme tıkı — bilerek taşa benzemez |
+| `join.wav` | Bekleme odasında bir koltuk dolunca | ahşap çubuk (marimba) ikilisi, yükselen dörtlü — cam zilden ayrılsın diye |
 
 ## Nasıl üretildiler
 

@@ -23,10 +23,29 @@ class _CategoryShopsScreenState extends State<CategoryShopsScreen> {
   bool _isLoading = true;
   bool _globalOrdersEnabled = true;
 
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  List<Shop> get _filteredShops {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _shops;
+    return _shops.where((shop) {
+      final name = shop.name.toLowerCase();
+      final description = (shop.description ?? '').toLowerCase();
+      return name.contains(query) || description.contains(query);
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
     _loadShops();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadShops() async {
@@ -120,25 +139,95 @@ class _CategoryShopsScreenState extends State<CategoryShopsScreen> {
               ),
               child: Container(
                 color: const Color(0xFFF5F7FA),
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _shops.isEmpty
-                        ? const Center(
-                            child: Text('Bu kategoride henüz dükkan bulunmuyor'),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(20),
-                            itemCount: _shops.length,
-                            itemBuilder: (context, index) {
-                              final shop = _shops[index];
-                              return _buildShopCard(shop);
-                            },
-                          ),
+                child: Column(
+                  children: [
+                    if (!_isLoading && _shops.isNotEmpty) _buildSearchField(),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _buildShopsList(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSearchField() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) => setState(() => _searchQuery = value),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Dükkan ara...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                ),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopsList() {
+    if (_shops.isEmpty) {
+      return const Center(
+        child: Text('Bu kategoride henüz dükkan bulunmuyor'),
+      );
+    }
+
+    final filtered = _filteredShops;
+    if (filtered.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 56, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text(
+              'Arama sonucu bulunamadı',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () {
+                _searchController.clear();
+                setState(() => _searchQuery = '');
+              },
+              icon: const Icon(Icons.clear),
+              label: const Text('Aramayı Temizle'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: filtered.length,
+      itemBuilder: (context, index) {
+        final shop = filtered[index];
+        return _buildShopCard(shop);
+      },
     );
   }
 

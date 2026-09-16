@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/providers/favorites_provider.dart';
 // ignore: unused_import
 import '../../../core/models/favorite_models.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
-import '../../../core/models/post_model.dart' show Post;
+import '../../../core/models/post_model.dart' show Post, firstNonEmpty;
 import '../../market/screens/product_detail_screen.dart';
 import '../../market/screens/my_price_alerts_screen.dart';
 import '../../market/screens/flash_sales_screen.dart';
 import '../../market/screens/live_sessions_screen.dart';
 import '../../market/widgets/flash_sale_entry_banner.dart';
+import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
+import '../../social/services/post_service.dart';
+import '../../social/widgets/social_post_card.dart';
+import '../../social/widgets/send_to_friend_sheet.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../market/widgets/flash_aware_price_row.dart';
 
@@ -208,8 +213,66 @@ class _ProductFavoritesTab extends StatelessWidget {
 }
 
 /// Gönderi Favorileri Tab
-class _PostFavoritesTab extends StatelessWidget {
+class _PostFavoritesTab extends StatefulWidget {
   const _PostFavoritesTab();
+
+  @override
+  State<_PostFavoritesTab> createState() => _PostFavoritesTabState();
+}
+
+class _PostFavoritesTabState extends State<_PostFavoritesTab> {
+  final PostService _postService = PostService();
+  Map<String, bool> _likedPosts = {};
+  String? _likedPostsLoadedFor;
+
+  /// Görünen gönderi listesi değiştiğinde beğeni durumunu tek seferde
+  /// toplu çeker (her build'de tekrar sorgulamamak için imza ile önbellekler).
+  Future<void> _loadLikedStatus(List<Post> posts) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || posts.isEmpty) return;
+    final signature = posts.map((p) => p.id).join(',');
+    if (_likedPostsLoadedFor == signature) return;
+    _likedPostsLoadedFor = signature;
+
+    final liked = await _postService.getLikedPostIds(
+      userId,
+      posts.map((p) => p.id).toList(),
+    );
+    if (mounted) {
+      setState(() => _likedPosts = {for (final id in liked) id: true});
+    }
+  }
+
+  Future<void> _toggleLike(Post post) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final isLiked = _likedPosts[post.id] ?? false;
+    setState(() => _likedPosts[post.id] = !isLiked);
+
+    try {
+      if (isLiked) {
+        await _postService.unlikePost(post.id, userId);
+      } else {
+        await _postService.likePost(post.id, userId);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _likedPosts[post.id] = isLiked);
+    }
+  }
+
+  Future<void> _openPostDetail(Post post) async {
+    // PostDetailScreen yorum sayısı değiştiyse 'updated' ile döner
+    // (bkz. post_detail_screen.dart _commentsChanged); favori listesindeki
+    // önbelleklenmiş yorum sayacını tazelemek için listeyi yeniden yükleriz.
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
+    );
+    if (result == 'updated' && mounted) {
+      context.read<FavoritesProvider>().loadPostFavorites();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -230,6 +293,8 @@ class _PostFavoritesTab extends StatelessWidget {
           );
         }
 
+        _loadLikedStatus(favoritePosts);
+
         return RefreshIndicator(
           onRefresh: () => favoritesProvider.loadPostFavorites(),
           child: ListView.builder(
@@ -237,7 +302,37 @@ class _PostFavoritesTab extends StatelessWidget {
             itemCount: favoritePosts.length,
             itemBuilder: (context, index) {
               final post = favoritePosts[index];
-              return _PostCard(post: post);
+              final isOrphanPost = !post.authorProfileExists;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: SocialPostCard(
+                  post: post,
+                  fullName: firstNonEmpty([
+                    post.authorFullName,
+                    post.authorUsername,
+                  ]),
+                  username: post.authorUsername ?? 'kullanici',
+                  avatarUrl: post.authorAvatarUrl,
+                  authorRole: post.authorRole,
+                  isVerified: post.authorIsVerified,
+                  showPrivilegeBadges: !isOrphanPost,
+                  isLiked: _likedPosts[post.id] ?? false,
+                  isSaved: true,
+                  onTap: () => _openPostDetail(post),
+                  onAuthorTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          UserProfileScreen(userId: post.userId),
+                    ),
+                  ),
+                  onLike: () => _toggleLike(post),
+                  onComment: () => _openPostDetail(post),
+                  onSend: () => sendPostToFriend(context, post),
+                  onSave: () =>
+                      favoritesProvider.togglePostFavorite(post.id),
+                ),
+              );
             },
           ),
         );
@@ -413,193 +508,5 @@ class _ProductCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// Gönderi Kartı
-class _PostCard extends StatelessWidget {
-  final Post post;
-
-  const _PostCard({required this.post});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
-      ),
-      child: Card(
-        color: Colors.white,
-        margin: const EdgeInsets.only(bottom: 12),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Görsel
-            if (post.images.isNotEmpty)
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: CachedNetworkImage(
-                  imageUrl: post.images.first,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 600,
-                  errorWidget: (context, url, error) {
-                    return Container(
-                      color: Colors.grey[200],
-                      child: const Icon(
-                        Icons.image_not_supported,
-                        size: 48,
-                        color: Colors.grey,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            // İçerik
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (post.content != null && post.content!.isNotEmpty) ...[
-                    Text(
-                      post.content!,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  // Konum
-                  if (post.location != null) ...[
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 16,
-                          color: Colors.grey[600],
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            post.location!,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: Colors.grey[600]),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  // İstatistikler
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.favorite_border,
-                        size: 16,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${post.likesCount}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Icon(
-                        Icons.comment_outlined,
-                        size: 16,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${post.commentsCount}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Icon(
-                        Icons.share_outlined,
-                        size: 16,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${post.sharesCount}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Tarih - Altta ayrı satırda
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.access_time,
-                          size: 14,
-                          color: Colors.grey[500],
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _formatDate(post.createdAt),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: Colors.grey[500]),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final dateOnly = DateTime(date.year, date.month, date.day);
-
-    String dateStr;
-    if (dateOnly == today) {
-      dateStr = 'Bugün';
-    } else if (dateOnly == yesterday) {
-      dateStr = 'Dün';
-    } else if (date.year == now.year) {
-      const aylar = [
-        'Oca',
-        'Şub',
-        'Mar',
-        'Nis',
-        'May',
-        'Haz',
-        'Tem',
-        'Ağu',
-        'Eyl',
-        'Eki',
-        'Kas',
-        'Ara',
-      ];
-      dateStr = '${date.day} ${aylar[date.month - 1]}';
-    } else {
-      dateStr =
-          '${date.day}.${date.month.toString().padLeft(2, '0')}.${date.year}';
-    }
-
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-    return '$dateStr $hour:$minute';
   }
 }

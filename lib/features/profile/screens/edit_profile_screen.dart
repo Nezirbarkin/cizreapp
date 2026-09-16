@@ -3,19 +3,22 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../../../core/utils/app_error_handler.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/profile_service.dart';
+import '../widgets/avatar_picker_sheet.dart';
+import '../widgets/immersive_crop_screen.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../../../core/services/permission_service.dart';
+import 'face_avatar_flow_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -32,13 +35,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _websiteController = TextEditingController();
   String? _selectedGender;
 
-  XFile? _avatarXFile;  // XFile her platformda çalışır
-  XFile? _coverXFile;   // XFile her platformda çalışır
-  Uint8List? _avatarBytes;  // Web ve crop sonrası preview
-  Uint8List? _coverBytes;   // Web ve crop sonrası preview
+  XFile? _avatarXFile; // XFile her platformda çalışır
+  XFile? _coverXFile; // XFile her platformda çalışır
+  Uint8List? _avatarBytes; // Web ve crop sonrası preview
+  Uint8List? _coverBytes; // Web ve crop sonrası preview
   String? _currentAvatarUrl;
   String? _currentCoverUrl;
-  
+
+  /// Kullanici kendi fotografi yerine hazir avatar sectiyse asset yolu.
+  String? _selectedPresetAvatar;
+
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -55,21 +61,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
 
+      // Acik sutun listesi: `select()` (SELECT *) profiles uzerindeki
+      // sutun bazli GRANT ile calismaz (bkz. 20260907110001).
       final response = await Supabase.instance.client
           .from('profiles')
-          .select()
+          .select('id, full_name, bio, website, gender, avatar_url, cover_url')
           .eq('id', userId)
           .maybeSingle();
 
       if (response == null) {
         // Profil satırı henüz oluşturulmamış (trigger kaçırılmış olabilir).
         // Form boş açılır; kaydet tuşunda updateProfile profili oluşturacak.
-        debugPrint('⚠️ Profil satırı bulunamadı (userId=$userId); ilk kayıtta oluşturulacak.');
+        debugPrint(
+          '⚠️ Profil satırı bulunamadı (userId=$userId); ilk kayıtta oluşturulacak.',
+        );
         if (mounted) {
           setState(() => _isLoading = false);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Profil kaydın bulunamadı. Bilgileri doldurup kaydederek oluşturabilirsin.'),
+              content: Text(
+                'Profil kaydın bulunamadı. Bilgileri doldurup kaydederek oluşturabilirsin.',
+              ),
               duration: Duration(seconds: 4),
             ),
           );
@@ -95,22 +107,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   /// İzin reddedildiğinde gösterilecek dialog
   void _showPermissionDeniedDialog(PermissionResult result) {
     if (!mounted) return;
-    
+
     // İzin açıklamasını al
     String title;
     String description;
     IconData icon;
-    
-    if (result.permission.toLowerCase().contains('kamera') || result.permission.toLowerCase().contains('camera')) {
+
+    if (result.permission.toLowerCase().contains('kamera') ||
+        result.permission.toLowerCase().contains('camera')) {
       title = 'Kamera İzni Gerekli';
-      description = 'CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.';
+      description =
+          'CizreApp\'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.';
       icon = Icons.camera_alt;
     } else {
       title = 'Fotoğraf Galerisi İzni Gerekli';
-      description = 'CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.';
+      description =
+          'CizreApp\'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.';
       icon = Icons.photo_library;
     }
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -140,12 +155,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.orange.shade700,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Bu izin daha önce reddedildi. Lütfen uygulama ayarlarından izin verin.',
-                        style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.orange.shade900,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],
@@ -168,7 +190,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 PermissionService().openPermissionSettings();
               }
             },
-            child: Text(result.isPermanentlyDenied ? 'Ayarları Aç' : 'İzin Ver'),
+            child: Text(
+              result.isPermanentlyDenied ? 'Ayarları Aç' : 'İzin Ver',
+            ),
           ),
         ],
       ),
@@ -189,7 +213,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
 
     try {
-      debugPrint('🔄 HEIC dosya tespit edildi, JPEG\'e dönüştürülüyor: $filePath');
+      debugPrint(
+        '🔄 HEIC dosya tespit edildi, JPEG\'e dönüştürülüyor: $filePath',
+      );
 
       final tempDir = await getTemporaryDirectory();
       final targetPath = path.join(
@@ -218,108 +244,226 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  Future<void> _pickAndCropAvatar() async {
-    try {
-      // Web'de kırpma yok, doğrudan kullan
-      if (kIsWeb) {
-        final picker = ImagePicker();
-        final pickedFile = await picker.pickImage(
-          source: ImageSource.gallery,
-          maxWidth: 1200,
-          maxHeight: 1200,
-          imageQuality: 100,
+  /// Avatar icin kaynak secimi: galeriden yukle ya da hazir avatar sec.
+  Future<void> _showAvatarSourceSheet() async {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(sheetContext).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Profil Fotoğrafı',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withValues(alpha: 0.12),
+                  child: Icon(Icons.photo_library, color: primaryColor),
+                ),
+                title: const Text('Galeriden Seç'),
+                subtitle: const Text('Kendi fotoğrafını yükle ve kırp'),
+                onTap: () => Navigator.pop(sheetContext, 'gallery'),
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withValues(alpha: 0.12),
+                  child: Icon(
+                    Icons.face_retouching_natural,
+                    color: primaryColor,
+                  ),
+                ),
+                title: const Text('Hazır Avatar Seç'),
+                subtitle: Text(
+                  '${kCharacterAvatars.length} kız & erkek + '
+                  '${kAnimatedAvatars.length} hareketli + '
+                  '${kPresetAvatars.length} klasik avatar',
+                ),
+                onTap: () => Navigator.pop(sheetContext, 'preset'),
+              ),
+              if (!kIsWeb)
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: primaryColor.withValues(alpha: 0.12),
+                    child: Icon(Icons.auto_awesome, color: primaryColor),
+                  ),
+                  title: const Text('Yüzünden Avatar Oluştur'),
+                  subtitle: const Text(
+                    'Selfie çek, karikatür avatarını kendin özelleştir',
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, 'face'),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
         );
+      },
+    );
 
-        if (pickedFile == null) return;
-        if (!mounted) return;
+    if (!mounted || choice == null) return;
 
-        final bytes = await pickedFile.readAsBytes();
-        setState(() {
-          _avatarXFile = pickedFile;
-          _avatarBytes = bytes;
-        });
-        return;
-      }
+    if (choice == 'gallery') {
+      await _pickAndCropAvatar();
+    } else if (choice == 'preset') {
+      await _pickPresetAvatar();
+    } else if (choice == 'face') {
+      await _startFaceAvatarFlow();
+    }
+  }
 
-      // Mobil için izin kontrolü
+  /// Selfie çekip yüz analiziyle karikatür avatar oluşturma akışını başlatır.
+  Future<void> _startFaceAvatarFlow() async {
+    try {
       final permissionService = PermissionService();
-      final isGranted = await permissionService.isPhotosGranted();
-      if (!isGranted) {
+      if (!await permissionService.isCameraGranted()) {
         if (!mounted) return;
         final result = await permissionService.checkAndRequestAllPermissions();
-        final photosResult = result['photos'];
-        if (photosResult != null && !photosResult.isGranted) {
+        final cameraResult = result['camera'];
+        if (cameraResult != null && !cameraResult.isGranted) {
           if (!mounted) return;
-          _showPermissionDeniedDialog(photosResult);
+          _showPermissionDeniedDialog(cameraResult);
           return;
         }
       }
-
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1200,
-        maxHeight: 1200,
-        imageQuality: 100,
-      );
-
-      if (pickedFile == null) return;
       if (!mounted) return;
 
-      // HEIC/HEIF dosyalarını JPEG'e dönüştür (Android uyumluluğu için)
-      String sourcePath = pickedFile.path;
-      final convertedPath = await _convertHeicToJpegIfNeeded(pickedFile.path);
-      if (convertedPath != null) {
-        sourcePath = convertedPath;
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('HEIC formatındaki fotoğraf işlenemedi. Lütfen JPEG veya PNG formatında bir fotoğraf seçin.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Kırpma ekranını aç
-      final primaryColor = Theme.of(context).colorScheme.primary;
-      final croppedFile = await ImageCropper().cropImage(
-        sourcePath: sourcePath,
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: 'Profil Fotoğrafı Kırp',
-            toolbarColor: primaryColor,
-            toolbarWidgetColor: Colors.white,
-            initAspectRatio: CropAspectRatioPreset.square,
-            lockAspectRatio: true,
-          ),
-          IOSUiSettings(
-            title: 'Profil Fotoğrafı Kırp',
-            aspectRatioLockEnabled: true,
-          ),
-          WebUiSettings(
-            context: context,
-            presentStyle: WebPresentStyle.dialog,
-          ),
-        ],
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 92,
       );
+      if (picked == null || !mounted) return;
 
-      if (croppedFile == null) return;
+      final bytes = await picked.readAsBytes();
       if (!mounted) return;
 
-      // Kırpılan dosyadan bytes oku
-      final bytes = await croppedFile.readAsBytes();
-      final xFile = XFile(croppedFile.path);
+      final resultBytes = await Navigator.of(context).push<Uint8List?>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => FaceAvatarFlowScreen(imagePath: picked.path, photoBytes: bytes),
+        ),
+      );
+      if (resultBytes == null || !mounted) return;
 
+      setState(() {
+        _avatarXFile = XFile.fromData(resultBytes, name: 'face_avatar.png', mimeType: 'image/png');
+        _avatarBytes = resultBytes;
+        _selectedPresetAvatar = null;
+      });
+    } catch (e) {
+      debugPrint('❌ Yüzden avatar oluşturma hatası: $e');
       if (mounted) {
-        setState(() {
-          _avatarXFile = xFile;
-          _avatarBytes = bytes;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Avatar oluşturulamadı: $e'), backgroundColor: Colors.red),
+        );
       }
+    }
+  }
+
+  /// Hazir avatar secimi: secilen asset kaydederken storage'a yuklenir.
+  Future<void> _pickPresetAvatar() async {
+    final asset = await showPresetAvatarPicker(
+      context,
+      selected: _selectedPresetAvatar,
+    );
+    if (!mounted || asset == null) return;
+
+    setState(() {
+      _selectedPresetAvatar = asset;
+      // Galeriden secilmis bekleyen fotograf varsa iptal edilir.
+      _avatarXFile = null;
+      _avatarBytes = null;
+    });
+  }
+
+  /// Galeriden fotoğraf seçip HEIC ise JPEG'e çevirir, baytları döner.
+  /// Hem ilk seçimde hem de tam ekran editördeki "Galeriden Seç" üzerinden
+  /// tekrar çağrılabilmesi için ayrı bir yardımcı olarak tutulur.
+  Future<Uint8List?> _pickGalleryImageBytes() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 100,
+    );
+    if (pickedFile == null) return null;
+    if (kIsWeb) return pickedFile.readAsBytes();
+
+    // HEIC/HEIF dosyalarını JPEG'e dönüştür (Android uyumluluğu için)
+    final convertedPath = await _convertHeicToJpegIfNeeded(pickedFile.path);
+    if (convertedPath == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'HEIC formatındaki fotoğraf işlenemedi. Lütfen JPEG veya PNG formatında bir fotoğraf seçin.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return null;
+    }
+    return File(convertedPath).readAsBytes();
+  }
+
+  Future<void> _pickAndCropAvatar() async {
+    try {
+      if (!kIsWeb) {
+        final permissionService = PermissionService();
+        final isGranted = await permissionService.isPhotosGranted();
+        if (!isGranted) {
+          if (!mounted) return;
+          final result = await permissionService.checkAndRequestAllPermissions();
+          final photosResult = result['photos'];
+          if (photosResult != null && !photosResult.isGranted) {
+            if (!mounted) return;
+            _showPermissionDeniedDialog(photosResult);
+            return;
+          }
+        }
+      }
+
+      final sourceBytes = await _pickGalleryImageBytes();
+      if (sourceBytes == null || !mounted) return;
+
+      // Tam ekran, Snapchat tarzı kırpma editörü (dairesel pencere).
+      final croppedBytes = await showImmersiveCropEditor(
+        context,
+        imageBytes: sourceBytes,
+        shape: ImmersiveCropShape.circle,
+        title: 'Profil Fotoğrafı',
+        sizeInfoText: 'Kare (1:1) olarak kaydedilecek',
+        onPickAnother: _pickGalleryImageBytes,
+      );
+      if (croppedBytes == null || !mounted) return;
+
+      setState(() {
+        _avatarXFile = XFile.fromData(croppedBytes, name: 'avatar.jpg', mimeType: 'image/jpeg');
+        _avatarBytes = croppedBytes;
+        _selectedPresetAvatar = null;
+      });
     } catch (e) {
       debugPrint('Avatar kırpma hatası: $e');
       if (mounted) {
@@ -335,102 +479,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _pickAndCropCover() async {
     try {
-      // Web'de kırpma yok, doğrudan kullan
-      if (kIsWeb) {
-        final picker = ImagePicker();
-        final pickedFile = await picker.pickImage(
-          source: ImageSource.gallery,
-          maxWidth: 1920,
-          maxHeight: 1080,
-          imageQuality: 100,
-        );
-
-        if (pickedFile == null) return;
-        if (!mounted) return;
-
-        final bytes = await pickedFile.readAsBytes();
-        setState(() {
-          _coverXFile = pickedFile;
-          _coverBytes = bytes;
-        });
-        return;
-      }
-
-      // Mobil için izin kontrolü
-      final permissionService = PermissionService();
-      final isGranted = await permissionService.isPhotosGranted();
-      if (!isGranted) {
-        if (!mounted) return;
-        final result = await permissionService.checkAndRequestAllPermissions();
-        final photosResult = result['photos'];
-        if (photosResult != null && !photosResult.isGranted) {
+      if (!kIsWeb) {
+        final permissionService = PermissionService();
+        final isGranted = await permissionService.isPhotosGranted();
+        if (!isGranted) {
           if (!mounted) return;
-          _showPermissionDeniedDialog(photosResult);
-          return;
+          final result = await permissionService.checkAndRequestAllPermissions();
+          final photosResult = result['photos'];
+          if (photosResult != null && !photosResult.isGranted) {
+            if (!mounted) return;
+            _showPermissionDeniedDialog(photosResult);
+            return;
+          }
         }
       }
 
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 100,
+      final sourceBytes = await _pickGalleryImageBytes();
+      if (sourceBytes == null || !mounted) return;
+
+      // Tam ekran, Snapchat tarzı kırpma editörü (geniş dikdörtgen pencere).
+      final croppedBytes = await showImmersiveCropEditor(
+        context,
+        imageBytes: sourceBytes,
+        shape: ImmersiveCropShape.rect,
+        rectAspectRatio: 16 / 9,
+        title: 'Kapak Fotoğrafı',
+        sizeInfoText: 'Geniş kapak oranında (16:9) kaydedilecek',
+        onPickAnother: _pickGalleryImageBytes,
       );
+      if (croppedBytes == null || !mounted) return;
 
-      if (pickedFile == null) return;
-      if (!mounted) return;
-
-      // HEIC/HEIF dosyalarını JPEG'e dönüştür (Android uyumluluğu için)
-      String sourcePath = pickedFile.path;
-      final convertedPath = await _convertHeicToJpegIfNeeded(pickedFile.path);
-      if (convertedPath != null) {
-        sourcePath = convertedPath;
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('HEIC formatındaki fotoğraf işlenemedi. Lütfen JPEG veya PNG formatında bir fotoğraf seçin.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Kırpma ekranını aç
-      final primaryColor = Theme.of(context).colorScheme.primary;
-      final croppedFile = await ImageCropper().cropImage(
-        sourcePath: sourcePath,
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: 'Kapak Fotoğrafı Kırp',
-            toolbarColor: primaryColor,
-            toolbarWidgetColor: Colors.white,
-            initAspectRatio: CropAspectRatioPreset.ratio16x9,
-            lockAspectRatio: true,
-          ),
-          IOSUiSettings(
-            title: 'Kapak Fotoğrafı Kırp',
-            aspectRatioLockEnabled: true,
-          ),
-        ],
-      );
-
-      if (croppedFile == null) return;
-      if (!mounted) return;
-
-      // Kırpılan dosyadan bytes oku (hem web hem mobile)
-      final bytes = await croppedFile.readAsBytes();
-      final xFile = XFile(croppedFile.path);
-
-      if (mounted) {
-        setState(() {
-          _coverXFile = xFile;
-          _coverBytes = bytes;
-        });
-      }
+      setState(() {
+        _coverXFile = XFile.fromData(croppedBytes, name: 'cover.jpg', mimeType: 'image/jpeg');
+        _coverBytes = croppedBytes;
+      });
     } catch (e) {
       debugPrint('Kapak kırpma hatası: $e');
       if (mounted) {
@@ -460,10 +542,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       String? newCoverUrl;
       String? uploadError;
 
+      // Hazır avatar seçildiyse asset baytlarını yükle
+      if (_selectedPresetAvatar != null) {
+        debugPrint('📤 Hazır avatar yükleniyor...');
+        final data = await rootBundle.load(_selectedPresetAvatar!);
+        // Hareketli avatarlar GIF: uzantı/tip yanlış gönderilirse animasyon
+        // düz kareye dönmez, storage doğrudan reddeder (bucket'ın izinli mime
+        // listesi 20260909100002 ile image/gif'i de kapsıyor).
+        final isGif = isAnimatedAvatarAsset(_selectedPresetAvatar!);
+        newAvatarUrl = await _profileService.uploadProfilePhotoBytes(
+          data.buffer.asUint8List(),
+          fileExtension: isGif ? 'gif' : 'png',
+          contentType: isGif ? 'image/gif' : 'image/png',
+        );
+        if (newAvatarUrl != null) {
+          setState(() {
+            _currentAvatarUrl = newAvatarUrl;
+            _selectedPresetAvatar = null;
+          });
+        } else {
+          debugPrint('❌ Hazır avatar yüklenemedi');
+          uploadError = 'avatar';
+        }
+      }
       // Avatar yükle (XFile ile - Web ve Mobile uyumlu)
-      if (_avatarXFile != null) {
+      else if (_avatarXFile != null) {
         debugPrint('📤 Avatar yükleniyor (XFile)...');
-        newAvatarUrl = await _profileService.uploadProfilePhotoXFile(_avatarXFile!);
+        newAvatarUrl = await _profileService.uploadProfilePhotoXFile(
+          _avatarXFile!,
+        );
         debugPrint('📤 Upload result: $newAvatarUrl');
         if (newAvatarUrl != null) {
           debugPrint('✅ Avatar URL: $newAvatarUrl');
@@ -495,8 +602,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           final String message = uploadError == 'both'
               ? 'Profil ve kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
               : uploadError == 'avatar'
-                  ? 'Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
-                  : 'Kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.';
+              ? 'Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
+              : 'Kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(message),
@@ -556,7 +663,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             duration: const Duration(seconds: 3),
           ),
         );
-        
+
         // Profil ekranına geri dön ve yenile
         Navigator.pop(context, true);
       }
@@ -569,9 +676,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text(e.userMessage),
-                ),
+                Expanded(child: Text(e.userMessage)),
               ],
             ),
             backgroundColor: Colors.red,
@@ -604,9 +709,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           title: const Text('Profili Düzenle'),
           backgroundColor: primaryColor,
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -655,14 +758,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           children: [
             // Cover Photo Section
             _buildCoverSection(primaryColor),
-            
+
             const SizedBox(height: 16),
-            
+
             // Avatar Section
             _buildAvatarSection(primaryColor),
-            
+
             const SizedBox(height: 24),
-            
+
             // Full Name
             _buildTextField(
               controller: _fullNameController,
@@ -675,14 +778,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 16),
 
             // Cinsiyet
             _buildGenderSelector(primaryColor),
-            
+
             const SizedBox(height: 16),
-            
+
             // Bio
             _buildTextField(
               controller: _bioController,
@@ -692,9 +795,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               maxLength: 150,
               hintText: 'Kendinden bahset...',
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Website
             _buildTextField(
               controller: _websiteController,
@@ -703,9 +806,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               keyboardType: TextInputType.url,
               hintText: 'https://example.com',
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // Save Button
             SizedBox(
               width: double.infinity,
@@ -751,8 +854,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         Container(
           height: 180,
           decoration: BoxDecoration(
-            gradient: _coverBytes == null && 
-                    (_coverXFile == null || kIsWeb) && 
+            gradient:
+                _coverBytes == null &&
+                    (_coverXFile == null || kIsWeb) &&
                     (_currentCoverUrl == null || _currentCoverUrl!.isEmpty)
                 ? LinearGradient(
                     colors: [
@@ -761,8 +865,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                   )
                 : null,
-            color: _coverBytes != null || 
-                    (!kIsWeb && _coverXFile != null) || 
+            color:
+                _coverBytes != null ||
+                    (!kIsWeb && _coverXFile != null) ||
                     (_currentCoverUrl != null && _currentCoverUrl!.isNotEmpty)
                 ? null
                 : null,
@@ -778,76 +883,59 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     fit: BoxFit.cover,
                   )
                 : _coverXFile != null && !kIsWeb
-                    ? Image.file(
-                        File(_coverXFile!.path),
+                ? Image.file(
+                    File(_coverXFile!.path),
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
                         width: double.infinity,
                         height: 180,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: double.infinity,
-                            height: 180,
-                            color: Colors.grey.shade300,
-                            child: const Icon(Icons.broken_image),
-                          );
-                        },
-                      )
-                    : _currentCoverUrl != null && _currentCoverUrl!.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: _currentCoverUrl!,
-                            width: double.infinity,
-                            height: 180,
-                            fit: BoxFit.cover,
-                            errorWidget: (context, url, error) {
-                              return Center(
-                                child: Icon(
-                                  Icons.image_not_supported,
-                                  size: 48,
-                                  color: primaryColor.withValues(alpha: 0.5),
-                                ),
-                              );
-                            },
-                          )
-                        : Center(
-                            child: Icon(
-                              Icons.photo_size_select_actual,
-                              size: 48,
-                              color: primaryColor.withValues(alpha: 0.5),
-                            ),
-                          ),
+                        color: Colors.grey.shade300,
+                        child: const Icon(Icons.broken_image),
+                      );
+                    },
+                  )
+                : _currentCoverUrl != null && _currentCoverUrl!.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: _currentCoverUrl!,
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorWidget: (context, url, error) {
+                      return Center(
+                        child: Icon(
+                          Icons.image_not_supported,
+                          size: 48,
+                          color: primaryColor.withValues(alpha: 0.5),
+                        ),
+                      );
+                    },
+                  )
+                : Center(
+                    child: Icon(
+                      Icons.photo_size_select_actual,
+                      size: 48,
+                      color: primaryColor.withValues(alpha: 0.5),
+                    ),
+                  ),
           ),
         ),
-        
-        // Edit Button
+
+        // Düzenle rozeti — Snapchat tarzı: ikon-only, yarı saydam koyu daire
         Positioned(
           right: 12,
           bottom: 12,
           child: Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.black.withValues(alpha: 0.4),
+            shape: const CircleBorder(),
             child: InkWell(
               onTap: _pickAndCropCover,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.camera_alt,
-                      size: 18,
-                      color: primaryColor,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _coverBytes != null ? 'Kapak Değiştir' : 'Kapak Fotoğrafı',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+              customBorder: const CircleBorder(),
+              child: const Padding(
+                padding: EdgeInsets.all(9),
+                child: Icon(Icons.edit, size: 18, color: Colors.white),
               ),
             ),
           ),
@@ -886,129 +974,141 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildAvatarSection(Color primaryColor) {
-    return Center(
-      child: Stack(
-        children: [
-          // Avatar
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white,
-                width: 4,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: ClipOval(
-              child: _avatarBytes != null
-                  ? Image.memory(
-                      _avatarBytes!,
-                      width: 120,
-                      height: 120,
-                      fit: BoxFit.cover,
-                    )
-                  : _avatarXFile != null && !kIsWeb
-                      ? Image.file(
-                          File(_avatarXFile!.path),
-                          width: 120,
-                          height: 120,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 120,
-                              height: 120,
-                              color: primaryColor,
-                              child: const Icon(
-                                Icons.person,
-                                size: 48,
-                                color: Colors.white,
-                              ),
-                            );
-                          },
-                        )
-                      : _currentAvatarUrl != null && _currentAvatarUrl!.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: _currentAvatarUrl!,
-                              width: 120,
-                              height: 120,
-                              fit: BoxFit.cover,
-                              errorWidget: (context, url, error) {
-                                return Container(
-                                  width: 120,
-                                  height: 120,
-                                  color: primaryColor,
-                                  child: const Icon(
-                                    Icons.person,
-                                    size: 48,
-                                    color: Colors.white,
-                                  ),
-                                );
-                              },
-                            )
-                          : Container(
-                              width: 120,
-                              height: 120,
-                              color: primaryColor,
-                              child: const Icon(
-                                Icons.person,
-                                size: 48,
-                                color: Colors.white,
-                              ),
-                            ),
-            ),
-          ),
-          
-          // Edit Button
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Material(
-              color: primaryColor,
-              borderRadius: BorderRadius.circular(20),
-              child: InkWell(
-                onTap: _pickAndCropAvatar,
-                borderRadius: BorderRadius.circular(20),
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(
-                    Icons.camera_alt,
-                    size: 18,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+    return Column(
+      children: [
+        Center(child: _buildAvatarStack(primaryColor)),
+        const SizedBox(height: 8),
+        Text(
+          'Fotoğraf yükle ya da hazır avatarlardan birini seç',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
+        ),
+      ],
+    );
+  }
 
-          // Kırpma göstergesi
-          if (_avatarBytes != null)
-            Positioned(
-              left: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: const Icon(
-                  Icons.crop,
-                  size: 12,
-                  color: Colors.white,
-                ),
+  Widget _buildAvatarStack(Color primaryColor) {
+    return Stack(
+      children: [
+        // Avatar
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipOval(
+            child: _selectedPresetAvatar != null
+                ? Image.asset(
+                    _selectedPresetAvatar!,
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                  )
+                : _avatarBytes != null
+                ? Image.memory(
+                    _avatarBytes!,
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                  )
+                : _avatarXFile != null && !kIsWeb
+                ? Image.file(
+                    File(_avatarXFile!.path),
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 120,
+                        height: 120,
+                        color: primaryColor,
+                        child: const Icon(
+                          Icons.person,
+                          size: 48,
+                          color: Colors.white,
+                        ),
+                      );
+                    },
+                  )
+                : _currentAvatarUrl != null && _currentAvatarUrl!.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: _currentAvatarUrl!,
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                    errorWidget: (context, url, error) {
+                      return Container(
+                        width: 120,
+                        height: 120,
+                        color: primaryColor,
+                        child: const Icon(
+                          Icons.person,
+                          size: 48,
+                          color: Colors.white,
+                        ),
+                      );
+                    },
+                  )
+                : Container(
+                    width: 120,
+                    height: 120,
+                    color: primaryColor,
+                    child: const Icon(
+                      Icons.person,
+                      size: 48,
+                      color: Colors.white,
+                    ),
+                  ),
+          ),
+        ),
+
+        // Edit Button
+        Positioned(
+          right: 0,
+          bottom: 0,
+          child: Material(
+            color: primaryColor,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              onTap: _showAvatarSourceSheet,
+              borderRadius: BorderRadius.circular(20),
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.camera_alt, size: 18, color: Colors.white),
               ),
             ),
-        ],
-      ),
+          ),
+        ),
+
+        // Kırpma / hazır avatar göstergesi
+        if (_avatarBytes != null || _selectedPresetAvatar != null)
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: Icon(
+                _selectedPresetAvatar != null ? Icons.check : Icons.crop,
+                size: 12,
+                color: Colors.white,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1070,15 +1170,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final genderEmoji = value == 'male'
         ? '♂'
         : value == 'female'
-            ? '♀'
-            : '○';
+        ? '♀'
+        : '○';
     return InkWell(
       onTap: () => setState(() => _selectedGender = value),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withValues(alpha: 0.1) : Colors.grey.shade50,
+          color: isSelected
+              ? primaryColor.withValues(alpha: 0.1)
+              : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? primaryColor : Colors.grey.shade300,
@@ -1139,7 +1241,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           keyboardType: keyboardType,
           decoration: InputDecoration(
             hintText: hintText,
-            prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
+            prefixIcon: Icon(
+              icon,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: Colors.grey.shade300),

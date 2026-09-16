@@ -2,8 +2,10 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../services/shop_service.dart';
 import 'shop_detail_screen.dart';
 
@@ -22,18 +24,59 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
   bool _isLoading = true;
   String? _error;
 
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  List<Shop> get _filteredShops {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _shops;
+    return _shops.where((shop) {
+      final name = shop.name.toLowerCase();
+      final description = (shop.description ?? '').toLowerCase();
+      return name.contains(query) || description.contains(query);
+    }).toList();
+  }
+
+  /// Kartlarda uzaklık göstermek için kullanıcının konumu. İzin İSTENMEZ;
+  /// yalnızca daha önce izin verilmişse okunur (market ekranındaki
+  /// "uzaklığı göster" ile veya dükkan sayfasındaki rozetle verilebilir).
+  Position? _userPosition;
+
   @override
   void initState() {
     super.initState();
-    
+
     // İlk dükkanları yükle (varsa)
     if (widget.initialShops != null && widget.initialShops!.isNotEmpty) {
       _shops = List<Shop>.from(widget.initialShops!);
       _sortShops();
       _isLoading = false;
     }
-    
+
     _loadData();
+    _loadUserPosition();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUserPosition() async {
+    final position = await UserDistanceService.positionIfAllowed();
+    if (!mounted || position == null) return;
+    setState(() => _userPosition = position);
+  }
+
+  /// "850 m" / "1,2 km"; konum ya da dükkan koordinatı yoksa null.
+  String? _distanceLabel(Shop shop) {
+    final meters = UserDistanceService.distanceMeters(
+      from: _userPosition,
+      targetLat: shop.latitude,
+      targetLng: shop.longitude,
+    );
+    return meters == null ? null : UserDistanceService.format(meters);
   }
 
   void _sortShops() {
@@ -156,7 +199,44 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
             ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          if (!_isLoading && _error == null && _shops.isNotEmpty)
+            _buildSearchField(),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchField() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) => setState(() => _searchQuery = value),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Dükkan ara...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                ),
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
     );
   }
 
@@ -213,11 +293,37 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
       );
     }
 
+    final filtered = _filteredShops;
+    if (filtered.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            const Text(
+              'Arama sonucu bulunamadı',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () {
+                _searchController.clear();
+                setState(() => _searchQuery = '');
+              },
+              icon: const Icon(Icons.clear),
+              label: const Text('Aramayı Temizle'),
+            ),
+          ],
+        ),
+      );
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _shops.length,
+      itemCount: filtered.length,
       itemBuilder: (context, index) {
-        final shop = _shops[index];
+        final shop = filtered[index];
         return _buildShopCard(context, shop);
       },
     );
@@ -366,6 +472,24 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
                                   style: TextStyle(
                                     color: Colors.grey.shade600,
                                     fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                              // Kullanıcıya uzaklık (1 km altı metre, üstü km).
+                              // Flexible: dar ekranda taşmak yerine kısalır.
+                              if (_distanceLabel(shop) != null) ...[
+                                const SizedBox(width: 8),
+                                Icon(Icons.near_me, size: 13, color: Colors.blueGrey.shade600),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    _distanceLabel(shop)!,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.blueGrey.shade700,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ],

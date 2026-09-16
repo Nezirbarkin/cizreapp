@@ -75,3 +75,25 @@ lib*.zip
 pubspec_temp*.txt
 pubspec_new.txt
 profile_screen_temp.txt
+
+# ============================================================
+# Gecici analiz / tani ciktilari (2026-09-08 temizligi)
+# ============================================================
+# Bunlar bir kereye mahsus tani ciktilariydi ve repoda 2.1 MB yer
+# kapliyordu; git takibinden cikarildi (yerel kopyalar duruyor).
+*_audit.txt
+test_output.txt
+dev_match.txt
+dump_err.txt
+playstore.html
+*.patch
+*.bundle
+
+# JVM cokme dokumleri (Gradle/Java) — yuzlerce KB
+hs_err_pid*.log
+replay_pid*.log
+
+# Kazara olusan artiklar
+$null
+*.rar
+.storage_audit_dump.sql

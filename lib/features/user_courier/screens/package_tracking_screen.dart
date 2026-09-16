@@ -4,6 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/theme/app_map_style.dart';
+import '../../../core/widgets/map_controls.dart';
 
 class PackageTrackingScreen extends StatefulWidget {
   final String packageId;
@@ -465,6 +467,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           : Stack(
               children: [
                 GoogleMap(
+                  style: AppMapStyle.of(context),
                   initialCameraPosition: const CameraPosition(
                     target: LatLng(_cizreLatitude, _cizveLongitude),
                     zoom: 13,
@@ -483,141 +486,176 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                   zoomControlsEnabled: false,
                   myLocationButtonEnabled: false,
                   compassEnabled: false,
+                  // Düz (2D) harita: eğim hareketi ve 3D bina kabartması kapalı.
+                  tiltGesturesEnabled: false,
+                  buildingsEnabled: false,
+                  mapType: MapType.normal,
                 ),
-                // Durum kartı
+                // Zoom kontrolleri + durum kartı tek sütunda: kart içeriği
+                // (uzun adresler, kurye satırı) yükseldiğinde butonlar
+                // kartın üstünde kalmaya devam eder.
                 Positioned(
                   bottom: 16,
                   left: 16,
                   right: 16,
-                  child: Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_packageData != null) ...[
-                            Text(
-                              'Alım: ${_packageData!['pickup_address'] ?? '-'}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: MapZoomControls(
+                          onZoomIn: () => _mapController
+                              ?.animateCamera(CameraUpdate.zoomIn()),
+                          onZoomOut: () => _mapController
+                              ?.animateCamera(CameraUpdate.zoomOut()),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.4),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.14),
+                              blurRadius: 18,
+                              offset: const Offset(0, 6),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Teslim: ${_packageData!['delivery_address'] ?? '-'}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
                           ],
-                          if (_courierLocation != null) ...[
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.two_wheeler,
-                                  color: Colors.red,
-                                  size: 20,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_packageData != null) ...[
+                                Text(
+                                  'Alım: ${_packageData!['pickup_address'] ?? '-'}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Teslim: ${_packageData!['delivery_address'] ?? '-'}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              if (_courierLocation != null) ...[
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.two_wheeler,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _courierLocation!['full_name'] ??
+                                                'Kurye',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          if (distance != null)
+                                            Text(
+                                              'Sizden uzaklığı: $distance',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                          if (eta != null)
+                                            Text(
+                                              'Tahmini varış: ~$eta dk',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.green.shade700,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else if (_packageData?['status'] == 'accepted') ...[
+                                Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
+                                      Icon(
+                                        Icons.two_wheeler,
+                                        color: Colors.blue.shade700,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
                                       Text(
-                                        _courierLocation!['full_name'] ??
-                                            'Kurye',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
+                                        'Kurye yola çıktı, paketinizi alıyor...',
+                                        style: TextStyle(
+                                          color: Colors.blue.shade700,
+                                          fontSize: 13,
                                         ),
                                       ),
-                                      if (distance != null)
-                                        Text(
-                                          'Sizden uzaklığı: $distance',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      if (eta != null)
-                                        Text(
-                                          'Tahmini varış: ~$eta dk',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.green.shade700,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ] else if (_packageData?['status'] == 'accepted') ...[
-                            Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.two_wheeler,
-                                    color: Colors.blue.shade700,
-                                    size: 20,
+                              ] else if (_packageData?['status'] == 'delivered') ...[
+                                Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle,
+                                        color: Colors.green.shade700,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Paketiniz teslim edildi',
+                                        style: TextStyle(
+                                          color: Colors.green.shade700,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Kurye yola çıktı, paketinizi alıyor...',
-                                    style: TextStyle(
-                                      color: Colors.blue.shade700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ] else if (_packageData?['status'] == 'delivered') ...[
-                            Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle,
-                                    color: Colors.green.shade700,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Paketiniz teslim edildi',
-                                    style: TextStyle(
-                                      color: Colors.green.shade700,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ] else if (_packageData?['status'] == 'pending') ...[
-                            Center(
-                              child: Text(
-                                'Kurye atanması bekleniyor...',
-                                style: TextStyle(
-                                  color: Colors.orange.shade700,
-                                  fontSize: 13,
                                 ),
-                              ),
-                            ),
-                          ],
-                        ],
+                              ] else if (_packageData?['status'] == 'pending') ...[
+                                Center(
+                                  child: Text(
+                                    'Kurye atanması bekleniyor...',
+                                    style: TextStyle(
+                                      color: Colors.orange.shade700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ],

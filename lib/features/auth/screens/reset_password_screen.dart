@@ -2,11 +2,9 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/widgets/responsive_wrapper.dart';
 import '../services/auth_service.dart';
+import '../widgets/auth_shell.dart';
 
 /// Şifre sıfırlama ekranı.
 ///
@@ -29,12 +27,7 @@ class ResetPasswordScreen extends StatefulWidget {
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
 }
 
-enum _ResetStep {
-  emailInput,
-  otpInput,
-  newPassword,
-  success,
-}
+enum _ResetStep { emailInput, otpInput, newPassword, success }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -48,10 +41,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     6,
     (_) => TextEditingController(),
   );
-  final List<FocusNode> _otpFocusNodes = List.generate(
-    6,
-    (_) => FocusNode(),
-  );
+  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -111,7 +101,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           // Eğer identifier e-posta ise onu kullan; kullanıcı adı ise
           // AuthService'in döndüğü e-postayı (sentTo) göster. Kullanıcı
           // sızıntısını önlemek için sentTo null ise identifier'ı gösterme.
-          _verifiedEmail = sentTo ?? (rawIdentifier.contains('@') ? rawIdentifier : null);
+          _verifiedEmail =
+              sentTo ?? (rawIdentifier.contains('@') ? rawIdentifier : null);
         });
 
         _startResendTimer();
@@ -131,9 +122,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     } catch (e) {
       if (mounted) {
         // Kullanıcı var/yok bilgisi sızdırmamak için genel mesaj
-        _showError(
-          'İstek işlenemedi. Lütfen bir süre sonra tekrar deneyin.',
-        );
+        _showError('İstek işlenemedi. Lütfen bir süre sonra tekrar deneyin.');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -288,145 +277,73 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     });
   }
 
-  /// OTP giriş değişikliği
-  void _onOtpChanged(int index, String value) {
-    if (value.isNotEmpty && index < 5) {
-      _otpFocusNodes[index + 1].requestFocus();
-    }
+  void _showSuccess(String message) => showAuthSuccess(context, message);
 
-    if (_otpCode.length == 6) {
-      FocusScope.of(context).unfocus();
-    }
-  }
+  void _showError(String message) => showAuthError(context, message);
 
-  /// OTP geri silme
-  void _onOtpKeyPressed(int index, RawKeyEvent event) {
-    if (event is RawKeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.backspace &&
-        _otpControllers[index].text.isEmpty &&
-        index > 0) {
-      _otpFocusNodes[index - 1].requestFocus();
-    }
-  }
-
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFF27AE60),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFE74C3C),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
+  // ===========================================================================
+  // Arayüz
+  // ===========================================================================
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kIsWeb ? Colors.grey.shade100 : const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          onPressed: () {
-            if (_currentStep == _ResetStep.otpInput) {
-              setState(() {
-                _currentStep = _ResetStep.emailInput;
-                _resendTimer?.cancel();
-                for (var c in _otpControllers) {
-                  c.clear();
-                }
-              });
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF2C3E50), size: 20),
-        ),
-      ),
-      body: ResponsiveWrapper(
-        maxWidth: 500,
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 20),
-
-                  Text(
-                    _getTitle(),
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _getSubtitle(),
-                    style: const TextStyle(fontSize: 14, color: Color(0xFF95A5A6)),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 32),
-
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 20,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: _buildCurrentStep(),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    return AuthScaffold(
+      title: _getTitle(),
+      subtitle: _getSubtitle(),
+      stepIndex: _stepIndex,
+      stepCount: 3,
+      onBack: _currentStep == _ResetStep.success ? null : _handleBack,
+      child: _buildCurrentStep(),
     );
+  }
+
+  /// İlerleme çubuğu için 1 tabanlı adım. Başarı ekranı da son adım sayılır.
+  int get _stepIndex => switch (_currentStep) {
+    _ResetStep.emailInput => 1,
+    _ResetStep.otpInput => 2,
+    _ResetStep.newPassword => 3,
+    _ResetStep.success => 3,
+  };
+
+  /// OTP adımından e-posta adımına, diğerlerinden ekrandan çıkışa döner.
+  void _handleBack() {
+    if (_currentStep == _ResetStep.otpInput) {
+      setState(() {
+        _currentStep = _ResetStep.emailInput;
+        _resendTimer?.cancel();
+        _resendCooldown = 0;
+        for (var c in _otpControllers) {
+          c.clear();
+        }
+      });
+      return;
+    }
+    Navigator.of(context).pop();
   }
 
   String _getTitle() {
     switch (_currentStep) {
       case _ResetStep.emailInput:
-        return 'Şifremi Unuttum';
+        return 'Şifreni sıfırla';
       case _ResetStep.otpInput:
-        return 'Kodu Girin';
+        return 'Kodu gir';
       case _ResetStep.newPassword:
-        return 'Yeni Şifre';
+        return 'Yeni şifre';
       case _ResetStep.success:
-        return 'Şifre Güncellendi';
+        return 'Şifren güncellendi';
     }
   }
 
   String _getSubtitle() {
     switch (_currentStep) {
       case _ResetStep.emailInput:
-        return 'E-posta adresinize doğrulama kodu göndereceğiz';
+        return 'Adım 1 / 3 — E-posta adresine doğrulama kodu göndereceğiz';
       case _ResetStep.otpInput:
-        return 'E-posta adresinize gönderilen 6 haneli kodu girin';
+        return 'Adım 2 / 3 — E-postana gönderilen 6 haneli kodu gir';
       case _ResetStep.newPassword:
-        return 'Yeni şifrenizi belirleyin';
+        return 'Adım 3 / 3 — Yeni şifreni belirle';
       case _ResetStep.success:
-        return 'Şifreniz başarıyla güncellendi';
+        return 'Artık yeni şifrenle giriş yapabilirsin';
     }
   }
 
@@ -443,274 +360,197 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
   }
 
-  /// Email giriş formu
+  /// Adım 1 — e-posta / kullanıcı adı girişi.
   Widget _buildEmailForm() {
-    return Form(
-      key: _formKey,
-      child: Column(
-        children: [
-          TextFormField(
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF2C3E50)),
-            decoration: InputDecoration(
-              hintText: 'E-posta adresi',
-              hintStyle: const TextStyle(color: Color(0xFFBDC3C7)),
-              prefixIcon: const Icon(Icons.mail_outline, color: Color(0xFF95A5A6), size: 20),
-              filled: true,
-              fillColor: const Color(0xFFF8F9FA),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1)),
-              focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2C3E50), width: 1.5)),
-              errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
+    return AutofillGroup(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AuthField(
+              controller: _emailController,
+              hint: 'E-posta adresi',
+              icon: Icons.mail_outline,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.email],
+              onSubmitted: (_) => _isLoading ? null : _sendOtp(),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'E-posta adresi gerekli';
+                }
+                if (!value.contains('@') || !value.contains('.')) {
+                  return 'Geçerli bir e-posta adresi gir';
+                }
+                return null;
+              },
             ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'E-posta adresi gerekli';
-              }
-              if (!value.contains('@') || !value.contains('.')) {
-                return 'Geçerli bir e-posta adresi girin';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 24),
-
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton(
+            const SizedBox(height: 24),
+            AuthPrimaryButton(
+              label: 'Doğrulama kodu gönder',
+              isLoading: _isLoading,
               onPressed: _isLoading ? null : _sendOtp,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2C3E50),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
-              ),
-              child: _isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Doğrulama Kodu Gönder', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  /// OTP giriş bölümü
+  /// Adım 2 — doğrulama kodu.
   Widget _buildOtpSection() {
+    final p = AuthPalette.of(context);
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Email göster
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8F9FA),
-            borderRadius: BorderRadius.circular(12),
+            color: p.field,
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             children: [
-              const Icon(Icons.mail_outline, color: Color(0xFF3498DB), size: 20),
+              Icon(Icons.mail_outline, color: p.accent, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   _verifiedEmail ?? '',
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF2C3E50), fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: p.text,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _currentStep = _ResetStep.emailInput;
-                    _resendTimer?.cancel();
-                    for (var c in _otpControllers) {
-                      c.clear();
-                    }
-                  });
-                },
-                child: const Text('Değiştir', style: TextStyle(color: Color(0xFF3498DB), fontWeight: FontWeight.w600)),
+                onPressed: _isLoading ? null : _handleBack,
+                style: TextButton.styleFrom(foregroundColor: p.accent),
+                child: const Text(
+                  'Değiştir',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 24),
-
-        // OTP başlık
-        const Text(
-          'Doğrulama Kodu',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF2C3E50)),
+        const SizedBox(height: 26),
+        Text(
+          '6 haneli kodu gir',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: p.textSoft),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'E-posta adresinize 6 haneli kod gönderildi',
-          style: TextStyle(fontSize: 13, color: Color(0xFF7F8C8D)),
-        ),
-        const SizedBox(height: 24),
-
-        // OTP input kutuları
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(6, (index) => _buildOtpBox(index)),
+        const SizedBox(height: 14),
+        AuthOtpInput(
+          controllers: _otpControllers,
+          focusNodes: _otpFocusNodes,
+          onChanged: () => setState(() {}),
         ),
         const SizedBox(height: 24),
-
-        // Doğrula butonu
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton(
-            onPressed: (_isLoading || _otpCode.length != 6) ? null : _verifyOtp,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2C3E50),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 0,
-            ),
-            child: _isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('Kodu Doğrula', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          ),
+        AuthPrimaryButton(
+          label: 'Kodu doğrula',
+          isLoading: _isLoading,
+          onPressed: (_isLoading || _otpCode.length != 6) ? null : _verifyOtp,
         ),
-        const SizedBox(height: 16),
-
-        // Yeniden gönder butonu
+        const SizedBox(height: 6),
         TextButton(
           onPressed: (_resendCooldown > 0 || _isLoading) ? null : _resendOtp,
+          style: TextButton.styleFrom(
+            foregroundColor: p.accent,
+            disabledForegroundColor: p.textMuted,
+          ),
           child: Text(
             _resendCooldown > 0
-                ? 'Yeniden gönder (${_resendCooldown}s)'
-                : 'Kodu Yeniden Gönder',
-            style: TextStyle(
-              color: _resendCooldown > 0 ? const Color(0xFFBDC3C7) : const Color(0xFF3498DB),
-              fontWeight: FontWeight.w600,
-            ),
+                ? 'Kodu yeniden gönder ($_resendCooldown sn)'
+                : 'Kodu yeniden gönder',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
           ),
         ),
       ],
     );
   }
 
-  /// Yeni şifre formu.
+  /// Adım 3 — yeni şifre.
+  ///
   /// Flutter tarafı minimum kontrol: 8 karakter + büyük/küçük harf + rakam.
   /// Asıl güvenlik Supabase Auth sunucu ayarındadır.
   Widget _buildNewPasswordForm() {
-    return Form(
-      key: _passwordFormKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Başarı ikonu
-          Center(
-            child: Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8F8F5),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.verified_user_rounded, size: 28, color: Color(0xFF27AE60)),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Center(
-            child: Text(
-              'E-posta doğrulandı',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF27AE60)),
-            ),
-          ),
-          const SizedBox(height: 24),
+    final p = AuthPalette.of(context);
 
-          // Yeni şifre
-          TextFormField(
-            controller: _newPasswordController,
-            obscureText: _obscurePassword,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF2C3E50)),
-            decoration: InputDecoration(
-              hintText: 'Yeni şifre',
-              hintStyle: const TextStyle(color: Color(0xFFBDC3C7)),
-              prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF95A5A6), size: 20),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                  size: 20,
-                  color: const Color(0xFF95A5A6),
-                ),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+    return AutofillGroup(
+      child: Form(
+        key: _passwordFormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: p.success.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
               ),
-              filled: true,
-              fillColor: const Color(0xFFF8F9FA),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1)),
-              focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2C3E50), width: 1.5)),
-              errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
-            ),
-            validator: _validatePassword,
-          ),
-          const SizedBox(height: 8),
-          // Şifre politikası ipucu
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              'En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF7F8C8D)),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Şifre tekrar
-          TextFormField(
-            controller: _confirmPasswordController,
-            obscureText: _obscureConfirmPassword,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF2C3E50)),
-            decoration: InputDecoration(
-              hintText: 'Şifre tekrar',
-              hintStyle: const TextStyle(color: Color(0xFFBDC3C7)),
-              prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF95A5A6), size: 20),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                  size: 20,
-                  color: const Color(0xFF95A5A6),
-                ),
-                onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+              child: Row(
+                children: [
+                  Icon(Icons.verified_user_rounded, size: 20, color: p.success),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'E-postan doğrulandı',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: p.success,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              filled: true,
-              fillColor: const Color(0xFFF8F9FA),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1)),
-              focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2C3E50), width: 1.5)),
-              errorStyle: const TextStyle(color: Color(0xFFE74C3C)),
             ),
-            validator: (value) {
-              if (value != _newPasswordController.text) return 'Şifreler eşleşmiyor';
-              return null;
-            },
-          ),
-          const SizedBox(height: 24),
-
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton(
+            const SizedBox(height: 20),
+            AuthField(
+              controller: _newPasswordController,
+              hint: 'Yeni şifre',
+              icon: Icons.lock_outline,
+              obscure: _obscurePassword,
+              onToggleObscure: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.newPassword],
+              onChanged: (_) => setState(() {}),
+              helper:
+                  'En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.',
+              validator: _validatePassword,
+            ),
+            AuthPasswordStrengthBar(password: _newPasswordController.text),
+            const SizedBox(height: 14),
+            AuthField(
+              controller: _confirmPasswordController,
+              hint: 'Şifre tekrar',
+              icon: Icons.lock_reset_outlined,
+              obscure: _obscureConfirmPassword,
+              onToggleObscure: () => setState(
+                () => _obscureConfirmPassword = !_obscureConfirmPassword,
+              ),
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.newPassword],
+              validator: (value) {
+                if (value != _newPasswordController.text) {
+                  return 'Şifreler eşleşmiyor';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            AuthPrimaryButton(
+              label: 'Şifreyi güncelle',
+              isLoading: _isLoading,
               onPressed: _isLoading ? null : _updatePassword,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2C3E50),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
-              ),
-              child: _isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Şifreyi Güncelle', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -735,94 +575,46 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   /// Başarı kartı
   Widget _buildSuccessCard() {
+    final p = AuthPalette.of(context);
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: const BoxDecoration(
-            color: Color(0xFFE8F8F5),
-            shape: BoxShape.circle,
+        Center(
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: p.success.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.check_rounded, size: 40, color: p.success),
           ),
-          child: const Icon(Icons.check_rounded, size: 40, color: Color(0xFF27AE60)),
         ),
         const SizedBox(height: 20),
-        const Text(
-          'Şifreniz güncellendi!',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF2C3E50)),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Yeni şifrenizle giriş yapabilirsiniz.',
-          style: TextStyle(fontSize: 14, color: Color(0xFF7F8C8D), height: 1.5),
+        Text(
+          'Şifren güncellendi',
           textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: p.text,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Yeni şifrenle giriş yapabilirsin.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: p.textSoft, height: 1.5),
         ),
         const SizedBox(height: 24),
-
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                '/login',
-                (route) => false,
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2C3E50),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 0,
-            ),
-            child: const Text('Giriş Sayfasına Git', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          ),
+        AuthPrimaryButton(
+          label: 'Giriş sayfasına git',
+          onPressed: () => Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/login', (route) => false),
         ),
       ],
-    );
-  }
-
-  /// OTP kutusu
-  Widget _buildOtpBox(int index) {
-    return Container(
-      width: 45,
-      height: 55,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FA),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _otpFocusNodes[index].hasFocus
-              ? const Color(0xFF2C3E50)
-              : Colors.transparent,
-          width: 2,
-        ),
-      ),
-      child: RawKeyboardListener(
-        focusNode: FocusNode(),
-        onKey: (event) => _onOtpKeyPressed(index, event),
-        child: TextField(
-          controller: _otpControllers[index],
-          focusNode: _otpFocusNodes[index],
-          textAlign: TextAlign.center,
-          textAlignVertical: TextAlignVertical.center,
-          keyboardType: TextInputType.number,
-          maxLength: 1,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-          ],
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2C3E50),
-          ),
-          decoration: const InputDecoration(
-            counterText: '',
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-          ),
-          onChanged: (value) => _onOtpChanged(index, value),
-        ),
-      ),
     );
   }
 }

@@ -103,9 +103,12 @@ class FavoriteService {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) throw Exception('Kullanıcı giriş yapmamış');
 
+    // posts(*) tek başına yazar bilgisi taşımaz (posts_with_profiles view'i
+    // değil, ham tablo); kart tasarımında avatar/isim gösterebilmek için
+    // profiles alt-nesnesi de embed edilir (Post.fromJson bunu okur).
     final response = await _supabase
         .from('post_favorites')
-        .select('*, posts(*)')
+        .select('*, posts(*, profiles(username, full_name, avatar_url))')
         .eq('user_id', userId)
         .order('created_at', ascending: false);
 

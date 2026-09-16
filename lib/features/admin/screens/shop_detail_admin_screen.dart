@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/services/contact_lookup_service.dart';
 
 /// Admin - Dükkan Detay Ekranı
 /// 
@@ -119,12 +120,28 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           .select('''
             id, status, total, admin_commission, commission_amount, created_at,
             address_display, customer_phone, address_id,
-            profiles!orders_user_id_fkey(id, username, full_name, email, avatar_url, phone)
+            profiles!orders_user_id_fkey(id, username, full_name, avatar_url)
           ''')
           .eq('shop_id', widget.shopId)
           .order('created_at', ascending: false);
 
       _orders = List<Map<String, dynamic>>.from(ordersResponse);
+
+      // Musteri email/phone'u gomulu sorgudan CIKARILDI (bu sutunlar
+      // profiles uzerinde authenticated'a kapatiliyor, 20260907110001).
+      // Iliski dogrulayan order_customer_contact RPC'sinden alinip ayni
+      // ic ice yapiya geri yaziliyor.
+      final orderContacts = await ContactLookupService()
+          .customerContactsByOrderId(
+              _orders.map((o) => o['id']?.toString() ?? '').toList());
+      for (final order in _orders) {
+        final c = orderContacts[order['id']?.toString()];
+        final p = order['profiles'];
+        if (p is Map) {
+          p['email'] = c?['email'];
+          p['phone'] = c?['phone'];
+        }
+      }
       _totalOrders = _orders.length;
       _completedOrders = _orders.where((order) => order['status'] == 'delivered').length;
       _pendingOrders = _orders.where((order) => order['status'] == 'pending').length;

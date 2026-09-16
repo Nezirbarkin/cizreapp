@@ -6,6 +6,7 @@
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/contact_lookup_service.dart';
 
 class PostReportService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -147,12 +148,14 @@ class PostReportService {
           .from('post_reports')
           .select('''
             *,
-            reporter:profiles!post_reports_reporter_id_fkey(id, username, full_name, email, avatar_url),
+            reporter:profiles!post_reports_reporter_id_fkey(id, username, full_name, avatar_url),
             reported_post:posts!post_reports_reported_post_id_fkey(id, content, user_id)
           ''')
           .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      final reports = List<Map<String, dynamic>>.from(response);
+      await _mergeAdminContacts(reports, const ['reporter']);
+      return reports;
     } catch (e) {
       debugPrint('❌ Tüm şikayetler getirilirken hata: $e');
       return [];
@@ -208,5 +211,34 @@ class PostReportService {
   /// Şikayet durumunun görünen adını al
   String getStatusDisplayName(String status) {
     return reportStatuses[status] ?? status;
+  }
+}
+
+/// Gomulu profil map'lerine, iliski dogrulayan RPC'den gelen iletisim
+/// bilgilerini geri yazar. `profiles.email` / `profiles.phone` sutunlari
+/// `authenticated` rolunden kaldirildigi icin (20260907110001) bu alanlar
+/// artik PostgREST embed'i ile GELMEZ.
+Future<void> _mergeAdminContacts(
+  List<Map<String, dynamic>> rows,
+  List<String> embedKeys,
+) async {
+  final ids = <String>{};
+  for (final row in rows) {
+    for (final key in embedKeys) {
+      final p = row[key];
+      if (p is Map && p['id'] != null) ids.add(p['id'].toString());
+    }
+  }
+  if (ids.isEmpty) return;
+  final contacts = await ContactLookupService().adminContactsByUserId(ids);
+  for (final row in rows) {
+    for (final key in embedKeys) {
+      final p = row[key];
+      if (p is Map && p['id'] != null) {
+        final c = contacts[p['id'].toString()];
+        p['email'] = c?['email'];
+        p['phone'] = c?['phone'];
+      }
+    }
   }
 }

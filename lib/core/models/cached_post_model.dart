@@ -41,6 +41,11 @@ class CachedPost extends HiveObject {
   @HiveField(11)
   final bool isActive;
 
+  /// Arka planli metin gonderisinin zemin kimligi. Eski onbellek kayitlarinda
+  /// bu alan yoktur; Hive okumada null doner ve gonderi sade cizilir.
+  @HiveField(12)
+  final String? background;
+
   CachedPost({
     required this.id,
     required this.userId,
@@ -54,6 +59,7 @@ class CachedPost extends HiveObject {
     required this.updatedAt,
     required this.cachedAt,
     this.isActive = true,
+    this.background,
   });
 
   factory CachedPost.fromPost(Post post) {
@@ -70,6 +76,7 @@ class CachedPost extends HiveObject {
       updatedAt: post.updatedAt,
       cachedAt: DateTime.now(),
       isActive: post.isActive,
+      background: post.background,
     );
   }
 
@@ -86,6 +93,7 @@ class CachedPost extends HiveObject {
       createdAt: createdAt,
       updatedAt: updatedAt,
       isActive: isActive,
+      background: background,
     );
   }
 

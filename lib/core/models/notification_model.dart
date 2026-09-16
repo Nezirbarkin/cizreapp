@@ -150,6 +150,8 @@ class NotificationModel {
       case 'mention':
       case 'comment_mention':
         return 'alternate_email';
+      case 'comment_reply':
+        return 'reply';
       case 'order':
       case 'order_update':
       case 'order_status':
@@ -208,6 +210,8 @@ class NotificationModel {
         return 'teal';
       case 'mention':
       case 'comment_mention':
+        return 'teal';
+      case 'comment_reply':
         return 'teal';
       case 'order':
       case 'order_update':

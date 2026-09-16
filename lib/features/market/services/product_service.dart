@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/utils/search_query.dart';
 
 /// Toplu indirim uygulama biçimi. `dbValue` karşılıkları
 /// `seller_bulk_set_discount` RPC'sinin kabul ettiği değerlerdir.
@@ -102,7 +103,7 @@ class ProductService {
           .from('products')
           .select()
           .eq('is_available', true)
-          .or('name.ilike.%$query%,description.ilike.%$query%')
+          .or(buildIlikeOrFilter(const ['name', 'description'], query))
           .order('created_at', ascending: false)
           .limit(50);
 

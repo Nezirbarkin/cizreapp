@@ -50,7 +50,7 @@ class _ShopsManagementScreenState extends State<ShopsManagementScreen> {
           .from('shops')
           .select('''
             *,
-            profiles!shops_owner_id_fkey(full_name, email)
+            profiles!shops_owner_id_fkey(id, full_name)
           ''')
           .order('created_at', ascending: false);
 
@@ -403,6 +403,11 @@ class _ShopsManagementScreenState extends State<ShopsManagementScreen> {
     final totalRevenue = (stats['total_revenue'] as num?)?.toDouble() ?? 0;
     final adminCredit = (shop['admin_credit'] as num?)?.toDouble() ?? 0;
     final commissionDebt = (shop['commission_debt'] as num?)?.toDouble() ?? 0;
+    // Admin/kurye satıcıya ulaşabilsin diye telefon/adres/konum bilgisinin
+    // dolu olması bekleniyor - sadece ileriye dönük bir uyarı, engellemez.
+    final missingContactInfo = (shop['phone'] as String?)?.trim().isEmpty != false ||
+        (shop['address'] as String?)?.trim().isEmpty != false ||
+        shop['latitude'] == null;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -513,9 +518,23 @@ class _ShopsManagementScreenState extends State<ShopsManagementScreen> {
                   ),
                 ],
               ),
-              
+
+              if (missingContactInfo) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
+                    const SizedBox(width: 4),
+                    Text(
+                      'İletişim bilgisi eksik (telefon/adres/konum)',
+                      style: TextStyle(fontSize: 11, color: Colors.orange.shade700),
+                    ),
+                  ],
+                ),
+              ],
+
               const SizedBox(height: 12),
-              
+
               // İstatistik satırı
               Container(
                 padding: const EdgeInsets.all(10),

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html><head>
+<!DOCTYPE html><html lang="tr"><head>
   <!--
     If you are serving your web app in a path other than the root, change the
     href value below to reflect the base path you are serving from.
@@ -37,6 +37,19 @@
   <link rel="icon" type="image/png" href="favicon.png">
 
   <title>CizreApp - Alışveriş Platformu</title>
+
+  <!-- Sosyal medya önizlemesi (link paylaşımında görünen kart) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="CizreApp">
+  <meta property="og:title" content="CizreApp - Her an, her kapıda!">
+  <meta property="og:description" content="Cizre'nin dijital pazarı ve sosyal ağı. Sipariş ver, kurye çağır, ilan yayınla, paylaş.">
+  <meta property="og:url" content="https://www.cizreapp.com/">
+  <meta property="og:image" content="https://www.cizreapp.com/icons/Icon-512.png">
+  <meta property="og:locale" content="tr_TR">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CizreApp - Her an, her kapıda!">
+  <meta name="twitter:description" content="Cizre'nin dijital pazarı ve sosyal ağı. Sipariş ver, kurye çağır, ilan yayınla, paylaş.">
+  <meta name="twitter:image" content="https://www.cizreapp.com/icons/Icon-512.png">
   <link rel="manifest" href="manifest.json">
 
   <!-- Privacy sayfası yönlendirmesi - Google Play Store gereksinimi -->
@@ -154,7 +167,9 @@
       justify-content: center;
       align-items: center;
       flex-direction: column;
-      z-index: 9999;
+      /* Tanıtım ekranının (#promo, z-index 10000) üstünde kalmalı: yükleme
+         hatası tanıtım açıktayken oluşursa kullanıcı hatayı görebilsin. */
+      z-index: 10001;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       padding: 20px;
       text-align: center;
@@ -250,6 +265,830 @@
   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
 </head>
 <body>
+  <!-- ===================================================================== -->
+  <!-- TANITIM (PROMO) EKRANI                                                -->
+  <!-- Flutter bundle'ı beklemeden ilk boyada görünen açılış ekranı.         -->
+  <!-- İçerik admin panelinden yönetilir: Admin Panel > Tanıtım Videosu (Web)-->
+  <!-- Ayarlar Supabase `app_settings` tablosundaki web_promo_* anahtarları. -->
+  <!-- ===================================================================== -->
+  <style id="promo-style">
+    #promo {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      background: #04110d;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      opacity: 1;
+      transition: opacity .45s ease;
+    }
+    #promo[hidden] { display: none; }
+    #promo.promo-leaving { opacity: 0; pointer-events: none; }
+
+    /* --- Arka plan sahnesi (video ya da animasyonlu marka sahnesi) --- */
+    .promo-stage {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #04110d;
+    }
+    #promo-video, #promo-poster {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    #promo.has-video #promo-video { display: block; }
+    #promo.has-poster #promo-poster { display: block; }
+    #promo.has-video #promo-poster { display: none; }
+    #promo.has-video #promo-motion,
+    #promo.has-poster #promo-motion { display: none; }
+
+    /* Metnin her koşulda okunur kalması için katmanlı karartma */
+    .promo-scrim {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(120% 90% at 50% 40%, rgba(4,17,13,.15) 0%, rgba(4,17,13,.72) 62%, rgba(4,17,13,.92) 100%),
+        linear-gradient(180deg, rgba(4,17,13,.75) 0%, rgba(4,17,13,.25) 30%, rgba(4,17,13,.55) 70%, rgba(4,17,13,.95) 100%);
+    }
+
+    /* --- Videosuz durumda gösterilen animasyonlu marka sahnesi --- */
+    #promo-motion { position: absolute; inset: 0; overflow: hidden; }
+    #promo-motion .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(70px);
+      opacity: .55;
+      animation: promo-drift 18s ease-in-out infinite;
+    }
+    #promo-motion .b1 { width: 60vmax; height: 60vmax; left: -18vmax; top: -22vmax; background: #00C853; }
+    #promo-motion .b2 { width: 52vmax; height: 52vmax; right: -16vmax; top: 8vmax;  background: #00A0B0; animation-delay: -6s; }
+    #promo-motion .b3 { width: 46vmax; height: 46vmax; left: 22vmax;  bottom: -20vmax; background: #0F7B5A; animation-delay: -12s; }
+    @keyframes promo-drift {
+      0%, 100% { transform: translate3d(0,0,0) scale(1); }
+      33%      { transform: translate3d(4vmax, -3vmax, 0) scale(1.08); }
+      66%      { transform: translate3d(-3vmax, 4vmax, 0) scale(.95); }
+    }
+    #promo-motion .grid {
+      position: absolute;
+      inset: -50%;
+      background-image:
+        linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
+      background-size: 64px 64px;
+      transform: rotate(-8deg);
+      animation: promo-grid 40s linear infinite;
+    }
+    @keyframes promo-grid { to { background-position: 640px 640px; } }
+
+    /* Uygulamanın ne yaptığını anlatan yüzen rozetler */
+    .promo-chip {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.18);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 12px 30px rgba(0,0,0,.28);
+      animation: promo-float 7s ease-in-out infinite;
+    }
+    .promo-chip svg { width: 18px; height: 18px; flex: none; }
+    .promo-chip.c1 { left: 7%;  top: 16%; animation-delay: -.4s; }
+    .promo-chip.c2 { right: 8%; top: 24%; animation-delay: -2.1s; }
+    .promo-chip.c3 { left: 11%; bottom: 20%; animation-delay: -3.6s; }
+    .promo-chip.c4 { right: 9%; bottom: 16%; animation-delay: -5.2s; }
+    .promo-chip.c5 { left: 46%; top: 8%;  animation-delay: -1.3s; }
+    @keyframes promo-float {
+      0%, 100% { transform: translateY(0) rotate(-.6deg); }
+      50%      { transform: translateY(-16px) rotate(.6deg); }
+    }
+
+    /* --- İçerik --- */
+    .promo-content {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 720px;
+      /* Ekranın tamamını kaplar ki tanıtım yazıları en üste, indirme ve
+         devam düğmeleri en alta yaslansın. İçerik sığmazsa #promo kaydırır. */
+      min-height: 100%;
+      padding: 44px 24px;
+      box-sizing: border-box;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 28px;
+      animation: promo-rise .7s cubic-bezier(.2,.7,.3,1) both;
+    }
+    /* Üst blok: yazılar. Alt blok: mağaza rozetleri + "devam et". */
+    .promo-top, .promo-bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    @keyframes promo-rise {
+      from { opacity: 0; transform: translateY(22px); }
+      to   { opacity: 1; transform: none; }
+    }
+    .promo-kicker {
+      font-size: 12px;
+      letter-spacing: 2.4px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: rgba(255,255,255,.72);
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.22);
+      background: rgba(255,255,255,.07);
+      margin-bottom: 22px;
+    }
+    #promo-headline {
+      margin: 0;
+      font-size: clamp(44px, 9vw, 88px);
+      line-height: 1.02;
+      font-weight: 900;
+      letter-spacing: -2px;
+      text-shadow: 0 6px 40px rgba(0,0,0,.45);
+    }
+    #promo-tagline {
+      margin: 14px 0 0;
+      font-size: clamp(19px, 3.4vw, 30px);
+      font-weight: 600;
+      color: rgba(255,255,255,.94);
+      text-shadow: 0 3px 24px rgba(0,0,0,.45);
+    }
+    /* --- Dönen tanıtım maddeleri --- */
+    /* Kutu SABİT yükseklikte: maddeler arasında geçiş olurken altındaki
+       düğmeler zıplamasın diye yükseklik içeriğe göre değişmiyor. */
+    #promo-rotator {
+      position: relative;
+      width: 100%;
+      height: 2.1em;
+      margin-top: 16px;
+      font-size: clamp(15px, 2.2vw, 19px);
+      font-weight: 600;
+    }
+    #promo-rotator[hidden] { display: none; }
+    .promo-line {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      opacity: 0;
+      transform: translateY(70%);
+      color: rgba(255,255,255,.92);
+      text-shadow: 0 2px 18px rgba(0,0,0,.45);
+      transition: opacity .42s ease, transform .52s cubic-bezier(.2,.8,.2,1);
+      pointer-events: none;
+    }
+    .promo-line.is-active { opacity: 1; transform: none; }
+    .promo-line.is-leaving { opacity: 0; transform: translateY(-70%); }
+    .promo-line svg {
+      width: 1.05em;
+      height: 1.05em;
+      flex: none;
+      color: #26E07F;
+    }
+
+    .promo-rule {
+      width: 72px;
+      height: 4px;
+      border-radius: 999px;
+      margin: 26px 0 0;
+      overflow: hidden;
+      background: linear-gradient(90deg, #00C853, #26E07F);
+    }
+    /* Madde varken çizgi bir İLERLEME çubuğuna dönüşür: sıradaki maddenin
+       ne zaman geleceğini gösterir ve şeride sürekli bir hareket katar. */
+    #promo.has-rotator .promo-rule {
+      width: 132px;
+      background: rgba(255,255,255,.20);
+    }
+    #promo-progress {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #00C853, #26E07F);
+    }
+    #promo:not(.has-rotator) #promo-progress { display: none; }
+    @keyframes promo-progress { from { width: 0; } to { width: 100%; } }
+
+    /* --- Mağaza butonları --- */
+    .promo-stores {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 14px;
+    }
+    .promo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 196px;
+      padding: 11px 20px;
+      border-radius: 14px;
+      background: #000;
+      border: 1px solid rgba(255,255,255,.32);
+      color: #fff;
+      text-decoration: none;
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+      box-shadow: 0 10px 26px rgba(0,0,0,.38);
+    }
+    .promo-badge:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255,255,255,.6);
+      box-shadow: 0 16px 34px rgba(0,0,0,.46);
+    }
+    .promo-badge svg { width: 26px; height: 26px; flex: none; }
+    .promo-badge .bt { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+    .promo-badge .bt small { font-size: 10px; letter-spacing: .6px; text-transform: uppercase; opacity: .78; }
+    .promo-badge .bt b { font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+    /* Mağaza adresi girilmemişse buton "Yakında" olarak pasifleşir */
+    .promo-badge.soon { opacity: .5; pointer-events: none; }
+
+    /* --- Webte devam et --- */
+    #promo-continue {
+      margin-top: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.34);
+      background: rgba(255,255,255,.10);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: #fff;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .18s ease, transform .18s ease, border-color .18s ease;
+    }
+    #promo-continue:hover { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.6); transform: translateY(-1px); }
+    #promo-continue:disabled { cursor: progress; opacity: .8; transform: none; }
+    #promo-continue .arrow { transition: transform .18s ease; }
+    #promo-continue:hover .arrow { transform: translateX(4px); }
+    #promo-continue .spinner {
+      width: 15px; height: 15px;
+      border: 2px solid rgba(255,255,255,.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+    #promo-continue.loading .spinner { display: inline-block; }
+    #promo-continue.loading .arrow { display: none; }
+    /* Admin düğmeyi kapattıysa: display:inline-flex, [hidden]'ı ezdiği için
+       gizlemeyi ayrıca yazmak gerekiyor. */
+    #promo-continue[hidden] { display: none; }
+
+    /* --- Ses aç/kapat --- */
+    #promo-sound {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      z-index: 3;
+      width: 46px;
+      height: 46px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,.28);
+      background: rgba(0,0,0,.42);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #fff;
+      cursor: pointer;
+    }
+    #promo.has-video #promo-sound { display: flex; }
+    #promo-sound svg { width: 20px; height: 20px; }
+
+    @media (max-width: 560px) {
+      .promo-content { padding: 36px 20px; gap: 20px; }
+      /* Sağ alttaki ses düğmesi alt bloğun üzerine binmesin. */
+      #promo.has-video .promo-content { padding-bottom: 84px; }
+      .promo-kicker { font-size: 10.5px; letter-spacing: 1.4px; }
+      .promo-badge { min-width: 0; flex: 1 1 100%; justify-content: center; }
+      .promo-chip.c2, .promo-chip.c4, .promo-chip.c5 { display: none; }
+      .promo-chip.c1 { left: 4%; top: 10%; }
+      .promo-chip.c3 { left: 6%; bottom: 12%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #promo, .promo-content, #promo-motion .blob, #promo-motion .grid,
+      .promo-chip, .promo-line, #promo-progress {
+        animation: none !important;
+        transition: none !important;
+      }
+      /* Hareket istenmiyorsa maddeler kaymadan, olduğu yerde değişir. */
+      .promo-line { transform: none !important; }
+      #promo-progress { width: 100% !important; }
+    }
+  </style>
+
+  <div id="promo" hidden>
+    <div class="promo-stage">
+      <video id="promo-video" muted loop playsinline autoplay preload="auto" tabindex="-1"></video>
+      <img id="promo-poster" alt="">
+      <div id="promo-motion" aria-hidden="true">
+        <div class="blob b1"></div>
+        <div class="blob b2"></div>
+        <div class="blob b3"></div>
+        <div class="grid"></div>
+        <div class="promo-chip c1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>Dijital sipariş</div>
+        <div class="promo-chip c2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Kurye kapında</div>
+        <div class="promo-chip c3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>İlanlar</div>
+        <div class="promo-chip c4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>Sosyal ağ</div>
+        <div class="promo-chip c5"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="13" rx="2"/><path d="M4 11h16M8 21h8M9 16v5M15 16v5"/></svg>Şehiriçi</div>
+      </div>
+      <div class="promo-scrim"></div>
+    </div>
+
+    <div class="promo-content">
+      <!-- Üstte: tanıtım yazıları -->
+      <div class="promo-top">
+        <span class="promo-kicker">Cizre'nin dijital pazarı &amp; sosyal ağı</span>
+        <h1 id="promo-headline">CizreApp</h1>
+        <p id="promo-tagline">Her an, her kapıda!</p>
+        <div id="promo-rotator" hidden></div>
+        <span class="promo-rule"><i id="promo-progress"></i></span>
+      </div>
+
+      <!-- Altta: mağaza düğmeleri ve "webte devam et" -->
+      <div class="promo-bottom">
+        <div class="promo-stores">
+          <a id="promo-play" class="promo-badge" href="#" target="_blank" rel="noopener">
+            <svg viewBox="0 0 512 512" aria-hidden="true">
+              <path fill="#00D2FF" d="M48.1 26.6C43.1 31.9 40 40.2 40 51v410c0 10.8 3.1 19.1 8.1 24.4l1.4 1.3 229.7-229.7v-5.4L49.5 25.3z"/>
+              <path fill="#FFBC00" d="M355.9 333.4l-76.7-76.7v-5.4l76.7-76.7 1.7 1 90.9 51.6c26 14.7 26 38.9 0 53.7l-90.9 51.5z"/>
+              <path fill="#FF3A44" d="M357.6 332.4L279.2 254 48.1 485.4c8.6 9.1 22.7 10.2 38.7 1.1z"/>
+              <path fill="#00F076" d="M357.6 175.6L86.8 21.5C70.8 12.4 56.7 13.5 48.1 22.6L279.2 254z"/>
+            </svg>
+            <span class="bt"><small>Şimdi indir</small><b>Google Play</b></span>
+          </a>
+          <a id="promo-ios" class="promo-badge" href="#" target="_blank" rel="noopener">
+            <svg viewBox="0 0 384 512" aria-hidden="true"><path fill="#fff" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+            <span class="bt"><small>Şimdi indir</small><b>App Store</b></span>
+          </a>
+        </div>
+
+        <button id="promo-continue" type="button">
+          <span id="promo-continue-text">Webte devam et</span>
+          <span class="arrow">&#8594;</span>
+          <span class="spinner"></span>
+        </button>
+      </div>
+    </div>
+
+    <button id="promo-sound" type="button" title="Sesi aç" aria-label="Sesi aç">
+      <svg id="promo-sound-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>
+    </button>
+  </div>
+
+  <script id="promo-script">
+  (function () {
+    'use strict';
+
+    // Bu anahtar zaten Flutter web bundle'ının içinde herkese açık olarak
+    // bulunuyor (AppConstants._supabaseAnonKeyFallback); burada tekrar
+    // bulunması yeni bir sır ifşası değildir. Yalnızca RLS'in herkese açık
+    // okumaya izin verdiği app_settings satırlarını okumak için kullanılır.
+    var SUPABASE_URL = 'https://xsbukxkgtmdyickknqzf.supabase.co';
+    var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYnVreGtndG1keWlja2tucXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MzI3MzgsImV4cCI6MjA4NDUwODczOH0.UqycLmPhsjpVQbD0706gp-FVPQ3aCyCs-m9S5rcO2pc';
+
+    var CACHE_KEY = 'cizreapp_promo_cfg';
+    var SEEN_KEY = 'cizreapp_promo_seen_v';
+
+    // Ayarlar okunamazsa (çevrimdışı, RLS değişikliği, ilk ziyaret) tanıtım
+    // yine de doğru metinlerle açılsın diye varsayılanlar burada duruyor.
+    var DEFAULTS = {
+      enabled: 'true',
+      video_url: '',
+      poster_url: '',
+      headline: 'CizreApp',
+      tagline: 'Her an, her kapıda!',
+      playstore_url: 'https://play.google.com/store/apps/details?id=com.cizreapp.com',
+      appstore_url: '',
+      continue_text: 'Webte devam et',
+      continue_enabled: 'true',
+      // Dizi olarak durur; Supabase'den gelen sürüm ise satır satır tek
+      // metindir. splitLines() ikisini de kabul eder.
+      rotating_lines: [
+        'İlan ver, alıcını bul',
+        'Alışveriş yap, kapına gelsin',
+        'Kurye çağır, paketin yola çıksın',
+        'Şehiriçi otobüsü canlı takip et',
+        'Komşunla paylaş, sohbete katıl'
+      ],
+      rotate_ms: '2600',
+      show_mode: 'once',
+      version: '1'
+    };
+
+    var el = document.getElementById('promo');
+    if (!el) return;
+
+    var shown = false;
+    var dismissed = false;
+    var flutterReady = false;
+    var pendingEnter = false;
+    var currentVersion = DEFAULTS.version;
+
+    // localStorage bazı tarayıcılarda (gizli sekme, site verisi kapalı)
+    // erişimde istisna fırlatır; tanıtım bu yüzden çökmemeli.
+    function lsGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+    function lsSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* yoksay */ } }
+
+    function isTruthy(v) { return String(v) === 'true' || String(v) === '1'; }
+
+    // Tanıtım yalnızca kök adreste açılır; /u/@kullanici, /s/dukkan,
+    // /verify, /recovery gibi derin bağlantılar doğrudan uygulamaya gider.
+    function pathAllowsPromo() {
+      var p = (window.location.pathname || '/').replace(/\/+$/, '');
+      return p === '' || p === '/index.html' || p === '/tanitim';
+    }
+
+    function queryFlag() {
+      var m = /[?&]promo=([^&]+)/.exec(window.location.search || '');
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    function shouldShow(cfg) {
+      var flag = queryFlag();
+      if (flag === '0' || flag === 'off') return false;
+      if (flag === '1' || flag === 'on') return true;      // önizleme: her zaman göster
+      if (!pathAllowsPromo()) return false;
+      if (!isTruthy(cfg.enabled)) return false;
+      if (String(cfg.show_mode) === 'always') return true;
+      return lsGet(SEEN_KEY + String(cfg.version)) !== '1';
+    }
+
+    function readCache() {
+      try {
+        var raw = lsGet(CACHE_KEY);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : null;
+      } catch (e) { return null; }
+    }
+
+    function merge(base, extra) {
+      var out = {}, k;
+      for (k in base) if (Object.prototype.hasOwnProperty.call(base, k)) out[k] = base[k];
+      if (extra) for (k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) {
+        if (extra[k] !== null && extra[k] !== undefined) out[k] = extra[k];
+      }
+      return out;
+    }
+
+
+    // --- Dönen tanıtım maddeleri ------------------------------------------
+    // Maddeler admin panelinden gelir (her satır bir madde). Hepsi DOM'da
+    // durur, yalnızca hangisinin görünür olduğu değişir: böylece arama
+    // motorları ve ekran okuyucular maddelerin TAMAMINI görür, JavaScript
+    // çalışmasa bile içerik kaybolmaz.
+    var rotatorTimer = null;
+    var rotatorLines = [];
+    var rotatorPrev = -1;
+
+    // Ayar hem dizi (yerleşik varsayılan) hem de satır satır tek metin
+    // (Supabase) olarak gelebilir.
+    function splitLines(value) {
+      var raw;
+      if (Object.prototype.toString.call(value) === '[object Array]') {
+        raw = value;
+      } else {
+        raw = String(value == null ? '' : value).split(/\r?\n/);
+      }
+      var out = [];
+      for (var i = 0; i < raw.length; i++) {
+        var line = String(raw[i]).trim();
+        if (line) out.push(line);
+      }
+      return out;
+    }
+
+    function stopRotator() {
+      if (rotatorTimer) {
+        window.clearInterval(rotatorTimer);
+        rotatorTimer = null;
+      }
+    }
+
+    function setRotator(cfg) {
+      var box = document.getElementById('promo-rotator');
+      if (!box) return;
+
+      var lines = splitLines(cfg.rotating_lines);
+
+      // Aynı maddeler zaten DÖNÜYORSA hiç dokunma: applyConfig iki kez
+      // çağrılıyor (önce önbellek, sonra canlı ayarlar) ve buradan erken
+      // çıkarken zamanlayıcıyı durdurmuş olsaydık şerit ilk maddede
+      // kalırdı — durdurma bu yüzden kontrolden SONRA yapılır.
+      if (lines.join('|') === rotatorLines.join('|') && box.children.length) {
+        return;
+      }
+
+      stopRotator();
+      rotatorLines = lines;
+      rotatorPrev = -1;
+      while (box.firstChild) box.removeChild(box.firstChild);
+
+      if (!lines.length) {
+        box.hidden = true;
+        el.classList.remove('has-rotator');
+        return;
+      }
+
+      for (var i = 0; i < lines.length; i++) {
+        var row = document.createElement('div');
+        row.className = 'promo-line';
+        // İkon sabit; metin ASLA innerHTML ile yazılmaz — admin'in girdiği
+        // yazı HTML olarak yorumlanmamalı.
+        var icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2.4');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
+        icon.setAttribute('aria-hidden', 'true');
+        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M20 6L9 17l-5-5');
+        icon.appendChild(path);
+        var text = document.createElement('span');
+        text.textContent = lines[i];
+        row.appendChild(icon);
+        row.appendChild(text);
+        box.appendChild(row);
+      }
+
+      box.hidden = false;
+      el.classList.add('has-rotator');
+
+      var ms = parseInt(cfg.rotate_ms, 10);
+      if (!isFinite(ms)) ms = 2600;
+      if (ms < 1200) ms = 1200;
+      if (ms > 10000) ms = 10000;
+
+      showRotatorLine(0, ms);
+      if (lines.length > 1) {
+        var index = 0;
+        rotatorTimer = window.setInterval(function () {
+          index = (index + 1) % rotatorLines.length;
+          showRotatorLine(index, ms);
+        }, ms);
+      }
+    }
+
+    function showRotatorLine(next, ms) {
+      var box = document.getElementById('promo-rotator');
+      if (!box) return;
+      var kids = box.children;
+      for (var k = 0; k < kids.length; k++) {
+        var cls = 'promo-line';
+        if (k === next) cls += ' is-active';
+        else if (k === rotatorPrev) cls += ' is-leaving';
+        kids[k].className = cls;
+      }
+      rotatorPrev = next;
+
+      // İlerleme çubuğunu baştan başlat. Animasyonu yeniden tetiklemek için
+      // arada bir reflow ZORUNLU; yoksa tarayıcı aynı animasyonu sürdürür.
+      var bar = document.getElementById('promo-progress');
+      if (bar) {
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = 'promo-progress ' + ms + 'ms linear';
+      }
+    }
+
+    // --- Uygulama (DOM'a yazma) ------------------------------------------
+    function applyConfig(cfg) {
+      currentVersion = String(cfg.version || '1');
+
+      var h = document.getElementById('promo-headline');
+      var t = document.getElementById('promo-tagline');
+      var c = document.getElementById('promo-continue-text');
+      if (cfg.headline) h.textContent = cfg.headline;
+      if (cfg.tagline) t.textContent = cfg.tagline;
+      if (cfg.continue_text) c.textContent = cfg.continue_text;
+
+      // Admin "Webte devam et"i gizleyebilir: o zaman tanıtım ekranı kalıcı
+      // iniş sayfası olur, ziyaretçi yalnızca mağazalara yönlendirilir.
+      // (Derin bağlantılar ve ?promo=0 yine uygulamayı açar.)
+      var cont = document.getElementById('promo-continue');
+      cont.hidden = !isTruthy(cfg.continue_enabled);
+
+      setRotator(cfg);
+
+      setStore('promo-play', cfg.playstore_url);
+      setStore('promo-ios', cfg.appstore_url);
+
+      var poster = String(cfg.poster_url || '');
+      var img = document.getElementById('promo-poster');
+      if (poster) {
+        img.src = poster;
+        el.classList.add('has-poster');
+      } else {
+        el.classList.remove('has-poster');
+      }
+
+      var src = String(cfg.video_url || '');
+      var video = document.getElementById('promo-video');
+      if (src && video.getAttribute('src') !== src) {
+        if (poster) video.setAttribute('poster', poster);
+        video.setAttribute('src', src);
+        video.load();
+      } else if (!src) {
+        el.classList.remove('has-video');
+      }
+    }
+
+    function setStore(id, url) {
+      var a = document.getElementById(id);
+      var link = String(url || '').trim();
+      if (link) {
+        a.href = link;
+        a.classList.remove('soon');
+        a.removeAttribute('aria-disabled');
+        a.querySelector('small').textContent = 'Şimdi indir';
+      } else {
+        // Mağazada henüz yayında değilse buton kaybolmaz, "Yakında" olur.
+        a.removeAttribute('href');
+        a.classList.add('soon');
+        a.setAttribute('aria-disabled', 'true');
+        a.querySelector('small').textContent = 'Yakında';
+      }
+    }
+
+    // --- Video ------------------------------------------------------------
+    var video = document.getElementById('promo-video');
+    video.addEventListener('loadeddata', function () { el.classList.add('has-video'); });
+    video.addEventListener('error', function () {
+      // Video adresi bozuksa animasyonlu marka sahnesine düşer.
+      el.classList.remove('has-video');
+    });
+    video.addEventListener('canplay', function () {
+      var p = video.play();
+      if (p && p.catch) p.catch(function () { /* otomatik oynatma engellendi */ });
+    });
+
+    var soundBtn = document.getElementById('promo-sound');
+    soundBtn.addEventListener('click', function () {
+      video.muted = !video.muted;
+      if (!video.muted) {
+        var p = video.play();
+        if (p && p.catch) p.catch(function () {});
+      }
+      soundBtn.title = video.muted ? 'Sesi aç' : 'Sesi kapat';
+      soundBtn.setAttribute('aria-label', soundBtn.title);
+      document.getElementById('promo-sound-icon').innerHTML = video.muted
+        ? '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M23 9l-6 6M17 9l6 6"/>'
+        : '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>';
+    });
+
+    // --- Göster / kapat ---------------------------------------------------
+    function show() {
+      if (shown) return;
+      shown = true;
+      el.hidden = false;
+      // Tanıtım ekranı açıkken jenerik yükleme göstergesi gereksiz.
+      var loading = document.getElementById('loading');
+      if (loading) loading.classList.add('hidden');
+    }
+
+    function enterApp() {
+      lsSet(SEEN_KEY + currentVersion, '1');
+      var btn = document.getElementById('promo-continue');
+      if (!flutterReady) {
+        // Flutter henüz ilk kareyi çizmedi: butonu bekleme durumuna al ve
+        // hazır olunca otomatik geç. Boş beyaz ekran gösterilmez.
+        pendingEnter = true;
+        btn.disabled = true;
+        btn.classList.add('loading');
+        return;
+      }
+      dismiss();
+    }
+
+    function dismiss() {
+      dismissed = true;
+      stopRotator();
+      el.classList.add('promo-leaving');
+      window.setTimeout(function () {
+        el.hidden = true;
+        // Arka planda çalan videoyu tamamen bırak (CPU/veri tasarrufu).
+        try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
+      }, 450);
+    }
+
+    document.getElementById('promo-continue').addEventListener('click', enterApp);
+
+    window.addEventListener('flutter-first-frame', function () {
+      flutterReady = true;
+      if (pendingEnter) dismiss();
+    });
+
+    // --- Akış -------------------------------------------------------------
+    // 1) Önce önbellekteki ayarla anında karar ver (ilk boyada görünsün).
+    var cached = merge(DEFAULTS, readCache());
+    if (shouldShow(cached)) {
+      applyConfig(cached);
+      show();
+    } else {
+      currentVersion = String(cached.version || '1');
+    }
+
+    // 2) Sonra canlı ayarları çek; değişmişse ekranı güncelle.
+    (function fetchConfig() {
+      if (typeof window.fetch !== 'function') return;
+      // ZAMAN AŞIMI CÖMERT OLMALI. Bu istek, ~9 MB'lık Flutter paketiyle AYNI
+      // ANDA iniyor; dar bantta birkaç saniye sürmesi normaldir. Süre kısa
+      // tutulduğunda istek iptal ediliyor, ziyaretçi videoyu ve admin'in
+      // yazdığı metinleri HİÇ görmüyor, üstelik önbelleğe de bir şey
+      // yazılmadığı için bu her ziyarette tekrarlanıyordu. Beklemenin bir
+      // maliyeti yok: ekran zaten varsayılanlarla çizilmiş durumda ve
+      // ziyaretçi "Webte devam et"e basana kadar açık kalıyor.
+      var ctrl = null, timer = null;
+      try {
+        ctrl = new AbortController();
+        timer = window.setTimeout(function () { ctrl.abort(); }, 20000);
+      } catch (e) { ctrl = null; }
+
+      var url = SUPABASE_URL + '/rest/v1/app_settings?select=key,value&key=like.web_promo_%25';
+      window.fetch(url, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+        // Tanıtım ekranının içeriği, arka planda inen uygulama paketinden
+        // daha acildir: ziyaretçinin ŞU AN baktığı şey bu.
+        priority: 'high',
+        signal: ctrl ? ctrl.signal : undefined
+      }).then(function (r) {
+        return r.ok ? r.json() : null;
+      }).then(function (rows) {
+        if (timer) window.clearTimeout(timer);
+        if (!rows || !rows.length) return;
+
+        var fresh = {};
+        for (var i = 0; i < rows.length; i++) {
+          var key = String(rows[i].key || '').replace(/^web_promo_/, '');
+          var val = rows[i].value;
+          fresh[key] = (val === null || val === undefined) ? '' : String(val);
+        }
+        var cfg = merge(DEFAULTS, fresh);
+        lsSet(CACHE_KEY, JSON.stringify(cfg));
+
+        // Ziyaretçi tanıtımı çoktan kapattıysa geç gelen ayarları uygulamak
+        // boşuna iş: gizli bir ekrana video yükleyip zamanlayıcı başlatır.
+        if (dismissed) return;
+
+        if (shown) {
+          if (!shouldShow(cfg) && queryFlag() !== '1') {
+            // Admin tanıtımı kapatmışsa açık kalan ekranı hemen kaldır.
+            lsSet(SEEN_KEY + String(cfg.version), '1');
+            dismiss();
+            return;
+          }
+          applyConfig(cfg);
+        } else if (shouldShow(cfg)) {
+          // Sürüm artırılmış ya da tanıtım yeni açılmış olabilir.
+          applyConfig(cfg);
+          show();
+        } else {
+          currentVersion = String(cfg.version || '1');
+        }
+      }).catch(function () {
+        if (timer) window.clearTimeout(timer);
+        // Ayarlar okunamadı: varsayılanlarla gösterilen ekran olduğu gibi kalır.
+      });
+    })();
+  })();
+  </script>
+
   <!-- Yükleme Göstergesi -->
   <div id="loading">
     <div class="loading-logo">CizreApp</div>

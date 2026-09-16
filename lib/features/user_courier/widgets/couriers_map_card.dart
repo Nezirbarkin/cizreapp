@@ -6,6 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/courier_stream_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
 import '../screens/couriers_map_full_screen.dart';
+import '../../../core/theme/app_map_style.dart';
+import '../../../core/utils/map_marker_icons.dart';
+import '../../../core/widgets/map_controls.dart';
 
 class CouriersMapCard extends StatefulWidget {
   final double? pickupLat;
@@ -35,6 +38,10 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   bool _isLoading = true;
   Position? _userLocation;
   BitmapDescriptor? _courierIcon;
+  BitmapDescriptor? _courierLabelIcon;
+
+  /// Kurye marker rengi (turuncu) — şehiriçi servis araçlarından ayrışır.
+  static const Color _kCourierColor = Color(0xFFFB8C00);
 
   // Tüm sorgu katmanları başarısız olursa hatayı burada tut; UI'da göster ki
   // "kurye yok" mu yoksa "sorgu patladı mı" ayırt edilebilsin.
@@ -64,6 +71,13 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
 
   Future<void> _initData() async {
     await _getUserLocation();
+    if (!mounted) return;
+    // Messenger burada, kart hala agacta iken yakalanir. Asagidaki geri
+    // cagrimi kurye akisi tetikliyor; kart o an agactan cikmis olabilir ve
+    // `mounted` deactive-ama-unmount-olmamis pencerede hala true doner —
+    // `ScaffoldMessenger.of(context)` orada "Looking up a deactivated widget's
+    // ancestor is unsafe" atiyordu.
+    final messenger = ScaffoldMessenger.of(context);
     // İkonu hazırla; ardından CourierStreamService'e bağlan. Servis ilk
     // abone geldiğinde `profiles` tablosunu realtime dinlemeye başlar, son
     // abone ayrılınca kapatır — birden fazla harita varsa tek kanal yeter.
@@ -82,7 +96,7 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
         _shownNoCourierNotice = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text(_loadError ?? 'Henüz konum paylaşan kurye yok'),
               duration: const Duration(seconds: 4),
@@ -141,74 +155,20 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
     }
   }
 
+  /// Kurye marker'ı: kuşbakışı motosiklet + arkasında teslimat kutusu
+  /// (paylaşılan [MapMarkerIcons] çizimi — şehiriçi canlı haritayla aynı
+  /// görsel dil). Üstüne dönmeyen "KURYE" etiketi eklenir.
   Future<void> _ensureCourierIcon() async {
-    if (_courierIcon != null) return;
-    _courierIcon = await _createMotorcycleBitmap();
-  }
-
-  /// Yön oklu kırmızı disk + motor ikonu. rotation=0 → ok yukarı (kuzey).
-  /// flat:true ile haritaya yapışır; marker rotation=heading ile döner.
-  /// (şehiriçi `_createVehicleBitmap` deseniyle aynı.)
-  Future<BitmapDescriptor> _createMotorcycleBitmap() async {
-    const double size = 56;
-    const center = Offset(size / 2, size / 2);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
-
-    // Yumuşak gölge
-    canvas.drawCircle(
-      center + const Offset(0, 3),
-      size / 2 - 5,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    if (_courierIcon != null && _courierLabelIcon != null) return;
+    _courierIcon ??= await MapMarkerIcons.vehicle(
+      shape: MapVehicleShape.motorcycle,
+      color: _kCourierColor,
     );
-    // Beyaz kart zemin
-    canvas.drawCircle(center, size / 2 - 3, Paint()..color = Colors.white);
-    // Kırmızı disk
-    const fill = Color(0xFFE53935);
-    canvas.drawCircle(center, size / 2 - 7, Paint()..color = fill);
-
-    // Yön oku: diskin üstü, dışa bakan üçgen (rotation=0 → kuzey).
-    final arrowPath = Path()
-      ..moveTo(center.dx, center.dy - (size / 2 - 5))
-      ..lineTo(center.dx - 5, center.dy - (size / 2 - 12))
-      ..lineTo(center.dx + 5, center.dy - (size / 2 - 12))
-      ..close();
-    canvas.drawPath(arrowPath, Paint()..color = Colors.white);
-    canvas.drawPath(
-      arrowPath,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+    _courierLabelIcon ??= await MapMarkerIcons.label(
+      text: 'KURYE',
+      background: _kCourierColor,
+      gap: MapMarkerIcons.labelGapFor(MapVehicleShape.motorcycle),
     );
-
-    // Motor ikonu
-    final iconPainter = TextPainter(textDirection: TextDirection.ltr)
-      ..text = TextSpan(
-        text: String.fromCharCode(Icons.two_wheeler.codePoint),
-        style: TextStyle(
-          fontSize: size * 0.36,
-          fontFamily: Icons.two_wheeler.fontFamily,
-          package: Icons.two_wheeler.fontPackage,
-          color: Colors.white,
-        ),
-      )
-      ..layout();
-    iconPainter.paint(
-      canvas,
-      center - Offset(iconPainter.width / 2, iconPainter.height / 2 + 1),
-    );
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (bytes == null) {
-      // Bellek baskısı altında null dönebilir; varsayılan markera düş.
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    }
-    return BitmapDescriptor.bytes(bytes.buffer.asUint8List());
   }
 
   /// Marker'ları yerel state'ten çiz (kullanıcı konumu + CourierStreamService
@@ -235,26 +195,39 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
 
     int count = 0;
     for (final c in _couriers.values) {
+      final position = LatLng(c.lat, c.lng);
       markers.add(
         Marker(
           markerId: MarkerId('courier_${c.id}'),
-          position: LatLng(c.lat, c.lng),
+          position: position,
           infoWindow: InfoWindow(
             title: c.name,
-            snippet: '🏍️ Detaylar için dokunun',
+            snippet: 'Detaylar için dokunun',
           ),
           onTap: () => _showCourierInfo(c),
           icon: _courierIcon ??
               BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueRed,
+                BitmapDescriptor.hueOrange,
               ),
-          // heading: 0 = kuzey yukarı. null/0 → rotation 0 (ok kuzeye).
-          // flat: true → disk haritaya yapışır, harita döndükçe kuzey sabit.
+          // heading: 0 = kuzey yukarı. null/0 → rotation 0 (motor kuzeye bakar).
+          // flat: true → gövde haritaya yapışır, harita döndükçe kuzey sabit.
           rotation: c.heading ?? 0,
           flat: true,
           anchor: const Offset(0.5, 0.5),
         ),
       );
+      final labelIcon = _courierLabelIcon;
+      if (labelIcon != null) {
+        markers.add(
+          Marker(
+            markerId: MarkerId('courier_${c.id}_label'),
+            position: position,
+            icon: labelIcon,
+            anchor: const Offset(0.5, 1.0),
+            onTap: () => _showCourierInfo(c),
+          ),
+        );
+      }
       count++;
     }
 
@@ -339,11 +312,16 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   }
 
   Future<void> _callPhone(String phone) async {
+    // Messenger await'ten ONCE yakalanir: `canLaunchUrl`/`launchUrl` telefon
+    // uygulamasini acarken kart agactan cikabilir ve donusteki
+    // `ScaffoldMessenger.of(context)` "Looking up a deactivated widget's
+    // ancestor is unsafe" atardi (`mounted` bu pencerede hala true).
+    final messenger = ScaffoldMessenger.of(context);
     final uri = Uri.parse('tel:$phone');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    } else {
+      messenger.showSnackBar(
         const SnackBar(content: Text('Arama başlatılamadı')),
       );
     }
@@ -603,30 +581,6 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   }
 
   /// Yüzen modern kontrol butonu — beyaz arka plan, gölge, daire.
-  Widget _floatingMapButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onPressed,
-  }) {
-    return Material(
-      color: Colors.white,
-      elevation: 3,
-      shadowColor: Colors.black26,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: Tooltip(
-          message: tooltip,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(icon, color: Colors.black87, size: 20),
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   void didUpdateWidget(CouriersMapCard oldWidget) {
@@ -730,6 +684,7 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
                   : Stack(
                       children: [
                         GoogleMap(
+                          style: AppMapStyle.of(context),
                           initialCameraPosition: CameraPosition(
                             target: LatLng(
                               _userLocation!.latitude,
@@ -745,8 +700,12 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
                           // Parmakla kaydırma + iki parmakla yakınlaştırma aktif
                           scrollGesturesEnabled: true,
                           zoomGesturesEnabled: true,
-                          tiltGesturesEnabled: true,
                           rotateGesturesEnabled: true,
+                          // Düz (2D) harita: eğim hareketi ve 3D bina
+                          // kabartması kapalı.
+                          tiltGesturesEnabled: false,
+                          buildingsEnabled: false,
+                          mapType: MapType.normal,
                           zoomControlsEnabled: false,
                           mapToolbarEnabled: false,
                           myLocationButtonEnabled: false,
@@ -755,40 +714,21 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
                         // Zoom in / Zoom out — modern yüzen butonlar (sağ alt)
                         Positioned(
                           right: 10,
-                          bottom: 36,
-                          child: Column(
-                            children: [
-                              _floatingMapButton(
-                                icon: Icons.add,
-                                tooltip: 'Yakınlaştır',
-                                onPressed: _zoomIn,
-                              ),
-                              const SizedBox(height: 8),
-                              _floatingMapButton(
-                                icon: Icons.remove,
-                                tooltip: 'Uzaklaştır',
-                                onPressed: _zoomOut,
-                              ),
-                            ],
+                          bottom: 56,
+                          child: MapZoomControls(
+                            onZoomIn: _zoomIn,
+                            onZoomOut: _zoomOut,
+                            size: 40,
                           ),
                         ),
-                        // Alt ipucu şeridi
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            color: Colors.black.withValues(alpha: 0.42),
-                            child: const Text(
-                              '💡 Kaydırın · İki parmakla yakınlaştırın',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                              ),
-                            ),
+                        // Alt ipucu şeridi — yüzen cam kart
+                        const Positioned(
+                          left: 10,
+                          right: 10,
+                          bottom: 10,
+                          child: MapHintBar(
+                            icon: Icons.swipe,
+                            text: 'Kaydırın · İki parmakla yakınlaştırın',
                           ),
                         ),
                       ],

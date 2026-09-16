@@ -1,0 +1,30 @@
+INSERT INTO public.bot_image_library (url, caption, tone) VALUES
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_01_1788867004623.png', 'Dicle kenarında sabah — Cizre', 'doga'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_02_1788867004623.png', 'Cudi''nin eteklerinde — Cizre / Şırnak', 'doga'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_03_1788867004623.png', 'Gün batımında nehir — Cizre', 'doga'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_04_1788867004623.png', 'Sabah sisi — Dicle', 'hava'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_05_1788867004623.png', 'Tarihi köprüden — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_06_1788867004623.png', 'Kemerlerin gölgesinde — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_07_1788867004623.png', 'Akşam ezanı — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_08_1788867004623.png', 'Şehrin silueti — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_09_1788867004623.png', 'Yaz sıcağı — Cizre · 47°', 'hava'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_10_1788867004623.png', 'İlk yağmur — Cizre', 'hava'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_11_1788867004623.png', 'Nehir kenarında akşam — Dicle', 'doga'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_12_1788867004623.png', 'Bahar geldi — Cizre', 'mutlu'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_13_1788867004623.png', 'Yıldızlı gece — Cudi', 'nostalji'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_14_1788867004623.png', 'Çarşı sabahı — Cizre', 'esnaf'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_15_1788867004623.png', 'Köprü ve su — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_16_1788867004623.png', 'Serin akşam — Dicle kıyısı', 'gunluk'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_17_1788867004623.png', 'Güneş nehre değdiğinde — Cizre', 'doga'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_18_1788867004623.png', 'Sonbahar rüzgârı — Cizre', 'hava'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_19_1788867004623.png', 'Minareler ve dam — Cizre', 'sehir'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_20_1788867004623.png', 'Kış sabahı — Cizre', 'hava'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_21_1788867004623.png', 'Her an, her kapıda — CizreApp', 'motivasyon'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_22_1788867004623.png', 'Komşuluk büyük şey — Cizre', 'dayanisma'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_23_1788867004623.png', 'Sabır da bir zanaat — Cizre', 'motivasyon'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_24_1788867004623.png', 'İyilik yapmanın maliyeti yok — Cizre', 'motivasyon'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_25_1788867004623.png', 'Sofra bereketli olsun — Cizre', 'yemek'),
+  ('https://xsbukxkgtmdyickknqzf.supabase.co/storage/v1/object/public/posts/_botposts/bot_cizre_26_1788867004623.png', 'Akşam maçı var mı? — Cizre', 'spor')
+ON CONFLICT (url) DO NOTHING;
+
+SELECT count(*) AS gorsel FROM public.bot_image_library;

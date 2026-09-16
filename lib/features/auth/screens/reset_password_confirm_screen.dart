@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/responsive_wrapper.dart';
 import '../services/auth_service.dart';
+import '../widgets/auth_shell.dart';
 
 /// NOT: Bu ekran artık ana akışta kullanılmıyor. Yeni akış OTP tabanlı
 /// (`ResetPasswordScreen` → e-posta OTP → yeni şifre). Bu ekran yalnızca
@@ -39,10 +38,9 @@ class _ResetPasswordConfirmScreenState
           debugPrint('ℹ️ Recovery session yok; OTP akışına yönlendiriliyor.');
         }
         if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil(
-            '/reset-password',
-            (route) => false,
-          );
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/reset-password', (route) => false);
         }
       } else {
         if (mounted) setState(() => _isCheckingSession = false);
@@ -50,10 +48,9 @@ class _ResetPasswordConfirmScreenState
     } catch (e) {
       if (kDebugMode) debugPrint('Session check error: $e');
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/reset-password',
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/reset-password', (route) => false);
       }
     }
   }
@@ -103,14 +100,7 @@ class _ResetPasswordConfirmScreenState
   }
 
   void _showSuccessAndNavigate() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Şifreniz başarıyla güncellendi!'),
-        backgroundColor: AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.all(16),
-      ),
-    );
+    showAuthSuccess(context, 'Şifren başarıyla güncellendi!');
 
     // NavigatorState'i şimdi yakala; 2 sn sonra `Navigator.of(context)` demek
     // ekran bu arada kapanmışsa deactive element üzerinden ancestor araması
@@ -123,219 +113,92 @@ class _ResetPasswordConfirmScreenState
     });
   }
 
-  void _showErrorSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppTheme.error,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
+  void _showErrorSnackbar(String message) => showAuthError(context, message);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kIsWeb ? Colors.grey.shade100 : AppTheme.bgLight,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text('Yeni Şifre Belirle'),
-        elevation: 0,
-      ),
-      body: ResponsiveWrapper(
-        maxWidth: 500,
-        child: SafeArea(
-          // Session kontrol edilirken yükleme gster; aksi halde eski form.
-          child: _isCheckingSession
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 32),
-
-                // Key Icon
-                Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      // ignore: deprecated_member_use
-                      color: AppTheme.primaryGreen.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.key_outlined,
-                      size: 40,
-                      color: AppTheme.primaryGreen,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Title
-                Text(
-                  'Yeni Şifre Belirle',
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: AppTheme.gray900,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-
-                // Subtitle
-                Text(
-                  'Güvenli bir şifre seçin\nHesabınızı korumak için güçlü bir şifre kullanın',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: AppTheme.gray600,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 48),
-
-                // Yeni Şifre Field
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Yeni Şifre',
-                    hintText: 'Yeni şifrenizi girin',
-                    prefixIcon: const Icon(Icons.lock_outlined),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Şifre gerekli';
-                    }
-                    if (value.length < 6) {
-                      return 'Şifre en az 6 karakter olmalı';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Şifre Tekrar Field
-                TextFormField(
-                  controller: _confirmPasswordController,
-                  obscureText: _obscureConfirmPassword,
-                  decoration: InputDecoration(
-                    labelText: 'Şifre Tekrar',
-                    hintText: 'Şifrenizi tekrar girin',
-                    prefixIcon: const Icon(Icons.lock_outlined),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureConfirmPassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscureConfirmPassword = !_obscureConfirmPassword;
-                        });
-                      },
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Şifre tekrarı gerekli';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Şifre Gereksinimleri
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.gray50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.gray200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Şifre Gereksinimleri:',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: AppTheme.gray900,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      _requirementItem('✓ En az 6 karakter', true),
-                      _requirementItem(
-                        '✓ Bir büyük harf (önerilen)',
-                        false,
-                      ),
-                      _requirementItem('✓ Bir rakam (önerilen)', false),
-                      _requirementItem('✓ Özel karakter (önerilen)', false),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Şifreyi Güncelle Button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _updatePassword,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Text(
-                          'Şifreyi Güncelle',
-                          style: TextStyle(fontSize: 16),
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      ),
+    return AuthScaffold(
+      title: 'Yeni şifre belirle',
+      subtitle: 'Hesabını korumak için güçlü bir şifre seç',
+      onBack: () => Navigator.of(context).pop(),
+      child: _isCheckingSession
+          // Session kontrol edilirken yükleme göster; aksi halde form.
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 56),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : _buildForm(),
     );
   }
 
-  Widget _requirementItem(String text, bool isRequired) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 14,
-              color: isRequired ? AppTheme.gray700 : AppTheme.gray500,
+  Widget _buildForm() {
+    final p = AuthPalette.of(context);
+
+    return AutofillGroup(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: p.accent.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.key_outlined, size: 34, color: p.accent),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 28),
+            AuthField(
+              controller: _passwordController,
+              hint: 'Yeni şifre',
+              icon: Icons.lock_outline,
+              obscure: _obscurePassword,
+              onToggleObscure: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.newPassword],
+              onChanged: (_) => setState(() {}),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Şifre gerekli';
+                }
+                if (value.length < 6) {
+                  return 'Şifre en az 6 karakter olmalı';
+                }
+                return null;
+              },
+            ),
+            AuthPasswordStrengthBar(password: _passwordController.text),
+            const SizedBox(height: 14),
+            AuthField(
+              controller: _confirmPasswordController,
+              hint: 'Şifre tekrar',
+              icon: Icons.lock_reset_outlined,
+              obscure: _obscureConfirmPassword,
+              onToggleObscure: () => setState(
+                () => _obscureConfirmPassword = !_obscureConfirmPassword,
+              ),
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.newPassword],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Şifre tekrarı gerekli';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            AuthPrimaryButton(
+              label: 'Şifreyi güncelle',
+              isLoading: _isLoading,
+              onPressed: _isLoading ? null : _updatePassword,
+            ),
+          ],
+        ),
       ),
     );
   }

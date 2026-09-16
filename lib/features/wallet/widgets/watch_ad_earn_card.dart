@@ -24,10 +24,22 @@ class _WatchAdEarnCardState extends State<WatchAdEarnCard> {
   bool _isShowing = false;
   bool _isVerifying = false;
 
+  /// SnackBar, reklam+SSV akışı (saniyeler süren) tamamlandığında gösteriliyor.
+  /// O sırada kart rebuild olur veya kullanıcı ekrandan çıkarsa `.of(context)`
+  /// deactivated bir ağaçta çalışıp hata fırlatır. Bu yüzden messenger'ı
+  /// güvenli noktada bir kez yakalayıp saklıyoruz.
+  ScaffoldMessengerState? _messenger;
+
   @override
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messenger = ScaffoldMessenger.of(context);
   }
 
   Future<void> _init() async {
@@ -109,7 +121,8 @@ class _WatchAdEarnCardState extends State<WatchAdEarnCard> {
     bool isError = true,
     bool isPending = false,
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) return;
+    _messenger?.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isPending
@@ -125,6 +138,9 @@ class _WatchAdEarnCardState extends State<WatchAdEarnCard> {
 
   @override
   void dispose() {
+    // Askıda kalan SnackBar, animasyonu biterken deactivated ağaca dokunup
+    // hata fırlatmasın diye kart yok edilmeden önce kaldırılır.
+    _messenger?.removeCurrentSnackBar();
     _adService.dispose();
     super.dispose();
   }

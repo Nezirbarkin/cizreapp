@@ -40,7 +40,13 @@ class ProfileService {
   }
 
   // Web için profil fotoğrafı yükle (bytes ile)
-  Future<String?> uploadProfilePhotoBytes(Uint8List bytes) async {
+  // [fileExtension]/[contentType]: hazır avatar assetleri PNG olarak
+  // yüklenir, kamera/galeri akışı JPEG kalır.
+  Future<String?> uploadProfilePhotoBytes(
+    Uint8List bytes, {
+    String fileExtension = 'jpg',
+    String contentType = 'image/jpeg',
+  }) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
@@ -51,7 +57,7 @@ class ProfileService {
       debugPrint('📤 Avatar yükleniyor (web): ${bytes.length} bytes');
 
       final fileName =
-          'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+          'avatar_$userId-${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
 
       // Dosyayı yükle
       final uploadResponse = await _supabase.storage
@@ -59,7 +65,11 @@ class ProfileService {
           .uploadBinary(
             fileName,
             bytes,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+            fileOptions: FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+              contentType: contentType,
+            ),
           );
 
       debugPrint('✅ Dosya yüklendi: $uploadResponse');

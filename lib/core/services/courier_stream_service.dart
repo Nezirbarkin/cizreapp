@@ -9,8 +9,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Konum paylaşımı açık olan kullanıcılar için geçerlidir; null lat/lng
 /// olanlar haritaya hiç girmez, hizmet dışında tutulur.
 /// NOT: phone alanı kaldırıldı; kurye telefon numarası artık public
-/// akışta ifşa edilmez. Tam konum yerine yalnız approx_lat/lng (0.01
-/// derece ~1.1 km karelaj) gösterilir.
+/// akışta ifşa edilmez. Konum hassasiyetini sunucu belirler: admin ham
+/// konumu görür, diğer kullanıcılar 4 ondalığa (~11 m) yuvarlanmış konumu
+/// görür (bkz. `get_nearby_couriers`).
 class CourierInfo {
   final String id;
   final String name;
@@ -72,6 +73,16 @@ class CourierInfo {
 ///   gösterilsin.
 /// • İstemciler `subscribe(onChange)` ile güncel `Map<id, CourierInfo>` alır.
 class CourierStreamService {
+  /// Kurye konumlarının yenilenme aralığı.
+  ///
+  /// Kurye tarafı konumu 10 saniyede bir yazıyor
+  /// (`CourierLocationService`), okuma tarafı ise 30 saniyede bir poll
+  /// ediyordu: harita kuryeyi 30 saniyeye kadar eski yerinde gösteriyor,
+  /// sonra bir anda ileri zıplatıyordu. Yazma ritmiyle eşitlendi — marker
+  /// artık gerçek konumu takip eder. (Aynı anda en çok 50 satır dönen tek
+  /// bir RPC; 10 sn'de bir çağrı sunucu için de ucuz.)
+  static const Duration _kPollInterval = Duration(seconds: 10);
+
   static final CourierStreamService _instance =
       CourierStreamService._internal();
   factory CourierStreamService() => _instance;
@@ -130,12 +141,12 @@ class CourierStreamService {
       _bootstrapInFlight = false;
     }
 
-    // Periyodik poll: 30 saniyede bir cache'i güncelle. Realtime
+    // Periyodik poll: cache'i [_kPollInterval] aralığında güncelle. Realtime
     // yerine RPC poll tercih edildi; çünkü profiles tablosu için
     // SELECT grant'i REVOKE edildi ve realtime row payload'ı PII
     // sızdırır.
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+    _pollTimer = Timer.periodic(_kPollInterval, (_) async {
       try {
         final rows = await _fetchCouriers();
         _mergeRows(rows);
@@ -149,9 +160,9 @@ class CourierStreamService {
   /// Kuryeleri getir. profiles tablosundan doğrudan SELECT yapılmaz;
   /// SECURITY DEFINER get_nearby_couriers() RPC'si kullanılır. RPC
   /// yalnız güvenli sütunları (id, full_name, username, avatar_url,
-  /// delivered_count, yuvarlatılmış approx_lat/lng, last_location_update)
-  /// döner; telefon/PII sızdırmaz, konum 0.01 derece (~1.1 km)
-  /// karelajına yuvarlanır.
+  /// delivered_count, approx_lat/lng, heading, last_location_update)
+  /// döner; telefon/PII sızdırmaz. Konum hassasiyeti çağırana göre:
+  /// admin ham konum, diğerleri 4 ondalık (~11 m).
   Future<List<Map<String, dynamic>>> _fetchCouriers() async {
     try {
       final res = await _client.rpc<List<dynamic>>(

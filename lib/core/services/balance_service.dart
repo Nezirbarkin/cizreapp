@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/balance_model.dart';
 import '../models/balance_transaction_model.dart';
 import '../utils/app_error_handler.dart';
+import 'contact_lookup_service.dart';
 
 /// Bakiye Servisi
 /// Bakiye işlemleri için API çağrılarını yönetir
@@ -346,14 +347,21 @@ class BalanceService {
       if (userIds.isEmpty) return transactions;
 
       try {
+        // phone artik profiles'tan dogrudan okunamiyor (20260907110001).
+        // Guvenli sutunlar embed ile, telefon admin RPC'si ile geliyor;
+        // admin degilse RPC bos doner ve liste telefonsuz calisir.
         final profilesResp = await _supabase
             .from('profiles')
-            .select('id, full_name, username, phone, avatar_url')
+            .select('id, full_name, username, avatar_url')
             .inFilter('id', userIds);
+        final phoneContacts = await ContactLookupService()
+            .adminContactsByUserId(userIds.map((e) => e.toString()));
 
         final profilesById = <String, Map<String, dynamic>>{};
         for (final p in profilesResp as List) {
-          profilesById[p['id'] as String] = p as Map<String, dynamic>;
+          final row = Map<String, dynamic>.from(p as Map);
+          row['phone'] = phoneContacts[row['id']?.toString()]?['phone'];
+          profilesById[row['id'] as String] = row;
         }
 
         // 3) Her işleme user_profile anahtarı ile profili ekle

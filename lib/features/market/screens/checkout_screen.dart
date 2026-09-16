@@ -69,6 +69,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Eskiden taze CartProvider yüzünden hep null geliyordu.
   AppliedCoupon? get _appliedCoupon => widget.couponsByShop[widget.shopId];
 
+  // "Gel Al" (mağazadan teslim) - dükkan aktif ettiyse checkout'ta seçenek
+  // gösterilir. Seçiliyse teslimat ücreti alınmaz ve kurye devreye girmez.
+  bool _shopPickupEnabled = false;
+  bool _isPickupSelected = false;
+
+  // Bakiye durumu. "Gel Al" siparişleri peşin olarak bakiyeden tahsil edilir,
+  // bu yüzden seçeneğin gösterilip gösterilmeyeceğine karar vermek ve yetersiz
+  // bakiyeyi sipariş anından ÖNCE uyarabilmek için state'te tutulur.
+  double _availableBalance = 0;
+  bool _balanceSystemEnabled = false;
+
+  /// Bakiye ile ödeme hem admin toggle'ı hem de bakiye sistemi açıksa mümkün.
+  bool get _balancePaymentAvailable =>
+      _paymentSettings.isAvailable(PaymentMethod.balance) && _balanceSystemEnabled;
+
+  /// "Gel Al" yalnızca bakiyeden ödenebildiği için, bakiye ödemesi kapalıysa
+  /// seçenek hiç gösterilmez (tamamlanamayacak bir akışa sokmamak için).
+  bool get _canOfferPickup => _shopPickupEnabled && _balancePaymentAvailable;
+
   /// CheckoutScreen'in ÜSTÜNDEKİ (ör. MainScreen'deki) CartProvider — yoksa
   /// null döner.
   ///
@@ -93,6 +112,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
+  /// "Gel Al" seçiliyken gösterim amaçlı teslimat ücreti/toplam. `summary`
+  /// `CartProvider`dan geldiği için pickup seçimini bilmez - ekranda tutarlı
+  /// görünsün diye burada override edilir (siparişe giden gerçek tutarlar
+  /// zaten `_cartService.getCartSummary(deliveryFee: 0)` ile ayrıca hesaplanır).
+  double _effectiveDeliveryFee(CartSummary summary) =>
+      _isPickupSelected ? 0.0 : summary.deliveryFee;
+
+  double _effectiveTotal(CartSummary summary) =>
+      summary.total - summary.deliveryFee + _effectiveDeliveryFee(summary);
+
+  /// "Gel Al" seçiliyse müşterinin ev adresi yerine sabit bir pickup etiketi
+  /// gönderilir (kurye/satıcı ekranlarında kafa karışıklığı yaratmasın diye).
+  String _deliveryAddressTextFor(Address selectedAddress) {
+    if (_isPickupSelected) {
+      return 'Gel Al - Mağazadan Teslim (${widget.shopName})';
+    }
+    return selectedAddress.fullAddress;
+  }
+
   /// Verilen ara toplam için bu dükkanın kupon indirmini döndürür.
   /// subtotal ile sınırlı, 0'a clamp'li. Kupon yoksa 0.
   double _couponDiscountFor(double subtotal) {
@@ -108,6 +146,39 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void initState() {
     super.initState();
     _loadPaymentSettings();
+    _loadShopPickupInfo();
+    _refreshBalanceState();
+  }
+
+  /// Bakiye bilgisini state'e alır. "Gel Al" seçeneğinin görünürlüğü ve
+  /// yetersiz bakiye uyarısı buna bağlı.
+  Future<void> _refreshBalanceState() async {
+    final info = await _loadBalanceInfo();
+    if (!mounted || info == null) return;
+    setState(() {
+      _availableBalance = (info['balance'] as double?) ?? 0;
+      _balanceSystemEnabled = (info['enabled'] as bool?) ?? false;
+    });
+  }
+
+  /// Dükkanın "Gel Al" aktifliğini yükler. Hata durumunda sessizce false
+  /// kalır - checkout'un geri kalanı normal teslimat akışıyla çalışmaya
+  /// devam eder.
+  Future<void> _loadShopPickupInfo() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('shops')
+          .select('pickup_enabled')
+          .eq('id', widget.shopId)
+          .maybeSingle();
+      if (mounted) {
+        setState(() {
+          _shopPickupEnabled = response?['pickup_enabled'] as bool? ?? false;
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ Gel Al bilgisi alınamadı: $e');
+    }
   }
 
   Future<void> _loadPaymentSettings() async {
@@ -489,15 +560,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               const SizedBox(height: 16),
               _buildConfirmationRow(Icons.store, 'Dükkan:', widget.shopName),
-              _buildConfirmationRow(Icons.location_on, 'Adres:', selectedAddress.title),
+              if (_isPickupSelected)
+                _buildConfirmationRow(Icons.storefront, 'Teslim Şekli:', 'Gel Al - Mağazadan Teslim')
+              else
+                _buildConfirmationRow(Icons.location_on, 'Adres:', selectedAddress.title),
               _buildConfirmationRow(
                 Icons.payment,
                 'Ödeme:',
-                _selectedPaymentMethod == PaymentMethod.cash
-                    ? 'Kapıda Nakit'
-                    : (_selectedPaymentMethod == PaymentMethod.cardOnDelivery
-                        ? 'Kapıda Banka/Kredi Kartı'
-                        : 'Online Ödeme'),
+                // Bakiye ayrı ele alınmalı: eskiden else dalına düşüp "Online
+                // Ödeme" yazıyordu. Gel Al siparişleri her zaman bakiyeden
+                // ödendiği için bu yanlış etiket artık her pickup siparişinde
+                // görünürdü.
+                switch (_selectedPaymentMethod) {
+                  PaymentMethod.cash => 'Kapıda Nakit',
+                  PaymentMethod.cardOnDelivery => 'Kapıda Banka/Kredi Kartı',
+                  PaymentMethod.balance => 'Bakiye ile Ödeme',
+                  _ => 'Online Ödeme',
+                },
               ),
               const Divider(height: 24),
               // Ürünler
@@ -530,7 +609,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Teslimat:'),
-                  Text('₺${summary.deliveryFee.toStringAsFixed(2)}'),
+                  Text('₺${_effectiveDeliveryFee(summary).toStringAsFixed(2)}'),
                 ],
               ),
               if (summary.discount > 0) ...[
@@ -549,7 +628,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 children: [
                   const Text('TOPLAM:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   Text(
-                    '₺${summary.total.toStringAsFixed(2)}',
+                    '₺${_effectiveTotal(summary).toStringAsFixed(2)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -648,8 +727,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     try {
-      // Sepeti getir
-      final cartSummary = await _cartService.getCartSummary(user.id);
+      // Sepeti getir. "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
+      final cartSummary = await _cartService.getCartSummary(
+        user.id,
+        deliveryFee: _isPickupSelected ? 0.0 : null,
+      );
       if (cartSummary.items.isEmpty) {
         throw Exception('Sepetiniz boş');
       }
@@ -713,7 +795,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           flashSaleId: item.flashSaleId,
           flashPrice: item.flashPrice,
         )).toList(),
-        deliveryAddressText: selectedAddress.fullAddress,
+        deliveryAddressText: _deliveryAddressTextFor(selectedAddress),
         addressId: selectedAddress.id,
         subtotal: cartSummary.subtotal,
         deliveryFee: cartSummary.deliveryFee,
@@ -726,6 +808,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         invoiceInfo: _selectedInvoiceInfo,
         couponId: appliedCoupon?.id,
         couponDiscount: couponDiscount,
+        isPickup: _isPickupSelected,
       );
 
       if (order != null) {
@@ -834,18 +917,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     try {
-      // Sepeti getir
-      final cartSummary = await _cartService.getCartSummary(user.id);
+      // Sepeti getir. "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
+      final cartSummary = await _cartService.getCartSummary(
+        user.id,
+        deliveryFee: _isPickupSelected ? 0.0 : null,
+      );
       if (cartSummary.items.isEmpty) {
         throw Exception('Sepetiniz boş');
       }
 
       // Kullanıcı profil bilgilerini al
-      final profileResponse = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, email, phone')
-          .eq('id', user.id)
-          .single();
+      // Kendi profili: email/phone profiles uzerinde authenticated'a
+      // kapatilacak (20260907110001); tam satir get_my_profile() ile gelir.
+      final profileRaw = await Supabase.instance.client.rpc('get_my_profile');
+      final profileResponse = profileRaw == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(profileRaw as Map);
 
       final fullName = (profileResponse['full_name'] as String?) ?? 'Müşteri';
       final nameParts = fullName.split(' ');
@@ -963,8 +1050,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     try {
-      // Sepeti getir ve teslimat ücretiyle birlikte toplam hesapla
-      final cartSummary = await _cartService.getCartSummary(userId);
+      // Sepeti getir ve teslimat ücretiyle birlikte toplam hesapla.
+      // "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
+      final cartSummary = await _cartService.getCartSummary(
+        userId,
+        deliveryFee: _isPickupSelected ? 0.0 : null,
+      );
       if (cartSummary.items.isEmpty) {
         throw Exception('Sepetiniz boş');
       }
@@ -1041,7 +1132,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         userId: userId,
         shopId: widget.shopId,
         items: orderItems,
-        deliveryAddressText: selectedAddress.fullAddress,
+        deliveryAddressText: _deliveryAddressTextFor(selectedAddress),
         addressId: selectedAddress.id,
         subtotal: cartSummary.subtotal,
         deliveryFee: cartSummary.deliveryFee,
@@ -1054,6 +1145,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         invoiceInfo: _selectedInvoiceInfo,
         couponId: appliedCoupon?.id,
         couponDiscount: couponDiscount,
+        isPickup: _isPickupSelected,
       );
 
       // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
@@ -1175,7 +1267,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Teslimat Adresi Seçimi
-                      _buildAddressSection(addressProvider),
+                      _buildAddressSection(addressProvider, _effectiveTotal(summary)),
                       const SizedBox(height: 16),
 
                       // Dükkan bilgisi
@@ -1255,10 +1347,88 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _buildAddressSection(AddressProvider addressProvider) {
+  /// "Gel Al" seçiliyken bakiye durumunu gösterir; yetersizse kullanıcıyı
+  /// sipariş onayına gitmeden önce uyarır (sert kontrol `_processBalancePayment`
+  /// içinde ayrıca duruyor, bu erken/görsel uyarı).
+  Widget _buildPickupBalanceNotice(double orderTotal) {
+    final yetersiz = _availableBalance < orderTotal;
+    final color = yetersiz ? Colors.orange : Colors.green;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              yetersiz ? Icons.warning_amber_rounded : Icons.account_balance_wallet,
+              size: 18,
+              color: color.shade700,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                yetersiz
+                    ? 'Bakiyeniz yetersiz. Gerekli: ₺${orderTotal.toStringAsFixed(2)} • '
+                        'Mevcut: ₺${_availableBalance.toStringAsFixed(2)}'
+                    : 'Sipariş tutarı (₺${orderTotal.toStringAsFixed(2)}) bakiyenizden '
+                        'tahsil edilecek • Mevcut: ₺${_availableBalance.toStringAsFixed(2)}',
+                style: TextStyle(fontSize: 12, color: color.shade900),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddressSection(AddressProvider addressProvider, double orderTotal) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_canOfferPickup) ...[
+          Card(
+            color: _isPickupSelected ? Colors.blue.shade50 : null,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: _isPickupSelected ? Colors.blue.shade200 : Colors.grey.shade300,
+              ),
+            ),
+            child: Column(
+              children: [
+                CheckboxListTile(
+                  value: _isPickupSelected,
+                  onChanged: (value) => setState(() {
+                    _isPickupSelected = value ?? false;
+                    if (_isPickupSelected) {
+                      // "Gel Al" siparişleri peşin olarak bakiyeden tahsil edilir:
+                      // kurye yok, kapıda ödeme anlamsız; online akış da ayrı bir
+                      // Edge Function kullandığı için pickup ile uyumlu değil.
+                      _selectedPaymentMethod = PaymentMethod.balance;
+                    }
+                  }),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text(
+                    '🏪 Gel Al (Mağazadan Teslim)',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text(
+                    'Siparişinizi kurye beklemeden mağazadan teslim alın - '
+                    'teslimat ücreti alınmaz, tutar bakiyenizden tahsil edilir',
+                  ),
+                ),
+                if (_isPickupSelected) _buildPickupBalanceNotice(orderTotal),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1490,8 +1660,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         Card(
           child: Column(
             children: [
+              // "Gel Al" seçiliyse ödeme yalnızca bakiyeden yapılır: kurye
+              // olmadığı için kapıda ödeme anlamsız, online akış ise ayrı bir
+              // Edge Function kullandığından pickup ile uyumlu değil.
+              if (_isPickupSelected)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Gel Al siparişleri bakiyenizden peşin tahsil edilir.',
+                          style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               // Kapıda Nakit - admin toggle'ı (order_cod_enabled) ile
-              if (_paymentSettings.isAvailable(PaymentMethod.cash))
+              if (!_isPickupSelected && _paymentSettings.isAvailable(PaymentMethod.cash))
                 RadioListTile<PaymentMethod>(
                   title: const Text('Kapıda Nakit'),
                   subtitle: const Text('Teslimatçıya nakit ödeme'),
@@ -1504,7 +1693,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   },
                 ),
               // Kapıda Banka/Kredi Kartı - admin toggle'ı (order_card_on_delivery_enabled) ile
-              if (_paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
+              if (!_isPickupSelected &&
+                  _paymentSettings.isAvailable(PaymentMethod.cardOnDelivery))
                 RadioListTile<PaymentMethod>(
                   title: const Text('Kapıda Banka/Kredi Kartı'),
                   subtitle: const Text('Teslimatçıda POS cihazı ile ödeme'),
@@ -1516,8 +1706,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     setState(() => _selectedPaymentMethod = value!);
                   },
                 ),
-              // Online Ödeme - sadece aktifse göster (online_payment_enabled)
-              if (_onlinePaymentEnabled)
+              // Online Ödeme - sadece aktifse göster (online_payment_enabled).
+              // "Gel Al" seçiliyse gizli: online ödeme akışı ayrı bir Edge
+              // Function üzerinden sipariş oluşturuyor ve is_pickup/0 teslimat
+              // ücreti bilgisini henüz taşımıyor.
+              if (_onlinePaymentEnabled && !_isPickupSelected)
                 RadioListTile<PaymentMethod>(
                   title: Row(
                     children: [
@@ -1716,7 +1909,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Teslimat:'),
-                    Text('₺${summary.deliveryFee.toStringAsFixed(2)}'),
+                    Text('₺${_effectiveDeliveryFee(summary).toStringAsFixed(2)}'),
                   ],
                 ),
                 const Divider(height: 20),
@@ -1731,7 +1924,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     ),
                     Text(
-                      '₺${summary.total.toStringAsFixed(2)}',
+                      '₺${_effectiveTotal(summary).toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,

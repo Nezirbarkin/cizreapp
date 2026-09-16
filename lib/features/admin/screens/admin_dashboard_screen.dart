@@ -28,7 +28,9 @@ import '../widgets/groups_management_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
 import 'ad_settings_screen.dart';
+import 'web_promo_settings_screen.dart';
 import 'admin_smm_providers_screen.dart';
+import '../widgets/bot_management_content.dart';
 import '../widgets/task_management_content.dart';
 import '../widgets/suspicious_users_content.dart';
 import '../widgets/fraud_signals_content.dart';
@@ -42,6 +44,7 @@ import '../widgets/wallet_management_content.dart';
 import '../widgets/courier_payout_requests_section.dart';
 import '../widgets/reward_points_overview_section.dart';
 import '../widgets/users_with_balance_tab_widget.dart';
+import '../widgets/pending_pickup_orders_card.dart';
 import 'commission_dashboard_screen.dart';
 import '../../wallet/screens/admin_withdrawal_screen.dart';
 import '../utils/admin_user_helpers.dart';
@@ -49,6 +52,7 @@ import '../../../kullaniciozellikler/admin/user_features_admin_content.dart';
 import '../../../ilanlar/admin/ilan_admin_content.dart';
 import '../../../core/models/invoice_model.dart';
 import '../../../okey/admin/okey_admin_content.dart';
+import '../../../core/services/contact_lookup_service.dart';
 
 part 'admin_dashboard_parts/_part_helpers.dart';
 part 'admin_dashboard_parts/_part_data_loaders.dart';
@@ -59,7 +63,9 @@ part 'admin_dashboard_parts/_part_posts.dart';
 part 'admin_dashboard_parts/_part_products.dart';
 part 'admin_dashboard_parts/_part_categories.dart';
 part 'admin_dashboard_parts/_part_shops.dart';
+part 'admin_dashboard_parts/_part_shop_pricing.dart';
 part 'admin_dashboard_parts/_part_orders.dart';
+part 'admin_dashboard_parts/_part_order_courier_assign.dart';
 part 'admin_dashboard_parts/_part_reports.dart';
 part 'admin_dashboard_parts/_part_post_reports.dart';
 part 'admin_dashboard_parts/_part_support_tickets.dart';
@@ -145,6 +151,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // Dükkan listesi - state değişkeni olarak saklanıyor
   List<Map<String, dynamic>> _shopsDetailed = [];
   bool _isLoadingShops = true;
+  // Dükkanlar ekranının arama / hızlı filtre / sıralama durumu. Liste
+  // _shopsDetailed üzerinden her build'de türetildiği için (bkz.
+  // _visibleShops) burada yalnızca kriterler tutulur.
+  final TextEditingController _shopSearchController = TextEditingController();
+  String _shopSearchQuery = '';
+  String _shopFilter = 'all';
+  String _shopSort = 'default';
+
+  // Ürünler sekmesinin arama durumu. Liste, kullanicilar sekmesindekiyle
+  // ayni desende: future state'te tutulur (bkz. _usersFuture) ki arama
+  // her tus vurusunda veritabanindan yeniden cekmesin.
+  Future<List<Map<String, dynamic>>>? _productsFuture;
+  final TextEditingController _productSearchController =
+      TextEditingController();
+  String _productSearchQuery = '';
 
   @override
   void initState() {
@@ -161,6 +182,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _ticketsChannel?.unsubscribe();
     _newItemsChannel?.unsubscribe();
     _userSearchController.dispose();
+    _shopSearchController.dispose();
+    _productSearchController.dispose();
     super.dispose();
   }
 

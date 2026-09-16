@@ -134,6 +134,7 @@ class PostService {
     String? location,
     double? latitude,
     double? longitude,
+    String? background,
   }) async {
     // Görsel listesini temizle - boş string'leri çıkar
     final cleanImages = images
@@ -145,6 +146,10 @@ class PostService {
         'user_id': userId,
         'content': content,
         'images': cleanImages,
+        // Arka plan yalnızca görselsiz metin gönderilerinde anlamlı; görsel
+        // varsa DB'ye yazılmaz (feed/ızgara tutarlılığı model tarafında da
+        // aynı kuralla korunuyor).
+        'background': cleanImages.isEmpty ? background : null,
         'location': location,
         'latitude': latitude,
         'longitude': longitude,
@@ -288,11 +293,15 @@ class PostService {
   }
 
   // Yorum ekle
+  // [parentCommentId] verilirse bu yorum başka bir yoruma yanıt olarak
+  // kaydedilir; yanıtlanan yorumun sahibine notify_comment_reply DB
+  // trigger'ı otomatik bildirim gönderir (post_service.dart bunu tetiklemez).
   Future<PostComment?> addComment(
     String postId,
     String userId,
-    String content,
-  ) async {
+    String content, {
+    String? parentCommentId,
+  }) async {
     // Yalnızca boşluktan oluşan yorumlar DB'ye yazılmasın (content NOT NULL
     // ama boş string'i engellemiyor; feed'de boş balon görünüyordu).
     final trimmed = content.trim();
@@ -310,6 +319,7 @@ class PostService {
             'user_id': userId,
             'content': trimmed,
             'created_at': DateTime.now().toIso8601String(),
+            if (parentCommentId != null) 'parent_comment_id': parentCommentId,
           })
           .select(
             '*, profiles!post_comments_user_id_fkey(id, username, full_name, avatar_url)',

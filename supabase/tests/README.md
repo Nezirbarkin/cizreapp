@@ -4,6 +4,8 @@ Bu dizindeki pgTAP paketleri:
 
 - [`001_critical_security_invariants.test.sql`](database/001_critical_security_invariants.test.sql): kritik finans ve operasyon tablolarının genel güvenlik değişmezlerini katalog düzeyinde doğrular.
 - [`002_reward_points_security_invariants.test.sql`](database/002_reward_points_security_invariants.test.sql): [`20260730000002_admob_reward_points_system.sql`](../migrations/20260730000002_admob_reward_points_system.sql:1) için **26** ödül puanı/SSV/composition güvenlik assertion'ı çalıştırır.
+- [`015_coupon_flow_behavior.test.sql`](database/015_coupon_flow_behavior.test.sql): kupon akışını gerçek veriyle uçtan uca çalıştıran **21** assertion. `private.validate_coupon`'daki 42702 (`id` belirsiz) hatası, `'fixed'` yerine `'fixed_amount'` enum değeri, müşteri/misafir kupon görünürlüğü, satıcının kendi kupon kullanımlarını görmesi, `usage_count` çift artışı ve kupon ekleme normalizasyonu (kod trim/büyük harf, tekrar eden kod, `shop_id` fallback) burada korunuyor. Katalog/ACL testleri bu sınıf hatayı yakalayamaz — fonksiyon ancak **çalıştırıldığında** patlar.
+- [`016_avatar_cover_storage_upsert.test.sql`](database/016_avatar_cover_storage_upsert.test.sql): profil avatarı/kapak yüklemesinin `upsert: true` yolunu (storage-api'nin `INSERT ... ON CONFLICT ... RETURNING` deyimi) `authenticated` bağlamında çalıştıran **9** assertion. `avatars`/`covers` bucket'larında SELECT politikası olmadığında yükleme 403 "new row violates row-level security policy" alıyordu; bucket/mime/politika katalog kontrollerinin hepsi geçtiği hâlde.
 
 ## Çalıştırma
 

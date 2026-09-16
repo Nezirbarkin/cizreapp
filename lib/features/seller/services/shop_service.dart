@@ -35,6 +35,10 @@ class ShopService {
     String? address,
     String? logoUrl,
     String? coverImage,
+    String? email,
+    double? latitude,
+    double? longitude,
+    bool? pickupEnabled,
   }) async {
     try {
       final updateData = <String, dynamic>{};
@@ -45,6 +49,10 @@ class ShopService {
       if (address != null) updateData['address'] = address;
       if (logoUrl != null) updateData['logo_url'] = logoUrl;
       if (coverImage != null) updateData['cover_image'] = coverImage; // banner_url -> cover_image
+      if (email != null) updateData['email'] = email;
+      if (latitude != null) updateData['latitude'] = latitude;
+      if (longitude != null) updateData['longitude'] = longitude;
+      if (pickupEnabled != null) updateData['pickup_enabled'] = pickupEnabled;
 
       if (updateData.isEmpty) return;
 
