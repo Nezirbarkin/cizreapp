@@ -753,7 +753,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             left: 16,
             right: 16,
             top: 16,
-            bottom: MediaQuery.of(context).padding.bottom + 80,
+            bottom: MediaQuery.paddingOf(context).bottom + 80,
           ),
           children: [
             // Cover Photo Section
@@ -899,6 +899,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   )
                 : _currentCoverUrl != null && _currentCoverUrl!.isNotEmpty
                 ? CachedNetworkImage(
+                    memCacheWidth: 1000,
                     imageUrl: _currentCoverUrl!,
                     width: double.infinity,
                     height: 180,
@@ -1041,6 +1042,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   )
                 : _currentAvatarUrl != null && _currentAvatarUrl!.isNotEmpty
                 ? CachedNetworkImage(
+                    memCacheWidth: 300,
                     imageUrl: _currentAvatarUrl!,
                     width: 120,
                     height: 120,

@@ -147,7 +147,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [const Color(0xFF16556E), OkeyColors.screenBackground],
+            colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
@@ -176,7 +176,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                   Icon(
                     Icons.card_giftcard,
                     size: 18,
-                    color: OkeyColors.accentGold,
+                    color: OkeyUI.brass,
                   ),
                   const SizedBox(width: 7),
                   const Text('HEDİYE GÖNDER', style: OkeyUI.title),
@@ -235,7 +235,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                           padding: const EdgeInsets.symmetric(vertical: 20),
                           child: Center(
                             child: CircularProgressIndicator(
-                              color: OkeyColors.accentGold,
+                              color: OkeyUI.brass,
                               strokeWidth: 2.5,
                             ),
                           ),
@@ -316,11 +316,11 @@ class _SeatChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected
-              ? OkeyColors.accentGold.withValues(alpha: 0.18)
+              ? OkeyUI.brass.withValues(alpha: 0.18)
               : OkeyUI.cardFill,
           borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
           border: Border.all(
-            color: selected ? OkeyColors.accentGold : OkeyUI.cardBorder,
+            color: selected ? OkeyUI.brass : OkeyUI.cardBorder,
             width: selected ? 1.6 : 1,
           ),
         ),
@@ -345,7 +345,7 @@ class _SeatChip extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: selected ? OkeyColors.accentGold : OkeyUI.text,
+                  color: selected ? OkeyUI.brass : OkeyUI.text,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),

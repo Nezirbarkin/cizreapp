@@ -1,8 +1,10 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../leaderboard/leaderboard.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/navigation/app_navigator.dart';
 
@@ -14,6 +16,10 @@ class AccountSettingsScreen extends StatefulWidget {
 }
 
 class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
+  static final RegExp _usernameFormat = RegExp(r'^[a-z0-9._-]{3,20}$');
+
+  final _usernameController = TextEditingController();
+  String? _currentUsername;
   final _emailController = TextEditingController();
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
@@ -39,6 +45,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   
   @override
   void dispose() {
+    _usernameController.dispose();
     _emailController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
@@ -52,15 +59,79 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user != null) {
+        String? username;
+        try {
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select('username')
+              .eq('id', user.id)
+              .maybeSingle();
+          username = profile?['username'] as String?;
+        } catch (e) {
+          debugPrint('Kullanıcı adı yüklenemedi: $e');
+        }
+        if (!mounted) return;
         setState(() {
           _currentEmail = user.email;
           _emailController.text = user.email ?? '';
+          _currentUsername = username;
+          _usernameController.text = username ?? '';
           _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('Kullanıcı verisi yüklenirken hata: $e');
       setState(() => _isLoading = false);
+    }
+  }
+
+  /// change_my_username RPC hatalarını kullanıcıya anlaşılır Türkçe'ye çevirir.
+  String _usernameErrorMessage(Object e) {
+    final msg = e is PostgrestException ? e.message : e.toString();
+    if (msg.contains('username taken')) return 'Bu kullanıcı adı alınmış.';
+    if (msg.contains('invalid format')) {
+      return 'Sadece harf, rakam, nokta, _ ve - kullan (3-20 karakter).';
+    }
+    if (msg.contains('reserved')) {
+      return 'Bu kullanıcı adını kullanamazsın, başka bir tane dene.';
+    }
+    if (msg.contains('same username')) {
+      return 'Yeni kullanıcı adı mevcut ile aynı.';
+    }
+    return 'Kullanıcı adı güncellenemedi, tekrar dene.';
+  }
+
+  Future<void> _updateUsername() async {
+    final value = _usernameController.text.trim().toLowerCase();
+    if (value == (_currentUsername ?? '').toLowerCase()) {
+      _showMessage('Yeni kullanıcı adı mevcut ile aynı', isError: true);
+      return;
+    }
+    if (!_usernameFormat.hasMatch(value)) {
+      _showMessage(
+        'Sadece harf, rakam, nokta, _ ve - kullan (3-20 karakter)',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() => _isUpdating = true);
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'change_my_username',
+        params: {'p_username': value},
+      );
+      if (!mounted) return;
+      final saved = (result as String?) ?? value;
+      setState(() {
+        _currentUsername = saved;
+        _usernameController.text = saved;
+      });
+      _showMessage('Kullanıcı adın güncellendi: @$saved');
+    } catch (e) {
+      if (mounted) _showMessage(_usernameErrorMessage(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
     }
   }
 
@@ -448,6 +519,95 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Kullanıcı Adı Değiştirme
+                  _buildSection(
+                    title: 'Kullanıcı Adı',
+                    icon: Icons.alternate_email,
+                    color: Colors.teal,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Mevcut Kullanıcı Adı',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _currentUsername == null || _currentUsername!.isEmpty
+                              ? 'Belirlenmemiş'
+                              : '@$_currentUsername',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _usernameController,
+                          autocorrect: false,
+                          maxLength: 20,
+                          textInputAction: TextInputAction.done,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[a-zA-Z0-9._-]'),
+                            ),
+                          ],
+                          onSubmitted: (_) =>
+                              _isUpdating ? null : _updateUsername(),
+                          decoration: InputDecoration(
+                            labelText: 'Yeni Kullanıcı Adı',
+                            helperText:
+                                'Harf, rakam, nokta, _ ve - (3-20 karakter)',
+                            prefixText: '@',
+                            prefixIcon: const Icon(Icons.alternate_email),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isUpdating ? null : _updateUsername,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: _isUpdating
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Kullanıcı Adını Güncelle',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
                   // Email Değiştirme
                   _buildSection(
                     title: 'Email Değiştir',
@@ -706,6 +866,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.purple,
                         ),
+
+                        // Liderler tablosunda gizle
+                        const LeaderboardVisibilityTile(),
                       ],
                     ),
                   ),

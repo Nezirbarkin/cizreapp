@@ -258,7 +258,7 @@ class _ImmersiveCropScreenState extends State<_ImmersiveCropScreen> {
   }
 
   Widget _buildTopBar(Size screenSize) {
-    final topPad = MediaQuery.of(context).padding.top;
+    final topPad = MediaQuery.paddingOf(context).top;
     return Positioned(
       top: 0,
       left: 0,
@@ -296,7 +296,7 @@ class _ImmersiveCropScreenState extends State<_ImmersiveCropScreen> {
   }
 
   Widget _buildBottomBar() {
-    final bottomPad = MediaQuery.of(context).padding.bottom;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     return Positioned(
       left: 0,
       right: 0,

@@ -188,6 +188,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
             flexibleSpace: FlexibleSpaceBar(
               background: news.thumbnailUrl != null
                   ? CachedNetworkImage(
+                      memCacheWidth: 1000,
                       imageUrl: news.thumbnailUrl!,
                       fit: BoxFit.cover,
                       placeholder: (_, __) =>
@@ -589,6 +590,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
             fit: StackFit.expand,
             children: [
               CachedNetworkImage(
+                memCacheWidth: 800,
                 imageUrl: image.imageUrl,
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const Center(

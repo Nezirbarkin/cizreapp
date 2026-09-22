@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +26,7 @@ import '../../features/courier/screens/courier_panel_screen.dart';
 import '../../features/news/screens/news_reporter_panel_screen.dart';
 import '../../sehirici/sehirici.dart';
 import '../../okey/okey.dart';
+import '../../features/music/music.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/market/screens/my_coupons_screen.dart';
 import 'balance_header_widget.dart';
@@ -57,10 +60,15 @@ class _SettingsSidebarState extends State<SettingsSidebar>
   bool _isGhostMode = false;
   bool _isLoadingPrivacy = false;
 
-  // Özelleştir — "101 Okey" kısayolu gizlenmiş mi? (bkz. CustomizeScreen)
+  // Görünüm — "101 Okey" kısayolu gizlenmiş mi? (aşağıdaki GÖRÜNÜM bölümü)
   bool _hide101OkeyButton = false;
-  // Özelleştir — en üstteki müzik çalar kartı gizlenmiş mi? (bkz. CustomizeScreen)
+  // Görünüm — en üstteki müzik çalar kartı gizlenmiş mi?
   bool _hideMusicPlayer = false;
+
+  /// "Müziğim" girişi görünsün mü? (admin anahtarı `music_feature_enabled`)
+  bool _musicFeatureEnabled = MusicSettingsService.cached.feature;
+  // Şu an müzik dinleyen kişi sayısı (music_listener_count RPC'si).
+  int _listenerCount = 0;
 
   // Arka plan müziği — Okey'den bağımsız, uygulama genelinde çalışır.
   bool _musicLoading = true;
@@ -75,6 +83,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     _loadPrivacySettings();
     _loadMusicState();
     _loadCustomizationSettings();
+    _loadMusicFeatureFlag();
     // Müzik uygulama genelinde TEK servisten çalıyor; bildirim panelinden
     // ya da Okey masasından yapılan değişiklik bu satırdaki oynatıcıya da
     // yansımalı.
@@ -103,6 +112,18 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     OkeySoundService.instance.musicState.removeListener(_onMusicStateChanged);
     _controller.dispose();
     super.dispose();
+  }
+
+  /// "Müziğim" anahtarını sunucudan tazeler.
+  ///
+  /// Önbellek zaten doluysa [MusicSettingsService.fetch] ağa çıkmaz; yani
+  /// menünün her açılışı yeni bir istek üretmez.
+  Future<void> _loadMusicFeatureFlag() async {
+    final settings = await MusicSettingsService.fetch();
+    if (!mounted) return;
+    if (settings.feature != _musicFeatureEnabled) {
+      setState(() => _musicFeatureEnabled = settings.feature);
+    }
   }
 
   Future<void> _loadUserProfile() async {
@@ -181,6 +202,20 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     } catch (_) {
       if (mounted) setState(() => _musicLoading = false);
     }
+    unawaited(_loadListenerCount());
+  }
+
+  /// "N kişi dinliyor" sayısı. Müzik özelliği opsiyoneldir: RPC yoksa/başarısız
+  /// olursa rozet sadece görünmez.
+  Future<void> _loadListenerCount() async {
+    try {
+      final count = await Supabase.instance.client.rpc('music_listener_count');
+      if (mounted && count is num) {
+        setState(() => _listenerCount = count.toInt());
+      }
+    } catch (_) {
+      // rozet gizli kalır
+    }
   }
 
   /// Servisteki GERÇEK durumu yerel state'e alır.
@@ -235,10 +270,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     }
   }
 
-  /// "Özelleştir" ekranında yapılan tercihleri okur — sidebar her açıldığında
-  /// TAZELENİR (yeni bir [_SettingsSidebarState] kurulur), yani kullanıcı
-  /// özelleştirme ekranından döndükten sonra menüyü tekrar açtığında güncel
-  /// tercih burada görülür.
+  /// Cihazdaki görünüm tercihlerini okur (101 Okey kısayolu, müzik kartı).
   Future<void> _loadCustomizationSettings() async {
     final hide101Okey = await AppCustomizationPrefs.getHide101OkeyButton();
     final hideMusicPlayer = await AppCustomizationPrefs.getHideMusicPlayer();
@@ -305,7 +337,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
 
     // ignore: deprecated_member_use
     return WillPopScope(
@@ -335,7 +367,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
               child: SlideTransition(
                 position: _slideAnimation,
                 child: Container(
-                  width: MediaQuery.of(context).size.width * 0.85,
+                  width: MediaQuery.sizeOf(context).width * 0.85,
                   constraints: const BoxConstraints(maxWidth: 400),
                   decoration: const BoxDecoration(
                     color: Color(0xFFF5F7FA),
@@ -354,7 +386,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                         padding: EdgeInsets.only(
                           // Şarkı kartı artık EN ÜSTTE; durum çubuğundan
                           // sonra 20px boşluk onu aşağı itiyordu.
-                          top: MediaQuery.of(context).padding.top + 12,
+                          top: MediaQuery.paddingOf(context).top + 12,
                           left: 24,
                           right: 24,
                           bottom: 24,
@@ -411,6 +443,9 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                           progress: OkeySoundService
                                               .instance
                                               .musicProgress,
+                                          fromDevice: OkeySoundService
+                                              .instance
+                                              .currentTrackIsLocal,
                                           onPlayPause: _toggleMusic,
                                           onPrevious: _previousTrack,
                                           onNext: _nextTrack,
@@ -438,6 +473,33 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                               ],
                             ),
 
+                            // Kaç kişi şu an dinliyor — yalnızca sayı; kimin
+                            // dinlediği sadece admin panelinde görünür.
+                            if (!_musicLoading &&
+                                _hasMusic &&
+                                !_hideMusicPlayer &&
+                                _listenerCount > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.headphones_rounded,
+                                      size: 14,
+                                      color: Colors.white70,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '$_listenerCount kişi şu an dinliyor',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
                             const SizedBox(height: 12),
 
                             // Profil bilgileri - Gerçek verilerle
@@ -460,6 +522,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                         _avatarUrl != null &&
                                             _avatarUrl!.isNotEmpty
                                         ? CachedNetworkImage(
+                                            memCacheWidth: 240,
                                             imageUrl: _avatarUrl!,
                                             fit: BoxFit.cover,
                                             errorWidget: (context, url, error) {
@@ -764,6 +827,32 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                 },
                               ),
 
+                              // Müziğim — diğer menü satırlarıyla AYNI
+                              // biçimde; yalnızca müzik çalarken sağda canlı
+                              // bir "çalıyor" göstergesi belirir. Admin
+                              // anahtarıyla kapatılabilir; ayar henüz
+                              // okunmadıysa önbellekteki varsayılan geçerli
+                              // (menü açılırken RPC beklenmez).
+                              if (_musicFeatureEnabled)
+                                _buildMenuItem(
+                                  context: context,
+                                  icon: Icons.library_music_outlined,
+                                  title: 'Müziğim',
+                                  trailing: _musicOn
+                                      ? const _NowPlayingChip()
+                                      : null,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const MyMusicScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+
                               const SizedBox(height: 24),
 
                               // Gizlilik & Durum
@@ -913,6 +1002,38 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                               // Bakiye header göster/gizle
                               _buildBalanceToggleItem(context, themeProvider),
 
+                              // "101 Okey" kısayolu ve müzik çalar kartı
+                              // eskiden Özelleştir ekranındaydı; görünümle
+                              // ilgili oldukları için buraya taşındı. Saklanan
+                              // tercih hâlâ "gizle" bayrağı (AppCustomizationPrefs),
+                              // anahtar ise "göster" olarak okunur.
+                              _buildToggleItem(
+                                context: context,
+                                icon: Icons.casino,
+                                title: '101 Okey Butonunu Göster',
+                                value: !_hide101OkeyButton,
+                                activeColor: themeProvider.primaryColor,
+                                onChanged: (show) async {
+                                  setState(() => _hide101OkeyButton = !show);
+                                  await AppCustomizationPrefs.setHide101OkeyButton(
+                                    !show,
+                                  );
+                                },
+                              ),
+                              _buildToggleItem(
+                                context: context,
+                                icon: Icons.music_note_rounded,
+                                title: 'Müzik Çalar Kartını Göster',
+                                value: !_hideMusicPlayer,
+                                activeColor: themeProvider.primaryColor,
+                                onChanged: (show) async {
+                                  setState(() => _hideMusicPlayer = !show);
+                                  await AppCustomizationPrefs.setHideMusicPlayer(
+                                    !show,
+                                  );
+                                },
+                              ),
+
                               const SizedBox(height: 32),
 
                               // Giriş Yap veya Çıkış Yap butonu
@@ -1002,6 +1123,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     required IconData icon,
     required String title,
     required VoidCallback onTap,
+    Widget? trailing,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -1042,6 +1164,7 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                 ),
               ),
             ),
+            if (trailing != null) trailing,
           ],
         ),
       ),
@@ -1488,4 +1611,39 @@ void showSettingsSidebar(BuildContext context) {
       },
     ),
   );
+}
+
+/// "Müziğim" satırındaki canlı gösterge: müzik çalarken oynayan ekolayzır.
+///
+/// Yalnızca çalarken ağaca girer; ekolayzırın animasyon denetleyicisi de
+/// onunla birlikte kurulup bırakılır — duraklatılmış müzikte boşuna dönen
+/// bir animasyon yok.
+class _NowPlayingChip extends StatelessWidget {
+  const _NowPlayingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: MusicUI.tint,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MusicEqualizer(height: 10),
+          SizedBox(width: 6),
+          Text(
+            'Çalıyor',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: MusicUI.onTint,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

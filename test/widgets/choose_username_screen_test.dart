@@ -3,6 +3,7 @@ import 'package:cizreapp/features/auth/screens/choose_username_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Google/Apple kaydından sonra zorunlu kullanıcı adı adımı. Bu ekran
 /// tamamlanmadan ana uygulamaya dönülemediği için buradaki iki davranış
@@ -17,6 +18,12 @@ Widget _host(Widget child) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // ThemeProvider yapıcısı SharedPreferences okur; taklit edilmezse
+  // MissingPluginException zamanlamaya bağlı olarak testi düşürür.
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  });
 
   testWidgets('başlık ve alan render edilir, gönder düğmesi devre dışı '
       'başlamaz', (tester) async {
@@ -53,6 +60,22 @@ void main() {
     await tester.pump();
 
     expect(find.text('En az 3 karakter'), findsOneWidget);
+  });
+
+  testWidgets('hatalı gönderimden sonra düzeltilen ad hata metnini hemen '
+      'temizler', (tester) async {
+    await tester.pumpWidget(_host(const ChooseUsernameScreen()));
+    await tester.pump();
+
+    final field = find.widgetWithText(TextFormField, 'Kullanıcı adı');
+    await tester.enterText(field, 'ab');
+    await tester.tap(find.text('Kaydı tamamla'));
+    await tester.pump();
+    expect(find.text('En az 3 karakter'), findsOneWidget);
+
+    await tester.enterText(field, 'abc');
+    await tester.pump();
+    expect(find.text('En az 3 karakter'), findsNothing);
   });
 
   testWidgets('izin verilmeyen karakterler yazarken otomatik ayıklanır', (

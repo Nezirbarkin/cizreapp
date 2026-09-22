@@ -85,6 +85,14 @@ class AnalyticsService {
     if (_errorEventsThisRun >= _maxErrorEventsPerRun) return;
 
     final type = _normalizeErrorType(message);
+    // `AppLogger.error('Error getting unread count: $e')` gibi çağrılarda
+    // ayrıntı `error:` parametresinde değil mesajın kendisindedir. Tip
+    // normalizasyonu iki nokta üstünden sonrasını attığı için detay
+    // tamamen kayboluyor, admin panelinde yalnızca "Error getting unread
+    // count" kalıp NEDEN başarısız olduğu bilinemiyordu.
+    if (details == null || details.isEmpty) {
+      details = _messageRemainder(message);
+    }
     final origin = _extractOrigin(stackTrace, diagnostics);
     // Ayni mesajin farkli ekranlardan gelen kopyalari ayri kayitlar olmali;
     // aksi halde ilk ekran 5 dakika boyunca digerlerini bastirirdi.
@@ -127,6 +135,10 @@ class AnalyticsService {
         // Gomulu SDK yollari (.../flutter/packages/flutter/lib/src/...) da
         // '/lib/' iceriyor; bunlar hatanin kaynagi degil.
         if (path.startsWith('src/')) continue;
+        // Hatayi LOGLAYAN altyapi kareleri kaynak degildir: yigin izi
+        // vermeyen cagrilar `StackTrace.current`'a dusuyor ve ilk kare bu
+        // dosyalar oluyordu; "hangi ekran?" sorusunun cevabi ise cagiran.
+        if (_infrastructureFiles.contains(path)) continue;
         return _truncate('$path:${match.group(2)}', 120);
       }
     }
@@ -176,6 +188,12 @@ class AnalyticsService {
     String? diagnostics,
   ) => _extractOrigin(stackTrace, diagnostics);
 
+  static const Set<String> _infrastructureFiles = {
+    'core/utils/app_error_handler.dart',
+    'core/utils/app_logger.dart',
+    'core/services/analytics_service.dart',
+  };
+
   static final RegExp _appFramePattern = RegExp(
     r'(?:package:cizreapp/|/lib/)([\w/]+\.dart):(\d+)',
   );
@@ -197,6 +215,22 @@ class AnalyticsService {
     if (text.isEmpty) text = 'Bilinmeyen';
     return _truncate(text, 80);
   }
+
+  /// [_normalizeErrorType]'ın attığı kısım: "Başlık: ayrıntı" → "ayrıntı".
+  /// İki nokta yoksa ya da başlık çok kısaysa (tip olarak korunur) `null`.
+  static String? _messageRemainder(String message) {
+    var text = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+    text = text.replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
+    final colon = text.indexOf(':');
+    if (colon < 8) return null;
+    final rest = text.substring(colon + 1).trim();
+    return rest.isEmpty ? null : _truncate(rest, 500);
+  }
+
+  /// Test kancası: bkz. [_messageRemainder].
+  @visibleForTesting
+  static String? messageRemainderForTest(String message) =>
+      _messageRemainder(message);
 
   static String _truncate(String value, int maxLength) =>
       value.length <= maxLength ? value : value.substring(0, maxLength);
@@ -442,7 +476,7 @@ class AnalyticsService {
     if (_box == null) return;
     try {
       final cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
-      final keysToDelete = <int>[];
+      final keysToDelete = <dynamic>[];
 
       for (var i = 0; i < _box!.length; i++) {
         final event = _box!.getAt(i);
@@ -452,21 +486,21 @@ class AnalyticsService {
               Map<String, dynamic>.from(event as Map),
             );
             if (analyticsEvent.timestamp.isBefore(cutoffDate)) {
-              keysToDelete.add(i);
+              keysToDelete.add(_box!.keyAt(i));
             }
           } catch (e) {
             // Geçersiz veri, sil
             AppLogger.error(
               'Skip malformed analytics event during cleanup: $e',
             );
-            keysToDelete.add(i);
+            keysToDelete.add(_box!.keyAt(i));
           }
         }
       }
 
-      for (var key in keysToDelete.reversed) {
-        await _box!.deleteAt(key);
-      }
+      // Tek toplu yazım: kayıt başına deleteAt (her biri ayrı disk yazımı ve
+      // indeks kayması) binlerce eski olayda açılış sonrası takılma yapıyordu.
+      await _box!.deleteAll(keysToDelete);
 
       AppLogger.debug('🧹 Cleared ${keysToDelete.length} old analytics events');
     } catch (e) {

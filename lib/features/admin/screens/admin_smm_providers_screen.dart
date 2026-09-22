@@ -24,12 +24,54 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
   List<SmmProvider> _providers = [];
   List<Map<String, dynamic>> _shops = [];
   List<DigitalOrder> _allOrders = [];
+  bool _isSyncing = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
+  }
+
+  /// smm-sync-products'ı elle çalıştırır (her 10 dakikada bir zaten otomatik
+  /// çalışır). Sağlayıcıda ID/servis/fiyat değişen dijital ürünler "tükendi"
+  /// yapılır; sonuç özeti gösterilir.
+  Future<void> _runSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+    try {
+      final res = await _supabase.functions.invoke('smm-sync-products');
+      final data = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      if (data['status'] == 'error') {
+        throw Exception(data['error'] ?? 'bilinmeyen hata');
+      }
+      final closed = (data['disabled'] as num?)?.toInt() ?? 0;
+      final reopened = (data['reEnabled'] as num?)?.toInt() ?? 0;
+      final price = (data['disabledPriceChanged'] as num?)?.toInt() ?? 0;
+      final service = (data['disabledServiceChanged'] as num?)?.toInt() ?? 0;
+      final missing = (data['disabledMissing'] as num?)?.toInt() ?? 0;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(
+            closed == 0 && reopened == 0
+                ? 'Kontrol tamamlandı: değişiklik yok.'
+                : 'Kontrol tamamlandı: $closed ürün tükendi yapıldı '
+                    '(fiyat: $price, servis: $service, kaldırılmış: $missing)'
+                    '${reopened > 0 ? ', $reopened ürün yeniden açıldı' : ''}.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Kontrol başarısız: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
   }
 
   @override
@@ -218,6 +260,37 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // Otomatik "tükendi" denetimi: sağlayıcıda servis ID'si, servis adı veya fiyat
+        // değişen dijital ürünler kendiliğinden satıştan kalkar.
+        Container(
+          width: double.infinity,
+          color: Colors.amber.shade50,
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+          child: Row(
+            children: [
+              Icon(Icons.autorenew_rounded, size: 18, color: Colors.amber.shade900),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Sağlayıcıda servis ID\'si, adı veya fiyatı değişen ürünler her 10 '
+                  'dakikada bir otomatik "tükendi" yapılır.',
+                  style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _isSyncing ? null : _runSync,
+                icon: _isSyncing
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.sync_rounded, size: 18),
+                label: const Text('Şimdi kontrol et'),
+              ),
+            ],
+          ),
+        ),
         TabBar(
           controller: _tabController,
           labelColor: Theme.of(context).colorScheme.primary,

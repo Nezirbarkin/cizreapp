@@ -159,110 +159,79 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
         )),
       ),
       slivers: [
+        // KURALLAR — üç ikili seçim tek kartta, her biri bölmeli anahtar.
+        //
+        // Eskiden altı ayrı radyo kartı (katlama, takım, yardım × 2) alt alta
+        // diziliyordu: dört ekran boyu kaydırma, oysa her seçim yalnızca iki
+        // seçenek. Şimdi seçenekler yan yana, seçilenin açıklaması altında tek
+        // satır. Hiçbir seçenek kalkmadı, sunucuya giden değerler aynı.
         SliverToBoxAdapter(
           child: _pad(
-            const _SectionTitle(
-              icon: Icons.layers,
-              title: 'Açılış modu',
-              subtitle: 'El açma barajı nasıl belirlensin?',
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _gameMode == 'katlamasiz',
-              icon: Icons.horizontal_rule,
-              color: const Color(0xFF80D8FF),
-              title: 'Katlamasız (düz)',
-              description:
-                  'Herkes bağımsız açar. Baraj sabit: 101 puan ya da 5 çift.',
-              onTap: () => setState(() => _gameMode = 'katlamasiz'),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _gameMode == 'katlamali',
-              icon: Icons.trending_up,
-              color: const Color(0xFFFF8A80),
-              title: 'Katlamalı',
-              description:
-                  'Her açılış masadaki en yüksekten en az 1 fazla olmalı '
-                  '(101 → 102 → 103…).',
-              onTap: () => setState(() => _gameMode = 'katlamali'),
-            ),
-          ),
-        ),
-
-        SliverToBoxAdapter(
-          child: _pad(
-            const _SectionTitle(
-              icon: Icons.groups,
-              title: 'Takım modu',
-              subtitle: 'Tek başına mı, eşinle mi?',
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _teamMode == 'essiz',
-              icon: Icons.person,
-              color: const Color(0xFFFFCC80),
-              title: 'Eşsiz (tekli)',
-              description: '4 oyuncu bireysel yarışır.',
-              onTap: () => setState(() => _teamMode = 'essiz'),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _teamMode == 'esli',
-              icon: Icons.people,
-              color: const Color(0xFFE1BEE7),
-              title: 'Eşli (2v2)',
-              description:
-                  'Karşılıklı oturanlar takım. Eşin açtığında sen barajsız '
-                  'açarsın.',
-              onTap: () => setState(() => _teamMode = 'esli'),
-            ),
-          ),
-        ),
-
-        SliverToBoxAdapter(
-          child: _pad(
-            const _SectionTitle(
-              icon: Icons.lightbulb,
-              title: 'Yardım modu',
-              subtitle: 'İpuçları gösterilsin mi?',
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _assistMode == 'yardimli',
-              icon: Icons.auto_fix_high,
-              color: const Color(0xFFB9F6CA),
-              title: 'Yardımlı',
-              description:
-                  'İşlenebilir taşlar ve tamamlanan perler otomatik vurgulanır.',
-              onTap: () => setState(() => _assistMode = 'yardimli'),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: _pad(
-            _OptionCard(
-              selected: _assistMode == 'yardimsiz',
-              icon: Icons.visibility_off,
-              color: const Color(0xFF90A4AE),
-              title: 'Yardımsız',
-              description: 'Hiçbir ipucu gösterilmez.',
-              onTap: () => setState(() => _assistMode = 'yardimsiz'),
+            Column(
+              children: [
+                _RuleSegment(
+                  icon: Icons.layers,
+                  title: 'Açılış modu',
+                  selected: _gameMode,
+                  onSelected: (v) => setState(() => _gameMode = v),
+                  options: const [
+                    _RuleOption(
+                      value: 'katlamasiz',
+                      label: 'Katlamasız',
+                      description:
+                          'Herkes bağımsız açar. Baraj sabit: 101 puan ya da '
+                          '5 çift.',
+                    ),
+                    _RuleOption(
+                      value: 'katlamali',
+                      label: 'Katlamalı',
+                      description:
+                          'Her açılış masadaki en yüksekten en az 1 fazla '
+                          'olmalı (101 → 102 → 103…).',
+                    ),
+                  ],
+                ),
+                _RuleSegment(
+                  icon: Icons.groups,
+                  title: 'Takım modu',
+                  selected: _teamMode,
+                  onSelected: (v) => setState(() => _teamMode = v),
+                  options: const [
+                    _RuleOption(
+                      value: 'essiz',
+                      label: 'Tekli',
+                      description: '4 oyuncu bireysel yarışır.',
+                    ),
+                    _RuleOption(
+                      value: 'esli',
+                      label: 'Eşli (2v2)',
+                      description:
+                          'Karşılıklı oturanlar takım. Eşin açtığında sen '
+                          'barajsız açarsın.',
+                    ),
+                  ],
+                ),
+                _RuleSegment(
+                  icon: Icons.lightbulb,
+                  title: 'Yardım modu',
+                  selected: _assistMode,
+                  onSelected: (v) => setState(() => _assistMode = v),
+                  options: const [
+                    _RuleOption(
+                      value: 'yardimli',
+                      label: 'Yardımlı',
+                      description:
+                          'İşlenebilir taşlar ve tamamlanan perler otomatik '
+                          'vurgulanır.',
+                    ),
+                    _RuleOption(
+                      value: 'yardimsiz',
+                      label: 'Yardımsız',
+                      description: 'Hiçbir ipucu gösterilmez.',
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -356,7 +325,7 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
               child: SwitchListTile(
                 value: _isPrivate,
                 onChanged: (v) => setState(() => _isPrivate = v),
-                activeThumbColor: OkeyColors.accentGold,
+                activeThumbColor: OkeyUI.brass,
                 title: const Text(
                   'Özel oda',
                   maxLines: 1,
@@ -522,7 +491,7 @@ class _FeeField extends StatelessWidget {
                   labelStyle: OkeyUI.caption,
                   prefixIcon: Icon(
                     Icons.stars,
-                    color: OkeyColors.accentGold,
+                    color: OkeyUI.brass,
                     size: 18,
                   ),
                   filled: true,
@@ -593,7 +562,7 @@ class _ChoiceRow extends StatelessWidget {
           final v = options[i];
           final sel = v == selected;
           return Material(
-            color: sel ? OkeyColors.accentGold : OkeyUI.cardFill,
+            color: sel ? OkeyUI.brass : OkeyUI.cardFill,
             borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
             child: InkWell(
               borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
@@ -644,7 +613,7 @@ class _SectionTitle extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: OkeyColors.accentGold),
+          Icon(icon, size: 17, color: OkeyUI.brass),
           const SizedBox(width: OkeyUI.gapSm),
           Expanded(
             child: Column(
@@ -672,68 +641,123 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _OptionCard extends StatelessWidget {
-  final bool selected;
-  final IconData icon;
-  final Color color;
-  final String title;
+/// [_RuleSegment]'in tek seçeneği.
+class _RuleOption {
+  final String value;
+  final String label;
   final String description;
-  final VoidCallback onTap;
 
-  const _OptionCard({
-    required this.selected,
-    required this.icon,
-    required this.color,
-    required this.title,
+  const _RuleOption({
+    required this.value,
+    required this.label,
     required this.description,
-    required this.onTap,
+  });
+}
+
+/// İkili kural seçimi: başlık + yan yana segmentler + seçilenin açıklaması.
+///
+/// TAŞMA GÜVENCESİ: segment etiketi `FittedBox(scaleDown)` içinde, açıklama
+/// üç satırla sınırlı ve `Expanded` genişlikte — büyütülmüş yazı tipinde de
+/// kart yatayda taşmaz.
+class _RuleSegment extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String selected;
+  final List<_RuleOption> options;
+  final ValueChanged<String> onSelected;
+
+  const _RuleSegment({
+    required this.icon,
+    required this.title,
+    required this.selected,
+    required this.options,
+    required this.onSelected,
   });
 
   @override
   Widget build(BuildContext context) {
+    final current = options.firstWhere(
+      (o) => o.value == selected,
+      orElse: () => options.first,
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: OkeyUI.gapSm),
       child: OkeyCard(
-        onTap: onTap,
-        highlighted: selected,
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
-              ),
-              child: Icon(icon, size: 19, color: color),
-            ),
-            const SizedBox(width: OkeyUI.gap),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+            Row(
+              children: [
+                Icon(icon, size: 17, color: OkeyUI.brass),
+                const SizedBox(width: OkeyUI.gapSm),
+                Expanded(
+                  child: Text(
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: OkeyUI.title,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: OkeyUI.body,
-                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: OkeyUI.gapSm),
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0x14FFF0D2),
+                borderRadius: BorderRadius.circular(OkeyUI.radius),
+                border: Border.all(color: OkeyUI.cardBorder),
+              ),
+              child: Row(
+                children: [
+                  for (final o in options)
+                    Expanded(
+                      child: Semantics(
+                        button: true,
+                        selected: o.value == selected,
+                        label: o.label,
+                        child: GestureDetector(
+                          onTap: () => onSelected(o.value),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            height: 40,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: o.value == selected
+                                  ? const Color(0xFFE4B04C)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(
+                                OkeyUI.radiusSm,
+                              ),
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                o.label,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: o.value == selected
+                                      ? OkeyUI.onGold
+                                      : OkeyUI.textDim,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(width: OkeyUI.gapSm),
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              size: 19,
-              color: selected ? OkeyColors.accentGold : OkeyUI.textFaint,
+            const SizedBox(height: OkeyUI.gapSm),
+            Text(
+              current.description,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: OkeyUI.body,
             ),
           ],
         ),

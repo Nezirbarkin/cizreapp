@@ -85,9 +85,9 @@ class _OkeyPointsViewState extends State<_OkeyPointsView> {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             bottom: TabBar(
-              labelColor: OkeyColors.accentGold,
+              labelColor: OkeyUI.brass,
               unselectedLabelColor: OkeyUI.textDim,
-              indicatorColor: OkeyColors.accentGold,
+              indicatorColor: OkeyUI.brass,
               tabs: const [
                 Tab(text: 'Çiplerim', icon: Icon(Icons.stars, size: 18)),
                 Tab(
@@ -134,7 +134,7 @@ class _WalletTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: provider.refresh,
-      color: OkeyColors.accentGold,
+      color: OkeyUI.brass,
       backgroundColor: OkeyUI.cardFill,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -343,7 +343,7 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: OkeyColors.accentGold),
+          Icon(icon, size: 16, color: OkeyUI.brass),
           const SizedBox(width: OkeyUI.gap),
           Expanded(
             child: Text(

@@ -92,6 +92,9 @@ class OkeyStatCard extends StatelessWidget {
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
+                      // Material 3 varsayılan satır yüksekliği (1.43) 20px
+                      // yazıyı 28.6px yapıp sabit yüksekli şeride sığdırmıyordu.
+                      height: 1.1,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -221,18 +224,29 @@ class OkeyAdminSection extends StatelessWidget {
 class OkeyStatStrip extends StatelessWidget {
   final List<Widget> cards;
 
+  static const double _cardWidth = 156;
+
   const OkeyStatStrip({super.key, required this.cards});
 
   @override
   Widget build(BuildContext context) {
+    // Yükseklik yazı ölçeğiyle büyür: sistem yazı boyutu büyütüldüğünde sabit
+    // 76px kart içeriğini alttan taşırıyordu.
+    final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
     return SizedBox(
-      height: 76,
+      height: 76 * scale,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: cards.length,
         separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, i) => cards[i],
+        // Yatay ListView çocuğa SINIRSIZ genişlik verir. Kartın içindeki
+        // `Row > Expanded` ve `SizedBox(width: infinity)` sınırsız genişlikte
+        // patlıyordu ("non-zero flex but incoming width constraints are
+        // unbounded" + "hasSize") — admin panelinde Ayarlar/Botlar sekmeleri
+        // her açılışta hata üretiyordu. Sabit genişlik kartı sınırlar.
+        itemBuilder: (context, i) =>
+            SizedBox(width: _cardWidth, child: cards[i]),
       ),
     );
   }

@@ -104,7 +104,7 @@ class AppErrorHandler {
   /// Hatayı işle ve kullanıcı dostu mesaj döndür
   String processError(dynamic error, [StackTrace? stackTrace]) {
     final errorString = error.toString();
-    
+
     // AppException tipinde hataları işle
     if (error is AppException) {
       _logError(error.message, error.stackTrace ?? stackTrace, error: error);
@@ -161,7 +161,7 @@ class AppErrorHandler {
         errorString.contains('errno = 101') ||
         actualError.contains('errno = 101')) {
       const message = 'İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
-      _logError(message, stackTrace, error: error);
+      _logConnectivity(message, stackTrace, error: error);
       return message;
     }
 
@@ -171,15 +171,15 @@ class AppErrorHandler {
         errorString.contains('ClientException') ||
         actualError.contains('ClientException')) {
       const message = 'Bağlantı hatası. Lütfen tekrar deneyin.';
-      _logError(message, stackTrace, error: error);
+      _logConnectivity(message, stackTrace, error: error);
       return message;
     }
 
     // Timeout exception
     if (errorString.toLowerCase().contains('timeout') ||
         actualError.toLowerCase().contains('timeout')) {
-      const message = 'İstek zaman aş��mına uğradı. Lütfen tekrar deneyin.';
-      _logError(message, stackTrace, error: error);
+      const message = 'İstek zaman aşımına uğradı. Lütfen tekrar deneyin.';
+      _logConnectivity(message, stackTrace, error: error);
       return message;
     }
 
@@ -196,12 +196,27 @@ class AppErrorHandler {
     return message;
   }
 
+  /// Bağlantı kopukluğu (internet yok, DNS, bağlantı kesildi) bir uygulama
+  /// hatası değildir; kullanıcıya dostane mesaj gösterilir ama merkezi hata
+  /// tablosuna (admin "Son Hatalar") yazılmaz. Aksi halde her tünel/uçak modu
+  /// düzeltilecek bir şey olmayan kayıt üretip gerçek hataları boğuyordu.
+  void _logConnectivity(
+    String message,
+    StackTrace? stackTrace, {
+    dynamic error,
+  }) {
+    AppLogger.warning(message, error: error, stackTrace: stackTrace);
+  }
+
   /// Hata loglama
   void _logError(String message, StackTrace? stackTrace, {dynamic error}) {
+    // Çağıranların çoğu (`AppErrorHandler.handleError(e)`, `.userMessage`)
+    // yığın izi vermiyor; kayıt "kaynak: -" kalıyordu. Şu anki iz, hatayı
+    // işleten ekran/servisi taşır (altyapı kareleri analitikte elenir).
     AppLogger.error(
       message,
       error: error,
-      stackTrace: stackTrace,
+      stackTrace: stackTrace ?? StackTrace.current,
     );
   }
 

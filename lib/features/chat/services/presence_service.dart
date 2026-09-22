@@ -25,6 +25,24 @@ class PresenceService {
   final StreamController<List<String>> _onlineUsersController =
       StreamController<List<String>>.broadcast();
 
+  /// Son bilinen çevrimiçi kimlikler. [onlineUsersStream] geçmiş değeri yeniden
+  /// yayınlamaz; sonradan açılan bir ekran (ör. sohbet başlığı) bir sonraki
+  /// katıl/ayrıl olayına kadar kimin çevrimiçi olduğunu bilemezdi.
+  Set<String> _onlineSnapshot = const <String>{};
+
+  /// Presence kanalında şu an görünen kullanıcılar (self dahil).
+  ///
+  /// UYARI: Bu ham liste engel/gizlilik kurallarını BİLMEZ. Bir kişiyi
+  /// "çevrimiçi" göstermeden önce `UserPresence.canSeeOnline` ile süzün.
+  Set<String> get onlineIds => _onlineSnapshot;
+
+  bool isOnline(String userId) => _onlineSnapshot.contains(userId);
+
+  void _publishOnline(List<String> ids) {
+    _onlineSnapshot = ids.toSet();
+    if (!_onlineUsersController.isClosed) _onlineUsersController.add(ids);
+  }
+
   /// Admin panelindeki platform kırılımı (iOS/Android/Web) için
   /// profiles.platform'a yazılır. Değer aralığı DB CHECK ile sınırlı:
   /// 'ios' | 'android' | 'web' | 'unknown'.
@@ -89,7 +107,7 @@ class PresenceService {
             .whereType<String>()
             .toSet()
             .toList();
-        _onlineUsersController.add(ids);
+        _publishOnline(ids);
         debugPrint('👥 Presence sync: ${ids.length} online users');
       } catch (e) {
         debugPrint('presence sync error: $e');
@@ -158,7 +176,7 @@ class PresenceService {
           .whereType<String>()
           .toSet()
           .toList();
-      _onlineUsersController.add(ids);
+      _publishOnline(ids);
     } catch (e) {
       debugPrint('broadcast error: $e');
     }
@@ -262,15 +280,19 @@ class PresenceService {
     }
   }
 
-  /// Servisi tamamen kapat.
+  /// Çıkışta kanalı bırak.
+  ///
+  /// Akış (stream) BİLEREK kapatılmaz: servis uygulama ömrü boyunca yaşayan bir
+  /// singleton'dır. Eskiden burada `close()` çağrılıyordu; aynı oturumda tekrar
+  /// giriş yapılınca `startGlobalPresence` kapalı akışa olay eklemeye
+  /// çalışıyor, hata yutuluyor ve çevrimiçi göstergeleri uygulama yeniden
+  /// açılana kadar hiç güncellenmiyordu.
   Future<void> dispose() async {
     try {
       await _globalChannel?.unsubscribe();
     } catch (_) {}
     _globalChannel = null;
     _userId = null;
-    if (!_onlineUsersController.isClosed) {
-      await _onlineUsersController.close();
-    }
+    _publishOnline(const <String>[]);
   }
 }

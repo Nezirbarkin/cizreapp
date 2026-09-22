@@ -50,7 +50,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
 
     return RefreshIndicator(
       onRefresh: provider.refreshLeaderboard,
-      color: OkeyColors.accentGold,
+      color: OkeyUI.brass,
       backgroundColor: OkeyUI.cardFill,
       child: list.isEmpty
           ? ListView(
@@ -133,7 +133,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                           children: [
                             Icon(
                               Icons.stars,
-                              color: OkeyColors.accentGold,
+                              color: OkeyUI.brass,
                               size: 15,
                             ),
                             const SizedBox(height: 2),
@@ -145,7 +145,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                                   '${e.points}',
                                   maxLines: 1,
                                   style: TextStyle(
-                                    color: OkeyColors.accentGold,
+                                    color: OkeyUI.brass,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 13,
                                   ),
@@ -192,7 +192,7 @@ class _AvatarWithRate extends StatelessWidget {
                 value: rate.clamp(0.0, 1.0),
                 strokeWidth: 3,
                 backgroundColor: const Color(0x24FFFFFF),
-                valueColor: AlwaysStoppedAnimation(OkeyColors.accentGold),
+                valueColor: AlwaysStoppedAnimation(OkeyUI.brass),
               ),
             ),
           OkeyAvatar(url: url, size: 34),

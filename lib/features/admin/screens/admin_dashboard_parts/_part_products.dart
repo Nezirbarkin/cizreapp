@@ -24,7 +24,9 @@ extension on _AdminDashboardScreenState {
   /// tutuluyor (arama her tus vurusunda yeniden sorgu atmasin diye).
   void _refreshProductsList() {
     if (!mounted) return;
-    setState(() => _productsFuture = _loadProducts());
+    setState(() {
+      _productsFuture = _loadProducts();
+    });
   }
 
   // --- _toggleProductPin ---

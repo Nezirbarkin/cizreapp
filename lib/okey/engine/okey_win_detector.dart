@@ -120,4 +120,28 @@ class OkeyWinDetector {
 
   static int countJokersHeld(List<OkeyTile> tiles, OkeyTile okeyTile) =>
       tiles.where((t) => t.isJokerFor(okeyTile)).length;
+
+  /// Şimdi atacağım taş eli BİTİRİR mi? — RULES.md §6/§7.
+  ///
+  /// Sunucudaki koşulun (`okey_internal_discard_for_seat`, `v_finishes`)
+  /// birebir aynısı: ıstakada [handSize] = 1 taş kaldı ve el AÇIK.
+  ///
+  /// ## Neden var (kullanıcı isteği, 2026-09-21)
+  ///
+  /// "El bittiğinde son taş işlek olsa bile işlek sayılmasın: atmak MECBUR ve
+  /// takozda (ıstakada) başka taş yok." Bitiş yalnızca atmayla olur (§6) ve
+  /// açma/işleme eli boşaltamaz; yani o son taşı pere İŞLEMEK hiçbir zaman
+  /// bir yol değildir. Atış bir seçim değil zorunluluktur, dolayısıyla taşın
+  /// masada işlenebilir olması onu "hata" yapmaz.
+  ///
+  /// Bu karar sunucuda ve istemcide AYRI AYRI durur ve ikisi ayrışamaz:
+  /// kırmızı uyarı/onay penceresi ile yazılan ceza aynı koşula bakmak
+  /// zorundadır (bkz. RULES.md §7).
+  ///
+  /// YALNIZCA işlek taş cezası muaf olur — okey atma cezası ve yandan çekilen
+  /// taşın kullanılmaması cezası bitiş atışında da işler.
+  static bool discardFinishesHand({
+    required int handSize,
+    required bool isOpeningDone,
+  }) => isOpeningDone && handSize == 1;
 }

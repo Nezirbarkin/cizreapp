@@ -47,6 +47,7 @@ import '../../chat/services/group_chat_service.dart';
 import '../../news/services/news_service.dart';
 import '../../news/screens/news_detail_screen.dart';
 import '../../news/screens/news_screen.dart';
+import '../widgets/shop_card.dart';
 import 'shop_detail_screen.dart';
 import 'category_shops_screen.dart';
 import 'all_categories_screen.dart';
@@ -60,6 +61,8 @@ import 'product_detail_screen.dart';
 import '../../../core/services/app_about_service.dart';
 import '../../user_courier/screens/send_package_screen.dart';
 import '../../../ilanlar/widgets/home_ilan_section.dart';
+import '../../leaderboard/leaderboard.dart';
+import '../../leaderboard/leaderboard_navigator.dart';
 // import '../../news/widgets/news_section_widget.dart';
 
 class MarketScreen extends StatefulWidget {
@@ -104,7 +107,10 @@ class _MarketScreenState extends State<MarketScreen> {
   List<Post> _recentPosts = [];
   Map<String, Map<String, dynamic>> _postUsersMap = {}; // userId -> user data
   Set<String> _favoriteProductIds = {};
-  final Map<String, Future<int>> _couponCountCache = {};
+  /// Şu an geçerli kuponu olan dükkan id'leri ("Kupon Var" rozeti). Liste
+  /// başına TEK sorguyla dolar (bkz. ShopService.getShopIdsWithActiveCoupons);
+  /// eskiden her dükkan kartı kendi sorgusunu atıyordu.
+  Set<String> _couponShopIds = {};
   Map<String, int> _categoryShopCounts = {};
   int _unreadNotificationCount = 0;
   int _unreadChatCount = 0;
@@ -144,6 +150,7 @@ class _MarketScreenState extends State<MarketScreen> {
   final Set<String> _addingToCart = {};
   final Map<String, int> _cartQuantities = {};
   Timer? _dealTimer;
+  bool _tabActive = true; // build'de TickerMode'dan güncellenir
   // Sadece fırsat kartları geri sayımını tetikler; tüm ekranı rebuild ETMEZ.
   final ValueNotifier<int> _dealTick = ValueNotifier<int>(0);
   bool _courierServiceActive = false;
@@ -176,7 +183,8 @@ class _MarketScreenState extends State<MarketScreen> {
 
     // Geri sayım için timer başlat (her saniye güncelle)
     _dealTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+      // Fırsat kartı yoksa ya da sekme gizliyse (arka planda) yeniden çizme.
+      if (mounted && _tabActive && _deals.isNotEmpty) {
         _dealTick.value++;
       }
     });
@@ -353,7 +361,6 @@ class _MarketScreenState extends State<MarketScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    _couponCountCache.clear();
 
     try {
       // ⚡ iOS PERFORMANCE: Tüm bağımsız veri yükleme işlemlerini PARALEL yap
@@ -428,8 +435,9 @@ class _MarketScreenState extends State<MarketScreen> {
         _isLoading = false;
       });
 
-      // Kritik olmayan "Son Gönderiler" bölümü ilk render'ı bloklamasın,
-      // arka planda ayrı yüklenir.
+      // Kritik olmayan bölümler (kupon rozetleri, "Son Gönderiler") ilk
+      // render'ı bloklamasın, arka planda ayrı yüklenir.
+      _loadShopCoupons(shops);
       _loadRecentPosts();
     } catch (e) {
       if (!mounted) return;
@@ -461,6 +469,14 @@ class _MarketScreenState extends State<MarketScreen> {
         ).showSnackBar(SnackBar(content: Text('Veriler yüklenirken hata: $e')));
       }
     }
+  }
+
+  /// Yalnızca ana sayfada gerçekten gösterilen dükkanlar için sorgular.
+  Future<void> _loadShopCoupons(List<Shop> shops) async {
+    final ids = await _shopService.getShopIdsWithActiveCoupons(
+      shops.take(_homeShopLimit).map((s) => s.id),
+    );
+    if (mounted) setState(() => _couponShopIds = ids);
   }
 
   Future<void> _loadRecentPosts() async {
@@ -726,6 +742,9 @@ class _MarketScreenState extends State<MarketScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
+    // Sekme başka bir sekmenin arkasında (MainScreen IndexedStack) tutuluyorsa
+    // TickerMode kapalıdır; geri sayım zamanlayıcısı o sürede boşa dönmesin.
+    _tabActive = TickerMode.of(context);
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -808,7 +827,7 @@ class _MarketScreenState extends State<MarketScreen> {
 
   Widget _buildCustomHeader(BuildContext context, Color primaryColor) {
     // Platform ve cihaza göre üst padding hesapla
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     final isMobileWeb = kIsWeb && screenSize.width <= 600;
 
     double topPadding;
@@ -820,7 +839,7 @@ class _MarketScreenState extends State<MarketScreen> {
       topPadding = 40.0;
     } else {
       // Mobil uygulama: SafeArea padding + minimal padding
-      final safePadding = MediaQuery.of(context).padding.top;
+      final safePadding = MediaQuery.paddingOf(context).top;
       topPadding = safePadding + 8.0;
     }
 
@@ -1268,7 +1287,13 @@ class _MarketScreenState extends State<MarketScreen> {
                     );
                   }
                   final shop = _shops[index];
-                  return _buildShopCard(shop);
+                  return ShopCard(
+                    shop: shop,
+                    globalOrdersEnabled: _globalOrdersEnabled,
+                    hasCoupon: _couponShopIds.contains(shop.id),
+                    distanceLabel: _shopDistanceLabel(shop),
+                    margin: const EdgeInsets.only(bottom: 10),
+                  );
                 },
                 childCount: _shops.isEmpty
                     ? 1
@@ -1331,6 +1356,18 @@ class _MarketScreenState extends State<MarketScreen> {
 
           // İlan kategorileri ve en yeni ilanlar — "En Son Gönderiler" altı.
           const SliverToBoxAdapter(child: HomeIlanSection()),
+
+          // Liderler Tablosu — "İlan Ver" düğmesinin altı. Admin kapatınca ya da
+          // hiçbir pano açık değilken hiçbir şey çizmez.
+          SliverToBoxAdapter(
+            child: HomeLeaderboardSection(onOpenEntry: openLeaderboardEntry),
+          ),
+
+          // Sayfanın son öğesi hangisi olursa olsun (ilanlar/pano kapalı olabilir)
+          // içerik gezinme çubuğunun altında kalmasın.
+          SliverToBoxAdapter(
+            child: SizedBox(height: 8 + MediaQuery.paddingOf(context).bottom),
+          ),
         ],
       ),
     );
@@ -1611,6 +1648,8 @@ class _MarketScreenState extends State<MarketScreen> {
     debugPrint(
       'Deal tıklandı - linkType: ${deal.linkType}, linkId: ${deal.linkId}, linkUrl: ${deal.linkUrl}',
     );
+    // Admin istatistiği için tıklamayı say (fire-and-forget).
+    unawaited(_dailyDealService.logClick(deal.id));
 
     switch (deal.linkType) {
       case 'shop':
@@ -2155,365 +2194,6 @@ class _MarketScreenState extends State<MarketScreen> {
     return meters == null ? null : UserDistanceService.format(meters);
   }
 
-  Widget _buildShopCard(Shop shop) {
-    // Sipariş alma durumu kontrolü
-    final bool isOrdersClosed =
-        !_globalOrdersEnabled || !shop.isAcceptingOrders;
-    final String? distanceLabel = _shopDistanceLabel(shop);
-
-    return Opacity(
-      opacity: isOrdersClosed ? 0.55 : 1.0,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            elevation: 0,
-            clipBehavior: Clip.none,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: shop.isPinned
-                    ? Colors.amber.shade400
-                    : (isOrdersClosed
-                          ? Colors.red.shade100
-                          : Colors.grey.shade100),
-                width: 1,
-              ),
-            ),
-            child: InkWell(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ShopDetailScreen(shopId: shop.id),
-                  ),
-                );
-              },
-              borderRadius: BorderRadius.circular(16),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        // Logo
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(10),
-                            image: shop.logoUrl != null
-                                ? DecorationImage(
-                                    image: NetworkImage(shop.logoUrl!),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
-                          ),
-                          child: shop.logoUrl == null
-                              ? const Icon(
-                                  Icons.store,
-                                  size: 28,
-                                  color: Colors.grey,
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: 10),
-
-                        // Bilgiler
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  // Dükkan adı ve verified
-                                  Expanded(
-                                    child: Row(
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            shop.name,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (shop.isVerified) ...[
-                                          const SizedBox(width: 4),
-                                          const Icon(
-                                            Icons.verified,
-                                            size: 16,
-                                            color: Colors.blue,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  // Sağ tarafta etiketler
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Açık/Kapalı etiketi
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: shop.isOpen
-                                              ? Colors.green
-                                              : Colors.red,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          shop.isOpen ? 'Açık' : 'Kapalı',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      // "Gel Al" etiketi
-                                      if (shop.pickupEnabled)
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 4),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.blue.shade600,
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: const Text(
-                                              '🏪 Gel Al',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      // Kupon var etiketi
-                                      FutureBuilder<int>(
-                                        future: _couponCountCache.putIfAbsent(
-                                          shop.id,
-                                          () => _getActiveCouponCount(shop.id),
-                                        ),
-                                        builder: (context, snapshot) {
-                                          if (snapshot.hasData &&
-                                              snapshot.data! > 0) {
-                                            return Padding(
-                                              padding: const EdgeInsets.only(
-                                                left: 4,
-                                              ),
-                                              child: _BlinkingCouponBadge(),
-                                            );
-                                          }
-                                          return const SizedBox.shrink();
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                shop.description ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.star,
-                                    size: 14,
-                                    color: Colors.amber.shade600,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    shop.rating.toStringAsFixed(1),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Icon(
-                                    Icons.local_shipping,
-                                    size: 14,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    shop.deliveryFee > 0
-                                        ? '${shop.deliveryFee.toStringAsFixed(0)}₺'
-                                        : 'Ücretsiz',
-                                    style: TextStyle(
-                                      color: shop.deliveryFee > 0
-                                          ? Colors.grey.shade600
-                                          : Colors.green.shade600,
-                                      fontSize: 11,
-                                      fontWeight: shop.deliveryFee == 0
-                                          ? FontWeight.w600
-                                          : null,
-                                    ),
-                                  ),
-                                  if (shop.minOrderAmount > 0) ...[
-                                    const SizedBox(width: 8),
-                                    Icon(
-                                      Icons.shopping_cart,
-                                      size: 14,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      'Min ${shop.minOrderAmount.toStringAsFixed(0)}₺',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                  // Kullanıcıya uzaklık (konum izni varsa).
-                                  // Flexible: dar ekranda taşma yerine kısalır.
-                                  if (distanceLabel != null) ...[
-                                    const SizedBox(width: 8),
-                                    Icon(
-                                      Icons.near_me,
-                                      size: 13,
-                                      color: Colors.blueGrey.shade600,
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Flexible(
-                                      child: Text(
-                                        distanceLabel,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Colors.blueGrey.shade700,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    // Geçici Kapalı banner
-                    if (isOrdersClosed) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 6,
-                          horizontal: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.red.shade200),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.pause_circle_filled,
-                              size: 14,
-                              color: Colors.red.shade700,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Geçici Kapalı - Sipariş Alınmıyor',
-                              style: TextStyle(
-                                color: Colors.red.shade700,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (shop.isPinned)
-            Positioned(
-              top: -8,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.amber,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.star, size: 12, color: Colors.white),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<int> _getActiveCouponCount(String shopId) async {
-    int retryCount = 0;
-    const maxRetries = 3;
-
-    while (retryCount <= maxRetries) {
-      try {
-        final response = await Supabase.instance.client
-            .from('shop_coupons')
-            .select('id')
-            .eq('shop_id', shopId)
-            .eq('is_active', true)
-            .timeout(
-              const Duration(seconds: 5),
-              onTimeout: () => throw TimeoutException(
-                'Kupon sayısı sorgusu zaman aşımına uğradı',
-              ),
-            );
-        return (response as List).length;
-      } catch (e) {
-        retryCount++;
-        if (retryCount > maxRetries) {
-          debugPrint('Kupon sayısı alınırken hata (max retry aşımı): $e');
-          return 0;
-        }
-        // Exponential backoff ile yeniden dene
-        await Future.delayed(Duration(milliseconds: 500 * retryCount));
-      }
-    }
-    return 0;
-  }
-
   Widget _buildRecentPostCard(Post post) {
     return GestureDetector(
       onTap: () {
@@ -2816,77 +2496,6 @@ class _MarketScreenState extends State<MarketScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Sabit container, içindeki yazı ve ikon sürekli yanıp söner
-// ignore: must_be_immutable
-class _BlinkingCouponBadge extends StatefulWidget {
-  const _BlinkingCouponBadge();
-
-  @override
-  State<_BlinkingCouponBadge> createState() => _BlinkingCouponBadgeState();
-}
-
-class _BlinkingCouponBadgeState extends State<_BlinkingCouponBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _animation = Tween<double>(
-      begin: 0.3,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFF6B00), Color(0xFFFF8C00)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: AnimatedBuilder(
-        animation: _animation,
-        builder: (context, child) {
-          return Opacity(opacity: _animation.value, child: child);
-        },
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.confirmation_number, size: 11, color: Colors.white),
-            SizedBox(width: 3),
-            Text(
-              'Kupon Var',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
               ),
             ),
           ],

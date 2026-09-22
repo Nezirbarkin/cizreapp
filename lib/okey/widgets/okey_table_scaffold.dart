@@ -103,20 +103,19 @@ class OkeyTableScaffold extends StatelessWidget {
   /// giriyordu.
   final OkeyTablePart? pairsBoard;
 
-  /// Hamle düğmeleri: SERİ AÇ / ÇİFT AÇ / İŞLE / TAŞI AT (konsolun solu).
-  final OkeyTablePart actions;
-
   /// Alt şerit: ahşap ıstakam ve taşlarım.
   final OkeyTablePart rack;
 
-  /// Istakanın SOL ucundaki dizme düğmesi (ÇİFT DİZ).
+  /// Istakanın SOL ucundaki dizme başlığı — SERİ DİZ ve ÇİFT DİZ birlikte.
   final OkeyTablePart? rackCapStart;
 
-  /// Istakanın SAĞ ucundaki dizme düğmesi (SERİ DİZ).
-  final OkeyTablePart? rackCapEnd;
-
-  /// Istakanın hemen ÜSTÜNDEKİ ince süre çizgisi.
-  final OkeyTablePart? turnTimerBar;
+  /// Istakanın SAĞ ucundaki DİKEY hamle dock'u: AÇ / İŞLE / TAŞI AT
+  /// (bkz. [OkeyActionDock]).
+  ///
+  /// v4'te bu düğmeler masanın alt kenarındaki yatay `actions` şeridindeydi;
+  /// o şerit kaldırıldı ve yerini dock aldı. Gerekçe için bkz.
+  /// [OkeyTableMetrics] "Düzen v5".
+  final OkeyTablePart? actionDock;
 
   /// Mod rozetleri (Eşli / Katlamalı / Yardımlı / 3. El) — bilgi sütununun
   /// üstünde, DİKEY sıralanır.
@@ -145,11 +144,9 @@ class OkeyTableScaffold extends StatelessWidget {
     required this.island,
     required this.melds,
     this.pairsBoard,
-    required this.actions,
     required this.rack,
     this.rackCapStart,
-    this.rackCapEnd,
-    this.turnTimerBar,
+    this.actionDock,
     this.modeBadges,
     this.topLeading,
     this.topControls,
@@ -177,16 +174,6 @@ class OkeyTableScaffold extends StatelessWidget {
                   height: m.consoleHeight,
                   child: _Console(metrics: m, scaffold: this),
                 ),
-                if (turnTimerBar != null)
-                  Center(
-                    child: SizedBox(
-                      width: math.min(m.rackWidth, m.rackMaxWidth),
-                      height: OkeyTableMetrics.timerBarHeight,
-                      child: turnTimerBar!(context, m),
-                    ),
-                  )
-                else
-                  const SizedBox(height: OkeyTableMetrics.timerBarHeight),
                 SizedBox(
                   height: m.rackHeight,
                   child: _RackStrip(metrics: m, scaffold: this),
@@ -455,7 +442,11 @@ class _InfoColumn extends StatelessWidget {
 
 /// Masanın alt kenarındaki KONTROL ŞERİDİ.
 ///
-/// `[SERİ AÇ][ÇİFT AÇ][İŞLE][TAŞI AT]  ·  ● BEN ● (skor)  ·  [ek içerik]`
+/// `[ek içerik]  ·  ◔ BEN ● (ceza) (açık puan) ▰▰▱ çek·diz·işle·AT  ·  [pay]`
+///
+/// v5'te hamle düğmeleri BURADA DEĞİL — ıstakanın sağ ucundaki dikey
+/// dock'talar (bkz. [_RackStrip]). Konsol artık yalnızca "ben" bilgisini
+/// taşıyor ve bu yüzden 0,115 yerine 0,105 yükseklik alıyor.
 ///
 /// Kendi ıskartam artık BURADA DEĞİL — sağ kenar sütununun dibinde, tam da
 /// sağımdaki oyuncuyla aramdaki köşede (bkz. sınıf yorumu). Böylece hamle
@@ -492,20 +483,10 @@ class _Console extends StatelessWidget {
               // satırıdır.
               SizedBox(width: side),
               const SizedBox(width: OkeyTableMetrics.gap),
-              Expanded(flex: 34, child: s.actions(context, m)),
-              const SizedBox(width: OkeyTableMetrics.consoleGap),
+              // SOL: "çifte gidiyorum" işareti ve hazırlanan gruplar.
+              // Hamle düğmeleri buradaydı; v5'te sağdaki dock'a taşındılar.
               Expanded(
                 flex: 30,
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: s.seatMine(context, m),
-                  ),
-                ),
-              ),
-              const SizedBox(width: OkeyTableMetrics.consoleGap),
-              Expanded(
-                flex: 20,
                 child: s.bottomExtra == null
                     ? const SizedBox.shrink()
                     : Align(
@@ -517,6 +498,24 @@ class _Console extends StatelessWidget {
                         ),
                       ),
               ),
+              const SizedBox(width: OkeyTableMetrics.consoleGap),
+              // ORTA: kimlik plakam + ceza/açık puan rozetlerim + baraj
+              // ölçeri + tur şeridi. Konsolun TEK sabit sakini budur; bu
+              // yüzden artık en geniş payı o alıyor.
+              Expanded(
+                flex: 46,
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: s.seatMine(context, m),
+                  ),
+                ),
+              ),
+              const SizedBox(width: OkeyTableMetrics.consoleGap),
+              // SAĞ: simetri payı. Boş duruyor ki plaka konsolun GERÇEK
+              // ortasında kalsın — sola kaymış bir plaka, masanın simetrisini
+              // tek başına bozuyordu.
+              const Expanded(flex: 30, child: SizedBox.shrink()),
               const SizedBox(width: OkeyTableMetrics.gap),
               SizedBox(width: side),
             ],
@@ -531,7 +530,19 @@ class _Console extends StatelessWidget {
 // ISTAKA ŞERİDİ
 // ---------------------------------------------------------------------------
 
-/// `[ÇİFT DİZ] ████ ISTAKAM ████ [SERİ DİZ]`
+/// `[SERİ/ÇİFT DİZ] ████ ISTAKAM ████ [AÇ · İŞLE · TAŞI AT]`
+///
+/// ## v5: sağ uç dizme düğmesinin değil, HAMLE DOCK'UNUN
+///
+/// v4'te iki uçta da bir dizme düğmesi vardı ve hamleler masanın alt
+/// kenarında ayrı bir yatay şerittteydi. O şerit yalnızca dört düğme için
+/// ekran yüksekliğinin ~%11'ini harcıyordu; dock aynı düğmeleri ıstakanın
+/// YANINA, yani zaten var olan şeridin içine koyuyor — masanın dikey
+/// bütçesinden hiçbir şey almadan. Bedeli ıstaka genişliğinden ~%11'dir ve
+/// o da [OkeyTableMetrics] içinde yükseklik payı artırılarak karşılandı.
+///
+/// Dizme araçları tek başlıkta (sol uç) alt alta durur: ikisi de ıstakayı
+/// düzenler, ikisi de aynı nesneye bitişik olmalı.
 ///
 /// ## Düğmeler ISTAKAYA YAPIŞIK durur (kullanıcı isteği, 2026-09-07:
 /// "seri diz, çift diz takoza biraz daha yakınlaştır")
@@ -570,8 +581,8 @@ class _RackStrip extends StatelessWidget {
         SizedBox(width: rackW, child: s.rack(context, m)),
         const SizedBox(width: OkeyTableMetrics.rackCapGap),
         SizedBox(
-          width: m.rackCapWidth,
-          child: s.rackCapEnd?.call(context, m) ?? const SizedBox.shrink(),
+          width: m.actionDockWidth,
+          child: s.actionDock?.call(context, m) ?? const SizedBox.shrink(),
         ),
       ],
     );

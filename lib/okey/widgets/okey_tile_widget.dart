@@ -70,16 +70,20 @@ class OkeyTileWidget extends StatelessWidget {
   final bool hintProcessable;
 
   /// Yardımlı modda: bu taş elde başka taşlarla per/grup/çift oluşturabilir
-  /// (mavi alt çizgi).
+  /// — taşın altında yumuşak MAVİ bir ışık havuzu (v5'e kadar alt çizgiydi).
   final bool hintMeldable;
 
   /// RİSKLİ TAŞ: masadaki açık bir pere işlenebiliyor, yani ıskartaya
-  /// atılırsa +101 "işlek taş" cezası yazılır (kırmızı alt çizgi).
+  /// atılırsa +101 "işlek taş" cezası yazılır — taşın altında KIZIL bir
+  /// ışık havuzu (v5'e kadar kırmızı alt çizgiydi).
   ///
   /// [hintProcessable]'dan farkı YÖN: o "bunu işleyebilirsin" (fırsat), bu
   /// "bunu atma" (bedel). Eli açık oyuncuda ikisi aynı taşa denk gelir ve o
-  /// zaman yeşil çerçeve zaten daha güçlü konuşur — kırmızı çizgi yalnızca
-  /// yeşil YOKKEN çizilir, taş iki işaretle birden bezenmez.
+  /// zaman yeşil çerçeve zaten daha güçlü konuşur — kızıl ışık yalnızca
+  /// yeşil YOKKEN yanar, taş iki işaretle birden bezenmez.
+  ///
+  /// Bu bir UYARIDIR, engel değil; atmadan önceki onay kartı için bkz.
+  /// `OkeyRiskyDiscardSheet`.
   final bool hintRisky;
 
   /// OTOMATİK sayılan geçerli bir per/grup/çiftin parçası (altın çerçeve).
@@ -189,22 +193,6 @@ class OkeyTileWidget extends StatelessWidget {
       boxShadow: _shadows(),
     );
 
-    // ALT ÇİZGİ — tek bir şerit, iki anlam. Öncelik RİSKTE: bir taş hem
-    // elimde per adayı olabilir hem de atıldığında ceza yazdırabilir;
-    // ikisinden yalnızca biri gösterilecekse bedeli olan gösterilmeli.
-    final Color? underline = hintProcessable
-        ? null
-        : hintRisky
-        ? OkeyColors.hintRisky
-        : (hintMeldable ? OkeyColors.hintMeldable : null);
-
-    final foreground = underline == null
-        ? null
-        : BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            border: Border(bottom: BorderSide(color: underline, width: 3)),
-          );
-
     // YÜZ — kabartma + oyuk + rakam/çember, TEK çizimde. Rakamın yazı tipi
     // ağaçtan çözülür ki taş ekranın geri kalanıyla aynı fontu kullansın
     // (eski `Text` de tam olarak bunu yapıyordu: kendi stilini
@@ -232,7 +220,6 @@ class OkeyTileWidget extends StatelessWidget {
         margin: tight ? null : const EdgeInsets.symmetric(horizontal: 1.5),
         transform: transform,
         decoration: decoration,
-        foregroundDecoration: foreground,
         child: face,
       );
     }
@@ -245,7 +232,6 @@ class OkeyTileWidget extends StatelessWidget {
       margin: tight ? null : const EdgeInsets.symmetric(horizontal: 1.5),
       transform: transform,
       decoration: decoration,
-      foregroundDecoration: foreground,
       child: face,
     );
   }
@@ -325,6 +311,41 @@ class OkeyTileWidget extends StatelessWidget {
           spreadRadius: 0.5,
         ),
         BoxShadow(
+          color: Color(0x42000000),
+          blurRadius: 2,
+          offset: Offset(0, 1),
+        ),
+      ];
+    }
+    // ALTTAN IŞIK — çizgi değil (düzen v5).
+    //
+    // v4'te "işlek" ve "per adayı" taşlar, taşın altına çizilen 3 piksellik
+    // RENKLİ BİR ŞERİTLE işaretleniyordu. O şerit taşın kendisine ait
+    // değildi: fildişi bir nesnenin üstünde duran, oyunun malzemesiyle
+    // hiç ilgisi olmayan bir arayüz çizgisiydi. Üstelik ıstakada taşlar
+    // bitişik durduğu için şeritler birleşip tek bir renkli bant gibi
+    // okunuyordu.
+    //
+    // Artık işaret IŞIKTIR: taşın altında bir havuz. Fiziksel dünyada bir
+    // nesneyi işaretlemenin yolu budur ve masanın geri kalanıyla (tek
+    // kaynaklı ışık, temas gölgeleri) aynı dili konuşur. Gölge AŞAĞI
+    // kaydırılır ve yayılma NEGATİFTİR: ışık komşu taşlara taşmasın,
+    // işaretlenen taşın altında kalsın.
+    //
+    // Öncelik RİSKTE: bir taş hem elimde per adayı olabilir hem de
+    // atıldığında ceza yazdırabilir; ikisinden yalnızca biri
+    // gösterilecekse BEDELİ OLAN gösterilmeli.
+    if (hintRisky || hintMeldable) {
+      final risky = hintRisky;
+      return [
+        BoxShadow(
+          color: (risky ? OkeyColors.hintRisky : OkeyColors.hintMeldable)
+              .withValues(alpha: risky ? 0.85 : 0.55),
+          blurRadius: risky ? 9 : 7,
+          spreadRadius: -1,
+          offset: Offset(0, risky ? 4 : 3),
+        ),
+        const BoxShadow(
           color: Color(0x42000000),
           blurRadius: 2,
           offset: Offset(0, 1),

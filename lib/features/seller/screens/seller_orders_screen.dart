@@ -11,6 +11,8 @@ import '../../../core/services/courier_notification_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/services/email_service.dart';
 import '../../../core/services/contact_lookup_service.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
 class SellerOrdersScreen extends StatefulWidget {
@@ -1237,7 +1239,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                               icon: Icons.calendar_today,
                               label: 'Tarih',
                               value: '${order.createdAt.day}/${order.createdAt.month}/${order.createdAt.year}',
-                              color: Colors.orange,
+                              color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1576,7 +1578,9 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(height: 12),
-                      ...order.items.map((item) => Container(
+                      ...order.items.map((item) {
+                        final primary = Theme.of(context).colorScheme.primary;
+                        return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -1589,10 +1593,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF97316).withOpacity(0.1),
+                                color: primary.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(Icons.fastfood, color: const Color(0xFFF97316), size: 20),
+                              child: Icon(Icons.fastfood, color: primary, size: 20),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -1613,11 +1617,12 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                             ),
                             Text(
                               '₺${item.subtotal.toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFFF97316)),
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primary),
                             ),
                           ],
                         ),
-                      )),
+                        );
+                      }),
 
                       const SizedBox(height: 24),
                       
@@ -1628,7 +1633,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         child: ElevatedButton(
                           onPressed: () => Navigator.pop(context),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF97316),
+                            backgroundColor: Theme.of(context).colorScheme.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1705,8 +1710,8 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
-          indicatorColor: const Color(0xFFF97316),
-          labelColor: const Color(0xFFF97316),
+          indicatorColor: Theme.of(context).colorScheme.primary,
+          labelColor: Theme.of(context).colorScheme.primary,
           unselectedLabelColor: const Color(0xFF64748B),
           indicatorWeight: 3,
           tabs: const [
@@ -1721,37 +1726,15 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFF97316)))
+          ? const SellerListSkeleton()
           : _orders.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF97316).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.receipt_long, size: 50, color: Color(0xFFF97316)),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'Henüz sipariş yok',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Siparişler burada görünecek',
-                        style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
+              ? const SellerEmptyState(
+                  icon: Icons.receipt_long,
+                  message: 'Henüz sipariş yok\nSiparişler burada görünecek',
                 )
               : RefreshIndicator(
                   onRefresh: _loadOrders,
-                  color: const Color(0xFFF97316),
+                  color: Theme.of(context).colorScheme.primary,
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _orders.length,
@@ -2144,6 +2127,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                                           borderRadius: BorderRadius.circular(10),
                                           child: item.productImageUrl != null && item.productImageUrl!.isNotEmpty
                                               ? CachedNetworkImage(
+                                                  memCacheWidth: 200,
                                                   imageUrl: item.productImageUrl!,
                                                   fit: BoxFit.cover,
                                                   errorWidget: (_, __, ___) => Icon(Icons.shopping_bag_outlined, size: 22, color: Colors.grey.shade400),
@@ -2158,7 +2142,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                                           child: Container(
                                             padding: const EdgeInsets.all(3),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFFF97316),
+                                              color: Theme.of(context).colorScheme.primary,
                                               borderRadius: BorderRadius.circular(8),
                                             ),
                                             child: Text(
@@ -2192,10 +2176,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         FittedBox(
                           child: Text(
                             '₺${order.totalAmount.toStringAsFixed(2)}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFF97316),
+                              color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
                         ),
@@ -2410,6 +2394,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
 
   /// Kurye çağır butonu - kuryesi olmayan satıcılar için
   Widget _buildCallCourierButton(Order order) {
+    final primary = Theme.of(context).colorScheme.primary;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2419,14 +2404,14 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.orange, Colors.orange.shade700],
+              colors: [primary, primary.withOpacity(0.8)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.orange.withOpacity(0.3),
+                color: primary.withOpacity(0.3),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),

@@ -398,8 +398,13 @@ class _RegisterScreenV2State extends State<RegisterScreenV2> {
               child: AuthPrimaryButton(
                 label: 'Başla',
                 onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).pushReplacementNamed('/main');
+                  // Navigator diyalogun bağlamından alınır: doğrulama
+                  // sonrası oturum açılınca kök widget bu ekranı değiştirmiş
+                  // olabilir; dispose olmuş State'in `context`'i "Null check
+                  // operator used on a null value" ile patlıyordu.
+                  final navigator = Navigator.of(ctx);
+                  navigator.pop();
+                  navigator.pushReplacementNamed('/main');
                 },
               ),
             ),
@@ -1112,10 +1117,7 @@ Tam ve güncel metin: $_privacyPolicyUrl
                     _checkUsername(sanitized);
                   },
                   suffix: _buildUsernameSuffix(p),
-                  helper:
-                      'Sadece harf, rakam, nokta, _ ve - (3-20 karakter). '
-                      'Kullanıcı adın sonradan değiştirilemez.',
-                  helperColor: p.warning,
+                  helper: 'Sadece harf, rakam, nokta, _ ve - (3-20 karakter).',
                   validator: (v) {
                     if (v?.isEmpty ?? true) return 'Kullanıcı adı gerekli';
                     if (!_usernameAllowedChars.hasMatch(v!)) {

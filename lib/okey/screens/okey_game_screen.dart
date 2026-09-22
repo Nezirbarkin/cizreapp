@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../engine/okey_seating.dart';
+import '../engine/okey_tile.dart';
 import '../models/okey_models.dart';
 import 'okey_lobby_screen.dart';
 import 'okey_match_result_screen.dart';
@@ -13,6 +14,7 @@ import 'okey_room_screen.dart';
 import 'okey_points_screen.dart';
 import '../providers/okey_game_provider.dart';
 import '../providers/okey_points_provider.dart';
+import '../widgets/okey_action_dock.dart';
 import '../widgets/okey_action_panel_widget.dart';
 import '../widgets/okey_announcement_banner.dart';
 import '../widgets/okey_baraj_badge.dart';
@@ -25,15 +27,17 @@ import '../widgets/okey_hud_chrome.dart';
 import '../widgets/okey_indicator_widget.dart';
 import '../widgets/okey_landscape_stage.dart';
 import '../widgets/okey_move_flight.dart';
+import '../widgets/okey_open_sheet.dart';
 import '../widgets/okey_profile_sheet.dart';
 import '../widgets/okey_quick_phrase_sheet.dart';
 import '../widgets/okey_rack_bar_widget.dart';
+import '../widgets/okey_risky_discard_sheet.dart';
 import '../widgets/okey_corner_pile_widget.dart';
 import '../widgets/okey_room_backdrop.dart';
 import '../widgets/okey_table_metrics.dart';
 import '../widgets/okey_table_scaffold.dart';
 import '../widgets/okey_table_settings_dialog.dart';
-import '../widgets/okey_turn_timer_bar.dart';
+import '../widgets/okey_turn_ring.dart';
 import '../widgets/okey_tile_widget.dart';
 import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
@@ -161,6 +165,139 @@ class _OkeyGameViewState extends State<_OkeyGameView>
     return origin & box.size;
   }
 
+  // ---------------------------------------------------------------------
+  // HAMLE DOCK'U (düzen v5)
+  // ---------------------------------------------------------------------
+
+  /// Istakanın sağ ucundaki dikey dock.
+  ///
+  /// v4'teki `_ActionRow`un yerini aldı. Fark yalnızca yön değil: orada dört
+  /// düğme HER ZAMAN duruyordu, üçü sönük. Burada dock aşamaya göre iki
+  /// bambaşka yüz alır — çekme aşamasında tek büyük "TAŞ ÇEK", sonra
+  /// AÇ / İŞLE / TAŞI AT — ve SERİ AÇ ile ÇİFT AÇ tek "AÇ" düğmesinde
+  /// birleşir (ikisi aynı anda asla yapılamaz, bkz. [OkeyOpenSheet]).
+  Widget _buildActionDock(BuildContext context, OkeyGameProvider p) {
+    // Seçim ŞART DEĞİL: hiçbir taş seçili değilse işlenebilen tüm taşlar
+    // otomatik işlenir; rozet kaç taş olduğunu söyler.
+    final autoCount = p.selectedIndices.isEmpty ? p.processableTiles.length : 0;
+
+    return OkeyActionDock(
+      drawPhase: p.canDraw,
+      drawSubtitle: p.canDrawFromSide
+          ? 'Desteden ya da soldan'
+          : 'Desteden çek',
+      onDraw: p.canDraw ? p.drawFromDeck : null,
+      onUndoSideDraw: p.canUndoSideDraw ? p.undoSideDraw : null,
+      // AÇ tek düğmedir ama İKİ hamleyi taşır; hangisinin hazır olduğunu
+      // karta bakmadan bilmek için rozet kullanılır.
+      canOpen: p.canLaySeries || p.canLayPairs,
+      openBadge: p.isOpeningDone
+          ? '${p.detectedSeriesGroups.length} per'
+          : '${p.openingCandidatePoints}/${p.requiredMinPoints}',
+      // KAPALIYKEN DE AÇILIR: kart o zaman baraj ölçerini ve iki seçeneğin
+      // sönük hâlini gösterir. "Neden açamıyorum" sorusunun cevabı burada.
+      onOpen: () => _showOpenSheet(context, p),
+      onOpenBlocked: () => _showOpenSheet(context, p),
+      canProcess:
+          p.isOpeningDone &&
+          p.canActOnHand &&
+          (p.selectedIndices.isNotEmpty || p.processableTiles.isNotEmpty),
+      autoProcessCount: autoCount,
+      onProcess: p.processSelectedTiles,
+      onProcessBlocked: () => _explainBlocked(p, p.processBlockedReason),
+      canDiscard: p.canDiscardSelected,
+      isWinningDiscard: p.isOneTileFromWinning,
+      // Düğme, atılacak taş işlekse basmadan ÖNCE kızıl kenar alır; onay
+      // kartı ise bedeli rakamla yazar (bkz. [_discardWithGuard]).
+      isRiskyDiscard: _selectedRiskyTile(p) != null,
+      onDiscard: () => _discardWithGuard(context, p),
+      onDiscardBlocked: () => _explainBlocked(p, p.discardBlockedReason),
+    );
+  }
+
+  /// Tur şeridinin yanan adımı (bkz. [OkeyPhaseRail]).
+  ///
+  /// Üç adımın üçü de GERÇEK durumdan okunur; hiçbiri tahmin değil.
+  int _phaseStep(OkeyGameProvider p) {
+    if (p.canDraw) return 0;
+    if (!p.canActOnHand) return -1;
+    // Taş çekildi. Atacak taş seçilene kadar "düzenle" aşamasındayız —
+    // dizmek, açmak ve işlemek bu adımın içinde.
+    return p.canDiscardSelected ? 2 : 1;
+  }
+
+  void _showOpenSheet(BuildContext context, OkeyGameProvider p) {
+    OkeyOpenSheet.show(
+      context,
+      seriesReady: p.canLaySeries,
+      seriesBadge: p.isOpeningDone
+          ? '${p.detectedSeriesGroups.length}'
+          : '${p.openingCandidatePoints}/${p.requiredMinPoints}',
+      seriesBlockedReason: p.seriesBlockedReason,
+      onSeries: p.laySeries,
+      pairsReady: p.canLayPairs,
+      // Seri ile açan oyuncunun rozeti BU TURKİ hakkını gösterir (RULES.md
+      // §3: tur başına en çok 3 çift); elindeki çift sayısını göstermek,
+      // düğme hak dolduğu için kapalıyken yanıltıcı olurdu.
+      pairsBadge: p.isOpeningDone
+          ? (p.openedWithPairs
+                ? '${p.detectedPairCount}'
+                : '${p.seriesPairsThisTurn}'
+                      '/${OkeyGameProvider.seriesPairsLimit}')
+          : '${p.detectedPairCount}/${p.requiredMinPairs}',
+      pairsBlockedReason: p.pairsBlockedReason,
+      onPairs: p.layPairs,
+      points: p.openingCandidatePoints,
+      requiredPoints: p.requiredMinPoints,
+      isOpen: p.isOpeningDone,
+    );
+  }
+
+  /// Atılacak taş masada İŞLENİYOR mu? Değilse null.
+  ///
+  /// Yalnızca TEK taş seçiliyken anlamlı: çoklu seçimle atma zaten mümkün
+  /// değil ve "hangi taşın bedeli" sorusunun tek cevabı olmalı.
+  ({int slot, OkeyTile tile})? _selectedRiskyTile(OkeyGameProvider p) {
+    if (p.selectedIndices.length != 1) return null;
+    final slot = p.selectedIndices.first;
+    if (!p.riskyDiscardIndices.contains(slot)) return null;
+    final slots = p.rackSlots;
+    if (slot < 0 || slot >= slots.length) return null;
+    final tile = slots[slot];
+    return tile == null ? null : (slot: slot, tile: tile);
+  }
+
+  /// TAŞI AT — işlek taşta önce onay ister.
+  ///
+  /// Ceza (+101) v4'te yalnızca atıldıktan SONRA görünüyordu; oyunun en
+  /// pahalı hatası, yapıldıktan sonra bildiriliyordu. Onay yalnızca CEZALI
+  /// atışta çıkar: her atışta çıksaydı oyun yavaşlar ve oyuncu onayı
+  /// okumadan basmayı öğrenirdi.
+  Future<void> _discardWithGuard(
+    BuildContext context,
+    OkeyGameProvider p,
+  ) async {
+    final risky = _selectedRiskyTile(p);
+    if (risky == null) {
+      p.discardSelectedTile();
+      return;
+    }
+
+    final confirmed = await OkeyRiskyDiscardSheet.confirm(
+      context,
+      tile: risky.tile,
+      okeyTile: p.match?.okeyTile,
+      penalty: 101,
+    );
+    if (!confirmed || !mounted) return;
+
+    // Onay ekranı açıkken süre dolmuş ya da sunucudan bir hamle gelmiş
+    // olabilir. Durumu YENİDEN sormak şart: eski karara göre atmak,
+    // oyuncunun görmediği bir masaya taş atmak olurdu.
+    if (!p.canDiscardSelected) return;
+    p.discardSelectedTile();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -279,6 +416,14 @@ class _OkeyGameViewState extends State<_OkeyGameView>
         // ANLIK PER PUANI — masaya açtığı/işlediği taşların toplamı.
         openPoints: provider.openPointsOf(seatNo),
         isCurrentTurn: match.turnSeat == seatNo,
+        // SÜRE HALKASI (v5) yalnızca KİMLİK levhasında çizilir: ıskarta
+        // kutusunda avatar yok, yayı saracak bir daire de yok. Sayaç dört
+        // koltuk için de AYNI notifier'dır — sunucu her an tek bir oyuncunun
+        // süresini işletir, o yüzden ayrı sayaçlar tutmak yanlış olurdu.
+        turnSecondsLeft: parts == OkeySeatParts.identity
+            ? provider.secondsLeftNotifier
+            : null,
+        turnTotalSeconds: provider.room?.turnSeconds ?? 20,
         isMe: isMe,
         isOpened: isMe && provider.isOpeningDone,
         // GERİ KOYDUĞUM TAŞ O TURDA ALINAMAZ (RULES.md §4): kaynak sönük
@@ -588,6 +733,18 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                         isOpen: provider.isOpeningDone,
                         height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
                       ),
+                      // TUR ŞERİDİ — turun neresindeyim.
+                      //
+                      // Sıra bende değilken hiçbir adım yanmaz; şerit yine
+                      // de KALIR. Kaybolsaydı, sıra bana her geldiğinde
+                      // konsolun genişliği değişir, plakam yerinden oynardı.
+                      if (!provider.isSpectating) ...[
+                        const SizedBox(width: 6),
+                        OkeyPhaseRail(
+                          step: _phaseStep(provider),
+                          height: (m.consoleHeight * 0.40).clamp(12.0, 20.0),
+                        ),
+                      ],
                     ],
                   ),
                   // MASANIN DÖRT KÖŞESİ = DÖRT ISKARTA. Her ıskarta, onu ATAN ile
@@ -680,40 +837,58 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                     tileWidth: m.meldTileWidth,
                     tileHeight: m.meldTileHeight,
                   ),
-                  actions: (context, m) => provider.isSpectating
-                      ? const SizedBox.shrink()
-                      : _ActionRow(provider: provider),
                   bottomExtra: (context, m) => provider.isSpectating
                       ? const SizedBox.shrink()
                       : _BottomExtra(provider: provider),
                   modeBadges: _ModeBadges(provider: provider, match: match),
                   topLeading: const _TopLeading(),
                   topControls: _TopRightControls(provider: provider),
-                  // SÜRE ÇİZGİSİ — ıstakanın hemen üstünde, azalarak kısalır.
-                  // Toplam süre odadan gelir; admin panelinden ayarlanabilir.
-                  turnTimerBar: (context, m) => OkeyTurnTimerBar(
-                    secondsLeftListenable: provider.secondsLeftNotifier,
-                    totalSeconds: provider.room?.turnSeconds ?? 20,
-                    isMyTurn: provider.isMyTurn,
-                    height: OkeyTableMetrics.timerBarHeight,
-                  ),
-                  // DİZME ARAÇLARI — ISTAKANIN İKİ UCUNDA. Düzenledikleri nesneye
-                  // bitişik dururlar; üstlerindeki minik taşlar (5·5 / 1·2·3)
-                  // etiketten önce okunur.
+                  // DİZME ARAÇLARI — ISTAKANIN SOL UCUNDA, ALT ALTA.
+                  //
+                  // v4'te iki uçta birer taneydiler; sağ uç v5'te hamle
+                  // dock'una verildi. İkisi aynı işi yapıyor (ıstakayı
+                  // yeniden dizmek) ve ikisi de geri alınabilir — aynı
+                  // başlıkta durmaları, "bunlar hamle değil araçtır" ayrımını
+                  // dock'a karşı net biçimde çiziyor.
+                  //
+                  // Üstlerindeki minik taşlar (1·2·3 / 5·5) etiketten önce
+                  // okunur; bu yüzden düğme yarıya inince de anlaşılır kalıyor.
                   rackCapStart: provider.isSpectating
                       ? null
-                      : (context, m) => OkeyDizCapButton.pairs(
-                          active: provider.sortMode == OkeyRackSortMode.pairs,
-                          onPressed: () =>
-                              provider.setSortMode(OkeyRackSortMode.pairs),
+                      : (context, m) => Column(
+                          // STRETCH ŞART: Column varsayılanı `center`, o zaman
+                          // düğme kendi doğal genişliğine çeker ve başlığın
+                          // sağında ıstakayla arasında boşluk kalır.
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: OkeyDizCapButton.series(
+                                active:
+                                    provider.sortMode ==
+                                    OkeyRackSortMode.series,
+                                onPressed: () => provider.setSortMode(
+                                  OkeyRackSortMode.series,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: OkeyTableMetrics.rackCapGap),
+                            Expanded(
+                              child: OkeyDizCapButton.pairs(
+                                active:
+                                    provider.sortMode == OkeyRackSortMode.pairs,
+                                onPressed: () => provider.setSortMode(
+                                  OkeyRackSortMode.pairs,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                  rackCapEnd: provider.isSpectating
+                  // HAMLE DOCK'U — ıstakanın sağ ucunda, baş parmağın altında.
+                  // Aşamaya göre TAMAMEN değişir: çekme aşamasında tek büyük
+                  // "TAŞ ÇEK", sonra AÇ / İŞLE / TAŞI AT.
+                  actionDock: provider.isSpectating
                       ? null
-                      : (context, m) => OkeyDizCapButton.series(
-                          active: provider.sortMode == OkeyRackSortMode.series,
-                          onPressed: () =>
-                              provider.setSortMode(OkeyRackSortMode.series),
-                        ),
+                      : (context, m) => _buildActionDock(context, provider),
                   // ISTAKA — iki dizme düğmesinin arasındaki tüm genişlik.
                   // Genişlik ve ortalama artık OkeyTableScaffold'un işi; burada
                   // yalnızca ahşap gövde ile taş satırları kurulur.
@@ -831,8 +1006,11 @@ class _OkeyGameViewState extends State<_OkeyGameView>
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => Dialog(
-        backgroundColor: OkeyColors.screenBackground,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        backgroundColor: OkeyUI.cardFill,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
+          side: const BorderSide(color: OkeyUI.cardBorder),
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: SingleChildScrollView(
@@ -846,11 +1024,8 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: iWon
-                          ? [const Color(0xFFFFB300), const Color(0xFFFF8F00)]
-                          : [
-                              const Color(0xFF16556E),
-                              OkeyColors.screenBackground,
-                            ],
+                          ? OkeyUI.goldGradient
+                          : [const Color(0xFF1B7562), const Color(0xFF0F4A45)],
                     ),
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(18),
@@ -866,12 +1041,10 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                       const SizedBox(height: 4),
                       Text(
                         iWon ? 'ELİ SEN KAZANDIN' : 'El Bitti',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.6,
-                          color: iWon ? Colors.black87 : Colors.white,
-                        ),
+                        style: OkeyUI.display(
+                          size: 20,
+                          color: iWon ? OkeyUI.onGold : OkeyUI.text,
+                        ).copyWith(letterSpacing: 0.6),
                       ),
                       if (match != null)
                         Padding(
@@ -922,14 +1095,14 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                           ),
                           decoration: BoxDecoration(
                             color: isMe
-                                ? Colors.amber.withValues(alpha: 0.14)
+                                ? OkeyUI.brass.withValues(alpha: 0.14)
                                 : Colors.white.withValues(alpha: 0.05),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: isWinner
-                                  ? Colors.amber
+                                  ? OkeyUI.brass
                                   : (isMe
-                                        ? Colors.amber.withValues(alpha: 0.4)
+                                        ? OkeyUI.brass.withValues(alpha: 0.4)
                                         : Colors.white12),
                             ),
                           ),
@@ -977,7 +1150,7 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: isWinner
-                                        ? Colors.amber
+                                        ? OkeyUI.brass
                                         : Colors.white,
                                     fontWeight: isMe
                                         ? FontWeight.bold
@@ -992,14 +1165,14 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                   child: Icon(
                                     Icons.emoji_events,
                                     size: 15,
-                                    color: Colors.amber,
+                                    color: OkeyUI.brass,
                                   ),
                                 ),
                               Text(
                                 '${match.scores[seatNo] ?? 0}',
                                 style: TextStyle(
                                   color: isWinner
-                                      ? Colors.amber
+                                      ? OkeyUI.brass
                                       : Colors.white70,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -1037,18 +1210,11 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                   padding: const EdgeInsets.all(12),
                   child: SizedBox(
                     width: double.infinity,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.amber,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
+                    child: OkeyButton(
+                      label: 'DEVAM ET',
+                      icon: Icons.play_arrow,
+                      tone: OkeyButtonTone.primary,
                       onPressed: () => Navigator.of(dialogContext).pop(),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text(
-                        'Devam Et',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
                     ),
                   ),
                 ),
@@ -1212,14 +1378,21 @@ class _MyOpenPoints extends StatelessWidget {
   Widget build(BuildContext context) {
     final reached = isOpen || points >= required;
 
+    // BARAJA DOLU İLERLEME: hapın kendisi bir çubuk gibi soldan dolar
+    // (points / required). Hap boyutu değişmez; sayı aynı yerde, arkasında
+    // baraja ne kadar kaldığı görünür. Açıldıktan sonra baraj anlamını
+    // yitirir, dolgu kalkar.
+    final frac = (isOpen || required <= 0)
+        ? 0.0
+        : (points / required).clamp(0.0, 1.0);
+    final radius = BorderRadius.circular(height * 0.42);
+
     return MediaQuery.withNoTextScaling(
       child: Container(
         height: height,
-        padding: EdgeInsets.symmetric(horizontal: height * 0.32),
-        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: const Color(0xF00A2733),
-          borderRadius: BorderRadius.circular(height * 0.42),
+          color: const Color(0xF01A120C),
+          borderRadius: radius,
           border: Border.all(
             color: reached
                 ? OkeyColors.accentGold
@@ -1227,32 +1400,58 @@ class _MyOpenPoints extends StatelessWidget {
             width: 1.2,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.layers,
-              size: height * 0.5,
-              color: OkeyColors.accentGold,
-            ),
-            SizedBox(width: height * 0.18),
-            OkeyOpenPointsText(
-              points: points,
-              fontSize: height * 0.5,
-              color: OkeyColors.accentGold,
-            ),
-            if (!isOpen)
-              Text(
-                '/$required',
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: height * 0.38,
-                  height: 1.0,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0x8AFFFFFF),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: frac,
+                    heightFactor: 1,
+                    child: ColoredBox(
+                      color: OkeyColors.accentGold.withValues(
+                        alpha: reached ? 0.42 : 0.26,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-          ],
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: height * 0.32),
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.layers,
+                        size: height * 0.5,
+                        color: OkeyColors.accentGold,
+                      ),
+                      SizedBox(width: height * 0.18),
+                      OkeyOpenPointsText(
+                        points: points,
+                        fontSize: height * 0.5,
+                        color: OkeyColors.accentGold,
+                      ),
+                      if (!isOpen)
+                        Text(
+                          '/$required',
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: height * 0.38,
+                            height: 1.0,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xB3FFFFFF),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1566,115 +1765,6 @@ class _TopLeading extends StatelessWidget {
           height: h,
           enabled: points.canClaimGift && !points.isBusy,
           onTap: points.claimHourlyGift,
-        ),
-      ],
-    );
-  }
-}
-
-/// Konsolun HAMLE düğmeleri: SERİ AÇ / ÇİFT AÇ / İŞLE / TAŞI AT.
-///
-/// ## Ne değişti (v3)
-///
-/// Eski hali sağ alt köşede 2x2'lik bir IZGARAYDI: dört düğme 104-190px
-/// genişliğinde bir sütunu paylaşıyor, her biri ~90x30px'e sıkışıyordu.
-/// 10px'lik etiket + rozet aynı satırda yarışınca "SERİ AÇ" çoğu telefonda
-/// "SERİ..." diye kırpılıyordu.
-///
-/// Artık dördü de konsolun tek satırında, eşit genişlikte ve ~112x45px:
-/// ikon üstte, etiket altta, sayaç rozeti ikonun yanında. Sıra da rastgele
-/// değil, oyunun akışıyla aynı: önce AÇ (eli masaya koy), sonra İŞLE
-/// (masadakini büyüt), en sonda AT (turu bitir).
-class _ActionRow extends StatelessWidget {
-  final OkeyGameProvider provider;
-
-  const _ActionRow({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = provider;
-
-    // "Açma" hamleleri nadirdir ve eli baştan aşağı değiştirir: barajı
-    // geçtiğin an altın yanarlar. İşle/at ise her turun rutini — sakin kalır.
-    final seriesReady = p.canLaySeries;
-    final pairsReady = p.canLayPairs;
-
-    // Seçim ŞART DEĞİL: hiçbir taş seçili değilse işlenebilen tüm taşlar
-    // otomatik işlenir.
-    final autoProcessable =
-        p.selectedIndices.isEmpty && p.processableTiles.isNotEmpty;
-
-    return OkeyButtonRow(
-      children: [
-        // GERİ KOY — yalnızca yandan alınan taş hâlâ geri konabilirken.
-        //
-        // Koşullu olarak eklenir çünkü hamlelerin rutini değil, bir KAÇIŞ
-        // yoludur: yanlışlıkla alınan taşı geri koymanın tek alternatifi onu
-        // atmaktı, o da +101 ceza demekti (kullanıcı isteği, 2026-09-05:
-        // "yandan taş aldım, vazgeçtim; taşı geri yerine bırakayım, desteden
-        // çekeyim"). Hep görünseydi dört rutin düğmenin arasında beşinci bir
-        // seçenek olarak okunur, sıra her geldiğinde göz onu da tarardı.
-        if (p.canUndoSideDraw)
-          OkeyActionButton(
-            title: 'GERİ KOY',
-            icon: Icons.undo,
-            tone: OkeyActionTone.ready,
-            enabled: true,
-            onPressed: p.undoSideDraw,
-          ),
-        OkeyActionButton(
-          title: 'SERİ AÇ',
-          icon: Icons.view_week,
-          tone: seriesReady ? OkeyActionTone.ready : OkeyActionTone.normal,
-          badge: p.isOpeningDone
-              ? '${p.detectedSeriesGroups.length} per'
-              : '${p.openingCandidatePoints}/${p.requiredMinPoints}',
-          enabled: seriesReady,
-          onPressed: seriesReady ? p.laySeries : null,
-          // KAPALIYKEN SEBEBİNİ SÖYLER. Rozette "103/101" yazıp düğmenin
-          // sönük kalması, oyuncunun kendi başına çözemeyeceği bir kilit.
-          onBlockedTap: () => _explainBlocked(p, p.seriesBlockedReason),
-        ),
-        OkeyActionButton(
-          title: 'ÇİFT AÇ',
-          icon: Icons.filter_2,
-          tone: pairsReady ? OkeyActionTone.ready : OkeyActionTone.normal,
-          // Seri ile açan oyuncunun rozeti BU TURKİ hakkını gösterir
-          // (RULES.md §3: tur başına en çok 3 çift): elindeki çift sayısını
-          // göstermek, düğme hak dolduğu için kapalıyken yanıltıcı olurdu.
-          badge: p.isOpeningDone
-              ? (p.openedWithPairs
-                    ? '${p.detectedPairCount} çift'
-                    : '${p.seriesPairsThisTurn}'
-                          '/${OkeyGameProvider.seriesPairsLimit}')
-              : '${p.detectedPairCount}/${p.requiredMinPairs}',
-          enabled: pairsReady,
-          onPressed: pairsReady ? p.layPairs : null,
-          onBlockedTap: () => _explainBlocked(p, p.pairsBlockedReason),
-        ),
-        OkeyActionButton(
-          title: 'İŞLE',
-          icon: Icons.playlist_add,
-          badge: autoProcessable ? '${p.processableTiles.length}' : null,
-          badgeColor: const Color(0xFF9BE87C),
-          enabled:
-              p.isOpeningDone &&
-              p.canActOnHand &&
-              (p.selectedIndices.isNotEmpty || p.processableTiles.isNotEmpty),
-          onPressed: p.processSelectedTiles,
-          onBlockedTap: () => _explainBlocked(p, p.processBlockedReason),
-        ),
-        OkeyActionButton(
-          title: p.isOneTileFromWinning ? 'AT — BİTİR' : 'TAŞI AT',
-          icon: p.isOneTileFromWinning
-              ? Icons.emoji_events
-              : Icons.arrow_downward,
-          tone: p.isOneTileFromWinning
-              ? OkeyActionTone.winning
-              : OkeyActionTone.normal,
-          enabled: p.canDiscardSelected,
-          onPressed: p.canDiscardSelected ? p.discardSelectedTile : null,
-          onBlockedTap: () => _explainBlocked(p, p.discardBlockedReason),
         ),
       ],
     );

@@ -129,7 +129,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
       // Klavye açıldığında liste ve arama kutusu klavyenin ARKASINDA kalmaz.
@@ -169,7 +169,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
                     Icon(
                       Icons.person_add_alt_1,
                       size: 20,
-                      color: OkeyColors.accentGold,
+                      color: OkeyUI.brass,
                     ),
                     const SizedBox(width: OkeyUI.gapSm),
                     const Expanded(
@@ -223,7 +223,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
   Widget _buildBody(ScrollController controller) {
     if (_loading) {
       return Center(
-        child: CircularProgressIndicator(color: OkeyColors.accentGold),
+        child: CircularProgressIndicator(color: OkeyUI.brass),
       );
     }
     if (_error != null) {
@@ -362,7 +362,7 @@ class _JoinCodeRow extends StatelessWidget {
       },
       child: Row(
         children: [
-          Icon(Icons.vpn_key, size: 16, color: OkeyColors.accentGold),
+          Icon(Icons.vpn_key, size: 16, color: OkeyUI.brass),
           const SizedBox(width: OkeyUI.gapSm),
           const Expanded(
             child: Text('Davet kodunu kopyala', style: OkeyUI.caption),
@@ -371,7 +371,7 @@ class _JoinCodeRow extends StatelessWidget {
             code,
             maxLines: 1,
             style: TextStyle(
-              color: OkeyColors.accentGold,
+              color: OkeyUI.brass,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.5,
             ),

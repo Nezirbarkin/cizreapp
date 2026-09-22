@@ -174,7 +174,7 @@ class AuthScaffold extends StatelessWidget {
                     24,
                     24,
                     24,
-                    24 + MediaQuery.of(context).padding.bottom,
+                    24 + MediaQuery.paddingOf(context).bottom,
                   ),
                   child: _constrained(
                     Column(

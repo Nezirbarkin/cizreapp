@@ -101,7 +101,9 @@ class _PendingPickupOrdersCardState extends State<PendingPickupOrdersCard> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: TextButton.icon(
-                    onPressed: () => setState(() => _future = _load()),
+                    onPressed: () => setState(() {
+                      _future = _load();
+                    }),
                     icon: const Icon(Icons.refresh, size: 16),
                     label: const Text('Yenile'),
                   ),

@@ -6,6 +6,7 @@ import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 import 'heart_animation_overlay.dart';
 import 'post_image_carousel.dart';
+import '../../music/music.dart';
 
 /// Yazar rolüne göre rozet rengi. Tüm gönderi kartlarında ortak kullanılır.
 Color authorRoleColor(AuthorRole role) {
@@ -35,7 +36,8 @@ String formatSocialCount(int count) {
 }
 
 /// Gönderi kartlarındaki tarih biçimi: Bugün/Dün/gün ay/tam tarih + saat.
-String formatSocialPostDate(DateTime date) {
+String formatSocialPostDate(DateTime utcDate) {
+  final date = utcDate.toLocal();
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final yesterday = today.subtract(const Duration(days: 1));
@@ -296,6 +298,20 @@ class SocialPostCard extends StatelessWidget {
                         ),
                         maxLines: 8,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+
+                  // -------------------------------------------------- müzik
+                  // OTOMATİK ÇALMAZ. Akış kaydırılırken kendiliğinden ses
+                  // çıkaran bir kart hem veri harcar hem de kullanıcının
+                  // sessiz sandığı ortamda sesi açar; rozet yalnızca
+                  // dokunulunca çalar ve tüm kartlar tek oynatıcıyı paylaşır.
+                  if (post.music != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(2, 10, 8, 0),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: FeedMusicPill(music: post.music!),
                       ),
                     ),
 

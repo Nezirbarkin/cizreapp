@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// "Özelleştir" ekranındaki, HESABA DEĞİL CİHAZA bağlı arayüz tercihleri.
+/// "Özelleştir" ekranındaki ve yan menünün GÖRÜNÜM bölümündeki (101 Okey
+/// kısayolu, müzik çalar kartı), HESABA DEĞİL CİHAZA bağlı arayüz tercihleri.
 ///
 /// Sunucuya yazılmaz — [BalanceHeaderWidget] ile aynı desen (SharedPreferences
 /// tabanlı basit bir bayrak): tercih okunamazsa/kaydedilemezse varsayılan

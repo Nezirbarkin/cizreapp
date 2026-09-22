@@ -139,6 +139,10 @@ class Product {
   final double? pricePer1000;
   final int? minQuantity;
   final int? maxQuantity;
+  // smm-sync-products ürünü OTOMATİK kapattıysa nedeni (yalnız okunur; toJson'a
+  // yazılmaz). kind: 'missing' | 'service_changed' | 'price_changed'.
+  final String? smmDisabledReason;
+  final String? smmDisabledKind;
   final int?
   maxOrdersPerUser; // Satıcının belirlediği kullanıcı başına sipariş limiti (null = limitsiz)
   final bool isPointsEligible;
@@ -197,6 +201,8 @@ class Product {
     this.pricePer1000,
     this.minQuantity,
     this.maxQuantity,
+    this.smmDisabledReason,
+    this.smmDisabledKind,
     this.maxOrdersPerUser,
     this.isPointsEligible = false,
     this.maxPointsCoveragePercent = 100,
@@ -438,6 +444,8 @@ class Product {
       pricePer1000: (json['price_per_1000'] as num?)?.toDouble(),
       minQuantity: json['min_quantity'] as int?,
       maxQuantity: json['max_quantity'] as int?,
+      smmDisabledReason: json['smm_disabled_reason'] as String?,
+      smmDisabledKind: json['smm_disabled_kind'] as String?,
       maxOrdersPerUser: json['max_orders_per_user'] as int?,
       isPointsEligible: json['is_points_eligible'] as bool? ?? false,
       maxPointsCoveragePercent:
@@ -571,6 +579,8 @@ class Product {
       pricePer1000: pricePer1000 ?? this.pricePer1000,
       minQuantity: minQuantity ?? this.minQuantity,
       maxQuantity: maxQuantity ?? this.maxQuantity,
+      smmDisabledReason: smmDisabledReason,
+      smmDisabledKind: smmDisabledKind,
       maxOrdersPerUser: maxOrdersPerUser ?? this.maxOrdersPerUser,
       isPointsEligible: productType != null && productType != 'digital'
           ? false

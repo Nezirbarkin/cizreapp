@@ -33,7 +33,9 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
   Map<String, dynamic> _salesStats = {};
   int _totalViews = 0;
   int _todayViews = 0;
+  int _totalFavorites = 0;
   List<Map<String, dynamic>> _topProducts = [];
+  List<Map<String, dynamic>> _topFavoritedProducts = [];
   List<Map<String, dynamic>> _topCustomers = [];
   List<Map<String, dynamic>> _weeklySales = [];
   List<Map<String, dynamic>> _productPerformance = [];
@@ -88,6 +90,8 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
         _analyticsService.getTopCustomers(_shopId!),
         _analyticsService.getWeeklySalesData(_shopId!),
         _analyticsService.getProductPerformance(_shopId!),
+        _analyticsService.getShopTotalFavorites(_shopId!),
+        _analyticsService.getTopFavoritedProducts(_shopId!),
       ]);
 
       if (mounted) {
@@ -100,6 +104,8 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
           _topCustomers = results[4] as List<Map<String, dynamic>>;
           _weeklySales = results[5] as List<Map<String, dynamic>>;
           _productPerformance = results[6] as List<Map<String, dynamic>>;
+          _totalFavorites = results[7] as int;
+          _topFavoritedProducts = results[8] as List<Map<String, dynamic>>;
           _isLoading = false;
         });
       }
@@ -111,6 +117,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -126,9 +133,9 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: const Color(0xFFF97316),
+          labelColor: primary,
           unselectedLabelColor: const Color(0xFF64748B),
-          indicatorColor: const Color(0xFFF97316),
+          indicatorColor: primary,
           tabs: const [
             Tab(icon: Icon(Icons.dashboard_outlined), text: 'Genel'),
             Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Ürünler'),
@@ -138,7 +145,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFF97316)))
+          ? Center(child: CircularProgressIndicator(color: primary))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -155,7 +162,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
   Widget _buildOverviewTab() {
     return RefreshIndicator(
       onRefresh: _loadData,
-      color: const Color(0xFFF97316),
+      color: Theme.of(context).colorScheme.primary,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -195,6 +202,12 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
                   value: '${_salesStats['unique_customers'] ?? 0}',
                   icon: Icons.people_outline,
                   color: const Color(0xFFF59E0B),
+                ),
+                _buildStatCard(
+                  title: 'Toplam Beğeni',
+                  value: '$_totalFavorites',
+                  icon: Icons.favorite_rounded,
+                  color: Colors.pink.shade600,
                 ),
               ],
             ),
@@ -248,7 +261,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
   Widget _buildProductsTab() {
     return RefreshIndicator(
       onRefresh: _loadData,
-      color: const Color(0xFFF97316),
+      color: Theme.of(context).colorScheme.primary,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -273,7 +286,26 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
                     },
                   ),
             const SizedBox(height: 24),
-            
+
+            _buildSectionTitle('En Çok Beğenilen Ürünler'),
+            const SizedBox(height: 12),
+            _topFavoritedProducts.isEmpty
+                ? _buildEmptyState('Henüz beğeni verisi yok')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _topFavoritedProducts.length,
+                    itemBuilder: (context, index) {
+                      final product = _topFavoritedProducts[index];
+                      return _buildProductFavoriteCard(
+                        rank: index + 1,
+                        name: product['product_name'] ?? 'Ürün',
+                        favoriteCount: product['favorite_count'] ?? 0,
+                      );
+                    },
+                  ),
+            const SizedBox(height: 24),
+
             _buildSectionTitle('Ürün Satış Performansı'),
             const SizedBox(height: 12),
             _productPerformance.isEmpty
@@ -302,7 +334,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
   Widget _buildCustomersTab() {
     return RefreshIndicator(
       onRefresh: _loadData,
-      color: const Color(0xFFF97316),
+      color: Theme.of(context).colorScheme.primary,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -313,8 +345,11 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFF97316), Color(0xFFEA580C)],
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary,
+                    Color.alphaBlend(Colors.black.withValues(alpha: 0.15), Theme.of(context).colorScheme.primary),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -383,7 +418,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
   Widget _buildTrendsTab() {
     return RefreshIndicator(
       onRefresh: _loadData,
-      color: const Color(0xFFF97316),
+      color: Theme.of(context).colorScheme.primary,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -595,8 +630,11 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
                         Container(
                           height: height.toDouble(),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFF97316), Color(0xFFFB923C)],
+                            gradient: LinearGradient(
+                              colors: [
+                                Theme.of(context).colorScheme.primary,
+                                Color.alphaBlend(Colors.white.withValues(alpha: 0.3), Theme.of(context).colorScheme.primary),
+                              ],
                               begin: Alignment.bottomCenter,
                               end: Alignment.topCenter,
                             ),
@@ -644,7 +682,7 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: rank <= 3 ? const Color(0xFFF97316) : Colors.grey.shade200,
+              color: rank <= 3 ? Theme.of(context).colorScheme.primary : Colors.grey.shade200,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Center(
@@ -671,6 +709,66 @@ class _SellerReportsScreenState extends State<SellerReportsScreen>
               Text(
                 '$views',
                 style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B5CF6)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// [_buildProductViewCard] ile aynı düzen, beğeni sayısı için (❤ pembe).
+  Widget _buildProductFavoriteCard({
+    required int rank,
+    required String name,
+    required int favoriteCount,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: rank <= 3 ? Theme.of(context).colorScheme.primary : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: rank <= 3 ? Colors.white : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Row(
+            children: [
+              Icon(Icons.favorite_rounded, size: 16, color: Colors.pink.shade600),
+              const SizedBox(width: 4),
+              Text(
+                '$favoriteCount',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.pink.shade600),
               ),
             ],
           ),

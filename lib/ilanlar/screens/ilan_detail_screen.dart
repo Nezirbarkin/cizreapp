@@ -96,6 +96,7 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
                         onPageChanged: (index) =>
                             setState(() => _currentImage = index),
                         itemBuilder: (_, index) => CachedNetworkImage(
+                          memCacheWidth: 1000,
                           imageUrl: images[index],
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => _imagePlaceholder(color),

@@ -23,8 +23,15 @@ import '../widgets/reports_content.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
 import '../widgets/daily_deals_content.dart';
+import '../widgets/admin_users_content.dart';
+import '../widgets/user_activity_logs_content.dart';
+import '../widgets/product_image_library_content.dart';
+import '../widgets/leaderboard_management_content.dart';
+import '../widgets/music_management_content.dart';
+import '../widgets/seller_announcements_content.dart';
 import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
+import '../widgets/chat_presence_settings_content.dart';
 import '../widgets/admin_ticket_detail_dialog.dart';
 import 'about_settings_screen.dart';
 import 'ad_settings_screen.dart';
@@ -128,18 +135,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _selectedMenu = 'Dashboard';
   String _logsSearchQuery = '';
   String _selectedPeriod = 'weekly'; // Raporlar için seçili dönem
-  String _userSearchQuery = ''; // Kullanıcı arama sorgusu
-  String? _roleFilter; // Kullanıcı listesi rol filtresi (kart tıklayınca)
-  final TextEditingController _userSearchController = TextEditingController();
-  Future<List<Map<String, dynamic>>>? _usersFuture;
-  // Kullanicilar sekmesindeki ozet kartlarin (Toplam/Admin/Kurye/...) veri
-  // kaynagi. _usersFuture SINIRLI (limit=100, en yeni once) bir sayfa
-  // dondurdugu icin ondan sayim yapmak toplam profil sayisi limiti astiginda
-  // erken acilmis admin/kurye/haberci hesaplarini "0" gosteriyordu. Bu future
-  // limitten bagimsiz, tum tablo uzerinde GROUP BY role hesabi yapan
-  // admin_user_role_counts RPC'sini cagirir.
-  Future<Map<String, int>?>? _userRoleCountsFuture;
+  // (Kullanicilar sekmesi artik AdminUsersContent widget'i; arama/filtre/
+  // sayfalama durumu orada tutulur.)
   Future<Map<String, dynamic>>? _logsDataFuture;
+  // Loglar > Kullanıcı Eylemleri'nin belirli bir kullanıcıya filtresi
+  // (Kullanıcılar ekranındaki "Eylemlerini gör" ile ayarlanır).
+  String? _logsUserId;
+  String? _logsUserLabel;
   Future<Map<String, dynamic>>? _analyticsDataFuture;
   // Dagilim/hata metriklerinin zaman penceresi. Tum zamanlar uzerinden
   // hesaplanan "saatlik dagilim" hem anlamsizdi hem de tablo buyudukce
@@ -160,7 +162,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _shopSort = 'default';
 
   // Ürünler sekmesinin arama durumu. Liste, kullanicilar sekmesindekiyle
-  // ayni desende: future state'te tutulur (bkz. _usersFuture) ki arama
+  // ayni desende: future state'te tutulur ki arama
   // her tus vurusunda veritabanindan yeniden cekmesin.
   Future<List<Map<String, dynamic>>>? _productsFuture;
   final TextEditingController _productSearchController =
@@ -170,8 +172,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _usersFuture = _loadUsers();
-    _userRoleCountsFuture = _loadUserRoleCounts();
     _loadRealData();
     _setupRealtimeSubscription();
   }
@@ -181,7 +181,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _reportsChannel?.unsubscribe();
     _ticketsChannel?.unsubscribe();
     _newItemsChannel?.unsubscribe();
-    _userSearchController.dispose();
     _shopSearchController.dispose();
     _productSearchController.dispose();
     super.dispose();

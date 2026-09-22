@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/shop_service.dart';
 import '../../../core/models/address_model.dart';
 import '../../market/screens/address_picker_screen.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_section_card.dart';
 
 class ShopSettingsScreen extends StatefulWidget {
   const ShopSettingsScreen({super.key});
@@ -231,6 +233,8 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
           initialLatitude: _latitude,
           initialLongitude: _longitude,
           initialAddress: _addressController.text.trim(),
+          warningBanner:
+              'Lütfen dükkanınızın gerçek konumunu işaretleyin. Müşteriler ve kurye, siparişleri bu noktaya göre bulur; yanlış konum teslimatların ve "Gel Al" hizmetinin sorunlu çalışmasına yol açar.',
         ),
       ),
     );
@@ -459,21 +463,13 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mağaza Ayarları'),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _shopData == null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.store_mall_directory_outlined, size: 80, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text('Mağazanız bulunamadı', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
-                    ],
-                  ),
+              ? const SellerEmptyState(
+                  icon: Icons.store_mall_directory_outlined,
+                  message: 'Mağazanız bulunamadı',
                 )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
@@ -502,8 +498,11 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     debugPrint('🔵 SHOP SETTINGS DEBUG: _shopData?["cover_image"]: ${_shopData?['cover_image']}');
     
     final hasPendingImage = _coverFile != null || _logoFile != null;
+    final primary = Theme.of(context).colorScheme.primary;
 
-    return Card(
+    return SellerSectionCard(
+      padding: EdgeInsets.zero,
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -532,17 +531,14 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                 height: 150,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: _coverFile != null ||
-                            _shopData?['cover_image'] != null ||
-                            _shopData?['banner_url'] != null
-                        ? [Colors.transparent, Colors.transparent]
-                        : [Colors.orange.shade400, Colors.orange.shade700],
+                  color: _coverFile != null ||
+                          _shopData?['cover_image'] != null ||
+                          _shopData?['banner_url'] != null
+                      ? Colors.grey.shade300
+                      : primary,
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(SellerSectionCard.radius),
                   ),
-                  color: Colors.grey.shade300,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                   image: _coverBytes != null
                       ? DecorationImage(image: MemoryImage(_coverBytes!), fit: BoxFit.cover)
                       : _shopData?['cover_image'] != null
@@ -556,14 +552,14 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.store, size: 50, color: Colors.white.withOpacity(0.9)),
+                            Icon(Icons.store, size: 50, color: Colors.white.withValues(alpha: 0.9)),
                             const SizedBox(height: 8),
                             Text(
                               'Mağaza Kapak Fotoğrafı',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
-                                color: Colors.white.withOpacity(0.9),
+                                color: Colors.white.withValues(alpha: 0.9),
                               ),
                             ),
                           ],
@@ -577,7 +573,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                 child: IconButton.filled(
                   onPressed: () => _pickImage(false),
                   icon: const Icon(Icons.camera_alt),
-                  style: IconButton.styleFrom(backgroundColor: Colors.orange.shade700),
+                  style: IconButton.styleFrom(backgroundColor: primary),
                 ),
               ),
             ],
@@ -609,7 +605,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                         onPressed: () => _pickImage(true),
                         icon: const Icon(Icons.camera_alt, size: 16),
                         style: IconButton.styleFrom(
-                          backgroundColor: Colors.orange.shade700,
+                          backgroundColor: primary,
                           minimumSize: const Size(28, 28),
                           padding: EdgeInsets.zero,
                         ),
@@ -626,7 +622,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.star, size: 16, color: Colors.orange.shade700),
+                          Icon(Icons.star, size: 16, color: Colors.amber.shade700),
                           const SizedBox(width: 4),
                           Text('${(_shopData?['rating'] ?? 0).toStringAsFixed(1)} (${_shopData?['review_count'] ?? 0} yorum)'),
                         ],
@@ -654,244 +650,222 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   }
 
   Widget _buildBasicInfoSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    final primary = Theme.of(context).colorScheme.primary;
+    return SellerSectionCard(
+      margin: EdgeInsets.zero,
+      title: 'Temel Bilgiler',
+      icon: Icons.info_outline,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Mağaza Adı',
+                prefixIcon: Icon(Icons.store),
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) => value?.isEmpty ?? true ? 'Mağaza adı gerekli' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Mağaza Açıklaması',
+                prefixIcon: Icon(Icons.description),
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _phoneController,
+              decoration: const InputDecoration(
+                labelText: 'Telefon',
+                prefixIcon: Icon(Icons.phone),
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.phone,
+              // Admin ve kurye müşteriye/dükkana ulaşabilsin diye telefon
+              // artık zorunlu. Mevcut boş kayıtlar bloklanmaz, sadece bir
+              // dahaki güncellemede doldurulması istenir.
+              validator: (value) =>
+                  value?.trim().isEmpty ?? true ? 'Telefon gerekli' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _emailController,
+              decoration: const InputDecoration(
+                labelText: 'E-posta',
+                prefixIcon: Icon(Icons.email_outlined),
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.emailAddress,
+              validator: (value) {
+                final v = value?.trim() ?? '';
+                if (v.isEmpty) return 'E-posta gerekli';
+                if (!v.contains('@')) return 'Geçerli bir e-posta girin';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _addressController,
+              decoration: const InputDecoration(
+                labelText: 'Adres',
+                prefixIcon: Icon(Icons.location_on),
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+              validator: (value) =>
+                  value?.trim().isEmpty ?? true ? 'Adres gerekli' : null,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _pickShopLocation,
+              icon: const Icon(Icons.map_outlined),
+              label: Text(
+                _latitude != null && _longitude != null
+                    ? 'Konum Seçildi — Değiştir'
+                    : 'Haritadan Konum Seç',
+              ),
+            ),
+            if (_latitude != null && _longitude != null) ...[
+              const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade700),
-                  const SizedBox(width: 8),
-                  const Text('Temel Bilgiler', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Mağaza konumu kaydedildi',
+                    style: TextStyle(color: Colors.green.shade700, fontSize: 13),
+                  ),
                 ],
               ),
-              const Divider(height: 24),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Mağaza Adı',
-                  prefixIcon: Icon(Icons.store),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) => value?.isEmpty ?? true ? 'Mağaza adı gerekli' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Mağaza Açıklaması',
-                  prefixIcon: Icon(Icons.description),
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Telefon',
-                  prefixIcon: Icon(Icons.phone),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-                // Admin ve kurye müşteriye/dükkana ulaşabilsin diye telefon
-                // artık zorunlu. Mevcut boş kayıtlar bloklanmaz, sadece bir
-                // dahaki güncellemede doldurulması istenir.
-                validator: (value) =>
-                    value?.trim().isEmpty ?? true ? 'Telefon gerekli' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'E-posta',
-                  prefixIcon: Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  final v = value?.trim() ?? '';
-                  if (v.isEmpty) return 'E-posta gerekli';
-                  if (!v.contains('@')) return 'Geçerli bir e-posta girin';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(
-                  labelText: 'Adres',
-                  prefixIcon: Icon(Icons.location_on),
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 2,
-                validator: (value) =>
-                    value?.trim().isEmpty ?? true ? 'Adres gerekli' : null,
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _pickShopLocation,
-                icon: const Icon(Icons.map_outlined),
-                label: Text(
-                  _latitude != null && _longitude != null
-                      ? 'Konum Seçildi — Değiştir'
-                      : 'Haritadan Konum Seç',
-                ),
-              ),
-              if (_latitude != null && _longitude != null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Mağaza konumu kaydedildi',
-                      style: TextStyle(color: Colors.green.shade700, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 16),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _pickupEnabled,
-                onChanged: _onPickupEnabledChanged,
-                title: const Text('Gel Al (Mağazadan Teslim) Aktif'),
-                subtitle: const Text(
-                  'Müşteriler siparişlerini kurye beklemeden mağazanızdan teslim alabilir',
-                ),
-                activeThumbColor: Colors.orange.shade700,
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _saveBasicInfo,
-                  icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
-                  label: const Text('Bilgileri Kaydet'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange.shade700,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
             ],
-          ),
+            const SizedBox(height: 16),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _pickupEnabled,
+              onChanged: _onPickupEnabledChanged,
+              title: const Text('Gel Al (Mağazadan Teslim) Aktif'),
+              subtitle: const Text(
+                'Müşteriler siparişlerini kurye beklemeden mağazanızdan teslim alabilir',
+              ),
+              activeThumbColor: primary,
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _saveBasicInfo,
+                icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+                label: const Text('Bilgileri Kaydet'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildCategorySection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.category_outlined, color: Colors.orange.shade700),
-                const SizedBox(width: 8),
-                const Text('Ana Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const Divider(height: 24),
-            
-            _isLoadingCategories
-                ? const Center(child: CircularProgressIndicator())
-                : _categories.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('Henüz kategori bulunmuyor'),
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+    final primary = Theme.of(context).colorScheme.primary;
+    return SellerSectionCard(
+      margin: EdgeInsets.zero,
+      title: 'Ana Kategori',
+      icon: Icons.category_outlined,
+      child: _isLoadingCategories
+          ? const Center(child: CircularProgressIndicator())
+          : _categories.isEmpty
+              ? const SellerEmptyState(
+                  icon: Icons.category_outlined,
+                  message: 'Henüz kategori bulunmuyor',
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Mağazanızın ana kategorisini seçin. Bu kategori, uygulamanın market ekranında mağazınızın görüneceği bölümü belirler.',
-                                    style: TextStyle(color: Colors.blue.shade900, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          DropdownButtonFormField<String>(
-                            value: _selectedCategoryId,
-                            decoration: InputDecoration(
-                              labelText: 'Ana Kategori',
-                              prefixIcon: const Icon(Icons.category),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              filled: true,
-                              fillColor: Colors.grey.shade50,
-                            ),
-                            hint: const Text('Kategori seçin'),
-                            items: _categories.map((category) {
-                              return DropdownMenuItem<String>(
-                                value: category['id'] as String,
-                                child: Row(
-                                  children: [
-                                    if (category['icon'] != null) ...[
-                                      Text(
-                                        _getCategoryIcon(category['icon'] as String),
-                                        style: const TextStyle(fontSize: 20),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    Text(category['name'] as String),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedCategoryId = value;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _isSaving ? null : _saveCategory,
-                              icon: _isSaving
-                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                  : const Icon(Icons.save),
-                              label: const Text('Kategoriyi Kaydet'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange.shade700,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
+                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Mağazanızın ana kategorisini seçin. Bu kategori, uygulamanın market ekranında mağazınızın görüneceği bölümü belirler.',
+                              style: TextStyle(color: Colors.blue.shade900, fontSize: 13),
                             ),
                           ),
                         ],
                       ),
-          ],
-        ),
-      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedCategoryId,
+                      decoration: InputDecoration(
+                        labelText: 'Ana Kategori',
+                        prefixIcon: const Icon(Icons.category),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      hint: const Text('Kategori seçin'),
+                      items: _categories.map((category) {
+                        return DropdownMenuItem<String>(
+                          value: category['id'] as String,
+                          child: Row(
+                            children: [
+                              if (category['icon'] != null) ...[
+                                Text(
+                                  _getCategoryIcon(category['icon'] as String),
+                                  style: const TextStyle(fontSize: 20),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              Text(category['name'] as String),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedCategoryId = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSaving ? null : _saveCategory,
+                        icon: _isSaving
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.save),
+                        label: const Text('Kategoriyi Kaydet'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 
@@ -913,132 +887,76 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   }
 
   Widget _buildDeliverySection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.local_shipping, color: Colors.orange.shade700),
-                const SizedBox(width: 8),
-                const Text('Teslimat Ayarları', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const Divider(height: 24),
-
-            // Admin fiyat müdahalesi uyarısı: müdahale kaldırılana kadar
-            // müşteriye gösterilen değer admin'in belirlediği değerdir.
-            if (_hasAdminPricingOverride) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.campaign, color: Colors.amber.shade800),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Yönetici fiyat müdahalesi açık',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber.shade900,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Şu an müşterilere uygulanan: '
-                            '${_adminOverrideDeliveryFee != null ? 'teslimat ₺${_adminOverrideDeliveryFee!.toStringAsFixed(2)}' : 'teslimat (değişmedi)'}'
-                            ' • '
-                            '${_adminOverrideMinOrder != null ? 'min. sepet ₺${_adminOverrideMinOrder!.toStringAsFixed(2)}' : 'min. sepet (değişmedi)'}'
-                            ' • '
-                            '${_adminOverrideDeliveryTime != null ? 'süre ${_adminOverrideDeliveryTime!.isEmpty ? '—' : _adminOverrideDeliveryTime!}' : 'süre (değişmedi)'}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.amber.shade900,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Aşağıda girdiğiniz değerler kaydedilir ve yönetici '
-                            'müdahaleyi kaldırdığında otomatik olarak geçerli olur.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.amber.shade800,
-                            ),
-                          ),
-                          if (_adminOverrideNote != null &&
-                              _adminOverrideNote!.trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Gerekçe: ${_adminOverrideNote!}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.amber.shade900,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Kurye durumu gösterimi (sadece okuma)
+    final primary = Theme.of(context).colorScheme.primary;
+    return SellerSectionCard(
+      margin: EdgeInsets.zero,
+      title: 'Teslimat Ayarları',
+      icon: Icons.local_shipping,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Admin fiyat müdahalesi uyarısı: müdahale kaldırılana kadar
+          // müşteriye gösterilen değer admin'in belirlediği değerdir.
+          if (_hasAdminPricingOverride) ...[
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: _hasOwnCourier ? Colors.green.shade50 : Colors.grey.shade50,
+                color: Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _hasOwnCourier ? Colors.green.shade200 : Colors.grey.shade300,
-                ),
+                border: Border.all(color: Colors.amber.shade300),
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    _hasOwnCourier ? Icons.check_circle : Icons.info_outline,
-                    color: _hasOwnCourier ? Colors.green.shade700 : Colors.grey.shade600,
-                    size: 32,
-                  ),
+                  Icon(Icons.campaign, color: Colors.amber.shade800),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _hasOwnCourier ? 'Kuryeniz Var' : 'Kuryeniz Yok',
+                          'Yönetici fiyat müdahalesi açık',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
-                            color: _hasOwnCourier ? Colors.green.shade900 : Colors.grey.shade900,
+                            color: Colors.amber.shade900,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _hasOwnCourier
-                            ? 'Kendi teslimat ücretinizi belirleyebilirsiniz'
-                            : 'Kurye durumunuzu değiştirmek için admin ile iletişime geçin',
+                          'Şu an müşterilere uygulanan: '
+                          '${_adminOverrideDeliveryFee != null ? 'teslimat ₺${_adminOverrideDeliveryFee!.toStringAsFixed(2)}' : 'teslimat (değişmedi)'}'
+                          ' • '
+                          '${_adminOverrideMinOrder != null ? 'min. sepet ₺${_adminOverrideMinOrder!.toStringAsFixed(2)}' : 'min. sepet (değişmedi)'}'
+                          ' • '
+                          '${_adminOverrideDeliveryTime != null ? 'süre ${_adminOverrideDeliveryTime!.isEmpty ? '—' : _adminOverrideDeliveryTime!}' : 'süre (değişmedi)'}',
                           style: TextStyle(
                             fontSize: 13,
-                            color: _hasOwnCourier ? Colors.green.shade700 : Colors.grey.shade600,
+                            color: Colors.amber.shade900,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Aşağıda girdiğiniz değerler kaydedilir ve yönetici '
+                          'müdahaleyi kaldırdığında otomatik olarak geçerli olur.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.amber.shade800,
+                          ),
+                        ),
+                        if (_adminOverrideNote != null &&
+                            _adminOverrideNote!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Gerekçe: ${_adminOverrideNote!}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1046,129 +964,170 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: _minOrderController,
-              decoration: const InputDecoration(
-                labelText: 'Minimum Sipariş Tutarı (₺)',
-                prefixIcon: Icon(Icons.money),
-                border: OutlineInputBorder(),
-                hintText: '0 = Limit yok',
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _freeDeliveryController,
-              decoration: const InputDecoration(
-                labelText: 'Ücretsiz Teslimat için Min. Tutar (₺)',
-                prefixIcon: Icon(Icons.local_offer),
-                border: OutlineInputBorder(),
-                hintText: '0 = Her zaman ücretsiz',
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            // Kuryesi varsa teslimat ücreti alanını göster
-            if (_hasOwnCourier) ...[
-              TextField(
-                controller: _deliveryFeeController,
-                decoration: const InputDecoration(
-                  labelText: 'Teslimat Ücreti (₺)',
-                  prefixIcon: Icon(Icons.delivery_dining),
-                  border: OutlineInputBorder(),
-                  hintText: '0',
-                  helperText: 'Kendi kuryeniz için teslimat ücreti',
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-            ] else ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange.shade700),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Kuryeniz olmadığı için teslimat ücretini admin belirler. Admin\'in kuryeleri siparişlerinizi teslim edecektir.',
-                        style: TextStyle(color: Colors.orange.shade900, fontSize: 14),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            TextField(
-              controller: _deliveryTimeController,
-              decoration: const InputDecoration(
-                labelText: 'Tahmini Teslimat Süresi',
-                prefixIcon: Icon(Icons.timer),
-                border: OutlineInputBorder(),
-                hintText: 'örn: 30-45 dakika',
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isSaving ? null : _saveDeliverySettings,
-                icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
-                label: const Text('Teslimat Ayarlarını Kaydet'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
           ],
-        ),
+
+          // Kurye durumu gösterimi (sadece okuma)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _hasOwnCourier ? Colors.green.shade50 : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _hasOwnCourier ? Colors.green.shade200 : Colors.grey.shade300,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _hasOwnCourier ? Icons.check_circle : Icons.info_outline,
+                  color: _hasOwnCourier ? Colors.green.shade700 : Colors.grey.shade600,
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _hasOwnCourier ? 'Kuryeniz Var' : 'Kuryeniz Yok',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _hasOwnCourier ? Colors.green.shade900 : Colors.grey.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _hasOwnCourier
+                          ? 'Kendi teslimat ücretinizi belirleyebilirsiniz'
+                          : 'Kurye durumunuzu değiştirmek için admin ile iletişime geçin',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: _hasOwnCourier ? Colors.green.shade700 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _minOrderController,
+            decoration: const InputDecoration(
+              labelText: 'Minimum Sipariş Tutarı (₺)',
+              prefixIcon: Icon(Icons.money),
+              border: OutlineInputBorder(),
+              hintText: '0 = Limit yok',
+            ),
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _freeDeliveryController,
+            decoration: const InputDecoration(
+              labelText: 'Ücretsiz Teslimat için Min. Tutar (₺)',
+              prefixIcon: Icon(Icons.local_offer),
+              border: OutlineInputBorder(),
+              hintText: '0 = Her zaman ücretsiz',
+            ),
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 16),
+          // Kuryesi varsa teslimat ücreti alanını göster
+          if (_hasOwnCourier) ...[
+            TextField(
+              controller: _deliveryFeeController,
+              decoration: const InputDecoration(
+                labelText: 'Teslimat Ücreti (₺)',
+                prefixIcon: Icon(Icons.delivery_dining),
+                border: OutlineInputBorder(),
+                hintText: '0',
+                helperText: 'Kendi kuryeniz için teslimat ücreti',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+          ] else ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Kuryeniz olmadığı için teslimat ücretini admin belirler. Admin\'in kuryeleri siparişlerinizi teslim edecektir.',
+                      style: TextStyle(color: Colors.orange.shade900, fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          TextField(
+            controller: _deliveryTimeController,
+            decoration: const InputDecoration(
+              labelText: 'Tahmini Teslimat Süresi',
+              prefixIcon: Icon(Icons.timer),
+              border: OutlineInputBorder(),
+              hintText: 'örn: 30-45 dakika',
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSaving ? null : _saveDeliverySettings,
+              icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+              label: const Text('Teslimat Ayarlarını Kaydet'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildWorkingHoursSection() {
     final days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    final primary = Theme.of(context).colorScheme.primary;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.access_time, color: Colors.orange.shade700),
-                const SizedBox(width: 8),
-                const Text('Çalışma Saatleri', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const Divider(height: 24),
-            ...days.map((day) => _buildDayRow(day)),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isSaving ? null : _saveWorkingHours,
-                icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
-                label: const Text('Çalışma Saatlerini Kaydet'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+    return SellerSectionCard(
+      margin: EdgeInsets.zero,
+      title: 'Çalışma Saatleri',
+      icon: Icons.access_time,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...days.map((day) => _buildDayRow(day)),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSaving ? null : _saveWorkingHours,
+              icon: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+              label: const Text('Çalışma Saatlerini Kaydet'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1178,16 +1137,17 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
     final isActive = dayData['active'] as bool? ?? true;
     final openTime = dayData['open'] as String? ?? '09:00';
     final closeTime = dayData['close'] as String? ?? '18:00';
+    final primary = Theme.of(context).colorScheme.primary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-        Switch(
-          value: isActive,
-          activeTrackColor: Colors.orange.shade200,
-          activeThumbColor: Colors.orange.shade700,
-          onChanged: (value) {
+          Switch(
+            value: isActive,
+            activeTrackColor: primary.withValues(alpha: 0.3),
+            activeThumbColor: primary,
+            onChanged: (value) {
               setState(() {
                 _workingHours[day] = {
                   ...dayData,

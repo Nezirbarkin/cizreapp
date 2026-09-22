@@ -37,6 +37,7 @@ import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
 import 'features/courier/screens/courier_panel_screen.dart';
+import 'features/seller/screens/seller_reviews_screen.dart';
 import 'okey/okey.dart';
 
 // Mobile/Desktop specific imports - using deferred imports
@@ -47,6 +48,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/user_activity_service.dart';
 import 'core/services/cache_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/analytics_service.dart';
@@ -60,6 +62,7 @@ import 'features/chat/services/presence_service.dart';
 import 'core/services/version_check_service.dart';
 import 'core/widgets/force_update_dialog.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'features/music/services/music_library_service.dart';
 
 void main() async {
   // Web için path-based URL strategy kullan (hash # yerine clean URL)
@@ -73,6 +76,12 @@ void main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   log('WidgetsFlutterBinding initialized');
+
+  // Yan menüdeki müzik çalar kullanıcının cihazındaki şarkıları da çalsın.
+  // Yalnızca bir fonksiyon referansı atanıyor — açılışta hiçbir dosya ya da
+  // ağ işi yapılmaz; kitaplık ilk kez müzik listesi istendiğinde okunur.
+  OkeySoundService.localTracksProvider =
+      MusicLibraryService.backgroundPlaylistEntries;
 
   // Status bar/nav bar rengini ayarlamıyoruz: Android 15 edge-to-edge'i zorunlu
   // kılıyor ve setStatusBarColor/setNavigationBarColor artık deprecated.
@@ -143,43 +152,37 @@ void main() async {
   try {
     log('Starting initialization...');
     
-    // Load environment variables (Web hariç) - Başarısız olsa da devam et
-    if (!kIsWeb) {
-      try {
-        await dotenv.load(fileName: ".env");
-        log('✅ Environment variables loaded');
-      } catch (e) {
-        log('⚠️ .env file not found or failed to load: $e');
-        log('⚠️ Using hardcoded fallback values from AppConstants');
-        // AppConstants'ta fallback değerler var, devam edelim
+    // ⚡ AÇILIŞ OPTİMİZASYONU: Birbirinden bağımsız üç başlatma hattı artık
+    // ARDIŞIK değil PARALEL koşuyor (toplam süre = en yavaş hat):
+    //   1) yerel depolar : Hive → Cache/Analytics/Connectivity   (Web'de yok)
+    //   2) Firebase
+    //   3) .env → Supabase
+    // Eskiden 1. hat bitmeden Firebase/Supabase başlamıyordu; ilk kare, üç
+    // hattın toplamı kadar gecikiyordu.
+    //
+    // Süresi dolan cache/analitik temizliği (CleanupService) açılış yolundan
+    // çıkarıldı: ilk kareden sonra çalışıyor (aşağıda). Ayrıca eskiden kutular
+    // açılırken AYNI Future.wait içinde koşuyordu; kutu henüz açılmadığı için
+    // (`_box == null`) fiilen hiçbir şey temizlemiyordu.
+    Future<void> localStoresLane() async {
+      if (kIsWeb) {
+        log('ℹ️ Hive & services skipped on web platform');
+        return;
       }
-    }
-
-    // ⚡ OPTİMİZE: Servisleri paralel başlat (sıralı yerine)
-    // Initialize Hive for local caching & analytics (Web hariç)
-    if (!kIsWeb) {
       try {
         await Hive.initFlutter();
         Hive.registerAdapter(CachedPostAdapter());
         log('✅ Hive initialized');
 
-        // Cache, Analytics, Cleanup ve Connectivity'yi paralel başlat
         await Future.wait([
           CacheService.initialize().catchError((e) {
             log('⚠️ Cache service initialization failed: $e');
-            return null;
           }),
           AnalyticsService.initialize().catchError((e) {
             log('⚠️ Analytics service initialization failed: $e');
-            return null;
-          }),
-          CleanupService().performStartupCleanup().catchError((e) {
-            log('⚠️ Cleanup service failed: $e');
-            return null;
           }),
           ConnectivityService().initialize().catchError((e) {
             log('⚠️ Connectivity service failed: $e');
-            return null;
           }),
         ]);
         log('✅ All services initialized in parallel');
@@ -187,20 +190,45 @@ void main() async {
         log('⚠️ Service initialization failed: $e');
         // Devam et, bu servisler olmadan da çalışabilir
       }
-    } else {
-      log('ℹ️ Hive & services skipped on web platform');
     }
 
-    // ⚡ iOS PERFORMANCE: Firebase ve Supabase'i PARALEL başlat
-    final supabaseUrl = AppConstants.supabaseUrl;
-    final supabaseAnonKey = AppConstants.supabaseAnonKey;
-    
-    log('🔍 Supabase URL: ${supabaseUrl.isNotEmpty ? "AYARLI (${supabaseUrl.length} karakter)" : "BOŞ!"}');
-    log('🔍 Supabase Anon Key: ${supabaseAnonKey.isNotEmpty ? "AYARLI (${supabaseAnonKey.length} karakter)" : "BOŞ!"}');
-    
-    // Firebase ve Supabase'i paralel başlat
+    Future<void> supabaseLane() async {
+      // Load environment variables (Web hariç) - Başarısız olsa da devam et
+      if (!kIsWeb) {
+        try {
+          await dotenv.load(fileName: ".env");
+          log('✅ Environment variables loaded');
+        } catch (e) {
+          log('⚠️ .env file not found or failed to load: $e');
+          log('⚠️ Using hardcoded fallback values from AppConstants');
+          // AppConstants'ta fallback değerler var, devam edelim
+        }
+      }
+
+      final supabaseUrl = AppConstants.supabaseUrl;
+      final supabaseAnonKey = AppConstants.supabaseAnonKey;
+
+      log('🔍 Supabase URL: ${supabaseUrl.isNotEmpty ? "AYARLI (${supabaseUrl.length} karakter)" : "BOŞ!"}');
+      log('🔍 Supabase Anon Key: ${supabaseAnonKey.isNotEmpty ? "AYARLI (${supabaseAnonKey.length} karakter)" : "BOŞ!"}');
+
+      if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+        log('❌ Supabase başlatılamıyor: URL veya Anon Key boş!');
+        supabaseInitialized = false;
+      } else {
+        await Supabase.initialize(
+          url: supabaseUrl,
+          anonKey: supabaseAnonKey,
+          debug: false,
+        );
+        supabaseInitialized = true;
+        log('✅ Supabase initialized');
+      }
+    }
+
+    // Üç hattı paralel başlat
     try {
       await Future.wait([
+        localStoresLane(),
         // Firebase başlat
         Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
@@ -219,20 +247,7 @@ void main() async {
           log('❌ Firebase initialization failed: $e');
         }),
         // Supabase başlat
-        () async {
-          if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-            log('❌ Supabase başlatılamıyor: URL veya Anon Key boş!');
-            supabaseInitialized = false;
-          } else {
-            await Supabase.initialize(
-              url: supabaseUrl,
-              anonKey: supabaseAnonKey,
-              debug: false,
-            );
-            supabaseInitialized = true;
-            log('✅ Supabase initialized');
-          }
-        }(),
+        supabaseLane(),
       ]);
     } catch (e) {
       log('⚠️ Initialization error: $e');
@@ -283,6 +298,17 @@ void main() async {
         log('✅ AdMob initialized');
       }).catchError((e) {
         log('⚠️ AdMob initialization failed: $e');
+      });
+    }
+
+    // Süresi dolan cache / eski analitik temizliği: Hive kutuları artık açık
+    // (yukarıdaki Future.wait bitti) ve iş ilk kareyi geciktirmesin diye
+    // kareden sonra çalışır.
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        CleanupService().performStartupCleanup().catchError((e) {
+          log('⚠️ Cleanup service failed: $e');
+        });
       });
     }
 
@@ -390,10 +416,15 @@ class _CizreAppState extends State<CizreApp> {
     // Kullanıcı giriş yapmışsa arka planda fonksiyonları ısıt
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.supabaseInitialized) {
-        // Paralel warm-up: Hem verification hem payment fonksiyonları
-        VerificationService.warmUpEdgeFunctions();
-        PaymentService.warmUpEdgeFunctions();
-        
+        // Paralel warm-up: Hem verification hem payment fonksiyonları.
+        // Ana sayfanın ilk veri yüklemesiyle (7 paralel sorgu) ağ için
+        // yarışmasın diye birkaç saniye ertelendi; fonksiyonlar bir doğrulama
+        // ya da ödeme adımına gelinmeden çok önce yine ısınmış olur.
+        Future.delayed(const Duration(seconds: 6), () {
+          VerificationService.warmUpEdgeFunctions();
+          PaymentService.warmUpEdgeFunctions();
+        });
+
         // Navigator key'i push notification servisine set et (Web hariç)
         if (!kIsWeb) {
           PushNotificationService.setNavigatorKey(_navigatorKey);
@@ -434,7 +465,10 @@ class _CizreAppState extends State<CizreApp> {
       print('🔐 Auth State Changed: $event');
       print('📧 Session: ${session != null ? "Active" : "None"}');
       print('📧 Email Confirmed: ${session?.user.emailConfirmedAt}');
-      
+
+      // Kullanıcı eylem günlüğü: giriş / uygulama açılışı
+      UserActivityService.instance.onAuthEvent(event, session);
+
       // Web'de profil/shop URL'sine gidildiyse auth yönlendirmelerini atla
       if (_isWebProfileRoute) {
         print('⚠️ Web profile route active, skipping all auth redirects');
@@ -944,6 +978,7 @@ class _CizreAppState extends State<CizreApp> {
             '/main': (context) => const MainScreen(),
             '/admin': (context) => const AdminDashboardScreen(),
             '/courier': (context) => const CourierPanelScreen(),
+            '/seller/reviews': (context) => const SellerReviewsScreen(),
             '/sehirici-lines': (context) => const SehiriciLinesScreen(),
             '/sehirici-favorites': (context) =>
                 const SehiriciFavoritesScreen(),

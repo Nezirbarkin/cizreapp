@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/okey_models.dart';
 import '../providers/okey_lobby_provider.dart';
@@ -10,12 +11,15 @@ import '../providers/okey_points_provider.dart';
 import '../services/okey_ad_reward.dart';
 import '../services/okey_guest_auth.dart';
 import '../services/okey_invite_service.dart';
+import '../services/okey_profile_service.dart';
 import '../services/okey_room_service.dart';
+import '../services/okey_sound_service.dart';
 import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
 import '../widgets/okey_coin_rain.dart';
 import '../widgets/okey_leaderboard_view.dart';
+import '../widgets/okey_profile_sheet.dart';
 import '../widgets/okey_table_settings_dialog.dart';
 import 'okey_create_room_screen.dart';
 import 'okey_game_screen.dart';
@@ -122,7 +126,7 @@ class _OkeySessionGateState extends State<_OkeySessionGate> {
                 Icon(
                   Icons.casino_outlined,
                   size: 64,
-                  color: OkeyColors.accentGold,
+                  color: OkeyUI.brass,
                 ),
                 const SizedBox(height: OkeyUI.gap),
                 const Text(
@@ -193,6 +197,15 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   /// Reklam yükleniyor/gösteriliyor — düğme iki kez tetiklenmesin.
   bool _adBusy = false;
 
+  /// Kendi profil kartım (başlıktaki ad/avatar için).
+  OkeyProfileCard? _me;
+
+  /// Masa listesi filtresi.
+  _TableFilter _filter = _TableFilter.all;
+
+  /// "Masalar" başlığı — alt çubuktaki Masalar öğesi buraya kaydırır.
+  final GlobalKey _tablesKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -200,6 +213,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     // ilk açılışta kayıtlı seçimi göstersin (bkz. OkeyGameProvider._init'te
     // aynı çağrı; ikinci çağrılarda kendini kısa devre yapar).
     unawaited(OkeyTableThemePrefs.instance.load());
+    unawaited(_loadMe());
   }
 
   /// Masaya oturmadan da tema seçilebilsin diye lobiden açılan kısayol
@@ -456,48 +470,121 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     await context.read<OkeyLobbyProvider>().refresh();
   }
 
+  /// Kendi ad/avatarım: başlık satırı için. Okunamazsa "Oyuncu" görünür —
+  /// kimlik süstür, lobi bu yüzden beklemez ya da hata göstermez.
+  /// Oturumdaki kullanıcının kimliği; Supabase hazır değilse (widget testleri)
+  /// ya da oturum yoksa null.
+  static String? _myUserId() {
+    try {
+      return Supabase.instance.client.auth.currentUser?.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loadMe() async {
+    final uid = _myUserId();
+    if (uid == null) return;
+    try {
+      final card = await OkeyProfileService().card(userId: uid);
+      if (mounted) setState(() => _me = card);
+    } catch (_) {
+      // bilerek sessiz: bkz. yukarıdaki not.
+    }
+  }
+
+  Future<void> _openPoints() async {
+    final points = context.read<OkeyPointsProvider>();
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const OkeyPointsScreen()));
+    if (mounted) points.refresh();
+  }
+
+  void _openMyProfile() {
+    final uid = _myUserId();
+    if (uid == null) return;
+    OkeyProfileSheet.show(
+      context,
+      userId: uid,
+      name: _me?.displayName,
+      avatarUrl: _me?.avatarUrl,
+    );
+  }
+
+  /// Alt çubuktaki "Masalar": masa listesinin başlığına kaydırır.
+  void _scrollToTables() {
+    final ctx = _tablesKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final lobby = context.watch<OkeyLobbyProvider>();
     final points = context.watch<OkeyPointsProvider>();
+    final liveRooms = lobby.liveRooms.where(_filter.matches).toList();
+    final openRooms = lobby.rooms.where(_filter.matches).toList();
+    final nothingListed = liveRooms.isEmpty && openRooms.isEmpty;
 
     // BONUS lobiden de alınabiliyor; çip yağmuru masaya özel değil
     // (bkz. OkeyCoinRain).
     return OkeyCoinRain(
       child: OkeyScreen(
         title: '101 Okey',
+        // Kimlik + çip hapı ekranın ilk satırıdır; sistem AppBar'ı yerine
+        // slivers içinde çizilir (bkz. _LobbyHeader).
+        showAppBar: false,
         onRefresh: () async {
           await lobby.refresh();
           await points.refresh();
         },
-        actions: [
-          _PointsChip(points: points),
-          // MASA TEMASI — kullanıcı isteği, 2026-09-14: "oyuncu tema
-          // seçebilsin ayardan". Masaya oturmadan da seçilebilsin diye
-          // burada, ayrıca masa içindeki Ayarlar diyaloğunda da var.
-          IconButton(
-            icon: const Icon(Icons.palette_outlined),
-            tooltip: 'Masa teması',
-            onPressed: _openThemePicker,
-          ),
-          // SKOR TABLOSU üst barda: eskiden yalnızca puan ekranının ikinci
-          // sekmesindeydi, yani sıralamayı görmek için iki dokunuş ve bir
-          // ekran değişimi gerekiyordu.
-          IconButton(
-            icon: const Icon(Icons.leaderboard),
-            tooltip: 'Skor tablosu',
-            onPressed: _openLeaderboard,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Yenile',
-            onPressed: () {
-              lobby.refresh();
-              points.refresh();
-            },
-          ),
-        ],
+        // SALON GEZİNME ÇUBUĞU — eskiden üst çubukta dört ikon vardı
+        // (puan, tema, skor, yenile). "Yenile" aşağı çekmede zaten var; skor
+        // tablosu ve puan artık burada, tema başlıktaki tek ikonda.
+        bottomNav: OkeyBottomNav(
+          items: [
+            OkeyNavItem(
+              icon: Icons.casino_outlined,
+              label: 'Salon',
+              selected: true,
+              onTap: () {},
+            ),
+            OkeyNavItem(
+              icon: Icons.grid_view_rounded,
+              label: 'Masalar',
+              onTap: _scrollToTables,
+            ),
+            OkeyNavItem(
+              icon: Icons.emoji_events_outlined,
+              label: 'Sıralama',
+              onTap: _openLeaderboard,
+            ),
+            OkeyNavItem(
+              icon: Icons.person_outline,
+              label: 'Ben',
+              onTap: _openMyProfile,
+            ),
+          ],
+        ),
         slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, OkeyUI.gap),
+              child: _LobbyHeader(
+                me: _me,
+                points: points,
+                onThemeTap: _openThemePicker,
+                onPointsTap: _openPoints,
+                onProfileTap: _openMyProfile,
+              ),
+            ),
+          ),
+
           if (lobby.activeRoom != null)
             SliverToBoxAdapter(
               child: Padding(
@@ -533,37 +620,23 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
             const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gap)),
           ],
 
-          // BİRİNCİL EYLEMLER — ekranın en üstünde, tek satır.
+          // BİRİNCİL EYLEM — "Hemen oyna". Oyuncuların çoğu oynamak istiyor,
+          // masa kurmak değil (kullanıcı isteği, 2026-09-07); hangi masa ve
+          // kaç kişi bekleneceği sorusu hiç sorulmaz. Masa kurmak ve kodla
+          // katılmak ikincil, hemen altında.
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Column(
                 children: [
-                  // OTOMATİK EŞLEŞTİR — BİRİNCİL eylem (kullanıcı isteği,
-                  // 2026-09-07). "Hangi masa?" ve "kaç kişi bekleyeceğim?"
-                  // sorularını oyuncuya hiç sormaz: tek dokunuşla ya var olan
-                  // bir masaya oturur ya da yeni masa açılır ve süre dolunca
-                  // boş koltuklar botlarla dolar.
-                  //
-                  // MASA AÇ'ın ÜSTÜNDE ve tam genişlikte: oyuncuların çoğu
-                  // "oynamak" istiyor, "masa kurmak" değil. Masa kurmak artık
-                  // ikincil — ayarlarını kendi seçmek isteyenin yolu.
-                  SizedBox(
-                    width: double.infinity,
-                    child: OkeyButton(
-                      label: 'OTOMATİK EŞLEŞTİR',
-                      icon: Icons.bolt,
-                      tone: OkeyButtonTone.primary,
-                      onPressed: () => _quickMatch(context),
-                    ),
-                  ),
+                  _HeroCard(onQuickMatch: () => _quickMatch(context)),
                   const SizedBox(height: OkeyUI.gapSm),
                   Row(
                     children: [
                       Expanded(
                         flex: 3,
                         child: OkeyButton(
-                          label: 'MASA AÇ',
+                          label: 'MASA KUR',
                           icon: Icons.add_circle_outline,
                           tone: OkeyButtonTone.secondary,
                           onPressed: () => _createRoom(context),
@@ -573,7 +646,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
                       Expanded(
                         flex: 2,
                         child: OkeyButton(
-                          label: 'KOD',
+                          label: 'KODLA',
                           icon: Icons.vpn_key,
                           tone: OkeyButtonTone.ghost,
                           onPressed: () => _joinByCode(context),
@@ -586,11 +659,10 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
             ),
           ),
 
-          // PUAN KAZAN — hediye ve reklam artık HER ZAMAN burada.
-          //
-          // Eskiden hediye kartı yalnızca hazır olduğunda görünüyor, "reklam
-          // izle" ise puan ekranının içinde saklıydı. Oyuncunun puanı bittiği
-          // an yapabileceği iki şey de bir başka ekranın arkasındaydı.
+          // PUAN KAZAN — hediye ve reklam HER ZAMAN burada (puanı biten
+          // oyuncunun yapabileceği iki şey başka bir ekranın arkasında
+          // kalmasın). Hazır olmayan kart gizlenmez, ne zaman hazır
+          // olacağını yazar.
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
@@ -604,7 +676,6 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
                       subtitle: points.canClaimGift
                           ? '${points.wallet.hourlyGiftPoints} çip hazır'
                           : points.giftCountdownText,
-                      actionLabel: points.canClaimGift ? 'AL' : 'BEKLE',
                       enabled: points.canClaimGift && !points.isBusy,
                       busy: points.isBusy,
                       onTap: points.claimHourlyGift,
@@ -613,11 +684,10 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
                   const SizedBox(width: OkeyUI.gapSm),
                   Expanded(
                     child: _EarnCard(
-                      icon: Icons.ondemand_video,
+                      icon: Icons.play_arrow_rounded,
                       color: const Color(0xFF80D8FF),
                       title: 'Reklam izle',
-                      subtitle: '${points.wallet.adRewardPoints} çip',
-                      actionLabel: 'İZLE',
+                      subtitle: '+${points.wallet.adRewardPoints} çip',
                       enabled: !_adBusy && !points.isBusy,
                       busy: _adBusy,
                       onTap: _watchAd,
@@ -628,66 +698,55 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
             ),
           ),
 
-          // İZLENEBİLİR MASALAR — oyunu SÜREN masalar. Açık masaların üstünde
-          // durur çünkü oyun başlamış bir masayı izlemek anında mümkündür;
-          // açık bir masada ise üç kişi daha beklemek gerekir.
-          if (lobby.liveRooms.isNotEmpty) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
-                child: OkeySectionHeader(
-                  label: 'Canlı masalar — izle',
-                  trailing: OkeyPill(text: '${lobby.liveRooms.length}'),
-                ),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              sliver: SliverList.separated(
-                itemCount: lobby.liveRooms.length,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(height: OkeyUI.gapSm),
-                itemBuilder: (context, i) => _LiveRoomCard(
-                  room: lobby.liveRooms[i],
-                  onWatch: () => _watchRoom(context, lobby.liveRooms[i]),
-                ),
-              ),
-            ),
-          ],
-
+          // MASALAR — canlı (izlenebilir) ve açık (oturulabilir) tek listede,
+          // tek filtreyle. Canlı masalar üstte: oyun başlamış bir masayı
+          // izlemek anında mümkün, açık masada üç kişi daha beklenir.
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, OkeyUI.gap, 14, 0),
+              key: _tablesKey,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: OkeySectionHeader(
-                label: 'Açık masalar',
-                trailing: lobby.rooms.isEmpty
+                label: 'Masalar',
+                trailing: (liveRooms.length + openRooms.length) == 0
                     ? null
-                    : OkeyPill(text: '${lobby.rooms.length}'),
+                    : OkeyPill(
+                        text:
+                            '${liveRooms.length} canlı · ${openRooms.length} açık',
+                      ),
               ),
             ),
           ),
+          SliverToBoxAdapter(
+            child: _FilterChips(
+              selected: _filter,
+              onSelect: (f) => setState(() => _filter = f),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gapSm)),
 
-          if (lobby.isLoading && lobby.rooms.isEmpty)
+          if (lobby.isLoading && lobby.rooms.isEmpty && lobby.liveRooms.isEmpty)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),
                 child: Center(
                   child: CircularProgressIndicator(
-                    color: OkeyColors.accentGold,
+                    color: OkeyUI.brass,
                   ),
                 ),
               ),
             )
-          else if (lobby.rooms.isEmpty)
+          else if (nothingListed)
             SliverToBoxAdapter(
               child: OkeyEmptyState(
                 icon: Icons.casino_outlined,
-                title: 'Açık masa yok',
-                message: 'İlk masayı sen aç, oyuncular gelsin.',
+                title: _filter == _TableFilter.all
+                    ? 'Açık masa yok'
+                    : 'Bu türde masa yok',
+                message: 'İlk masayı sen kur, oyuncular gelsin.',
                 action: SizedBox(
                   width: 220,
                   child: OkeyButton(
-                    label: 'MASA AÇ',
+                    label: 'MASA KUR',
                     icon: Icons.add_circle_outline,
                     tone: OkeyButtonTone.primary,
                     onPressed: () => _createRoom(context),
@@ -699,19 +758,27 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               sliver: SliverList.separated(
-                itemCount: lobby.rooms.length,
+                itemCount: liveRooms.length + openRooms.length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(height: OkeyUI.gapSm),
-                itemBuilder: (context, i) =>
-                    _RoomCard(
-                          room: lobby.rooms[i],
-                          onJoin: () => _joinRoom(context, lobby.rooms[i]),
-                        )
-                        // Sıralı giriş; gecikme 6 karttan sonra tavan yapar ki
-                        // uzun listelerde son kartlar dakikalarca beklemesin.
-                        .animate(delay: (40 * i.clamp(0, 6)).ms)
-                        .fadeIn(duration: 250.ms)
-                        .slideY(begin: 0.06, end: 0, curve: Curves.easeOut),
+                itemBuilder: (context, i) {
+                  final live = i < liveRooms.length;
+                  final room = live
+                      ? liveRooms[i]
+                      : openRooms[i - liveRooms.length];
+                  return _TableCard(
+                        room: room,
+                        live: live,
+                        onTap: () => live
+                            ? _watchRoom(context, room)
+                            : _joinRoom(context, room),
+                      )
+                      // Sıralı giriş; gecikme 6 karttan sonra tavan yapar ki
+                      // uzun listelerde son kartlar dakikalarca beklemesin.
+                      .animate(delay: (40 * i.clamp(0, 6)).ms)
+                      .fadeIn(duration: 250.ms)
+                      .slideY(begin: 0.06, end: 0, curve: Curves.easeOut);
+                },
               ),
             ),
         ],
@@ -720,120 +787,26 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
   }
 }
 
-/// AppBar'daki puan göstergesi — dokununca puan ekranına gider.
-class _PointsChip extends StatelessWidget {
-  final OkeyPointsProvider points;
+/// Masa listesinin filtresi.
+///
+/// "Klasik" = tekli + katlamasız (varsayılan masa); "Eşli" ve "Katlamalı"
+/// birbirinden bağımsız kural ekleridir (bkz. OkeyCreateRoomScreen), bu
+/// yüzden eşli+katlamalı bir masa ikisinde de görünür.
+enum _TableFilter {
+  all('Tümü'),
+  classic('Klasik'),
+  team('Eşli'),
+  folding('Katlamalı');
 
-  const _PointsChip({required this.points});
+  final String label;
+  const _TableFilter(this.label);
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () async {
-            await Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const OkeyPointsScreen()));
-            if (context.mounted) points.refresh();
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: OkeyUI.goldGradient),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            // Puan 7 haneye çıkabilir; kutu büyümek yerine metin küçülür.
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.stars, size: 15, color: OkeyUI.onGold),
-                  const SizedBox(width: 5),
-                  Text(
-                    '${points.points}',
-                    maxLines: 1,
-                    style: const TextStyle(
-                      color: OkeyUI.onGold,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
-                    ),
-                  ),
-                  if (points.canClaimGift) ...[
-                    const SizedBox(width: 5),
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFD32F2F),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// "Devam eden oyunun var" kartı.
-class _ResumeCard extends StatelessWidget {
-  final OkeyRoom room;
-
-  const _ResumeCard({required this.room});
-
-  @override
-  Widget build(BuildContext context) {
-    return OkeyCard(
-      highlighted: true,
-      onTap: () {
-        final matchId = room.currentMatchId;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => room.status == 'in_progress' && matchId != null
-                ? OkeyGameScreen(matchId: matchId)
-                : OkeyRoomScreen(roomId: room.id),
-          ),
-        );
-      },
-      child: Row(
-        children: [
-          Icon(Icons.play_circle_fill, color: OkeyColors.accentGold, size: 30),
-          const SizedBox(width: OkeyUI.gap),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Devam eden oyunun var',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: OkeyUI.title,
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Kaldığın yerden devam et',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: OkeyUI.caption,
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right, color: OkeyUI.textDim),
-        ],
-      ),
-    );
-  }
+  bool matches(OkeyRoom r) => switch (this) {
+    all => true,
+    classic => r.gameMode != 'katlamali' && r.teamMode != 'esli',
+    team => r.teamMode == 'esli',
+    folding => r.gameMode == 'katlamali',
+  };
 }
 
 /// Bana gelen bir masa daveti: kim çağırdı, masanın bedeli ne, katıl/reddet.
@@ -922,205 +895,358 @@ class _InviteCard extends StatelessWidget {
   }
 }
 
-class _RoomCard extends StatelessWidget {
-  final OkeyRoom room;
-  final VoidCallback onJoin;
+/// Lobinin ilk satırı: kim olduğun, masa teması ve çip bakiyen.
+///
+/// Eskiden sistem AppBar'ında dört ikon vardı (puan, tema, skor, yenile);
+/// hiçbiri "sen kimsin" sorusunu yanıtlamıyordu. Artık kimlik solda, tek
+/// ikon (tema) ve çip hapı sağda; skor tablosu alt çubukta.
+class _LobbyHeader extends StatelessWidget {
+  final OkeyProfileCard? me;
+  final OkeyPointsProvider points;
+  final VoidCallback onThemeTap;
+  final VoidCallback onPointsTap;
+  final VoidCallback onProfileTap;
 
-  const _RoomCard({required this.room, required this.onJoin});
+  const _LobbyHeader({
+    required this.me,
+    required this.points,
+    required this.onThemeTap,
+    required this.onPointsTap,
+    required this.onProfileTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return OkeyCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              OkeyAvatar(url: room.creatorAvatar, size: 38),
-              const SizedBox(width: OkeyUI.gap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      room.creatorName ?? 'Oyuncu',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: OkeyUI.title,
-                    ),
-                    const SizedBox(height: 4),
-                    _SeatDots(
-                      occupied: room.occupiedSeats,
-                      bots: room.botCount,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: OkeyUI.gapSm),
-              // MASA PUANI = el başına puan × el sayısı. Rozette ÇARPIM
-              // yazar: cüzdandan düşecek olan sayı budur, el başına puan
-              // değil (kullanıcı isteği, 2026-09-05).
-              if (room.tableStake > 0)
-                OkeyPill(text: '${room.tableStake}', icon: Icons.stars),
-            ],
-          ),
-          const SizedBox(height: OkeyUI.gap),
-          // Etiketler SARMALI akar: dört etiket dar ekranda alt satıra iner,
-          // satırı taşırmaz.
-          Wrap(
-            spacing: 5,
-            runSpacing: 5,
-            children: [
-              OkeyPill(
-                text: room.gameMode == 'katlamali' ? 'Katlamalı' : 'Katlamasız',
-                color: const Color(0xFFFF8A80),
-              ),
-              OkeyPill(
-                text: room.teamMode == 'esli' ? 'Eşli' : 'Eşsiz',
-                color: const Color(0xFF80D8FF),
-              ),
-              OkeyPill(
-                text: room.assistMode == 'yardimsiz' ? 'Yardımsız' : 'Yardımlı',
-                color: const Color(0xFFB9F6CA),
-              ),
-              OkeyPill(
-                text: '${room.totalHands} el',
-                color: const Color(0xFFE1BEE7),
-              ),
-            ],
-          ),
-          const SizedBox(height: OkeyUI.gap),
-          OkeyButton(
-            label: 'KATIL',
-            icon: Icons.login,
-            tone: OkeyButtonTone.primary,
-            onPressed: onJoin,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Oyunu SÜREN bir masa — oturulmaz, İZLENİR.
-///
-/// Açık masa kartından bilerek farklı okunur: birincil eylem "KATIL" değil
-/// "İZLE"dir ve kartın üstünde canlı olduğunu söyleyen bir rozet durur.
-/// İkisi aynı görünseydi, dolu bir masaya katılmaya çalışan oyuncu her
-/// seferinde reddedilirdi.
-class _LiveRoomCard extends StatelessWidget {
-  final OkeyRoom room;
-  final VoidCallback onWatch;
-
-  const _LiveRoomCard({required this.room, required this.onWatch});
-
-  @override
-  Widget build(BuildContext context) {
-    return OkeyCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              OkeyAvatar(url: room.creatorAvatar, size: 38),
-              const SizedBox(width: OkeyUI.gap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      room.creatorName ?? 'Oyuncu',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: OkeyUI.title,
-                    ),
-                    const SizedBox(height: 4),
-                    _SeatDots(
-                      occupied: room.occupiedSeats,
-                      bots: room.botCount,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: OkeyUI.gapSm),
-              const OkeyPill(
-                text: 'CANLI',
-                icon: Icons.play_circle_fill,
-                color: Color(0xFFFF8A80),
-              ),
-            ],
-          ),
-          const SizedBox(height: OkeyUI.gap),
-          Wrap(
-            spacing: 5,
-            runSpacing: 5,
-            children: [
-              OkeyPill(
-                text: room.gameMode == 'katlamali' ? 'Katlamalı' : 'Katlamasız',
-                color: const Color(0xFFFF8A80),
-              ),
-              OkeyPill(
-                text: room.teamMode == 'esli' ? 'Eşli' : 'Eşsiz',
-                color: const Color(0xFF80D8FF),
-              ),
-              if (room.spectatorCount > 0)
-                OkeyPill(
-                  text: '${room.spectatorCount} izleyici',
-                  icon: Icons.visibility,
-                  color: const Color(0xFFB9F6CA),
-                ),
-            ],
-          ),
-          const SizedBox(height: OkeyUI.gap),
-          OkeyButton(
-            label: 'İZLE',
-            icon: Icons.visibility,
-            tone: OkeyButtonTone.ghost,
-            onPressed: onWatch,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 4 koltuğun doluluk göstergesi: dolu = yeşil, boş = soluk.
-///
-/// ## Neden bot ayrımı YOK (2026-09, kullanıcı isteği)
-///
-/// Eskiden bot koltukları gri çiziliyor ve yanına "(3 bot)" yazılıyordu.
-/// Yani oyuncu masaya oturmadan önce kaç rakibinin bot olduğunu görüyordu.
-/// Botlar artık masada gerçek oyuncular gibi göründüğü için lobide de
-/// ayrışmazlar; [bots] parametresi yalnızca doluluk hesabında kalır.
-class _SeatDots extends StatelessWidget {
-  final int occupied;
-  final int bots;
-
-  const _SeatDots({required this.occupied, required this.bots});
-
-  @override
-  Widget build(BuildContext context) {
+    final played = me?.matchesPlayed ?? 0;
     return Row(
       children: [
-        ...List.generate(4, (i) {
-          final c = i < occupied ? const Color(0xFFB9F6CA) : OkeyUI.textFaint;
-          return Container(
-            width: 8,
-            height: 8,
-            margin: const EdgeInsets.only(right: 4),
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-          );
-        }),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            '$occupied/4',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: OkeyUI.caption,
+        GestureDetector(
+          onTap: onProfileTap,
+          child: OkeyAvatar(url: me?.avatarUrl, size: 46, highlighted: true),
+        ),
+        const SizedBox(width: OkeyUI.gap),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                me?.displayName ?? 'Oyuncu',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: OkeyUI.display(size: 18),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                played == 0
+                    ? 'Hazır mısın?'
+                    : '$played maç · ${me?.matchesWon ?? 0} galibiyet',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: OkeyUI.body.copyWith(fontSize: 12),
+              ),
+            ],
           ),
         ),
+        IconButton(
+          icon: const Icon(Icons.palette_outlined),
+          color: OkeyUI.textDim,
+          tooltip: 'Masa teması',
+          onPressed: onThemeTap,
+        ),
+        OkeyChipsPill(
+          points: points.points,
+          onTap: onPointsTap,
+          showDot: points.canClaimGift,
+        ),
       ],
+    );
+  }
+}
+
+/// "Devam eden oyunun var" şeridi.
+class _ResumeCard extends StatelessWidget {
+  final OkeyRoom room;
+
+  const _ResumeCard({required this.room});
+
+  @override
+  Widget build(BuildContext context) {
+    return OkeyCard(
+      highlighted: true,
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      onTap: () {
+        final matchId = room.currentMatchId;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => room.status == 'in_progress' && matchId != null
+                ? OkeyGameScreen(matchId: matchId)
+                : OkeyRoomScreen(roomId: room.id),
+          ),
+        );
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFC24B),
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: Color(0xFFFFC24B), blurRadius: 8)],
+            ),
+          ),
+          const SizedBox(width: OkeyUI.gap),
+          const Expanded(
+            child: Text(
+              'Masan hazır · kaldığın yerden devam et',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: OkeyUI.text,
+                fontSize: 13,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: OkeyUI.gapSm),
+          Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE4B04C),
+              borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+            ),
+            child: const Text(
+              'DEVAM ET',
+              style: TextStyle(
+                color: OkeyUI.onGold,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Hemen oyna" kartı — lobinin tek büyük, tek pirinç düğmesi.
+class _HeroCard extends StatelessWidget {
+  final VoidCallback onQuickMatch;
+
+  const _HeroCard({required this.onQuickMatch});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const RadialGradient(
+          center: Alignment(0.7, -0.9),
+          radius: 1.5,
+          colors: [Color(0xFF1B7562), Color(0xFF0F4A45), Color(0xFF0A3532)],
+          stops: [0, 0.6, 1],
+        ),
+        border: Border.all(color: OkeyUI.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Hemen oyna', style: OkeyUI.display(size: 30)),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Ayar sormadan sana uygun masaya oturtur.',
+                      style: OkeyUI.body.copyWith(
+                        color: const Color(0xD9F5EBD8),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: OkeyUI.gapSm),
+              const OkeySeatMini(occupied: 4, size: 88),
+            ],
+          ),
+          const SizedBox(height: OkeyUI.gapLg),
+          OkeyButton(
+            label: 'OTOMATİK EŞLEŞ',
+            icon: Icons.bolt,
+            tone: OkeyButtonTone.primary,
+            onPressed: onQuickMatch,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Masa listesi filtre çipleri.
+class _FilterChips extends StatelessWidget {
+  final _TableFilter selected;
+  final ValueChanged<_TableFilter> onSelect;
+
+  const _FilterChips({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: _TableFilter.values.length,
+        separatorBuilder: (_, _) => const SizedBox(width: OkeyUI.gapSm),
+        itemBuilder: (_, i) {
+          final f = _TableFilter.values[i];
+          final on = f == selected;
+          return Semantics(
+            button: true,
+            selected: on,
+            label: f.label,
+            child: GestureDetector(
+              onTap: withOkeyTapSound(() => onSelect(f)),
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: on ? const Color(0xFFE4B04C) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: on
+                        ? const Color(0xFFE4B04C)
+                        : const Color(0x38FFF0D2),
+                  ),
+                ),
+                child: Text(
+                  f.label,
+                  style: TextStyle(
+                    color: on ? OkeyUI.onGold : OkeyUI.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Lobideki masa kartı — hem açık (OTUR) hem canlı (İZLE) masa için.
+///
+/// İkisi aynı kartı paylaşır ama okunuşu bilerek farklıdır: canlı kartın
+/// alt satırı "Canlı" diye başlar ve birincil eylem "İZLE"dir (pirinç değil
+/// çerçeveli). İkisi aynı görünseydi, dolu bir masaya oturmaya çalışan
+/// oyuncu her seferinde reddedilirdi.
+///
+/// ## Bot ayrımı YOK (2026-09, kullanıcı isteği)
+///
+/// Dolu koltuk sayısı bot/gerçek ayrımı yapmadan gösterilir; botlar masada
+/// gerçek oyuncular gibi göründüğü için lobide de ayrışmaz.
+class _TableCard extends StatelessWidget {
+  final OkeyRoom room;
+  final bool live;
+  final VoidCallback onTap;
+
+  const _TableCard({
+    required this.room,
+    required this.live,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final team = room.teamMode == 'esli';
+    final title = '${team ? 'Eşli' : 'Klasik'} 101 · ${room.totalHands} el';
+    final folding = room.gameMode == 'katlamali' ? 'Katlamalı' : 'Katlamasız';
+    final who = room.creatorName ?? 'Oyuncu';
+    final sub = live
+        ? 'Canlı · $folding'
+              '${room.spectatorCount > 0 ? ' · ${room.spectatorCount} izleyici' : ''}'
+        : '$who · $folding · '
+              '${room.assistMode == 'yardimsiz' ? 'Yardımsız' : 'Yardımlı'}';
+
+    return OkeyCard(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      child: Row(
+        children: [
+          OkeySeatMini(occupied: room.occupiedSeats, size: 50),
+          const SizedBox(width: OkeyUI.gap),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: OkeyUI.title.copyWith(fontSize: 14.5),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  sub,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: OkeyUI.caption.copyWith(color: OkeyUI.textDim),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: OkeyUI.gapSm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // MASA PUANI = el başına puan × el sayısı: cüzdandan düşecek
+              // sayı budur (kullanıcı isteği, 2026-09-05).
+              if (room.tableStake > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const OkeyCoin(size: 13),
+                    const SizedBox(width: 5),
+                    Text(
+                      OkeyChipsPill.format(room.tableStake),
+                      style: OkeyUI.display(size: 14, color: OkeyUI.chipText),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 6),
+              OkeyButton(
+                label: live ? 'İZLE' : 'OTUR',
+                tone: live ? OkeyButtonTone.ghost : OkeyButtonTone.primary,
+                dense: true,
+                expand: false,
+                onPressed: onTap,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1135,13 +1261,13 @@ class _SeatDots extends StatelessWidget {
 /// alınır" arasında üç dokunuş vardı.
 ///
 /// Kart hazır olmadığında GİZLENMEZ, sönükleşir ve ne zaman hazır olacağını
-/// yazar: kaybolan bir düğme, bir daha ne zaman geleceğini söylemez.
+/// yazar: kaybolan bir düğme, bir daha ne zaman geleceğini söylemez. Hazır
+/// kart pirinç çerçeveyle öne çıkar.
 class _EarnCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String title;
   final String subtitle;
-  final String actionLabel;
   final bool enabled;
   final bool busy;
   final VoidCallback onTap;
@@ -1151,7 +1277,6 @@ class _EarnCard extends StatelessWidget {
     required this.color,
     required this.title,
     required this.subtitle,
-    required this.actionLabel,
     required this.enabled,
     required this.busy,
     required this.onTap,
@@ -1163,64 +1288,48 @@ class _EarnCard extends StatelessWidget {
 
     return OkeyCard(
       onTap: enabled ? onTap : null,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      highlighted: enabled,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(icon, color: fg, size: 20),
-              const SizedBox(width: OkeyUI.gapSm),
-              Expanded(
-                child: Text(
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: fg.withValues(alpha: enabled ? 0.18 : 0.08),
+            ),
+            child: busy
+                ? const Padding(
+                    padding: EdgeInsets.all(9),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(icon, color: fg, size: 20),
+          ),
+          const SizedBox(width: OkeyUI.gapSm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: OkeyUI.title,
+                  style: OkeyUI.title.copyWith(fontSize: 12.5),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: OkeyUI.caption,
-          ),
-          const SizedBox(height: OkeyUI.gapSm),
-          SizedBox(
-            width: double.infinity,
-            child: busy
-                ? const Center(
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : Container(
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    decoration: BoxDecoration(
-                      color: fg.withValues(alpha: enabled ? 0.18 : 0.08),
-                      borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
-                      border: Border.all(
-                        color: fg.withValues(alpha: enabled ? 0.6 : 0.25),
-                      ),
-                    ),
-                    child: Text(
-                      actionLabel,
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: fg,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: OkeyUI.caption.copyWith(
+                    color: enabled ? OkeyUI.chipText : OkeyUI.textDim,
+                    fontWeight: enabled ? FontWeight.w700 : FontWeight.w500,
                   ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

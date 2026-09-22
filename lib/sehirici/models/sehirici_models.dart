@@ -197,6 +197,10 @@ class SehiriciLineStop {
   final double lat;
   final double lng;
 
+  /// Durak kodu / adresi (yalnız kullanıcı hat listesi RPC'si döner; yoksa null).
+  final String? code;
+  final String? address;
+
   const SehiriciLineStop({
     required this.stopId,
     required this.stopOrder,
@@ -205,6 +209,8 @@ class SehiriciLineStop {
     required this.name,
     required this.lat,
     required this.lng,
+    this.code,
+    this.address,
   });
 
   factory SehiriciLineStop.fromJson(Map<String, dynamic> json) {
@@ -216,14 +222,18 @@ class SehiriciLineStop {
       name: json['name'] as String? ?? 'Durak',
       lat: (json['lat'] as num?)?.toDouble() ?? 0,
       lng: (json['lng'] as num?)?.toDouble() ?? 0,
+      code: json['code'] as String?,
+      address: json['address'] as String?,
     );
   }
 
   SehiriciStop get asStop => SehiriciStop(
         id: stopId,
         name: name,
+        code: code,
         lat: lat,
         lng: lng,
+        address: address,
       );
 }
 
@@ -233,14 +243,26 @@ class SehiriciLine {
   final String name;
   final String colorHex;
   final SehiriciVehicleType vehicleType;
+
+  /// Araç ikonu kütüphanesindeki anahtar (`sehirici_marker_icons.key`).
+  /// Admin'in eklediği ÖZEL türler enum'da olmadığı için ham metin burada
+  /// taşınır; null ise [vehicleType] adı kullanılır. Bkz. [vehicleKey].
+  final String? vehicleKeyRaw;
   final int? estimatedMinutes;
   final double fareAmount;
   final bool isActive;
+  final int displayOrder;
   final List<SehiriciLineStop> stops;
   /// Önbelleğe alınmış yol-takip eden rota noktaları ([lat, lng] çiftleri).
   /// null ise henüz hesaplanmamış — SehiriciLineService.getRoadRoute ile
   /// hesaplanıp sehirici_lines.route_polyline'a kaydedilir.
   final List<List<double>>? roadPolyline;
+
+  /// Rotanın kaydedildiği andaki durak sıralamasının imzası ve kaynağı
+  /// (`route_polyline` JSON'unun üst bilgisi). Admin, duraklar değiştikten
+  /// sonra rotanın eski kaldığını bunlarla anlar.
+  final String? routeSignature;
+  final String? routeSource;
 
   const SehiriciLine({
     required this.id,
@@ -248,12 +270,53 @@ class SehiriciLine {
     required this.name,
     this.colorHex = '#1976D2',
     this.vehicleType = SehiriciVehicleType.bus,
+    this.vehicleKeyRaw,
     this.estimatedMinutes,
     this.fareAmount = 0,
     this.isActive = true,
+    this.displayOrder = 0,
     this.stops = const [],
     this.roadPolyline,
+    this.routeSignature,
+    this.routeSource,
   });
+
+  /// Katalog anahtarı: özel türlerde ham değer, eski türlerde enum adı.
+  String get vehicleKey => vehicleKeyRaw ?? vehicleType.name;
+
+  /// Haritada çizilebilecek kayıtlı bir yol rotası var mı?
+  bool get hasRoute => roadPolyline != null && roadPolyline!.length >= 2;
+
+  SehiriciLine copyWith({
+    String? code,
+    String? name,
+    String? colorHex,
+    SehiriciVehicleType? vehicleType,
+    String? vehicleKeyRaw,
+    int? estimatedMinutes,
+    double? fareAmount,
+    bool? isActive,
+    int? displayOrder,
+    List<SehiriciLineStop>? stops,
+    List<List<double>>? roadPolyline,
+  }) {
+    return SehiriciLine(
+      id: id,
+      code: code ?? this.code,
+      name: name ?? this.name,
+      colorHex: colorHex ?? this.colorHex,
+      vehicleType: vehicleType ?? this.vehicleType,
+      vehicleKeyRaw: vehicleKeyRaw ?? this.vehicleKeyRaw,
+      estimatedMinutes: estimatedMinutes ?? this.estimatedMinutes,
+      fareAmount: fareAmount ?? this.fareAmount,
+      isActive: isActive ?? this.isActive,
+      displayOrder: displayOrder ?? this.displayOrder,
+      stops: stops ?? this.stops,
+      roadPolyline: roadPolyline ?? this.roadPolyline,
+      routeSignature: routeSignature,
+      routeSource: routeSource,
+    );
+  }
 
   Color get color {
     try {
@@ -272,6 +335,8 @@ class SehiriciLine {
           .toList();
     }
     List<List<double>>? roadPolyline;
+    String? routeSignature;
+    String? routeSource;
     final polylineRaw = json['route_polyline'];
     if (polylineRaw is Map) {
       final pts = polylineRaw['points'];
@@ -282,20 +347,26 @@ class SehiriciLine {
             .where((p) => p.length == 2)
             .toList();
       }
+      routeSignature = polylineRaw['stops_signature'] as String?;
+      routeSource = polylineRaw['source'] as String?;
     }
 
+    final vehicleRaw = (json['vehicle_type'] as String?)?.trim();
     return SehiriciLine(
       id: json['line_id'] as String? ?? json['id'] as String,
       code: json['code'] as String? ?? '',
       name: json['name'] as String? ?? '',
       colorHex: json['color_hex'] as String? ?? '#1976D2',
-      vehicleType: SehiriciVehicleType.fromString(
-          json['vehicle_type'] as String?),
+      vehicleType: SehiriciVehicleType.fromString(vehicleRaw),
+      vehicleKeyRaw: (vehicleRaw == null || vehicleRaw.isEmpty) ? null : vehicleRaw,
       estimatedMinutes: (json['estimated_minutes'] as num?)?.toInt(),
       fareAmount: (json['fare_amount'] as num?)?.toDouble() ?? 0,
       isActive: json['is_active'] as bool? ?? true,
+      displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
       stops: stops,
       roadPolyline: roadPolyline,
+      routeSignature: routeSignature,
+      routeSource: routeSource,
     );
   }
 }
@@ -525,5 +596,63 @@ class SehiriciSettings {
       allowUserFavorites: getBool('sehirici_allow_user_favorites'),
       autoRouteEnabled: getBoolOr('sehirici_auto_route_enabled', true),
     );
+  }
+}
+
+/// Admin'in "Şoförler" sekmesinde gördüğü şoför kaydı.
+class SehiriciDriver {
+  final String id;
+  final String profileId;
+  final String fullName;
+  final String username;
+  final String? avatarUrl;
+  final String? licenseNumber;
+  final String? phone;
+  final String? assignedLineId;
+  final bool isOnDuty;
+  final String? workingHoursStart;
+  final String? workingHoursEnd;
+  final bool autoTripEnabled;
+
+  const SehiriciDriver({
+    required this.id,
+    required this.profileId,
+    required this.fullName,
+    required this.username,
+    this.avatarUrl,
+    this.licenseNumber,
+    this.phone,
+    this.assignedLineId,
+    this.isOnDuty = false,
+    this.workingHoursStart,
+    this.workingHoursEnd,
+    this.autoTripEnabled = false,
+  });
+
+  factory SehiriciDriver.fromJson(Map<String, dynamic> json) {
+    final profile = json['profiles'] is Map
+        ? Map<String, dynamic>.from(json['profiles'] as Map)
+        : const <String, dynamic>{};
+    return SehiriciDriver(
+      id: json['id'] as String,
+      profileId: json['profile_id'] as String? ?? '',
+      fullName: (profile['full_name'] as String?)?.trim() ?? '',
+      username: (profile['username'] as String?)?.trim() ?? '',
+      avatarUrl: profile['avatar_url'] as String?,
+      licenseNumber: json['license_number'] as String?,
+      phone: json['phone'] as String?,
+      assignedLineId: json['assigned_line_id'] as String?,
+      isOnDuty: json['is_on_duty'] as bool? ?? false,
+      workingHoursStart: json['working_hours_start'] as String?,
+      workingHoursEnd: json['working_hours_end'] as String?,
+      autoTripEnabled: json['auto_trip_enabled'] as bool? ?? false,
+    );
+  }
+
+  /// Listelerde gösterilecek ad.
+  String get displayName {
+    if (fullName.isNotEmpty) return fullName;
+    if (username.isNotEmpty) return '@$username';
+    return 'İsimsiz şoför';
   }
 }

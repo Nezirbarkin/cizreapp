@@ -27,6 +27,7 @@ import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/widgets/balance_header_widget.dart';
 import '../../../core/widgets/animated_app_title.dart';
+import '../../../core/widgets/lazy_tab_stack.dart';
 import '../../wallet/screens/wallet_screen.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
@@ -56,8 +57,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// Ayar okunana kadar güvenli varsayılan: yalnız üyelere açık.
   bool _exploreIsPublic = SocialAccessService.cachedIsPublic;
 
-  // ⚡ iOS PERFORMANCE: Sadece aktif sekmeyi oluştur, diğerlerini lazy yükle
+  // ⚡ iOS PERFORMANCE: Sekmeler ilk açılışta tembel oluşturulur.
   final Map<int, Widget> _cachedScreens = {};
+
+  /// Sekmeler arası geçişte YAŞAYAN sekmeler: Piyasa (0), Ürünler (1), Keşfet (3).
+  /// Bir kez açıldıktan sonra arkada tutulurlar (bkz. LazyTabStack): başka
+  /// sekmeye geçip dönünce veri yeniden çekilmez, kaydırma konumu ve canlı
+  /// abonelikler (mesaj rozeti) kaybolmaz. 5 dakikadan uzun ayrı kalınırsa
+  /// dönüşte sıfırdan kurulur.
+  ///
+  /// Sepet (2) ve Profil (4) bilerek DIŞARIDA: kullanıcı başka sekmede sepete
+  /// ekleme / gönderi paylaşma / ayar değiştirme yapıp döndüğünde güncel
+  /// halini görmeli; bu ekranlar her girişte yeniden yüklenmeye devam eder.
+  static const Set<int> _retainedTabs = {0, 1, 3};
+
   DateTime? _lastNotificationLoad; // Debounce bildirim yüklemesi
 
   Widget _getScreen(int index) {
@@ -306,18 +319,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
           return Scaffold(
             extendBody: true,
-            // ⚡ iOS PERFORMANCE: IndexedStack yerine lazy loading
-            // Sadece aktif ekranı oluşturur, bellek tasarrufu sağlar
-            body: _getScreen(_selectedIndex),
+            // Tembel + seçici korumalı sekme gövdesi (bkz. _retainedTabs).
+            body: LazyTabStack(
+              index: _selectedIndex,
+              count: 5,
+              retained: _retainedTabs,
+              tabBuilder: _getScreen,
+            ),
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
               children: [
                 FloatingActionButton(
                   backgroundColor: const Color(0xFFEEFF41),
                   elevation: 8,
-                  onPressed: () {
-                    setState(() => _selectedIndex = 2);
-                  },
+                  onPressed: () => setState(() => _selectedIndex = 2),
                   child: Icon(
                     _selectedIndex == 2
                         ? Icons.shopping_cart
@@ -824,7 +839,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
             ),
             padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top,
+              top: MediaQuery.paddingOf(context).top,
               left: 12,
               right: 12,
               bottom: 8,
@@ -1107,7 +1122,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 )
               : SliverGrid(
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: MediaQuery.of(context).size.width > 600
+                    crossAxisCount: MediaQuery.sizeOf(context).width > 600
                         ? 4
                         : 3,
                     childAspectRatio: 0.68,
@@ -1174,6 +1189,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       color: Colors.grey.shade100,
                       child: product.images.isNotEmpty
                           ? CachedNetworkImage(
+                              memCacheWidth: 300,
                               imageUrl: product.images.first,
                               fit: BoxFit.cover,
                               placeholder: (context, url) => const Center(
@@ -1434,7 +1450,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.7,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
           ),
           padding: const EdgeInsets.all(20),
           child: SingleChildScrollView(

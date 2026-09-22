@@ -29,6 +29,7 @@ import '../../../core/services/app_about_service.dart';
 import '../widgets/instagram_story_creator.dart';
 import '../widgets/social_balance_badge.dart';
 import '../widgets/social_post_card.dart';
+import '../../music/music.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key});
@@ -492,7 +493,7 @@ class _SocialScreenState extends State<SocialScreen> {
               borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
             padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
             ),
             child: SingleChildScrollView(
               child: Padding(
@@ -911,7 +912,7 @@ class _SocialScreenState extends State<SocialScreen> {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (context) => Container(
-          height: MediaQuery.of(context).size.height * 0.6,
+          height: MediaQuery.sizeOf(context).height * 0.6,
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1308,7 +1309,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Widget _buildHeader(BuildContext context, Color primaryColor) {
     // Platform'a göre topPadding hesapla (Market Screen ile aynı)
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     final isMobileWeb = kIsWeb && screenSize.width <= 600;
 
     double topPadding;
@@ -1320,7 +1321,7 @@ class _SocialScreenState extends State<SocialScreen> {
       topPadding = 20.0;
     } else {
       // Mobil uygulama: SafeArea padding + minimal padding
-      final safePadding = MediaQuery.of(context).padding.top;
+      final safePadding = MediaQuery.paddingOf(context).top;
       topPadding = safePadding + 4.0;
     }
 
@@ -1615,12 +1616,13 @@ class _SocialScreenState extends State<SocialScreen> {
       fit: StackFit.expand,
       children: [
         CachedNetworkImage(
+          memCacheWidth: 480,
           imageUrl: story.displayUrl,
           fit: BoxFit.cover,
           errorWidget: (context, url, error) => Container(
             color: Colors.grey.shade300,
             child: avatarUrl != null
-                ? CachedNetworkImage(imageUrl: avatarUrl, fit: BoxFit.cover)
+                ? CachedNetworkImage(memCacheWidth: 240, imageUrl: avatarUrl, fit: BoxFit.cover)
                 : Icon(Icons.person, size: size * 0.4, color: Colors.grey),
           ),
           placeholder: (context, url) => Container(color: Colors.grey.shade200),
@@ -1695,6 +1697,7 @@ class _SocialScreenState extends State<SocialScreen> {
                           color: primaryColor.withValues(alpha: 0.1),
                           child: avatarUrl != null
                               ? CachedNetworkImage(
+                                  memCacheWidth: 240,
                                   imageUrl: avatarUrl,
                                   fit: BoxFit.cover,
                                 )
@@ -1798,19 +1801,23 @@ class _SocialScreenState extends State<SocialScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => InstagramStoryCreator(
         imagePicker: _imagePicker,
-        onMediaSelected: (media, mediaType) async {
+        onMediaSelected: (media, mediaType, music) async {
           // Seçilen medyayı yükle
-          await _uploadAndCreateStory(media, mediaType);
+          await _uploadAndCreateStory(media, mediaType, music);
         },
-        onTextStory: (text, backgroundId) async {
-          await _createTextStory(text, backgroundId);
+        onTextStory: (text, backgroundId, music) async {
+          await _createTextStory(text, backgroundId, music);
         },
       ),
     );
   }
 
   /// Arka planlı metin hikayesi: yüklenecek dosya yok, doğrudan satır açılır.
-  Future<void> _createTextStory(String text, String backgroundId) async {
+  Future<void> _createTextStory(
+    String text,
+    String backgroundId, [
+    AttachedMusic? music,
+  ]) async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
@@ -1819,6 +1826,7 @@ class _SocialScreenState extends State<SocialScreen> {
         userId: userId,
         text: text,
         background: backgroundId,
+        music: music,
       );
 
       // createTextStory null dönerse (RLS/insert hatası) "paylaşıldı" demek
@@ -1841,7 +1849,11 @@ class _SocialScreenState extends State<SocialScreen> {
     }
   }
 
-  Future<void> _uploadAndCreateStory(XFile media, String mediaType) async {
+  Future<void> _uploadAndCreateStory(
+    XFile media,
+    String mediaType, [
+    AttachedMusic? music,
+  ]) async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
@@ -1976,6 +1988,7 @@ class _SocialScreenState extends State<SocialScreen> {
         imageUrl: mediaUrl,
         mediaType: mediaType,
         thumbnailUrl: thumbnailUrl, // Video için thumbnail URL'ini geçir
+        music: music,
       );
 
       debugPrint('Story oluşturuldu: ${newStory?.id}');

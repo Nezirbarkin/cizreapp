@@ -9,6 +9,10 @@ import '../../../core/models/product_model.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
 import '../../market/services/flash_sale_service.dart';
 import '../../market/services/product_service.dart';
+import '../services/shop_analytics_service.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
+import '../widgets/common/seller_product_stats_chips.dart';
 import 'manage_product_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -30,9 +34,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   final _productService = ProductService();
+  final _analyticsService = ShopAnalyticsService();
 
   bool _isLoading = true;
   List<Product> _products = [];
+  Map<String, Map<String, int>> _productStats = {};
   String _searchQuery = '';
   String _filterStatus = 'all'; // all, inStock, outOfStock
 
@@ -128,11 +134,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
           .eq('shop_id', shopId)
           .order('created_at', ascending: false);
 
+      // Görüntülenme + beğeni sayıları: tek ek RPC ile toplu (N+1 önler).
+      final stats = await _analyticsService.getShopProductStats(shopId);
+
       if (!mounted) return;
       setState(() {
         _products = (response as List)
             .map((json) => Product.fromJson(Map<String, dynamic>.from(json)))
             .toList();
+        _productStats = stats;
         _isLoading = false;
       });
     } catch (e) {
@@ -592,7 +602,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: SizedBox(
-          width: MediaQuery.of(context).size.width * 0.9,
+          width: MediaQuery.sizeOf(context).width * 0.9,
           child: _CategoryManagementSheet(categories: categories),
         ),
       ),
@@ -628,7 +638,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ürünlerim'),
-        backgroundColor: Colors.orange.shade700,
         actions: [
           // Çoklu seçim moduna gir (toplu indirim vb.)
           IconButton(
@@ -671,7 +680,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
       body: _buildBody(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _navigateToAdd,
-        backgroundColor: Colors.orange.shade700,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Yeni Ürün'),
       ),
@@ -703,7 +713,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         // Ürün listesi
         Expanded(
           child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? const SellerListSkeleton()
               : _filteredProducts.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(
@@ -735,7 +745,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: Colors.orange.shade900,
+          // Normal moddan ayırt etmek için marka renginin koyulaştırılmış hâli.
+          backgroundColor: Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.25),
+            Theme.of(context).colorScheme.primary,
+          ),
           leading: IconButton(
             icon: const Icon(Icons.close),
             tooltip: 'Seçimden çık',
@@ -818,7 +832,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         ? null
                         : _showBulkDiscountDialog,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade700,
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
@@ -874,36 +888,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _searchQuery.isEmpty
-                ? Icons.inventory_2_outlined
-                : Icons.search_off,
-            size: 80,
-            color: Colors.grey.shade400,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _searchQuery.isEmpty ? 'Henüz ürün eklenmemiş' : 'Sonuç bulunamadı',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
-          ),
-          if (_searchQuery.isEmpty) ...[
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _navigateToAdd,
-              icon: const Icon(Icons.add),
-              label: const Text('İlk Ürünü Ekle'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        ],
-      ),
+    return SellerEmptyState(
+      icon: _searchQuery.isEmpty ? Icons.inventory_2_outlined : Icons.search_off,
+      message: _searchQuery.isEmpty ? 'Henüz ürün eklenmemiş' : 'Sonuç bulunamadı',
+      actionLabel: _searchQuery.isEmpty ? 'İlk Ürünü Ekle' : null,
+      onAction: _searchQuery.isEmpty ? _navigateToAdd : null,
     );
   }
 
@@ -913,15 +902,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final flashService = FlashSaleService();
 
     final isSelected = _selectedIds.contains(product.id);
+    final primary = Theme.of(context).colorScheme.primary;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      color: isSelected ? Colors.orange.shade50 : null,
+      color: isSelected ? primary.withValues(alpha: 0.08) : null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isSelected
-            ? BorderSide(color: Colors.orange.shade700, width: 2)
-            : BorderSide.none,
+        side: isSelected ? BorderSide(color: primary, width: 2) : BorderSide.none,
       ),
       child: InkWell(
         // Seçim modunda dokunmak ürünü seçer, uzun basmak her zaman seçim
@@ -939,7 +927,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 Checkbox(
                   value: isSelected,
                   onChanged: (_) => _toggleSelection(product),
-                  activeColor: Colors.orange.shade700,
+                  activeColor: primary,
                 ),
                 const SizedBox(width: 4),
               ],
@@ -950,6 +938,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     borderRadius: BorderRadius.circular(8),
                     child: product.imageUrl != null
                         ? CachedNetworkImage(
+                            memCacheWidth: 240,
                             imageUrl: product.imageUrl!,
                             width: 80,
                             height: 80,
@@ -1071,6 +1060,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
                     // Rozetler ve ek özellik göstergeleri
                     _buildProductExtrasRow(product),
+
+                    // Görüntülenme + beğeni (+ varsa puan)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: SellerProductStatsChips(
+                        viewCount: _productStats[product.id]?['view_count'] ?? 0,
+                        favoriteCount: _productStats[product.id]?['favorite_count'] ?? 0,
+                        rating: product.rating,
+                        totalReviews: product.totalReviews,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1238,7 +1238,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Colors.orange.shade700,
+            color: Theme.of(context).colorScheme.primary,
           ),
         ),
         if (product.displayOldPrice != null) ...[
@@ -1574,7 +1574,7 @@ class _BulkDiscountDialogState extends State<_BulkDiscountDialog> {
                   );
                 },
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange.shade700,
+            backgroundColor: Theme.of(context).colorScheme.primary,
             foregroundColor: Colors.white,
           ),
           child: const Text('Uygula'),
@@ -1668,7 +1668,7 @@ class _BadgePickerDialogState extends State<_BadgePickerDialog> {
         ElevatedButton(
           onPressed: () => Navigator.pop(context, _selected.toList()),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange.shade700,
+            backgroundColor: Theme.of(context).colorScheme.primary,
             foregroundColor: Colors.white,
           ),
           child: const Text('Kaydet'),
@@ -1740,7 +1740,7 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
       child: Container(
         color: Colors.white,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -1754,7 +1754,7 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.category, color: Colors.orange),
+                    Icon(Icons.category, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -1806,22 +1806,23 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
                             const SizedBox(height: 6),
                         itemBuilder: (context, index) {
                           final category = _categories[index];
+                          final primary = Theme.of(context).colorScheme.primary;
                           return Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
                               vertical: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.orange.shade50,
+                              color: primary.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.orange.shade100),
+                              border: Border.all(color: primary.withValues(alpha: 0.2)),
                             ),
                             child: Row(
                               children: [
                                 Icon(
                                   Icons.label,
                                   size: 14,
-                                  color: Colors.orange.shade700,
+                                  color: primary,
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
@@ -1880,7 +1881,7 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
                     const SizedBox(width: 8),
                     IconButton(
                       onPressed: _addCategory,
-                      icon: const Icon(Icons.add_circle, color: Colors.orange),
+                      icon: Icon(Icons.add_circle, color: Theme.of(context).colorScheme.primary),
                       tooltip: 'Ekle',
                       iconSize: 28,
                     ),
@@ -1896,7 +1897,7 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
                   child: ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade700,
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(

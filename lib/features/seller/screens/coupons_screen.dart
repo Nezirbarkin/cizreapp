@@ -3,6 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
+import '../widgets/common/seller_section_card.dart';
 
 /// Satıcı Kupon Yönetim Ekranı
 /// 
@@ -378,7 +381,8 @@ class _CouponsScreenState extends State<CouponsScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
               ),
               child: Text(isEdit ? 'Güncelle' : 'Oluştur'),
             ),
@@ -435,7 +439,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
         builder: (context) => AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.bar_chart, color: Colors.orange.shade700),
+              Icon(Icons.bar_chart, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
               const Text('Kupon İstatistikleri'),
             ],
@@ -493,15 +497,16 @@ class _CouponsScreenState extends State<CouponsScreen> {
                         final order = usage['orders'] as Map<String, dynamic>?;
                         final discount = (usage['discount_amount'] as num?)?.toDouble() ?? 0;
                         final usedAt = usage['used_at'] as String?;
+                        final primary = Theme.of(context).colorScheme.primary;
 
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: Colors.orange.shade100,
+                              backgroundColor: primary.withValues(alpha: 0.15),
                               child: Icon(
                                 Icons.person,
-                                color: Colors.orange.shade700,
+                                color: primary,
                               ),
                             ),
                             title: Text(
@@ -653,38 +658,16 @@ class _CouponsScreenState extends State<CouponsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Kupon Yönetimi'),
-        backgroundColor: Colors.orange.shade700,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SellerListSkeleton()
           : _coupons.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.confirmation_number_outlined,
-                        size: 80,
-                        color: Colors.grey.shade400,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Henüz kupon oluşturmadınız',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Müşterilerinize özel indirimler sunun',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
+              ? SellerEmptyState(
+                  icon: Icons.confirmation_number_outlined,
+                  message:
+                      'Henüz kupon oluşturmadınız\nMüşterilerinize özel indirimler sunun',
+                  actionLabel: 'Yeni Kupon',
+                  onAction: () => _showCouponDialog(),
                 )
               : RefreshIndicator(
                   onRefresh: _loadCoupons,
@@ -699,7 +682,8 @@ class _CouponsScreenState extends State<CouponsScreen> {
                 ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCouponDialog(),
-        backgroundColor: Colors.orange.shade700,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Yeni Kupon'),
       ),
@@ -726,8 +710,9 @@ class _CouponsScreenState extends State<CouponsScreen> {
       }
     }
 
-    return Card(
+    return SellerSectionCard(
       margin: const EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           ListTile(
@@ -765,7 +750,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
                 Text(
                   discountText,
                   style: TextStyle(
-                    color: Colors.orange.shade700,
+                    color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.bold,
                   ),
                 ),

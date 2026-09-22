@@ -1,365 +1,60 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../services/okey_sound_service.dart';
 
+import '../theme/okey_rack_style.dart';
 import '../theme/okey_theme.dart';
 
-/// Aksiyon butonunun görsel tonu.
+/// HUD ikon düğmesinin gövdesi: cam yüzey + kenar + gölge + tık sesi.
 ///
-/// Renk burada KEYFİ değil, hamlenin oyundaki ağırlığını anlatır:
-///  * [normal]   — her tur yapılan rutin hamle (taş işle, taş at)
-///  * [ready]    — nadir ve yüksek değerli, ŞU AN yapılabilir hamle
-///                 (SERİ AÇ / ÇİFT AÇ barajı geçtiğinde)
-///  * [winning]  — eli bitiren hamle
-enum OkeyActionTone { normal, ready, winning }
-
-/// Masanın kontrol şeridindeki bütün düğmelerin ORTAK GÖVDESİ.
+/// ## Neden hâlâ ayrı bir sınıf, tek çağıranı kalmışken
 ///
-/// ## Neden tek bir gövde
+/// v2–v4'te masadaki BÜTÜN düğmeler (aksiyonlar, DİZ, HUD) buradan
+/// çıkıyordu; ortak gövde, üç ayrı görsel dilin aynı şeritte yan yana
+/// durmasını bitirmişti. v5'te hamle düğmeleri dikey dock'a taşındı ve
+/// kendi gövdelerini aldılar ([OkeyActionDock]), DİZ başlığı ise ıstakanın
+/// ahşabına boyandı ([OkeyDizCapButton]). Geriye tek çağıran kaldı:
+/// [OkeyHudIconButton].
 ///
-/// v2'de her düğme kendi malzemesini seçiyordu: aksiyonlar neredeyse
-/// görünmez koyu kutular, DİZ düğmeleri parlak turuncu ahşap bloklar, HUD
-/// düğmeleri gri karelerdi. Aynı şeritte üç ayrı görsel dil vardı ve hangi
-/// kutunun düğme olduğu ancak deneyerek anlaşılıyordu.
-///
-/// Artık hepsi buradan çıkar: aynı köşe yarıçapı, aynı kenar çizgisi, aynı
-/// gölge, aynı dokunma geri bildirimi. Farklılaşan tek şey RENKTİR ve renk
-/// yalnızca anlam taşır (bkz. [OkeyV3]).
+/// Gövde yine de ayrı duruyor çünkü taşıdığı şey biçim değil DAVRANIŞ:
+/// dokunma geri bildirimi (Material + InkWell) ve tık sesi. Bunu çağıranın
+/// içine gömmek, bir sonraki HUD düğmesinin sessiz çıkmasına davetiye olurdu.
 class _Control extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
-  final bool enabled;
-
-  /// Kapalıyken dokunulduğunda çağrılır (bkz. [OkeyActionButton.onBlockedTap]).
-  final VoidCallback? onBlockedTap;
-
-  /// Altın/turkuaz gradyan — verilmezse nötr cam yüzey kullanılır.
-  final List<Color>? gradient;
-
-  /// Gradyanın etrafına vuran parıltı (yalnızca vurgulu tonlarda).
-  final Color? glow;
-  final double glowBlur;
-
   final double radius;
   final EdgeInsets padding;
 
   const _Control({
     required this.child,
     this.onTap,
-    this.enabled = true,
-    this.onBlockedTap,
-    this.gradient,
-    this.glow,
-    this.glowBlur = 10,
     this.radius = OkeyV3.radius,
     this.padding = const EdgeInsets.symmetric(horizontal: 5),
   });
 
   @override
   Widget build(BuildContext context) {
-    final on = enabled && onTap != null;
-    final useGradient = on && gradient != null;
+    final on = onTap != null;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: useGradient
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: gradient!,
-              )
-            : null,
-        color: useGradient
-            ? null
-            : (on ? OkeyV3.surface : OkeyV3.surfaceDisabled),
+        color: on ? OkeyV3.surface : OkeyV3.surfaceDisabled,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(
-          color: useGradient
-              ? const Color(0x33FFFFFF)
-              : (on ? OkeyV3.border : OkeyV3.borderDisabled),
-        ),
-        boxShadow: [
-          ...OkeyV3.lift,
-          if (useGradient && glow != null)
-            BoxShadow(color: glow!, blurRadius: glowBlur),
-        ],
+        border: Border.all(color: on ? OkeyV3.border : OkeyV3.borderDisabled),
+        boxShadow: OkeyV3.lift,
       ),
       // Dokunma geri bildirimi modülün geri kalanıyla aynı: Material+InkWell.
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(radius),
         child: InkWell(
-          // KAPALIYKEN DE dokunulur — ama farklı bir şey yapar: hamleyi
-          // denemez, NEDEN yapılamadığını söyler (bkz. [onBlockedTap]).
-          // Görünüş yine kapalı kalır; açık göstermek yapılamayan bir
-          // hamleyi yapılabilir sanmaya yol açardı.
-          // Tık sesi HER İKİ durumda da çıkar: kapalı düğme de dokunuşa
-          // cevap veriyor (sebebini söylüyor), sessiz kalması "düğme
-          // bozuk" hissi verirdi.
-          onTap: withOkeyTapSound(on ? onTap : onBlockedTap),
+          onTap: on ? withOkeyTapSound(onTap!) : null,
           borderRadius: BorderRadius.circular(radius),
           child: Padding(
             padding: padding,
             child: Center(child: child),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Kontrol şeridindeki AKSİYON düğmesi: SERİ AÇ / ÇİFT AÇ / İŞLE / TAŞI AT.
-///
-/// ## Yerleşim: ikon üstte, etiket altta
-///
-/// v2'de ikon ve etiket YAN YANAYDI ve rozet ("103/101") aynı satırı
-/// paylaşıyordu; 78px genişliğinde bir butonda etiket ellipsis'e düşüp
-/// "SERİ..." oluyordu. Dikey yerleşimde etiketin tüm genişlik kendisinindir
-/// ve rozet ikonun yanına, üst satıra çıkar. Aynı yerde artık iki kat daha
-/// büyük yazı okunur.
-///
-/// Ölçüler butonun GERÇEK yüksekliğinden türer ([LayoutBuilder]): 34px'lik
-/// kısa bir ekranla 46px'lik geniş bir ekranda aynı sabitleri kullanmak,
-/// birinde sıkışmaya diğerinde boşluğa yol açıyordu.
-class OkeyActionButton extends StatelessWidget {
-  final String title;
-  final String? badge;
-  final IconData icon;
-  final bool enabled;
-  final OkeyActionTone tone;
-  final VoidCallback? onPressed;
-
-  /// Rozetin rengi — "2 işlenebilir taş" gibi olumlu sayaçlar için yeşil.
-  final Color? badgeColor;
-
-  /// KAPALIYKEN DOKUNULUNCA çağrılır — "neden yapamıyorum" sorusunun cevabı.
-  ///
-  /// ## Neden kapalı bir düğme dokunulabilir
-  ///
-  /// Kapalı düğme, sebebini söylemediği sürece bir hatadan ayırt edilemez:
-  /// oyuncu rozette "5/5" görür, düğme sönüktür ve elinde tek bir bilgi
-  /// yoktur. Düğmeyi AÇMAK doğru çözüm değil (sunucu hamleyi haklı olarak
-  /// reddeder ve oyuncu ham bir hata metniyle karşılaşır); doğru çözüm,
-  /// dokunuşun bir CEVAP döndürmesi.
-  ///
-  /// Düğme yine de KAPALI görünür — açık gibi göstermek, yapılamayan bir
-  /// hamleyi yapılabilir sanmaya yol açardı.
-  final VoidCallback? onBlockedTap;
-
-  const OkeyActionButton({
-    super.key,
-    required this.title,
-    required this.icon,
-    this.badge,
-    this.enabled = true,
-    this.tone = OkeyActionTone.normal,
-    this.onPressed,
-    this.badgeColor,
-    this.onBlockedTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final on = enabled && onPressed != null;
-
-    // Ton yalnızca buton GERÇEKTEN etkinken uygulanır: kapalı bir "bitir"
-    // butonunun parıldaması, yapılamayan bir hamleyi yapılabilir gösterirdi.
-    final effTone = on ? tone : OkeyActionTone.normal;
-
-    final List<Color>? gradient = switch (effTone) {
-      OkeyActionTone.ready => OkeyV3.gold,
-      OkeyActionTone.winning => OkeyV3.goldBright,
-      OkeyActionTone.normal => null,
-    };
-    final gold = gradient != null;
-
-    final fg = !on ? OkeyV3.textDisabled : (gold ? OkeyV3.onGold : OkeyV3.text);
-
-    return MediaQuery.withNoTextScaling(
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final h = c.hasBoundedHeight && c.maxHeight.isFinite
-              ? c.maxHeight
-              : 40.0;
-          final iconSize = (h * 0.34).clamp(11.0, 19.0);
-          final fontSize = (h * 0.245).clamp(8.5, 12.5);
-
-          return _Control(
-            enabled: enabled,
-            onTap: onPressed,
-            // Kapalıyken sebebi söyleyen dokunuş (bkz. [onBlockedTap]).
-            onBlockedTap: onBlockedTap,
-            gradient: gradient,
-            glow: effTone == OkeyActionTone.winning
-                ? const Color(0x8CFFB300)
-                : OkeyV3.goldGlow,
-            glowBlur: effTone == OkeyActionTone.winning ? 16 : 9,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Icon(icon, size: iconSize, color: fg),
-                      if (badge != null) ...[
-                        const SizedBox(width: 4),
-                        _Badge(
-                          text: badge!,
-                          fontSize: fontSize * 0.82,
-                          onGold: gold,
-                          enabled: on,
-                          color: badgeColor,
-                        ),
-                      ],
-                    ],
-                  ),
-                  SizedBox(height: h * 0.04),
-                  Text(
-                    title,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: fontSize,
-                      height: 1.0,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.3,
-                      color: fg,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// Aksiyon düğmesinin üst satırındaki sayaç rozeti ("103/101", "2 per").
-class _Badge extends StatelessWidget {
-  final String text;
-  final double fontSize;
-  final bool onGold;
-  final bool enabled;
-  final Color? color;
-
-  const _Badge({
-    required this.text,
-    required this.fontSize,
-    required this.onGold,
-    required this.enabled,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = !enabled
-        ? OkeyV3.textDisabled
-        : (onGold
-              ? OkeyV3.onGold.withValues(alpha: 0.78)
-              : (color ?? OkeyV3.textDim));
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-      decoration: BoxDecoration(
-        color: onGold
-            ? const Color(0x1F000000)
-            : (color ?? Colors.white).withValues(alpha: enabled ? 0.13 : 0.05),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        maxLines: 1,
-        style: TextStyle(
-          fontSize: fontSize,
-          height: 1.0,
-          fontWeight: FontWeight.w800,
-          color: fg,
-        ),
-      ),
-    );
-  }
-}
-
-/// "SERİ DİZ" / "ÇİFT DİZ" — ıstakayı yeniden dizen ARAÇ düğmeleri.
-///
-/// ## Neden aksiyonlarla aynı boyda ama farklı renkte
-///
-/// v2'de bunlar masanın EN BÜYÜK kontrolleriydi (parlak turuncu, iki katlı
-/// bloklar). Oysa dizmek bir hamle değil, kendi elini düzenlemektir: geri
-/// alınabilir, sunucuya gitmez, kimseyi etkilemez. Ekrandaki en büyük
-/// düğmenin en önemsiz eylemi taşıması, oyuncunun gözünü sürekli yanlış
-/// yere çekiyordu.
-///
-/// Artık aksiyonlarla AYNI gövde ve AYNI yükseklikte; ayrımı TURKUAZ renk
-/// yapıyor: altın = hamle, turkuaz = düzenleme.
-class OkeyDizButton extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final bool active;
-  final VoidCallback onPressed;
-
-  /// Konsolun verdiği yükseklik (bkz. OkeyTableMetrics.sortButtonHeight).
-  final double? height;
-
-  const OkeyDizButton({
-    super.key,
-    required this.title,
-    required this.icon,
-    required this.onPressed,
-    this.active = false,
-    this.height,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return MediaQuery.withNoTextScaling(
-      child: SizedBox(
-        height: height,
-        child: LayoutBuilder(
-          builder: (context, c) {
-            final h = c.hasBoundedHeight && c.maxHeight.isFinite
-                ? c.maxHeight
-                : (height ?? 40.0);
-            final iconSize = (h * 0.34).clamp(11.0, 19.0);
-            final fontSize = (h * 0.245).clamp(8.5, 12.5);
-            final fg = active ? OkeyV3.onTool : OkeyV3.text;
-
-            return _Control(
-              onTap: onPressed,
-              gradient: active ? OkeyV3.tool : null,
-              glow: const Color(0x5C2CC5CE),
-              glowBlur: 9,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      icon,
-                      size: iconSize,
-                      color: active ? fg : const Color(0xFF57D6DC),
-                    ),
-                    SizedBox(height: h * 0.04),
-                    Text(
-                      title,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: fontSize,
-                        height: 1.0,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.3,
-                        color: fg,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
         ),
       ),
     );
@@ -530,6 +225,19 @@ class OkeyDizCapButton extends StatelessWidget {
           final font = (w * 0.24).clamp(8.0, 15.0).toDouble();
           final tileH = (h * 0.26).clamp(10.0, 34.0).toDouble();
 
+          // BAŞLIK ISTAKANIN KENDİ AHŞABINDANDIR (düzen v5).
+          //
+          // v4'te bu düğmeler parlak MAVİ bloklardı ve masadaki hiçbir
+          // malzemeye benzemiyorlardı: ıstakanın ucuna vidalanmış iki
+          // plastik parça gibi duruyorlardı. Oysa anlattıkları şey tam
+          // tersi — bunlar ıstakanın PARÇASIDIR, bir hamle değil.
+          //
+          // Artık gövde ıstakanın ahşabıyla aynı, vurgu ise kazınmış pirinç.
+          // Pirinç DOLGU bilerek kullanılmadı: dolu pirinç masada "hamle"
+          // demek (bkz. OkeyActionDock), bu ise araç.
+          final rack = OkeyRackStylePrefs.instance.current.value;
+          final brass = OkeyColors.accentGold;
+
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: withOkeyTapSound(onPressed),
@@ -538,16 +246,12 @@ class OkeyDizCapButton extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: active
-                      ? const [Color(0xFF6FC8FF), Color(0xFF15568F)]
-                      : const [Color(0xFF2E6E9E), Color(0xFF102E4B)],
+                  colors: rack.body,
                 ),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: active
-                      ? const Color(0xFFBFE6FF)
-                      : const Color(0x4DFFFFFF),
-                  width: active ? 1.6 : 1,
+                  color: brass.withValues(alpha: active ? 0.95 : 0.4),
+                  width: active ? 1.8 : 1,
                 ),
                 boxShadow: [
                   const BoxShadow(
@@ -556,7 +260,10 @@ class OkeyDizCapButton extends StatelessWidget {
                     offset: Offset(0, 2),
                   ),
                   if (active)
-                    const BoxShadow(color: Color(0x6642B4FF), blurRadius: 14),
+                    BoxShadow(
+                      color: brass.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                    ),
                 ],
               ),
               padding: EdgeInsets.symmetric(
@@ -582,7 +289,16 @@ class OkeyDizCapButton extends StatelessWidget {
                         height: 1.05,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.4,
-                        color: Colors.white,
+                        // Etiket de kazınmış: pirinç, altında bir piksellik
+                        // koyu gölge. Beyaz yazı ahşabın üstünde "yapıştırma"
+                        // gibi duruyordu.
+                        color: active ? brass : const Color(0xFFF5EBD8),
+                        shadows: const [
+                          Shadow(
+                            color: Color(0x99000000),
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                     ),
                     Text(
@@ -593,7 +309,13 @@ class OkeyDizCapButton extends StatelessWidget {
                         height: 1.05,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.4,
-                        color: Colors.white,
+                        color: active ? brass : const Color(0xFFF5EBD8),
+                        shadows: const [
+                          Shadow(
+                            color: Color(0x99000000),
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                     ),
                   ],

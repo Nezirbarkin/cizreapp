@@ -184,6 +184,7 @@ class _LiveSessionsScreenState extends State<LiveSessionsScreen> {
                 height: 110,
                 child: s.coverImageUrl != null
                     ? CachedNetworkImage(
+                        memCacheWidth: 330,
                         imageUrl: s.coverImageUrl!,
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => Container(

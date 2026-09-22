@@ -43,6 +43,10 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   bool _isCheckingUsername = false;
   bool _isUsernameAvailable = true;
 
+  /// İlk başarısız gönderimden sonra alan her değişiklikte yeniden doğrulanır;
+  /// yoksa düzeltilmiş ad yanında eski hata metni (ve yeşil onay) kalır.
+  bool _showValidationErrors = false;
+
   @override
   void dispose() {
     _usernameController.dispose();
@@ -89,7 +93,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     if (msg.contains('invalid format')) {
       return 'Sadece harf, rakam, nokta, _ ve - kullan (3-20 karakter).';
     }
-    if (msg.contains('reserved prefix')) {
+    if (msg.contains('reserved')) {
       return 'Bu kullanıcı adını kullanamazsın, başka bir tane dene.';
     }
     if (msg.contains('already set')) {
@@ -100,7 +104,10 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _showValidationErrors = true);
+      return;
+    }
     if (!_isUsernameAvailable) return;
 
     setState(() => _isLoading = true);
@@ -179,6 +186,9 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
         ),
         child: Form(
           key: _formKey,
+          autovalidateMode: _showValidationErrors
+              ? AutovalidateMode.always
+              : AutovalidateMode.disabled,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -207,10 +217,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                 },
                 onSubmitted: (_) => _submit(),
                 suffix: _buildUsernameSuffix(p),
-                helper:
-                    'Sadece harf, rakam, nokta, _ ve - (3-20 karakter). '
-                    'Kullanıcı adın sonradan değiştirilemez.',
-                helperColor: p.warning,
+                helper: 'Sadece harf, rakam, nokta, _ ve - (3-20 karakter).',
                 validator: (v) {
                   if (v?.isEmpty ?? true) return 'Kullanıcı adı gerekli';
                   if (!_usernameAllowedChars.hasMatch(v!)) {

@@ -96,12 +96,9 @@ class _HomeIlanSectionState extends State<HomeIlanSection> {
         final primary = Theme.of(context).colorScheme.primary;
         return Container(
           color: Theme.of(context).scaffoldBackgroundColor,
-          padding: EdgeInsets.fromLTRB(
-            0,
-            8,
-            0,
-            24 + MediaQuery.paddingOf(context).bottom,
-          ),
+          // Alt boşluk (güvenli alan dahil) artık market_screen'deki son
+          // SliverToBoxAdapter'da: bu bölümün altında Liderler Tablosu var.
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

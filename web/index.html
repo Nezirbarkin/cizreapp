@@ -69,7 +69,10 @@
 
   <!-- Google Maps JavaScript API - google_maps_flutter_web bu script olmadan
        hiçbir GoogleMap widget'ını (Şehirici, kurye takip, adres seçici) render edemez. -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBi120_sBg5IEgzaugQ-FgRAbZaW18267I"></script>
+  <!-- defer: script HTML ayrıştırmayı (ve splash/promo çizimini) bloklamasın.
+       Deferred script DOMContentLoaded'dan önce, Flutter motoru (main.dart.js)
+       inmeden çok önce çalışır; harita widget'ı ancak sonra açılır. -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBi120_sBg5IEgzaugQ-FgRAbZaW18267I" defer></script>
 
   <!-- Preload kritik kaynaklar -->
   <link rel="preload" as="script" href="flutter_bootstrap.js">

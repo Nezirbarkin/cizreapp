@@ -25,7 +25,9 @@ extension on _AdminDashboardScreenState {
 
   void _refreshAnalyticsData() {
     if (!mounted) return;
-    setState(() => _analyticsDataFuture = _loadLogsData());
+    setState(() {
+      _analyticsDataFuture = _loadLogsData();
+    });
   }
 
   // --- _buildAnalyticsContent ---

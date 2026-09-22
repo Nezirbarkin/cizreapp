@@ -1,10 +1,15 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/group_model.dart';
 import '../../../core/models/group_message_model.dart';
+import '../models/chat_presence.dart';
 import '../services/group_chat_service.dart';
+import '../services/typing_channel.dart';
+import '../widgets/presence_status_line.dart';
 import 'group_settings_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../../core/widgets/group_avatar_viewer.dart';
@@ -40,6 +45,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
   // Reply state
   GroupMessage? _replyToMessage;
 
+  // "X yazıyor…": grup kanalı yalnız üyelere ve yalnız yönetici açtıysa verilir.
+  TypingChannel? _typingChannel;
+  final ValueNotifier<Set<String>> _typingIds = ValueNotifier<Set<String>>(
+    const <String>{},
+  );
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +61,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     _loadMembers();
     _subscribeToMessages();
     _subscribeToReadReceipts();
+    _startTyping();
     _loadPendingRequests();
     _groupChatService.markGroupMessagesReadReceipts(widget.group.id);
     
@@ -72,11 +84,50 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     _isAtBottom = (maxScroll - currentScroll) < 50;
   }
 
+  void _startTyping() {
+    final uid = _currentUserId;
+    if (uid == null) return;
+    final channel = TypingChannel(
+      transport: SupabaseTypingTransport.group(widget.group.id),
+      selfId: uid,
+    );
+    _typingChannel = channel;
+    channel.typing.addListener(_syncTyping);
+    _messageController.addListener(_onComposerChanged);
+    channel.start();
+  }
+
+  void _syncTyping() {
+    _typingIds.value = _typingChannel?.typing.value ?? const <String>{};
+  }
+
+  // Kutu boşaldığında (mesaj gönderilince `clear()` dahil) kanal kendiliğinden
+  // "yazmıyor" der.
+  void _onComposerChanged() {
+    _typingChannel?.onTextChanged(_messageController.text);
+  }
+
+  /// Yazanların görünen adları; üye listesinde olmayan (henüz yüklenmemiş) kişi
+  /// sayıya dahil edilir ama adı bilinmediği için adlandırılmaz.
+  List<String> _typingNames(Set<String> ids) {
+    final names = <String>[];
+    for (final id in ids) {
+      final member = _members.where((m) => m.userId == id).firstOrNull;
+      final name = (member?.fullName ?? member?.username ?? '').trim();
+      if (name.isNotEmpty) names.add(name);
+    }
+    return names;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _groupChatService.markGroupMessagesReadReceipts(widget.group.id);
+    }
+    // Arka plana giderken "yazıyor" takılı kalmasın.
+    if (state != AppLifecycleState.resumed) {
+      _typingChannel?.stopTyping();
     }
   }
 
@@ -94,6 +145,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onScroll);
+    _messageController.removeListener(_onComposerChanged);
+    _typingChannel?.typing.removeListener(_syncTyping);
+    // "Yazmıyor"u gönderip kanalı kapatır; beklenmez.
+    unawaited(_typingChannel?.dispose());
+    _typingIds.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
@@ -502,9 +558,24 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    '${_currentGroup.memberCount} üye',
-                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
+                  ValueListenableBuilder<Set<String>>(
+                    valueListenable: _typingIds,
+                    builder: (context, typingIds, _) {
+                      if (typingIds.isEmpty) {
+                        return Text(
+                          '${_currentGroup.memberCount} üye',
+                          style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
+                        );
+                      }
+                      final names = _typingNames(typingIds);
+                      return TypingIndicatorText(
+                        text: names.isEmpty
+                            ? '${typingIds.length} kişi ${PresenceLabels.typing}'
+                            : PresenceLabels.typingNames(names),
+                        color: Colors.white,
+                        fontSize: 12,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -628,7 +699,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
             Flexible(
               child: Container(
                 constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.75,
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(

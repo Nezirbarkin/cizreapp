@@ -233,9 +233,53 @@ class OkeySoundService {
 
   /// ÇALMA LİSTESİ — admin birden çok şarkı yükleyebilir.
   /// Şarkı bitince sıradakine geçilir; liste bitince başa dönülür.
-  List<({String url, String name})> _playlist = [];
+  ///
+  /// [isLocal] true ise `url` aslında cihazdaki bir DOSYA YOLUDUR ve
+  /// [DeviceFileSource] ile çalınır. "Müziğim > Kitaplığım" bu yolu kullanır:
+  /// böylece kullanıcının kendi şarkıları da bildirim kontrollerini, ilerleme
+  /// çubuğunu ve yan menüdeki plak kartını olduğu gibi kullanır — ikinci bir
+  /// ses motoru kurmaya gerek kalmaz.
+  List<({String url, String name, bool isLocal})> _playlist = [];
   int _trackIndex = 0;
   StreamSubscription<void>? _trackEndSub;
+
+  /// Çalma listesi nereden geliyor?
+  ///
+  /// Varsayılan [MusicPlaylistSource.radio]: bugüne kadarki davranışın
+  /// birebir aynısı — liste sunucudan gelir, [refreshPlaylist] onu tazeler.
+  /// Kullanıcı "Müziğim > Kitaplığım"dan bir şarkı çaldığında kaynak
+  /// [MusicPlaylistSource.library] olur ve sunucu tazelemesi DEVRE DIŞI kalır;
+  /// aksi hâlde yan menünün her açılışında kullanıcının kendi listesi
+  /// sunucununkiyle değiştirilirdi.
+  MusicPlaylistSource _source = MusicPlaylistSource.radio;
+
+  /// Tekrar modu. Varsayılan [MusicRepeatMode.all] — bu özellik gelmeden
+  /// önceki davranışın aynısı: liste bitince başa dönülür, tek şarkı döngüde.
+  MusicRepeatMode _repeatMode = MusicRepeatMode.all;
+
+  /// Karışık çalma. Liste sırası DEĞİŞMEZ; yalnızca "sıradaki" sorusunun
+  /// cevabı [_shuffleOrder] üzerinden verilir. Böylece karışığı kapatınca
+  /// kullanıcı kendi sırasına kaldığı yerden döner.
+  bool _shuffle = false;
+  List<int> _shuffleOrder = const [];
+
+  /// Liste bitti ve tekrar kapalı: oynatıcı durdu ama kullanıcı durdurmadı.
+  ///
+  /// Başka bir ekranın (ör. Okey masası açılışı) [startMusic] çağrısı bu
+  /// durumda müziği KENDİLİĞİNDEN yeniden başlatmamalı — kullanıcı listenin
+  /// bitmesini bilerek seçti.
+  bool _reachedEnd = false;
+
+  static const _repeatPrefsKey = 'music_repeat_mode';
+  static const _shufflePrefsKey = 'music_shuffle';
+
+  /// Kullanıcının cihaz kitaplığını fon müziği listesine katan kaynak.
+  ///
+  /// Okey katmanı müzik özelliğini tanımaz (bağımlılık yönü tersine
+  /// dönmesin); main.dart açılışta bu kancayı bağlar. Bağlanmazsa liste
+  /// eskisi gibi yalnızca sunucudan gelir.
+  static Future<List<({String url, String name})>> Function()?
+  localTracksProvider;
 
   /// Şu an çalan şarkının görünen adı (bildirim panelinde gösterilir).
   final FlutterLocalNotificationsPlugin _notifications =
@@ -330,6 +374,77 @@ class OkeySoundService {
 
   void _notifyMusicState() => musicState.value++;
 
+  // -------------------------------------------------------------------------
+  // DİNLEME İSTATİSTİĞİ (Admin > Müzik Çalar)
+  //
+  // Kim, hangi şarkıyı, ne kadar dinledi: şarkı başlayınca `start`, çalarken
+  // her 30 sn'de `heartbeat` (+geçen süre), duraklatınca/kapatınca `pause`/
+  // `stop`. Sunucu yalnızca özet tutar (kullanıcı × şarkı × gün); misafir
+  // dinlemeleri kaydedilmez. Tamamen fire-and-forget: rapor başarısız olursa
+  // müzik etkilenmez.
+  // -------------------------------------------------------------------------
+  static const _listenBeat = Duration(seconds: 30);
+  Timer? _listenTimer;
+  DateTime? _lastListenBeatAt;
+
+  /// Son rapordan bu yana geçen saniyeyi verir ve sayacı sıfırlar.
+  int _flushListenSeconds() {
+    final last = _lastListenBeatAt;
+    final now = DateTime.now();
+    _lastListenBeatAt = now;
+    if (last == null) return 0;
+    return now.difference(last).inSeconds.clamp(0, 120);
+  }
+
+  void _reportMusic(String event, {int deltaSeconds = 0, String? url}) {
+    final trackUrl = url ?? _playingUrl;
+    if (trackUrl == null) return;
+
+    // Kullanıcının kendi dosyası sunucuda YOK: yerel bir yolu istatistik
+    // tablosuna yazmak hem anlamsız bir "parça" satırı üretir hem de
+    // kullanıcının cihazındaki dosya adlarını sunucuya sızdırırdı. Kaynağa
+    // değil ADRESE bakıyoruz — kullanıcı kataloğu kendi sırasıyla dinlediğinde
+    // o parçalar sunucuda olduğu için raporlanmaya devam etmeli.
+    if (!trackUrl.startsWith('http')) return;
+    unawaited(() async {
+      try {
+        final client = Supabase.instance.client;
+        if (client.auth.currentUser == null) return;
+        await client.rpc(
+          'music_report',
+          params: {
+            'p_track_key': trackUrl,
+            'p_track_name': _currentTrackName,
+            'p_event': event,
+            'p_delta': deltaSeconds,
+          },
+        );
+      } catch (_) {
+        // istatistik opsiyonel; müzik etkilenmez
+      }
+    }());
+  }
+
+  void _startListenReporting({required bool isNewTrack}) {
+    _lastListenBeatAt = DateTime.now();
+    _reportMusic(isNewTrack ? 'start' : 'resume');
+    _listenTimer?.cancel();
+    _listenTimer = Timer.periodic(_listenBeat, (_) {
+      if (!isMusicPlaying) return;
+      _reportMusic('heartbeat', deltaSeconds: _flushListenSeconds());
+    });
+  }
+
+  void _stopListenReporting(String event, {String? url}) {
+    _listenTimer?.cancel();
+    _listenTimer = null;
+    final delta = _flushListenSeconds();
+    _lastListenBeatAt = null;
+    // Son dilimin süresi heartbeat olarak yazılır; ardından durum olayı.
+    if (delta > 0) _reportMusic('heartbeat', deltaSeconds: delta, url: url);
+    _reportMusic(event, url: url);
+  }
+
   /// Eksik olduğu anlaşılan sesler — tekrar tekrar denenmez.
   final Set<OkeySound> _missing = {};
 
@@ -422,25 +537,323 @@ class OkeySoundService {
   int get currentTrackIndex => _trackIndex;
 
   /// Çalma listesi — sadece isim göstermek için (dışarıya salt okunur).
-  List<({String url, String name})> get playlist =>
+  List<({String url, String name, bool isLocal})> get playlist =>
       List.unmodifiable(_playlist);
+
+  /// Çalma listesi şu an nereden geliyor?
+  MusicPlaylistSource get playlistSource => _source;
+
+  MusicRepeatMode get repeatMode => _repeatMode;
+  bool get isShuffle => _shuffle;
+
+  bool get _hasValidIndex => _trackIndex >= 0 && _trackIndex < _playlist.length;
+
+  /// Çalan (ya da sıradaki) parçanın adresi — cihaz parçalarında dosya yolu.
+  String? get currentTrackUrl =>
+      _hasValidIndex ? _playlist[_trackIndex].url : null;
+
+  /// Çalan parça kullanıcının cihazından mı?
+  bool get currentTrackIsLocal =>
+      _hasValidIndex && _playlist[_trackIndex].isLocal;
+
+  /// Sıradaki parçaların liste sırası (en çok [limit] tane).
+  ///
+  /// Karışık açıksa karışık sırayı, kapalıysa liste sırasını izler; tekrar
+  /// "tümü" ise liste sonundan başa sarar. Tam ekran oynatıcıdaki
+  /// "Sıradaki" bölümü bunu gösterir.
+  List<int> upNextIndices({int limit = 20}) {
+    final n = _playlist.length;
+    if (n < 2 || !_hasValidIndex) return const [];
+
+    final result = <int>[];
+    if (_shuffle) {
+      _ensureShuffleOrder();
+      final pos = _shuffleOrder.indexOf(_trackIndex);
+      for (var i = pos + 1; i < _shuffleOrder.length; i++) {
+        result.add(_shuffleOrder[i]);
+      }
+    } else {
+      for (var i = _trackIndex + 1; i < n; i++) {
+        result.add(i);
+      }
+      if (_repeatMode == MusicRepeatMode.all) {
+        for (var i = 0; i < _trackIndex; i++) {
+          result.add(i);
+        }
+      }
+    }
+    return result.take(limit).toList();
+  }
+
+  /// Tekrar modunu değiştirir: tümü → tek şarkı → kapalı → tümü.
+  Future<MusicRepeatMode> cycleRepeatMode() async {
+    final next = switch (_repeatMode) {
+      MusicRepeatMode.all => MusicRepeatMode.one,
+      MusicRepeatMode.one => MusicRepeatMode.off,
+      MusicRepeatMode.off => MusicRepeatMode.all,
+    };
+    await setRepeatMode(next);
+    return next;
+  }
+
+  Future<void> setRepeatMode(MusicRepeatMode mode) async {
+    _repeatMode = mode;
+    // Çalan parçaya HEMEN uygulanır: "tek şarkı"ya geçen kullanıcı, çalan
+    // şarkının bitince tekrar etmesini bekler — bir sonrakinin değil.
+    await _applyEndBehavior();
+    _notifyMusicState();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_repeatPrefsKey, mode.name);
+    } catch (_) {
+      // tercih kaydedilemezse bu oturum boyunca yine de geçerli
+    }
+  }
+
+  Future<bool> toggleShuffle() async {
+    _shuffle = !_shuffle;
+    // Karışık AÇILINCA çalan parça yerinde kalır, kalanlar karılır — çalan
+    // şarkı kesilmez ve hemen tekrar gelmez.
+    _shuffleOrder = _shuffle ? _newShuffleOrder(first: _trackIndex) : const [];
+    _notifyMusicState();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_shufflePrefsKey, _shuffle);
+    } catch (_) {
+      // tercih kaydedilemezse bu oturum boyunca yine de geçerli
+    }
+    return _shuffle;
+  }
+
+  /// Çalan parçada [position] noktasına atlar (ilerleme çubuğunu sürükleme).
+  Future<void> seekMusic(Duration position) async {
+    final p = _musicPlayer;
+    if (p == null || _playingUrl == null) return;
+    final target = position < Duration.zero ? Duration.zero : position;
+    try {
+      await p.seek(target).timeout(_musicControlTimeout);
+      musicProgress.value = (
+        position: target,
+        total: musicProgress.value.total,
+      );
+    } catch (_) {
+      // atlanamadıysa çalma olduğu yerden sürer
+    }
+  }
+
+  /// Listedeki [index]'inci parçayı çalar ("Sıradaki" listesinden seçim).
+  Future<void> playTrackAt(int index) async {
+    if (index < 0 || index >= _playlist.length) return;
+    _trackIndex = index;
+    await _playCurrentTrack();
+  }
+
+  /// Karışık sıra: [first] başta, kalanlar karışık.
+  List<int> _newShuffleOrder({int? first}) {
+    final n = _playlist.length;
+    final rest = [
+      for (var i = 0; i < n; i++)
+        if (i != first) i,
+    ]..shuffle();
+    if (first != null && first >= 0 && first < n) return [first, ...rest];
+    return rest;
+  }
+
+  /// Karışık sıra listeyle uyumsuzsa (liste değişti) yeniden kurar.
+  void _ensureShuffleOrder() {
+    if (_shuffleOrder.length != _playlist.length ||
+        !_shuffleOrder.contains(_trackIndex)) {
+      _shuffleOrder = _newShuffleOrder(first: _trackIndex);
+    }
+  }
+
+  /// Sıradaki (ya da önceki) parçanın liste sırası.
+  ///
+  /// [wrap] false ise liste sonunda null döner — tekrar KAPALIYKEN şarkı
+  /// kendi kendine bittiğinde kullanılır. Elle ⏭'e basıldığında hep sarar.
+  int? _neighbourIndex({required bool forward, required bool wrap}) {
+    final n = _playlist.length;
+    if (n == 0) return null;
+
+    if (!_shuffle) {
+      final i = _trackIndex + (forward ? 1 : -1);
+      if (i >= 0 && i < n) return i;
+      if (!wrap) return null;
+      return (i + n) % n;
+    }
+
+    _ensureShuffleOrder();
+    final pos = _shuffleOrder.indexOf(_trackIndex);
+    final i = pos + (forward ? 1 : -1);
+    if (i >= 0 && i < _shuffleOrder.length) return _shuffleOrder[i];
+    if (!wrap) return null;
+    if (!forward) return _shuffleOrder.last;
+
+    // Karışık tur bitti: yeni bir tur kur. Az önce çalan şarkı yeni turun
+    // ilk şarkısı olmasın — art arda iki kez aynı şarkı "karışık" değildir.
+    final fresh = _newShuffleOrder();
+    if (fresh.length > 1 && fresh.first == _trackIndex) {
+      fresh
+        ..removeAt(0)
+        ..insert(1, _trackIndex);
+    }
+    _shuffleOrder = fresh;
+    return fresh.first;
+  }
+
+  /// Parça bittiğinde ne olacağını oynatıcıya uygular.
+  ///
+  /// "Tek şarkı" (ya da tek parçalık listede "tümü") → oynatıcı kendi
+  /// döngüsünde çalar. Diğer durumlarda parça bitince [_onTrackCompleted]
+  /// sıradakine geçer.
+  Future<void> _applyEndBehavior() async {
+    final p = _musicPlayer;
+    if (p == null) return;
+    await _trackEndSub?.cancel();
+    _trackEndSub = null;
+
+    final loop =
+        _repeatMode == MusicRepeatMode.one ||
+        (_playlist.length == 1 && _repeatMode == MusicRepeatMode.all);
+    try {
+      await p.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.stop);
+    } catch (_) {
+      // ayarlanamazsa oynatıcının son modu geçerli kalır
+    }
+    if (!loop) {
+      _trackEndSub = p.onPlayerComplete.listen(
+        (_) => unawaited(_onTrackCompleted()),
+      );
+    }
+  }
+
+  Future<void> _onTrackCompleted() async {
+    final next = _neighbourIndex(
+      forward: true,
+      wrap: _repeatMode == MusicRepeatMode.all,
+    );
+
+    if (next == null) {
+      // Liste bitti, tekrar kapalı: DUR. Şarkı imleci başa alınır ki ▶'a
+      // basan kullanıcı listeyi baştan dinlesin.
+      if (_playingUrl != null) _stopListenReporting('stop');
+      _reachedEnd = true;
+      _musicPaused = true;
+      _playingUrl = null;
+      if (_shuffle) {
+        _shuffleOrder = _newShuffleOrder();
+        _trackIndex = _shuffleOrder.isEmpty ? 0 : _shuffleOrder.first;
+      } else {
+        _trackIndex = 0;
+      }
+      if (_hasValidIndex) _currentTrackName = _playlist[_trackIndex].name;
+      musicProgress.value = (position: Duration.zero, total: Duration.zero);
+      _notifyMusicState();
+      unawaited(_showNowPlayingNotification(_currentTrackName));
+      return;
+    }
+
+    _trackIndex = next;
+    await startMusic(restart: true);
+  }
+
+  /// [localTracksProvider] üzerinden cihaz parçalarını okur. ASLA hata
+  /// fırlatmaz: kitaplık okunamazsa liste yalnızca sunucudan gelir.
+  Future<List<({String url, String name, bool isLocal})>>
+  _loadLocalTracks() async {
+    final provider = localTracksProvider;
+    if (provider == null) return const [];
+    try {
+      final list = await provider();
+      return [
+        for (final t in list)
+          if (t.url.isNotEmpty) (url: t.url, name: t.name, isLocal: true),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Kullanıcının "Müziğim" ekranında SEÇTİĞİ listeyi devreye alır ve
+  /// [index]'teki şarkıyı çalmaya başlar.
+  ///
+  /// Hem cihaz kitaplığı hem de katalogdan kullanıcının kendi sırasıyla
+  /// dinlediği liste bu yoldan geçer. Ortak yanları, listenin KULLANICIYA ait
+  /// olması: [refreshPlaylist] artık onu ezmez.
+  Future<void> playUserPlaylist(
+    List<({String url, String name, bool isLocal})> tracks, {
+    int index = 0,
+  }) async {
+    if (tracks.isEmpty) return;
+    _source = MusicPlaylistSource.library;
+    _playlist = List.of(tracks);
+    _trackIndex = index.clamp(0, _playlist.length - 1);
+    // Yeni liste: karışık sıra dokunulan şarkıyla başlayarak yeniden kurulur.
+    _shuffleOrder = _shuffle ? _newShuffleOrder(first: _trackIndex) : const [];
+    _currentTrackName = _playlist[_trackIndex].name;
+    _musicPaused = false;
+    _notifyMusicState();
+    if (!_musicEnabled) {
+      await setMusicEnabled(true);
+      return;
+    }
+    await startMusic(restart: true);
+  }
+
+  /// Sunucu (Cizre Radyo) listesine geri döner.
+  ///
+  /// Kullanıcı kitaplığını dinlemeyi bıraktığında çağrılır; liste sunucudan
+  /// yeniden okunur ve eski davranış kaldığı yerden sürer.
+  Future<void> useRadioPlaylist({bool restart = false}) async {
+    if (_source == MusicPlaylistSource.radio) return;
+    _source = MusicPlaylistSource.radio;
+    _playlist = [];
+    _trackIndex = 0;
+    await refreshPlaylist();
+    if (restart) await startMusic(restart: true);
+  }
 
   /// Çalma listesini sunucudan tazeler.
   ///
   /// ASLA hata fırlatmaz — müzik tamamen opsiyoneldir.
   Future<void> refreshPlaylist() async {
+    // Kullanıcı kendi kitaplığını dinliyor: sunucu listesi onu EZMEMELİ.
+    // Bu metot yan menü her açıldığında çağrılıyor, yani koruma olmasaydı
+    // kullanıcının şarkısı ekran değiştirir değiştirmez kesilirdi.
+    if (_source == MusicPlaylistSource.library) return;
+
     try {
-      final rows = await Supabase.instance.client.rpc('okey_list_music');
-      final tracks = <({String url, String name})>[];
-      for (final r in (rows as List? ?? const [])) {
-        final m = r as Map;
-        final u = m['public_url'] as String?;
-        if (u == null || u.isEmpty) continue;
-        final name = (m['display_name'] as String?)?.trim();
-        tracks.add((
-          url: u,
-          name: (name == null || name.isEmpty) ? 'Şarkı' : name,
-        ));
+      final tracks = <({String url, String name, bool isLocal})>[];
+      var radioOk = false;
+      try {
+        final rows = await Supabase.instance.client.rpc('okey_list_music');
+        for (final r in (rows as List? ?? const [])) {
+          final m = r as Map;
+          final u = m['public_url'] as String?;
+          if (u == null || u.isEmpty) continue;
+          final name = (m['display_name'] as String?)?.trim();
+          tracks.add((
+            url: u,
+            name: (name == null || name.isEmpty) ? 'Şarkı' : name,
+            isLocal: false,
+          ));
+        }
+        radioOk = true;
+      } catch (_) {
+        // Sunucu listesi alınamadı (ağ, misafir oturumu). Cihaz parçaları
+        // varsa müzik yine de çalabilmeli — aşağıda onlara bakıyoruz.
+      }
+
+      // KULLANICININ CİHAZINDAKİ ŞARKILAR da listeye katılır: yan menüdeki
+      // plak kartı yalnızca sunucunun değil, kullanıcının kendi müziğini de
+      // çalar. Sunucuya hiçbir şey gitmez; dosyalar yerelden çalınır.
+      tracks.addAll(await _loadLocalTracks());
+
+      if (!radioOk) {
+        if (tracks.isEmpty) return; // Liste alınamazsa müzik çalmaz.
+        // Ağ geçici koptu: elimizdeki sunucu parçalarını atmayalım, yoksa
+        // çalan liste bir anda yalnızca cihaz şarkılarına düşerdi.
+        tracks.insertAll(0, _playlist.where((t) => !t.isLocal));
       }
       // AYNI ŞARKI KÜMESİ → SIRAYI OLDUĞU GİBİ KORU.
       //
@@ -467,6 +880,7 @@ class OkeySoundService {
           ? -1
           : tracks.indexWhere((t) => t.url == playing);
       _playlist = tracks;
+      _shuffleOrder = const [];
       _trackIndex = keepIndex >= 0 ? keepIndex : 0;
       if (_trackIndex >= _playlist.length) _trackIndex = 0;
       if (_playlist.isNotEmpty && _playingUrl == null) {
@@ -487,6 +901,12 @@ class OkeySoundService {
       _enabled = prefs.getBool(_prefsKey) ?? true;
       _musicEnabled = prefs.getBool(_musicPrefsKey) ?? true;
       _voiceEnabled = prefs.getBool(_voicePrefsKey) ?? true;
+      _shuffle = prefs.getBool(_shufflePrefsKey) ?? false;
+      final repeat = prefs.getString(_repeatPrefsKey);
+      _repeatMode = MusicRepeatMode.values.firstWhere(
+        (m) => m.name == repeat,
+        orElse: () => MusicRepeatMode.all,
+      );
     } catch (_) {
       _enabled = true;
       _musicEnabled = true;
@@ -592,6 +1012,10 @@ class OkeySoundService {
   /// sıradakine geçilir ve liste bittiğinde başa dönülür.
   Future<void> startMusic({bool restart = false}) async {
     if (!_musicEnabled || _audioUnavailable) return;
+    // Liste tekrar kapalıyken bitti: yalnızca kullanıcının açık isteği
+    // (restart) yeniden başlatır, başka ekranların çağrısı değil.
+    if (_reachedEnd && !restart) return;
+    _reachedEnd = false;
     if (_playlist.isEmpty) await refreshPlaylist();
     if (_playlist.isEmpty) return;
     if (_trackIndex >= _playlist.length) _trackIndex = 0;
@@ -624,10 +1048,6 @@ class OkeySoundService {
         try {
           _musicPlayer ??= AudioPlayer();
 
-          // Tek şarkı: döngü. Birden çok: bitince sıradakine geç.
-          await _musicPlayer!.setReleaseMode(
-            _playlist.length == 1 ? ReleaseMode.loop : ReleaseMode.stop,
-          );
           await _musicPlayer!.setVolume(0.35); // efektlerin önüne geçmesin
 
           await _trackEndSub?.cancel();
@@ -651,15 +1071,19 @@ class OkeySoundService {
             ),
             onError: (_) {},
           );
-          if (_playlist.length > 1) {
-            _trackEndSub = _musicPlayer!.onPlayerComplete.listen((_) {
-              _trackIndex = (_trackIndex + 1) % _playlist.length;
-              unawaited(startMusic(restart: true));
-            });
-          }
+          // Parça bitince ne olacağı tekrar/karışık tercihine bağlı
+          // (bkz. [_applyEndBehavior]). Varsayılan "tümü": tek şarkı
+          // döngüde, çok şarkı bitince sıradakine — eskiden olduğu gibi.
+          await _applyEndBehavior();
 
           await _musicPlayer!
-              .play(UrlSource(track.url))
+              .play(
+                // Kitaplık parçalarında `url` bir dosya yoludur; ağ üzerinden
+                // çalmaya çalışmak sessizce başarısız olurdu.
+                track.isLocal
+                    ? DeviceFileSource(track.url)
+                    : UrlSource(track.url),
+              )
               .timeout(const Duration(seconds: 5));
 
           // BU ÇAĞRI ARTIK ESKİMİŞ Mİ? Beklerken daha yeni bir startMusic()
@@ -670,11 +1094,16 @@ class OkeySoundService {
           if (myOp != _playOp) return;
 
           // Bildirim panelinde şarkı adını göster — çalma başarılı olduysa.
+          // Önceki şarkının süresini kapat, yenisini başlat.
+          if (_playingUrl != null && _playingUrl != track.url) {
+            _stopListenReporting('pause', url: _playingUrl);
+          }
           _musicPaused = false;
           _playingUrl = track.url;
           _currentTrackName = track.name;
           _notifyMusicState();
           unawaited(_showNowPlayingNotification(_currentTrackName));
+          _startListenReporting(isNewTrack: true);
         } on MissingPluginException {
           // Ses eklentisi bu derlemede hic yok (bkz. [_audioPluginMissing]).
           // Efektlerdeki kararin aynisi: bir daha denemek ayni istisnayi
@@ -704,14 +1133,24 @@ class OkeySoundService {
   /// Sıradaki şarkıya geçer.
   Future<void> nextTrack() async {
     if (_playlist.length < 2) return;
-    _trackIndex = (_trackIndex + 1) % _playlist.length;
+    _trackIndex = _neighbourIndex(forward: true, wrap: true) ?? 0;
     await _playCurrentTrack();
   }
 
   /// Önceki şarkıya geçer.
+  ///
+  /// Şarkının ilk birkaç saniyesinden sonra ⏮ önce ŞARKININ BAŞINA sarar;
+  /// ikinci basış önceki şarkıya gider. Yaygın oynatıcıların davranışı bu —
+  /// kullanıcı "bu şarkıyı baştan dinleyeyim" için ayrı bir düğme aramaz.
   Future<void> previousTrack() async {
+    if (_playingUrl != null &&
+        !_musicPaused &&
+        musicProgress.value.position > const Duration(seconds: 3)) {
+      await seekMusic(Duration.zero);
+      return;
+    }
     if (_playlist.length < 2) return;
-    _trackIndex = (_trackIndex - 1 + _playlist.length) % _playlist.length;
+    _trackIndex = _neighbourIndex(forward: false, wrap: true) ?? 0;
     await _playCurrentTrack();
   }
 
@@ -760,6 +1199,7 @@ class OkeySoundService {
       _musicPaused = true;
       _notifyMusicState();
       unawaited(_showNowPlayingNotification(_currentTrackName));
+      _stopListenReporting('pause');
     } catch (_) {
       // duraklatılamadıysa müzik çalmaya devam eder
     }
@@ -784,6 +1224,7 @@ class OkeySoundService {
       _musicPaused = false;
       _notifyMusicState();
       unawaited(_showNowPlayingNotification(_currentTrackName));
+      _startListenReporting(isNewTrack: false);
     } catch (_) {
       // devam ettirilemediyse sessizce yut
     }
@@ -797,6 +1238,12 @@ class OkeySoundService {
     await _durationSub?.cancel();
     _durationSub = null;
     musicProgress.value = (position: Duration.zero, total: Duration.zero);
+    // Dinleme istatistiği: durdurulmadan ÖNCE (çalan şarkının URL'si silinmeden).
+    if (_playingUrl != null && !_musicPaused) {
+      _stopListenReporting('stop');
+    } else if (_playingUrl != null) {
+      _reportMusic('stop');
+    }
     _musicPaused = false;
     _playingUrl = null;
     _notifyMusicState();
@@ -1331,3 +1778,20 @@ class OkeySoundService {
     _pool.clear();
   }
 }
+
+/// Fon müziğinin çalma listesi nereden besleniyor?
+///
+/// [radio] uygulamanın bugüne kadarki tek davranışıdır ve varsayılan olarak
+/// kalır: liste sunucudan (`okey_list_music`) gelir. [library] ise kullanıcının
+/// "Müziğim" ekranından çaldığı kendi dosyalarıdır — sunucuya hiç uğramaz.
+///
+/// Ayrımın tek amacı listenin KİMİN olduğunu bilmek: kullanıcının listesi
+/// sunucu tazelemesiyle ezilmemeli ve dinleme istatistiğine yazılmamalı.
+enum MusicPlaylistSource { radio, library }
+
+/// Liste bitince / şarkı bitince ne olacağı.
+///
+/// [all]: liste sonunda başa dön (varsayılan, eski davranış).
+/// [one]: çalan şarkıyı döngüde çal.
+/// [off]: liste bitince dur.
+enum MusicRepeatMode { off, all, one }

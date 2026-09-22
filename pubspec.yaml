@@ -171,4 +171,11 @@ flutter:
     - assets/logos/app_logo.png
     - assets/logos/cizreapp_logo.jpg
 
-  
+  # 101 Okey "Salon" tasarım dili: başlık, çip sayısı ve taş numaraları için
+  # serif ekran yazı tipi (SIL OFL — lisans assets/fonts/OFL-Fraunces.txt).
+  fonts:
+    - family: Fraunces
+      fonts:
+        - asset: assets/fonts/Fraunces-ExtraBold.ttf
+          weight: 800
+

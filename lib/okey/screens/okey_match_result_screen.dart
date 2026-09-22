@@ -428,7 +428,7 @@ class _Header extends StatelessWidget {
           ? Icons.balance
           : (iWon ? Icons.emoji_events : Icons.emoji_events_outlined),
       size: 46,
-      color: iWon ? OkeyColors.accentGold : OkeyUI.textFaint,
+      color: iWon ? OkeyUI.brass : OkeyUI.textFaint,
     );
 
     return Column(
@@ -449,7 +449,7 @@ class _Header extends StatelessWidget {
               .then()
               .shimmer(
                 duration: 900.ms,
-                color: OkeyColors.accentGold.withValues(alpha: 0.6),
+                color: OkeyUI.brass.withValues(alpha: 0.6),
               ),
         const SizedBox(height: OkeyUI.gapSm),
         // Başlık FittedBox içinde: büyütülmüş yazı tipiyle 24px'lik metin dar
@@ -460,13 +460,10 @@ class _Header extends StatelessWidget {
           child: Text(
             title,
             maxLines: 1,
-            style: TextStyle(
-              fontSize: 26,
-              height: 1.1,
-              fontWeight: FontWeight.w900,
-              color: iWon ? OkeyColors.accentGold : OkeyUI.text,
-              letterSpacing: 0.5,
-            ),
+            style: OkeyUI.display(
+              size: 28,
+              color: iWon ? OkeyUI.brass : OkeyUI.text,
+            ).copyWith(letterSpacing: 0.5),
           ),
         ).animate().fadeIn(delay: 200.ms, duration: 300.ms),
         const SizedBox(height: 4),
@@ -544,7 +541,7 @@ class _TeamCard extends StatelessWidget {
                 '$score',
                 maxLines: 1,
                 style: TextStyle(
-                  color: won ? OkeyColors.accentGold : OkeyUI.text,
+                  color: won ? OkeyUI.brass : OkeyUI.text,
                   fontSize: 26,
                   height: 1.1,
                   fontWeight: FontWeight.w900,
@@ -578,7 +575,7 @@ class _PlayerRow extends StatelessWidget {
   });
 
   Color get _rankColor => switch (rank) {
-    1 => OkeyColors.accentGold,
+    1 => OkeyUI.brass,
     2 => const Color(0xFFB0BEC5),
     3 => const Color(0xFFA1887F),
     _ => OkeyUI.textFaint,
@@ -634,7 +631,7 @@ class _PlayerRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: OkeyUI.title.copyWith(
-                    color: isMe ? OkeyColors.accentGold : OkeyUI.text,
+                    color: isMe ? OkeyUI.brass : OkeyUI.text,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -667,7 +664,7 @@ class _PlayerRow extends StatelessWidget {
                 '$score',
                 maxLines: 1,
                 style: TextStyle(
-                  color: rank == 1 ? OkeyColors.accentGold : OkeyUI.textDim,
+                  color: rank == 1 ? OkeyUI.brass : OkeyUI.textDim,
                   fontWeight: FontWeight.w900,
                   fontSize: 20,
                 ),
@@ -750,13 +747,13 @@ class _PayoutLine extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.stars, size: 12, color: OkeyColors.accentGold),
+              Icon(Icons.stars, size: 12, color: OkeyUI.brass),
               const SizedBox(width: 3),
               Text(
                 '+${_fmt(payout.won)} kazandı',
                 maxLines: 1,
                 style: OkeyUI.caption.copyWith(
-                  color: OkeyColors.accentGold,
+                  color: OkeyUI.brass,
                   fontWeight: FontWeight.w800,
                 ),
               ),

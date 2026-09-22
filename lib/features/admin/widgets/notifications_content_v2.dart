@@ -1,1921 +1,603 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
 
-/// ⚡ GELİŞTİRİLMİŞ Modern Admin Bildirimler Yönetim Ekranı
-/// - Kişiye özel bildirim gönderme
-/// - Modern UI/UX tasarımı
-/// - Gelişmiş istatistikler
-/// - Direct push notification desteği
+import '../../../core/models/admin_notification_model.dart';
+import '../../../core/services/admin_notification_service.dart';
+import '../screens/admin_notification_composer_screen.dart';
+import 'admin_notification_detail_sheet.dart';
+import 'admin_notification_widgets.dart';
+import 'admin_ui.dart';
+
+/// Admin > Bildirimler (Bildirim Merkezi).
+///
+/// Kullanıcılara toplu (herkes / müşteri / satıcı / kurye) ya da kişiye özel
+/// bildirim gönderir; gönderilenleri listeler, okunma oranını gösterir,
+/// düzenletir, tekrar gönderir, siler; zamanlanmışları yönetir.
 class NotificationsContentV2 extends StatefulWidget {
-  const NotificationsContentV2({super.key});
+  const NotificationsContentV2({super.key, this.service});
+
+  /// Testlerde sahte servis vermek için.
+  final AdminNotificationService? service;
 
   @override
   State<NotificationsContentV2> createState() => _NotificationsContentV2State();
 }
 
+enum _Filter { all, broadcast, personal, scheduled }
+
 class _NotificationsContentV2State extends State<NotificationsContentV2> {
-  /// Supabase client'ı güvenli şekilde al (lazy)
-  SupabaseClient get _client {
-    try {
-      return Supabase.instance.client;
-    } catch (e) {
-      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
-      rethrow;
-    }
-  }
+  late final AdminNotificationService _service =
+      widget.service ?? AdminNotificationService();
 
-  bool _isLoading = true;
+  List<AdminNotification> _all = const [];
+  bool _loading = true;
+  String? _error;
 
-  // İstatistikler
-  int _totalSent = 0;
-  int _totalDelivered = 0;
-  int _totalRead = 0;
-  int _totalFailed = 0;
-  int _totalPending = 0;
+  _Filter _filter = _Filter.all;
+  String _query = '';
+  final TextEditingController _searchC = TextEditingController();
 
-  // Push bildirimleri listesi
-  List<Map<String, dynamic>> _pushNotifications = [];
+  // Çoklu seçim (karta uzun basınca).
+  final Set<String> _selected = {};
 
-  // Kişiye özel bildirim için değişkenler
-  bool isLoadingUsers = false;
-  List<Map<String, dynamic>> usersList = [];
-  String userSearchQuery = '';
+  // Zamanlanmış bildirim varken liste kendini yeniler; gönderilince "Gönderildi" olsun.
+  Timer? _ticker;
+
+  bool get _selecting => _selected.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-
-    try {
-      // Admin tarafından gönderilen bildirimleri iki kaynaktan oku:
-      // 1) notifications tablosu: kişiye özel gönderimler (her kullanıcı için satır var)
-      // 2) admin_broadcasts tablosu: toplu (tümü/müşteriler/satıcılar) gönderimler.
-      // Çift bildirim sorununu önlemek için toplu gönderimler artık sadece
-      // admin_broadcasts tablosuna yazılıyor; burada her iki kaynak da gösterilir.
-
-      final List<Map<String, dynamic>> allNotifications = [];
-
-      // 1) Kişisel bildirimler
-      try {
-        final notificationsResponse = await _client
-            .from('notifications')
-            .select(
-              'id, user_id, type, title, content, is_read, created_at, entity_id',
-            )
-            .eq('type', 'admin_notification')
-            .order('created_at', ascending: false)
-            .limit(1000);
-        allNotifications.addAll(
-          List<Map<String, dynamic>>.from(notificationsResponse),
-        );
-      } catch (e) {
-        debugPrint('Kişisel bildirimler yüklenemedi: $e');
-      }
-
-      // 2) Toplu broadcast bildirimler
-      try {
-        final broadcastsResponse = await _client
-            .from('admin_broadcasts')
-            .select(
-              'id, title, content, icon_type, target_audience, created_at',
-            )
-            .order('created_at', ascending: false)
-            .limit(1000);
-        for (final b in List<Map<String, dynamic>>.from(broadcastsResponse)) {
-          // Broadcast'leri notifications tablosundaki gibi bir forma çevir.
-          // Toplu gönderim olduğu için sent_count/total_recipients = 1 (tek kampanya),
-          // ama liste görünümünde "broadcast" etiketiyle gösterilecek.
-          allNotifications.add({
-            'id': 'broadcast_${b['id']}',
-            'user_id': null,
-            'type': 'admin_broadcast',
-            'title': b['title'],
-            'content': b['content'],
-            'is_read': false,
-            'created_at': b['created_at'],
-            'entity_id': 'admin_icon:${b['icon_type'] ?? 'announcement'}',
-            '_is_broadcast': true,
-            '_target_audience': b['target_audience'],
-          });
-        }
-      } catch (e) {
-        debugPrint(
-          'Broadcast bildirimleri yüklenemedi (tablo yok olabilir): $e',
-        );
-      }
-
-      // Tarihe göre azalan sırada birleştir
-      allNotifications.sort((a, b) {
-        final ad = a['created_at']?.toString() ?? '';
-        final bd = b['created_at']?.toString() ?? '';
-        return bd.compareTo(ad);
-      });
-
-      // Grupla: Aynı title+content+a dakika hassasiyetine sahip bildirimleri birleştir.
-      final Map<String, Map<String, dynamic>> groupedNotifications = {};
-
-      for (var notif in allNotifications) {
-        final createdAtStr = notif['created_at']?.toString() ?? '';
-        final createdAtKey = createdAtStr.length >= 16
-            ? createdAtStr.substring(0, 16)
-            : createdAtStr;
-        final key = '${notif['title']}|${notif['content']}|$createdAtKey';
-
-        if (groupedNotifications.containsKey(key)) {
-          final isBroadcast = notif['_is_broadcast'] == true;
-          if (!isBroadcast && notif['user_id'] != null) {
-            groupedNotifications[key]!['recipients'] =
-                (groupedNotifications[key]!['recipients'] as List) +
-                [notif['user_id']];
-            final recipientCount =
-                (groupedNotifications[key]!['recipients'] as List).length;
-            groupedNotifications[key]!['sent_count'] = recipientCount;
-            groupedNotifications[key]!['delivered_count'] = recipientCount;
-            groupedNotifications[key]!['total_recipients'] = recipientCount;
-            if (notif['is_read'] == true) {
-              groupedNotifications[key]!['read_count'] =
-                  (groupedNotifications[key]!['read_count'] as int) + 1;
-            } else {
-              groupedNotifications[key]!['pending_count'] =
-                  (groupedNotifications[key]!['pending_count'] as int) + 1;
-            }
-          }
-        } else {
-          final isBroadcast = notif['_is_broadcast'] == true;
-          groupedNotifications[key] = {
-            'id': notif['id'],
-            'title': notif['title'],
-            'body': notif['content'],
-            'created_at': notif['created_at'],
-            'type': notif['type'],
-            'entity_id': notif['entity_id'],
-            'sent_count': isBroadcast ? 1 : 1,
-            'delivered_count': isBroadcast ? 1 : 1,
-            'read_count': (!isBroadcast && notif['is_read'] == true) ? 1 : 0,
-            'failed_count': 0,
-            'pending_count': (!isBroadcast && notif['is_read'] == false)
-                ? 1
-                : 0,
-            'total_recipients': isBroadcast ? 1 : 1,
-            'status': 'sent',
-            'recipients': isBroadcast ? <String>[] : [notif['user_id']],
-            'is_broadcast': isBroadcast,
-            'target_audience': notif['_target_audience'],
-          };
-        }
-      }
-
-      // İstatistikleri hesapla
-      int totalSent = 0;
-      int totalRead = 0;
-      int totalPending = 0;
-
-      for (var group in groupedNotifications.values) {
-        totalSent += group['total_recipients'] as int;
-        totalRead += group['read_count'] as int;
-        totalPending += group['pending_count'] as int;
-      }
-
-      if (mounted) {
-        setState(() {
-          _pushNotifications = groupedNotifications.values.toList()
-            ..sort((a, b) {
-              final aDate = a['created_at'] as String;
-              final bDate = b['created_at'] as String;
-              return bDate.compareTo(aDate);
-            });
-          _totalSent = totalSent;
-          _totalDelivered = totalSent;
-          _totalRead = totalRead;
-          _totalFailed = 0;
-          _totalPending = totalPending;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Bildirimler yüklenirken hata: $e');
-      if (mounted) setState(() => _isLoading = false);
-    }
+    _load();
+    _ticker = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted && _all.any((n) => n.isScheduled)) _load(silent: true);
+    });
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+  void dispose() {
+    _ticker?.cancel();
+    _searchC.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Veri
+  // ---------------------------------------------------------------------------
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
     }
-
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            _buildHeader(),
-            const SizedBox(height: 24),
-
-            // İstatistik Kartları Grid
-            _buildStatsGrid(),
-            const SizedBox(height: 24),
-
-            // Detaylı İstatistikler Kartı
-            _buildDetailedStatsCard(),
-            const SizedBox(height: 24),
-
-            // Son Gönderilen Bildirimler
-            _buildNotificationsList(),
-          ],
-        ),
-      ),
-    );
+    try {
+      final list = await _service.history();
+      if (!mounted) return;
+      setState(() {
+        _all = list;
+        _loading = false;
+        _error = null;
+        // Silinmiş/artık olmayan satırlar seçimde kalmasın.
+        _selected.removeWhere((id) => !list.any((n) => n.id == id));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        if (!silent || _all.isEmpty) _error = adminNotifError(e);
+      });
+    }
   }
 
-  Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Push Bildirimleri',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Kullanıcılara anında bildirim gönderin',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        ElevatedButton.icon(
-          onPressed: () => _showSendNotificationDialog(),
-          icon: const Icon(Icons.send_rounded, size: 18),
-          label: const Text('Bildirim Gönder'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue.shade600,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 2,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatsGrid() {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 3,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 1.15,
-      children: [
-        _buildModernStatCard(
-          icon: Icons.send_rounded,
-          title: 'Gönderilen',
-          value: _totalSent.toString(),
-          color: Colors.blue,
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade400, Colors.blue.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        _buildModernStatCard(
-          icon: Icons.check_circle_rounded,
-          title: 'Teslim Edilen',
-          value: _totalDelivered.toString(),
-          color: Colors.green,
-          gradient: LinearGradient(
-            colors: [Colors.green.shade400, Colors.green.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        _buildModernStatCard(
-          icon: Icons.visibility_rounded,
-          title: 'Okunan',
-          value: _totalRead.toString(),
-          color: Colors.purple,
-          gradient: LinearGradient(
-            colors: [Colors.purple.shade400, Colors.purple.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        _buildModernStatCard(
-          icon: Icons.cancel_rounded,
-          title: 'Başarısız',
-          value: _totalFailed.toString(),
-          color: Colors.red,
-          gradient: LinearGradient(
-            colors: [Colors.red.shade400, Colors.red.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        _buildModernStatCard(
-          icon: Icons.pending_rounded,
-          title: 'Bekleyen',
-          value: _totalPending.toString(),
-          color: Colors.orange,
-          gradient: LinearGradient(
-            colors: [Colors.orange.shade400, Colors.orange.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        _buildModernStatCard(
-          icon: Icons.people_rounded,
-          title: 'Toplam Alıcı',
-          value: _pushNotifications.isEmpty
-              ? '0'
-              : _pushNotifications
-                    .fold<int>(
-                      0,
-                      (sum, n) => sum + ((n['total_recipients'] as int?) ?? 0),
-                    )
-                    .toString(),
-          color: Colors.teal,
-          gradient: LinearGradient(
-            colors: [Colors.teal.shade400, Colors.teal.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildModernStatCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color color,
-    required Gradient gradient,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: gradient,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 20),
-                ),
-                Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      value,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailedStatsCard() {
-    final readRate = _totalSent > 0
-        ? (_totalRead / _totalSent * 100).toStringAsFixed(1)
-        : '0.0';
-    final deliveryRate = _totalSent > 0
-        ? (_totalDelivered / _totalSent * 100).toStringAsFixed(1)
-        : '0.0';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.analytics_rounded,
-                  color: Colors.blue.shade600,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Detaylı İstatistikler',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Progress Bar - Okuma Oranı
-            _buildProgressRow(
-              label: 'Okuma Oranı',
-              percentage: double.tryParse(readRate) ?? 0,
-              value: '$readRate%',
-              color: Colors.purple,
-            ),
-            const SizedBox(height: 16),
-
-            // Progress Bar - Teslimat Oranı
-            _buildProgressRow(
-              label: 'Teslimat Oranı',
-              percentage: double.tryParse(deliveryRate) ?? 0,
-              value: '$deliveryRate%',
-              color: Colors.green,
-            ),
-            const SizedBox(height: 16),
-
-            const Divider(),
-            const SizedBox(height: 16),
-
-            // Info Row - Toplam Bildirim
-            _buildInfoRow(
-              Icons.notifications_active_rounded,
-              'Toplam Bildirim Kampanyası',
-              '${_pushNotifications.length}',
-              Colors.blue,
-            ),
-            const SizedBox(height: 12),
-
-            // Info Row - Son Gönderim
-            if (_pushNotifications.isNotEmpty)
-              _buildInfoRow(
-                Icons.access_time_rounded,
-                'Son Gönderim',
-                _formatDate(_pushNotifications.first['created_at']),
-                Colors.grey,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressRow({
-    required String label,
-    required double percentage,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: percentage / 100,
-            backgroundColor: color.withOpacity(0.1),
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            minHeight: 8,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value, Color color) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: color, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNotificationsList() {
-    if (_pushNotifications.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(48),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.notifications_none_rounded,
-              size: 64,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Henüz bildirim gönderilmemiş',
-              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Yukarıdaki butondan ilk bildirimi gönder',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-            ),
-          ],
+  void _snack(String text, {bool error = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          backgroundColor: error ? Colors.red.shade700 : null,
+          behavior: SnackBarBehavior.floating,
         ),
       );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.history_rounded, color: Colors.grey.shade700, size: 22),
-            const SizedBox(width: 8),
-            const Text(
-              'Son Gönderilen Bildirimler',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        ...List.generate(_pushNotifications.length, (index) {
-          final notif = _pushNotifications[index];
-          return _buildNotificationCard(notif);
-        }),
-      ],
-    );
   }
 
-  Widget _buildNotificationCard(Map<String, dynamic> notif) {
-    final status = notif['status'] as String? ?? 'pending';
-    final statusColor = _getStatusColor(status);
-    final statusLabel = _getStatusLabel(status);
+  // ---------------------------------------------------------------------------
+  // Eylemler
+  // ---------------------------------------------------------------------------
 
-    final sentCount = notif['sent_count'] ?? 0;
-    final deliveredCount = notif['delivered_count'] ?? 0;
-    final readCount = notif['read_count'] ?? 0;
-    final failedCount = notif['failed_count'] ?? 0;
-    final totalRecipients = notif['total_recipients'] ?? 0;
-
-    // entity_id'den ikon tipini al (format: "admin_icon:discount")
-    final entityId = notif['entity_id'] as String? ?? '';
-    String? iconType;
-    if (entityId.startsWith('admin_icon:')) {
-      iconType = entityId.replaceFirst('admin_icon:', '');
-    }
-    final hasCustomIcon = iconType != null && iconType.isNotEmpty;
-    final notifIcon = hasCustomIcon
-        ? getAdminNotificationIcon(iconType)
-        : _getStatusIcon(status);
-    final notifIconColor = hasCustomIcon
-        ? getAdminNotificationColor(iconType)
-        : statusColor;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _showNotificationDetails(notif),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header Row
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: notifIconColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(notifIcon, color: notifIconColor, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          notif['title'] ?? '-',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _formatDate(notif['created_at']),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      statusLabel,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: statusColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Body - tam metin gösterimi (maxLines sınırı yok)
-              Text(
-                notif['body'] ?? '-',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade700,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Stats Row
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                children: [
-                  _buildMiniStat(
-                    Icons.send_rounded,
-                    sentCount.toString(),
-                    'Gönderilen',
-                    Colors.blue,
-                  ),
-                  _buildMiniStat(
-                    Icons.check_circle_rounded,
-                    deliveredCount.toString(),
-                    'Teslim',
-                    Colors.green,
-                  ),
-                  _buildMiniStat(
-                    Icons.visibility_rounded,
-                    readCount.toString(),
-                    'Okunan',
-                    Colors.purple,
-                  ),
-                  if (failedCount > 0)
-                    _buildMiniStat(
-                      Icons.cancel_rounded,
-                      failedCount.toString(),
-                      'Başarısız',
-                      Colors.red,
-                    ),
-                ],
-              ),
-
-              // Progress Bar
-              if (totalRecipients > 0) ...[
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: sentCount / totalRecipients,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-                    minHeight: 4,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$sentCount / $totalRecipients kişiye gönderildi',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                ),
-              ],
-            ],
-          ),
+  Future<void> _openComposer({
+    AdminNotifComposerMode mode = AdminNotifComposerMode.create,
+    AdminNotification? source,
+  }) async {
+    final message = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminNotificationComposerScreen(
+          mode: mode,
+          source: source,
+          service: widget.service,
         ),
       ),
     );
-  }
-
-  Widget _buildMiniStat(
-    IconData icon,
-    String value,
-    String label,
-    Color color,
-  ) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(width: 2),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-        ),
-      ],
-    );
-  }
-
-  void _showNotificationDetails(Map<String, dynamic> notif) {
-    // entity_id'den ikon tipini al
-    final entityId = notif['entity_id'] as String? ?? '';
-    String? iconType;
-    if (entityId.startsWith('admin_icon:')) {
-      iconType = entityId.replaceFirst('admin_icon:', '');
+    if (message != null && mounted) {
+      _snack(message);
+      _load(silent: true);
     }
-    final hasCustomIcon = iconType != null && iconType.isNotEmpty;
-    final notifIcon = hasCustomIcon
-        ? getAdminNotificationIcon(iconType)
-        : Icons.notifications_rounded;
-    final notifIconColor = hasCustomIcon
-        ? getAdminNotificationColor(iconType)
-        : Colors.blue;
+  }
 
-    showDialog(
+  Future<void> _openDetail(AdminNotification n) async {
+    final action = await showAdminNotificationDetail(
+      context,
+      item: n,
+      service: widget.service,
+    );
+    if (action != null && mounted) await _handle(action, n);
+  }
+
+  Future<void> _handle(AdminNotifAction action, AdminNotification n) async {
+    switch (action) {
+      case AdminNotifAction.detail:
+        await _openDetail(n);
+      case AdminNotifAction.edit:
+        await _openComposer(mode: AdminNotifComposerMode.edit, source: n);
+      case AdminNotifAction.duplicate:
+        await _openComposer(mode: AdminNotifComposerMode.duplicate, source: n);
+      case AdminNotifAction.sendNow:
+        await _sendNow(n);
+      case AdminNotifAction.delete:
+        await _delete([n]);
+    }
+  }
+
+  Future<void> _sendNow(AdminNotification n) async {
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: notifIconColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(notifIcon, color: notifIconColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                notif['title'] ?? '-',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Bildirim içeriği - tam metin (maxLines yok)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  notif['body'] ?? '-',
-                  style: const TextStyle(fontSize: 14, height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Divider(),
-              const SizedBox(height: 12),
-              _buildDetailRow('Durum', _getStatusLabel(notif['status'])),
-              if (hasCustomIcon)
-                _buildDetailRow('İkon', _getIconTypeLabel(iconType)),
-              _buildDetailRow(
-                'Toplam Alıcı',
-                '${notif['total_recipients'] ?? 0}',
-              ),
-              _buildDetailRow('Gönderilen', '${notif['sent_count'] ?? 0}'),
-              _buildDetailRow(
-                'Teslim Edilen',
-                '${notif['delivered_count'] ?? 0}',
-              ),
-              _buildDetailRow('Okunan', '${notif['read_count'] ?? 0}'),
-              _buildDetailRow('Başarısız', '${notif['failed_count'] ?? 0}'),
-              _buildDetailRow('Bekleyen', '${notif['pending_count'] ?? 0}'),
-              _buildDetailRow('Oluşturma', _formatDate(notif['created_at'])),
-              if (notif['sent_at'] != null)
-                _buildDetailRow('Gönderim', _formatDate(notif['sent_at'])),
-            ],
-          ),
+        title: const Text('Şimdi gönderilsin mi?'),
+        content: Text(
+          '"${n.title}" bildirimi ${n.audienceLabel} için '
+          '${adminDateTime(n.scheduledFor)} tarihine zamanlanmıştı. Hemen gönderilecek.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Kapat'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AdminUi.brand),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Gönder'),
           ),
         ],
       ),
     );
-  }
-
-  /// İkon tipi etiketini döndür
-  String _getIconTypeLabel(String? iconType) {
-    switch (iconType) {
-      case 'announcement':
-        return 'Duyuru';
-      case 'discount':
-        return 'İndirim';
-      case 'campaign':
-        return 'Kampanya';
-      case 'news':
-        return 'Haber';
-      case 'event':
-        return 'Etkinlik';
-      case 'update':
-        return 'Güncelleme';
-      case 'warning':
-        return 'Uyarı';
-      case 'gift':
-        return 'Hediye';
-      case 'info':
-        return 'Bilgi';
-      default:
-        return 'Varsayılan';
+    if (ok != true) return;
+    try {
+      final r = await _service.sendNow(n.id);
+      _snack('${adminCompact(r.recipientCount)} kişiye gönderildi');
+      _load(silent: true);
+    } catch (e) {
+      _snack('Gönderilemedi: ${adminNotifError(e)}', error: true);
     }
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontWeight: FontWeight.w500,
-            ),
+  Future<void> _delete(List<AdminNotification> items) async {
+    if (items.isEmpty) return;
+    final single = items.length == 1 ? items.first : null;
+    final scheduledOnly = items.every((n) => n.isScheduled);
+    final title = single != null
+        ? (single.isScheduled ? 'Zamanlama iptal edilsin mi?' : 'Bildirim silinsin mi?')
+        : '${items.length} bildirim silinsin mi?';
+    final body = scheduledOnly
+        ? 'Zamanlanmış gönderim iptal edilir; kimseye gönderilmez.'
+        : 'Bildirim alıcıların bildirim kutusundan ve uygulamadaki Duyurular '
+            'bölümünden de kalkar; henüz gitmemiş push iptal olur. Cihazlara '
+            'çoktan giden push geri alınamaz. Bu işlem geri alınamaz.';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(title),
+        content: Text(
+          single != null ? '"${single.title}"\n\n$body' : body,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
           ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(scheduledOnly ? 'İptal et' : 'Sil'),
+          ),
         ],
       ),
     );
-  }
-
-  /// ⚡ GELİŞTİRİLMİŞ: Bildirim gönderme dialogu - Kişiye özel bildirim desteği + İkon seçimi
-  void _showSendNotificationDialog() {
-    final titleController = TextEditingController();
-    final bodyController = TextEditingController();
-    String targetAudience = 'all';
-    String? selectedUserId;
-    String selectedUserName = '';
-    String selectedIconType = 'announcement'; // Varsayılan ikon
-    bool isSending = false;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                Icons.notifications_active_rounded,
-                color: Colors.blue.shade600,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Push Bildirim Gönder',
-                  style: TextStyle(fontSize: 16),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 500),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Başlık
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Başlık',
-                        border: InputBorder.none,
-                        prefixIcon: Icon(Icons.title),
-                        contentPadding: EdgeInsets.all(16),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Mesaj
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TextField(
-                      controller: bodyController,
-                      decoration: const InputDecoration(
-                        labelText: 'Mesaj',
-                        border: InputBorder.none,
-                        prefixIcon: Icon(Icons.message),
-                        contentPadding: EdgeInsets.all(16),
-                      ),
-                      maxLines: 3,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 🎯 İkon Seçimi
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.purple.shade100),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.emoji_emotions_rounded,
-                              color: Colors.purple.shade700,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Bildirim İkonu',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.purple.shade800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _buildIconChip(
-                              label: 'Duyuru',
-                              icon: Icons.campaign_rounded,
-                              color: Colors.blue,
-                              isSelected: selectedIconType == 'announcement',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'announcement',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'İndirim',
-                              icon: Icons.discount_rounded,
-                              color: Colors.red,
-                              isSelected: selectedIconType == 'discount',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'discount',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Kampanya',
-                              icon: Icons.local_offer_rounded,
-                              color: Colors.orange,
-                              isSelected: selectedIconType == 'campaign',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'campaign',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Haber',
-                              icon: Icons.newspaper_rounded,
-                              color: Colors.teal,
-                              isSelected: selectedIconType == 'news',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'news',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Etkinlik',
-                              icon: Icons.event_rounded,
-                              color: Colors.purple,
-                              isSelected: selectedIconType == 'event',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'event',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Güncelleme',
-                              icon: Icons.system_update_rounded,
-                              color: Colors.green,
-                              isSelected: selectedIconType == 'update',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'update',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Uyarı',
-                              icon: Icons.warning_amber_rounded,
-                              color: Colors.amber,
-                              isSelected: selectedIconType == 'warning',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'warning',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Hediye',
-                              icon: Icons.card_giftcard_rounded,
-                              color: Colors.pink,
-                              isSelected: selectedIconType == 'gift',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'gift',
-                              ),
-                            ),
-                            _buildIconChip(
-                              label: 'Bilgi',
-                              icon: Icons.info_rounded,
-                              color: Colors.indigo,
-                              isSelected: selectedIconType == 'info',
-                              onTap: () => setDialogState(
-                                () => selectedIconType = 'info',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Hedef kitle seçimi
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.people_rounded,
-                              color: Colors.grey.shade700,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Hedef Kitle',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            _buildTargetChip(
-                              label: 'Tümü',
-                              icon: Icons.public,
-                              isSelected: targetAudience == 'all',
-                              onTap: () => setDialogState(() {
-                                targetAudience = 'all';
-                                selectedUserId = null;
-                              }),
-                            ),
-                            _buildTargetChip(
-                              label: 'Müşteriler',
-                              icon: Icons.person,
-                              isSelected: targetAudience == 'customers',
-                              onTap: () => setDialogState(() {
-                                targetAudience = 'customers';
-                                selectedUserId = null;
-                              }),
-                            ),
-                            _buildTargetChip(
-                              label: 'Satıcılar',
-                              icon: Icons.store,
-                              isSelected: targetAudience == 'sellers',
-                              onTap: () => setDialogState(() {
-                                targetAudience = 'sellers';
-                                selectedUserId = null;
-                              }),
-                            ),
-                            _buildTargetChip(
-                              label: 'Kişisel',
-                              icon: Icons.person_pin_rounded,
-                              isSelected: targetAudience == 'personal',
-                              onTap: () async {
-                                setDialogState(
-                                  () => targetAudience = 'personal',
-                                );
-                                await _loadUsersForPersonalNotification(
-                                  setDialogState,
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Kişi seçimi
-                  if (targetAudience == 'personal') ...[
-                    const SizedBox(height: 10),
-                    // Arama TextField
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      child: TextField(
-                        onChanged: (value) {
-                          setDialogState(() => userSearchQuery = value);
-                        },
-                        decoration: InputDecoration(
-                          hintText: 'Kullanıcı ara...',
-                          border: InputBorder.none,
-                          prefixIcon: Icon(
-                            Icons.search,
-                            color: Colors.grey.shade600,
-                            size: 20,
-                          ),
-                          hintStyle: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade500,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (usersList.isNotEmpty)
-                      Container(
-                        height: 180,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: isLoadingUsers
-                            ? const Center(child: CircularProgressIndicator())
-                            : ListView.builder(
-                                itemCount: _filterUsers(
-                                  userSearchQuery,
-                                ).take(20).length,
-                                itemBuilder: (context, index) {
-                                  final user = _filterUsers(
-                                    userSearchQuery,
-                                  )[index];
-                                  final isSelected =
-                                      selectedUserId == user['id'];
-                                  return InkWell(
-                                    onTap: () {
-                                      setDialogState(() {
-                                        selectedUserId = user['id'];
-                                        selectedUserName =
-                                            user['full_name'] ??
-                                            user['username'] ??
-                                            '';
-                                      });
-                                    },
-                                    child: Container(
-                                      margin: const EdgeInsets.only(bottom: 6),
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? Colors.blue.shade100
-                                            : Colors.white,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: isSelected
-                                              ? Colors.blue.shade300
-                                              : Colors.transparent,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 16,
-                                            backgroundImage:
-                                                user['avatar_url'] != null
-                                                ? NetworkImage(
-                                                    user['avatar_url'],
-                                                  )
-                                                : null,
-                                            child: user['avatar_url'] == null
-                                                ? Text(
-                                                    (user['username']
-                                                                as String? ??
-                                                            '?')[0]
-                                                        .toUpperCase(),
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                    ),
-                                                  )
-                                                : null,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  user['full_name'] ??
-                                                      user['username'] ??
-                                                      '-',
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 13,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                Text(
-                                                  '@${user['username'] ?? '-'}',
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade600,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (isSelected)
-                                            const Icon(
-                                              Icons.check_circle,
-                                              color: Colors.blue,
-                                              size: 18,
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    if (usersList.isEmpty && !isLoadingUsers)
-                      Container(
-                        height: 80,
-                        alignment: Alignment.center,
-                        child: Text(
-                          userSearchQuery.isNotEmpty
-                              ? 'Sonuç bulunamadı'
-                              : 'Kullanıcı yükleniyor...',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    if (selectedUserId != null)
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.check_circle,
-                              color: Colors.blue,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Seçili: $selectedUserName',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.blue.shade800,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-
-                  const SizedBox(height: 10),
-
-                  // Uyarı mesajı
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.orange.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.orange.shade700,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Push bildirimleri Firebase FCM üzerinden gönderilir',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange.shade900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSending ? null : () => Navigator.pop(context),
-              child: const Text('İptal'),
-            ),
-            ElevatedButton.icon(
-              onPressed: isSending
-                  ? null
-                  : () async {
-                      if (titleController.text.isEmpty ||
-                          bodyController.text.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Başlık ve mesaj alanlarını doldurun',
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
-
-                      if (targetAudience == 'personal' &&
-                          selectedUserId == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Lütfen bir kullanıcı seçin'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                        return;
-                      }
-
-                      setDialogState(() => isSending = true);
-
-                      try {
-                        final title = titleController.text.trim();
-                        final body = bodyController.text.trim();
-                        // 2026-08-02 push pipeline refaktörü:
-                        // - İstemci FCM token SELECT etmez, functions.invoke
-                        //   ile push göndermez.
-                        // - Kişisel bildirim: public.admin_send_personal_notification
-                        //   RPC'si çağrılır (admin rolü server-side doğrulanır,
-                        //   audit kaydı oluşur, notifications INSERT yapılır,
-                        //   outbox trigger'ı push'u güvenli şekilde planlar).
-                        // - Toplu bildirim: public.admin_broadcast_notification
-                        //   RPC'si çağrılır (audit + admin_broadcasts INSERT;
-                        //   topic push gönderilmez).
-
-                        int sentCount = 0;
-
-                        if (targetAudience == 'personal') {
-                          // Kişiye özel bildirim: dar kapsamlı admin RPC.
-                          // Sunucu tarafında: admin kontrolü, başlık/içerik
-                          // uzunluk sınırı, audit, notifications INSERT.
-                          // Push: outbox trigger + worker.
-                          try {
-                            await _client.rpc(
-                              'admin_send_personal_notification',
-                              params: {
-                                'p_user_id': selectedUserId,
-                                'p_title': title,
-                                'p_content': body,
-                                'p_icon_type': selectedIconType,
-                              },
-                            );
-                            debugPrint(
-                              '✅ Kişisel admin bildirimi RPC üzerinden gönderildi',
-                            );
-                            sentCount = 1;
-                          } on PostgrestException catch (e) {
-                            debugPrint(
-                              '⚠️ Kişisel admin bildirimi başarısız: ${e.code} ${e.message}',
-                            );
-                            rethrow;
-                          }
-                        } else {
-                          // Toplu bildirim: dar kapsamlı admin RPC.
-                          // Topic push gönderilmez; sadece admin_broadcasts
-                          // tablosuna yazılır. Kullanıcılar mevcut realtime
-                          // kanalı veya liste yenileme ile görür.
-                          String targetAudienceKey;
-                          switch (targetAudience) {
-                            case 'customers':
-                              targetAudienceKey = 'customers';
-                              break;
-                            case 'sellers':
-                              targetAudienceKey = 'sellers';
-                              break;
-                            case 'all':
-                            default:
-                              targetAudienceKey = 'all_users';
-                          }
-
-                          try {
-                            await _client.rpc(
-                              'admin_broadcast_notification',
-                              params: {
-                                'p_title': title,
-                                'p_content': body,
-                                'p_icon_type': selectedIconType,
-                                'p_target_audience': targetAudienceKey,
-                              },
-                            );
-                            debugPrint('✅ Broadcast RPC üzerinden gönderildi');
-                          } on PostgrestException catch (e) {
-                            debugPrint(
-                              '⚠️ Broadcast RPC başarısız: ${e.code} ${e.message}',
-                            );
-                            rethrow;
-                          }
-
-                          // Hedef kitle büyüklüğünü kullanıcıya raporlamak için
-                          int audienceSize = 0;
-                          try {
-                            // 20260803000006 sonrasında profiles üzerinde
-                            // authenticated SELECT policy'si yok; SECURITY
-                            // DEFINER admin_list_users RPC üzerinden alıyoruz.
-                            // RPC p_limit max 100; count için listenin tamamı
-                            // yeterli sayılır. Gerçek hedef kitle büyüklüğü
-                            // zaten broadcast RPC'si tarafından doğru raporlanır.
-                            final pRole = targetAudience == 'customers'
-                                ? 'customer'
-                                : targetAudience == 'sellers'
-                                    ? 'seller'
-                                    : null;
-                            final resp = await _client.rpc<List<dynamic>>(
-                              'admin_list_users',
-                              params: {
-                                'p_role': pRole,
-                                'p_limit': 100,
-                              },
-                            );
-                            audienceSize = resp.length;
-                          } catch (e) {
-                            debugPrint('Kullanıcı listesi alınamadı: $e');
-                          }
-                          sentCount = audienceSize;
-                        }
-
-                        final messenger = ScaffoldMessenger.of(context);
-                        Navigator.pop(context);
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              '✅ $sentCount kişiye bildirim gönderildi',
-                            ),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-
-                        _loadData();
-                      } catch (e) {
-                        setDialogState(() => isSending = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Hata: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade600,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              icon: isSending
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.send_rounded),
-              label: Text(isSending ? 'Gönderiliyor...' : 'Gönder'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Kişiye özel bildirim için kullanıcıları yükle
-  Future<void> _loadUsersForPersonalNotification(
-    StateSetter setDialogState,
-  ) async {
-    setDialogState(() => isLoadingUsers = true);
+    if (ok != true) return;
 
     try {
-      // 20260803000006 sonrasında profiles üzerinde authenticated
-      // SELECT policy'si yok; SECURITY DEFINER admin_list_users
-      // RPC üzerinden alıyoruz. RPC, id/username/full_name/avatar_url
-      // döndürür; UI tarafında ihtiyaç duyulan sütunlarla uyumlu.
-      final response = await _client.rpc<List<dynamic>>(
-        'admin_list_users',
-        params: {'p_limit': 100},
-      );
-
-      setDialogState(() {
-        usersList = List<Map<String, dynamic>>.from(response);
-        isLoadingUsers = false;
-        userSearchQuery = '';
+      final ids = items.map((n) => n.id).toList();
+      final n = await _service.delete(ids);
+      if (!mounted) return;
+      setState(() {
+        _all = _all.where((x) => !ids.contains(x.id)).toList();
+        _selected.removeAll(ids);
       });
+      _snack(scheduledOnly ? 'Zamanlama iptal edildi' : '$n bildirim silindi');
+      _load(silent: true);
     } catch (e) {
-      setDialogState(() => isLoadingUsers = false);
-      debugPrint('Kullanıcılar yüklenirken hata: $e');
+      _snack('Silinemedi: ${adminNotifError(e)}', error: true);
     }
   }
 
-  /// Kullanıcı arama filtresi
-  List<Map<String, dynamic>> _filterUsers(String query) {
-    if (query.isEmpty) return usersList;
+  void _toggleSelect(AdminNotification n) {
+    setState(() {
+      if (!_selected.remove(n.id)) _selected.add(n.id);
+    });
+  }
 
-    final lowerQuery = query.toLowerCase();
-    return usersList.where((user) {
-      final username = (user['username'] as String? ?? '').toLowerCase();
-      final fullName = (user['full_name'] as String? ?? '').toLowerCase();
-      return username.contains(lowerQuery) || fullName.contains(lowerQuery);
+  // ---------------------------------------------------------------------------
+  // Türetilmiş veri
+  // ---------------------------------------------------------------------------
+
+  List<AdminNotification> get _visible {
+    final q = _query.trim().toLowerCase();
+    return _all.where((n) {
+      final okFilter = switch (_filter) {
+        _Filter.all => true,
+        _Filter.broadcast => !n.isPersonal,
+        _Filter.personal => n.isPersonal,
+        _Filter.scheduled => n.isScheduled,
+      };
+      if (!okFilter) return false;
+      if (q.isEmpty) return true;
+      return n.title.toLowerCase().contains(q) ||
+          n.content.toLowerCase().contains(q) ||
+          n.audienceLabel.toLowerCase().contains(q) ||
+          n.recipientNames.any((r) => r.toLowerCase().contains(q));
     }).toList();
   }
 
-  /// Modern hedef seçim chip'i
-  Widget _buildTargetChip({
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.shade600 : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? Colors.blue.shade600 : Colors.grey.shade300,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: isSelected ? Colors.white : Colors.grey.shade600,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : Colors.grey.shade700,
-              ),
-            ),
-          ],
-        ),
+  String _groupOf(AdminNotification n, DateTime now) {
+    if (n.isScheduled) return 'Zamanlanmış';
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(n.when.year, n.when.month, n.when.day);
+    final diff = today.difference(d).inDays;
+    if (diff <= 0) return 'Bugün';
+    if (diff == 1) return 'Dün';
+    if (diff < 7) return 'Bu hafta';
+    return 'Daha önce';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Görünüm
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 880),
+        child: _body(),
       ),
     );
   }
 
-  /// İkon seçim chip'i
-  Widget _buildIconChip({
-    required String label,
-    required IconData icon,
-    required Color color,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: isSelected ? color : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? color : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    // ignore: deprecated_member_use
-                    color: color.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+  Widget _body() {
+    if (_loading && _all.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [_header(), const SizedBox(height: 16), const AdminNotifSkeleton()],
+      );
+    }
+    if (_error != null && _all.isEmpty) {
+      return AdminEmpty(
+        icon: Icons.error_outline_rounded,
+        title: 'Bildirimler yüklenemedi',
+        subtitle: _error,
+        action: FilledButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Tekrar dene'),
+          style: FilledButton.styleFrom(backgroundColor: AdminUi.brand),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 22, color: isSelected ? Colors.white : color),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : Colors.grey.shade700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Admin bildirim ikon tipinden IconData döndür
-  static IconData getAdminNotificationIcon(String? iconType) {
-    switch (iconType) {
-      case 'announcement':
-        return Icons.campaign_rounded;
-      case 'discount':
-        return Icons.discount_rounded;
-      case 'campaign':
-        return Icons.local_offer_rounded;
-      case 'news':
-        return Icons.newspaper_rounded;
-      case 'event':
-        return Icons.event_rounded;
-      case 'update':
-        return Icons.system_update_rounded;
-      case 'warning':
-        return Icons.warning_amber_rounded;
-      case 'gift':
-        return Icons.card_giftcard_rounded;
-      case 'info':
-        return Icons.info_rounded;
-      default:
-        return Icons.campaign_rounded;
-    }
-  }
-
-  /// Admin bildirim ikon tipinden renk döndür
-  static Color getAdminNotificationColor(String? iconType) {
-    switch (iconType) {
-      case 'announcement':
-        return Colors.blue;
-      case 'discount':
-        return Colors.red;
-      case 'campaign':
-        return Colors.orange;
-      case 'news':
-        return Colors.teal;
-      case 'event':
-        return Colors.purple;
-      case 'update':
-        return Colors.green;
-      case 'warning':
-        return Colors.amber;
-      case 'gift':
-        return Colors.pink;
-      case 'info':
-        return Colors.indigo;
-      default:
-        return Colors.blue;
-    }
-  }
-
-  Color _getStatusColor(String? status) {
-    switch (status) {
-      case 'sent':
-        return Colors.green;
-      case 'sending':
-        return Colors.blue;
-      case 'failed':
-        return Colors.red;
-      case 'pending':
-      default:
-        return Colors.orange;
-    }
-  }
-
-  String _getStatusLabel(String? status) {
-    switch (status) {
-      case 'sent':
-        return 'Gönderildi';
-      case 'sending':
-        return 'Gönderiliyor';
-      case 'failed':
-        return 'Başarısız';
-      case 'pending':
-      default:
-        return 'Bekliyor';
-    }
-  }
-
-  IconData _getStatusIcon(String? status) {
-    switch (status) {
-      case 'sent':
-        return Icons.check_circle_rounded;
-      case 'sending':
-        return Icons.send_rounded;
-      case 'failed':
-        return Icons.cancel_rounded;
-      case 'pending':
-      default:
-        return Icons.pending_rounded;
-    }
-  }
-
-  String _formatDate(dynamic date) {
-    if (date == null) return '-';
-
-    DateTime dateTime;
-    if (date is String) {
-      dateTime = DateTime.parse(date);
-    } else if (date is DateTime) {
-      dateTime = date;
-    } else {
-      return '-';
+      );
     }
 
+    final visible = _visible;
     final now = DateTime.now();
-    final difference = now.difference(dateTime);
 
-    if (difference.inMinutes < 1) {
-      return 'Az önce';
-    } else if (difference.inHours < 1) {
-      return '${difference.inMinutes} dakika önce';
-    } else if (difference.inDays < 1) {
-      return '${difference.inHours} saat önce';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} gün önce';
-    } else {
-      return DateFormat('dd MMM yyyy, HH:mm', 'tr').format(dateTime);
+    // Başlık + kart satırları (tek liste; uzun geçmişte tembel çizilir).
+    final rows = <Object>[];
+    String? last;
+    for (final n in visible) {
+      final g = _groupOf(n, now);
+      if (g != last) {
+        rows.add(g);
+        last = g;
+      }
+      rows.add(n);
     }
+
+    return RefreshIndicator(
+      onRefresh: () => _load(silent: true),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+        itemCount: rows.length + 2,
+        itemBuilder: (context, i) {
+          if (i == 0) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _header(),
+                const SizedBox(height: 14),
+                _stats(),
+                const SizedBox(height: 14),
+                _searchAndFilters(),
+                const SizedBox(height: 6),
+              ],
+            );
+          }
+          if (i == rows.length + 1) {
+            if (visible.isEmpty) return _emptyState();
+            return const SizedBox(height: 4);
+          }
+          final row = rows[i - 1];
+          if (row is String) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(2, 14, 2, 8),
+              child: Text(
+                row.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w800,
+                  color: AdminUi.muted,
+                ),
+              ),
+            );
+          }
+          final n = row as AdminNotification;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AdminNotifCard(
+              item: n,
+              selected: _selected.contains(n.id),
+              selectionMode: _selecting,
+              onTap: () => _selecting ? _toggleSelect(n) : _openDetail(n),
+              onLongPress: () => _toggleSelect(n),
+              onAction: (a) => _handle(a, n),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _header() {
+    if (_selecting) {
+      final picked = _all.where((n) => _selected.contains(n.id)).toList();
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: AdminUi.brandSoft,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AdminUi.brand.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'Seçimi bırak',
+              onPressed: () => setState(_selected.clear),
+              icon: const Icon(Icons.close_rounded),
+            ),
+            Expanded(
+              child: Text(
+                '${_selected.length} seçildi',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AdminUi.ink,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => setState(() {
+                _selected
+                  ..clear()
+                  ..addAll(_visible.map((n) => n.id));
+              }),
+              child: const Text('Tümünü seç'),
+            ),
+            FilledButton.icon(
+              onPressed: () => _delete(picked),
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              label: const Text('Sil'),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Bildirim merkezi',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AdminUi.ink,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Duyuru ve kişisel mesaj gönderin, düzenleyin, geri çekin.',
+                style: TextStyle(fontSize: 12.5, color: AdminUi.muted),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        FilledButton.icon(
+          onPressed: _openComposer,
+          icon: const Icon(Icons.add_rounded, size: 19),
+          label: const Text('Yeni bildirim'),
+          style: FilledButton.styleFrom(
+            backgroundColor: AdminUi.brand,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stats() {
+    final sent = _all.where((n) => !n.isScheduled).toList();
+    final reached = sent.fold<int>(0, (s, n) => s + n.recipientCount);
+    final reads = sent.fold<int>(0, (s, n) => s + n.readCount);
+    final rate = reached == 0 ? 0 : (reads / reached * 100).round();
+    final scheduled = _all.where((n) => n.isScheduled).length;
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        const gap = 10.0;
+        final cols = c.maxWidth >= 640 ? 4 : 2;
+        final w = (c.maxWidth - gap * (cols - 1)) / cols;
+        Widget tile(Widget t) => SizedBox(width: w, child: t);
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            tile(AdminStatTile(
+              icon: Icons.send_rounded,
+              label: 'Gönderilen',
+              value: adminCompact(sent.length),
+              color: Colors.blue,
+            )),
+            tile(AdminStatTile(
+              icon: Icons.people_alt_rounded,
+              label: 'Ulaşılan kişi',
+              value: adminCompact(reached),
+              color: Colors.teal,
+            )),
+            tile(AdminStatTile(
+              icon: Icons.mark_email_read_rounded,
+              label: 'Okunma oranı',
+              value: '%$rate',
+              color: Colors.green,
+            )),
+            tile(AdminStatTile(
+              icon: Icons.schedule_rounded,
+              label: 'Zamanlanmış',
+              value: '$scheduled',
+              color: Colors.amber.shade800,
+              onTap: scheduled == 0
+                  ? null
+                  : () => setState(() => _filter = _Filter.scheduled),
+            )),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _searchAndFilters() {
+    int count(_Filter f) => switch (f) {
+          _Filter.all => _all.length,
+          _Filter.broadcast => _all.where((n) => !n.isPersonal).length,
+          _Filter.personal => _all.where((n) => n.isPersonal).length,
+          _Filter.scheduled => _all.where((n) => n.isScheduled).length,
+        };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _searchC,
+          onChanged: (v) => setState(() => _query = v),
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            hintText: 'Başlık, mesaj veya alıcı ara',
+            hintStyle: const TextStyle(fontSize: 13.5, color: AdminUi.muted),
+            prefixIcon: const Icon(Icons.search_rounded, size: 21),
+            suffixIcon: _query.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Temizle',
+                    icon: const Icon(Icons.close_rounded, size: 19),
+                    onPressed: () => setState(() {
+                      _searchC.clear();
+                      _query = '';
+                    }),
+                  ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AdminUi.line),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AdminUi.line),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: AdminUi.brand, width: 1.6),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        AdminChipBar<_Filter>(
+          selected: _filter,
+          onSelected: (f) => setState(() => _filter = f),
+          items: [
+            (value: _Filter.all, label: 'Tümü', icon: null, count: count(_Filter.all)),
+            (value: _Filter.broadcast, label: 'Toplu', icon: Icons.campaign_outlined, count: count(_Filter.broadcast)),
+            (value: _Filter.personal, label: 'Kişiye özel', icon: Icons.person_pin_outlined, count: count(_Filter.personal)),
+            (value: _Filter.scheduled, label: 'Zamanlanmış', icon: Icons.schedule_rounded, count: count(_Filter.scheduled)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _emptyState() {
+    final none = _all.isEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: AdminEmpty(
+        icon: none ? Icons.notifications_none_rounded : Icons.search_off_rounded,
+        title: none ? 'İlk bildiriminizi gönderin' : 'Bu filtreye uyan bildirim yok',
+        subtitle: none
+            ? 'Kampanya, duyuru ya da tek kişiye özel bir mesaj gönderebilirsiniz.'
+            : 'Arama veya filtreyi değiştirmeyi deneyin.',
+        action: none
+            ? FilledButton.icon(
+                onPressed: _openComposer,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Yeni bildirim'),
+                style: FilledButton.styleFrom(backgroundColor: AdminUi.brand),
+              )
+            : null,
+      ),
+    );
   }
 }

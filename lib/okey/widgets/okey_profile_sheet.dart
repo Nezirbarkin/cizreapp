@@ -204,7 +204,7 @@ class _OkeyProfileSheetState extends State<OkeyProfileSheet> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [const Color(0xFF16556E), OkeyColors.screenBackground],
+            colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
@@ -248,7 +248,7 @@ class _OkeyProfileSheetState extends State<OkeyProfileSheet> {
                       if (_loading) ...[
                         const SizedBox(height: OkeyUI.gapLg),
                         CircularProgressIndicator(
-                          color: OkeyColors.accentGold,
+                          color: OkeyUI.brass,
                           strokeWidth: 2.5,
                         ),
                         const SizedBox(height: OkeyUI.gapLg),
@@ -365,7 +365,7 @@ class _Header extends StatelessWidget {
                   height: face,
                   child: avatarUrl == null
                       ? Container(
-                          color: const Color(0xFF0A2C36),
+                          color: const Color(0xFF1F1811),
                           child: const Icon(
                             Icons.person,
                             size: 40,
@@ -376,7 +376,7 @@ class _Header extends StatelessWidget {
                           avatarUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Container(
-                            color: const Color(0xFF0A2C36),
+                            color: const Color(0xFF1F1811),
                             child: const Icon(
                               Icons.person,
                               size: 40,
@@ -397,12 +397,12 @@ class _Header extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: OkeyColors.screenBackground,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: OkeyColors.accentGold),
+                      border: Border.all(color: OkeyUI.brass),
                     ),
                     child: Text(
                       card!.winRateLabel,
                       style: TextStyle(
-                        color: OkeyColors.accentGold,
+                        color: OkeyUI.brass,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
                       ),
@@ -757,7 +757,7 @@ class _FollowButton extends StatelessWidget {
         style: FilledButton.styleFrom(
           backgroundColor: active
               ? const Color(0x1FFFFFFF)
-              : OkeyColors.accentGold,
+              : OkeyUI.brass,
           foregroundColor: active ? OkeyUI.text : OkeyUI.onGold,
           side: active
               ? const BorderSide(color: OkeyUI.cardBorder)

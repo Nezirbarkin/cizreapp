@@ -8,6 +8,9 @@ import '../../../core/models/flash_sale_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../market/services/flash_sale_service.dart';
 import '../../market/services/product_service.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
+import '../widgets/common/seller_section_card.dart';
 
 /// Satıcı: kendi mağazası için flash satış yönetim ekranı.
 /// - Aktif/geçmiş flash sale'ler
@@ -94,15 +97,14 @@ class _SellerFlashSalesScreenState extends State<SellerFlashSalesScreen> {
         label: const Text('Yeni Flash Satış', style: TextStyle(color: Colors.white)),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SellerListSkeleton()
           : _sales.isEmpty
               ? _emptyView()
               : RefreshIndicator(
                   onRefresh: _load,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
                     itemCount: _sales.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, i) => _saleTile(_sales[i]),
                   ),
                 ),
@@ -110,111 +112,94 @@ class _SellerFlashSalesScreenState extends State<SellerFlashSalesScreen> {
   }
 
   Widget _emptyView() {
-    return ListView(
-      children: const [
-        SizedBox(height: 100),
-        Icon(Icons.flash_off, size: 60, color: Colors.grey),
-        SizedBox(height: 12),
-        Center(
-          child: Text(
-            'Henüz flash satış oluşturmadınız',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ),
-        SizedBox(height: 4),
-        Center(
-          child: Text(
-            'Sağ alttaki buton ile yeni flash satış oluşturabilirsiniz',
-            style: TextStyle(color: Colors.grey, fontSize: 12),
-          ),
-        ),
-      ],
+    return SellerEmptyState(
+      icon: Icons.flash_off,
+      message: 'Henüz flash satış oluşturmadınız',
+      actionLabel: 'Yeni Flash Satış',
+      onAction: _showCreateDialog,
     );
   }
 
   Widget _saleTile(FlashSale sale) {
     final dateFmt = DateFormat('dd.MM.yyyy HH:mm');
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                width: 56,
-                height: 56,
-                child: sale.productImageUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: sale.productImageUrl!,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.image),
-                        ),
-                      )
-                    : Container(
+    return SellerSectionCard(
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: sale.productImageUrl != null
+                  ? CachedNetworkImage(
+                      memCacheWidth: 200,
+                      imageUrl: sale.productImageUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => Container(
                         color: Colors.grey.shade200,
                         child: const Icon(Icons.image),
                       ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    sale.productName ?? 'Ürün',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    '${sale.flashPrice.toStringAsFixed(2)} ₺ (eski ${sale.originalPrice.toStringAsFixed(2)} ₺)',
-                    style: const TextStyle(
-                      color: Color(0xFFE53935),
-                      fontSize: 12,
+                    )
+                  : Container(
+                      color: Colors.grey.shade200,
+                      child: const Icon(Icons.image),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 6,
-                    children: [
-                      _statusChip(sale),
-                      Text(
-                        'Stok: ${sale.remainingStock}/${sale.stockLimit}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'Bitiş: ${dateFmt.format(sale.endAt.toLocal())}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
             ),
-            PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'deactivate') _deactivate(sale);
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'deactivate',
-                  child: Row(
-                    children: [
-                      Icon(Icons.pause, color: Colors.orange),
-                      SizedBox(width: 8),
-                      Text('Durdur'),
-                    ],
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  sale.productName ?? 'Ürün',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${sale.flashPrice.toStringAsFixed(2)} ₺ (eski ${sale.originalPrice.toStringAsFixed(2)} ₺)',
+                  style: const TextStyle(
+                    color: Color(0xFFE53935),
+                    fontSize: 12,
                   ),
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    _statusChip(sale),
+                    Text(
+                      'Stok: ${sale.remainingStock}/${sale.stockLimit}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Bitiş: ${dateFmt.format(sale.endAt.toLocal())}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'deactivate') _deactivate(sale);
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'deactivate',
+                child: Row(
+                  children: [
+                    Icon(Icons.pause, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Durdur'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

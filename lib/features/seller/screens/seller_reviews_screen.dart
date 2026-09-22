@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../market/services/shop_review_service.dart';
 import '../../../core/models/shop_review_model.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
+import '../widgets/common/seller_section_card.dart';
 
 class SellerReviewsScreen extends StatefulWidget {
   const SellerReviewsScreen({super.key});
@@ -150,10 +153,9 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mağaza Yorumları'),
-        backgroundColor: Colors.orange.shade700,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SellerListSkeleton()
           : _shopInfo == null
               ? _buildNoShopView()
               : RefreshIndicator(
@@ -164,21 +166,9 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
   }
 
   Widget _buildNoShopView() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.store_outlined, size: 80, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            Text(
-              'Mağaza bulunamadı',
-              style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
+    return const SellerEmptyState(
+      icon: Icons.store_outlined,
+      message: 'Mağaza bulunamadı',
     );
   }
 
@@ -201,20 +191,10 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
 
         // Yorumlar listesi
         if (_reviews.isEmpty)
-          SliverFillRemaining(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.rate_review_outlined,
-                      size: 64, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Henüz yorum yok',
-                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
+          const SliverFillRemaining(
+            child: SellerEmptyState(
+              icon: Icons.rate_review_outlined,
+              message: 'Henüz yorum yok',
             ),
           )
         else
@@ -232,62 +212,56 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
   }
 
   Widget _buildStatsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Icon(Icons.star, color: Colors.amber, size: 40),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      (_stats?['averageRating'] ?? 0.0).toStringAsFixed(1),
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '${_stats?['total'] ?? 0} değerlendirme',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  ],
+    return SellerSectionCard(
+      margin: EdgeInsets.zero,
+      child: Row(
+        children: [
+          Icon(Icons.star, color: Colors.amber, size: 40),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                (_stats?['averageRating'] ?? 0.0).toStringAsFixed(1),
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
                 ),
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.check_circle, color: Colors.green, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${_stats?['withReply'] ?? 0} cevaplandı',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(Icons.pending, color: Colors.orange, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${_stats?['withoutReply'] ?? 0} bekliyor',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              Text(
+                '${_stats?['total'] ?? 0} değerlendirme',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_stats?['withReply'] ?? 0} cevaplandı',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.pending, color: Colors.orange, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_stats?['withoutReply'] ?? 0} bekliyor',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -467,7 +441,7 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
                     icon: const Icon(Icons.reply, size: 16),
                     label: const Text('Cevapla'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange.shade700,
+                      foregroundColor: Theme.of(context).colorScheme.primary,
                     ),
                   )
                 else
@@ -498,7 +472,8 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
 
   void _showReplyDialog(ShopReview review) {
     final controller = TextEditingController(text: review.sellerReply ?? '');
-    
+    final primary = Theme.of(context).colorScheme.primary;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -553,7 +528,7 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade700,
+              backgroundColor: primary,
               foregroundColor: Colors.white,
             ),
             child: const Text('Kaydet'),

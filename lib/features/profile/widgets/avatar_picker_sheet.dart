@@ -1,185 +1,73 @@
 import 'package:flutter/material.dart';
 
+import '../models/character_avatar_recipes.dart';
+
 /// Uygulamayla birlikte gelen hazır profil avatarları.
 ///
 /// Kullanıcı kendi fotoğrafını yüklemek istemediğinde bunlardan birini seçer;
 /// seçilen görsel kaydederken `avatars` bucket'ına yüklenip normal bir
 /// avatar_url gibi saklanır (böylece tüm ekranlar değişmeden çalışır).
-const List<String> kPresetAvatars = <String>[
-  'assets/avatars/avatar_01.png',
-  'assets/avatars/avatar_02.png',
-  'assets/avatars/avatar_03.png',
-  'assets/avatars/avatar_04.png',
-  'assets/avatars/avatar_05.png',
-  'assets/avatars/avatar_06.png',
-  'assets/avatars/avatar_07.png',
-  'assets/avatars/avatar_08.png',
-  'assets/avatars/avatar_09.png',
-  'assets/avatars/avatar_10.png',
-  'assets/avatars/avatar_11.png',
-  'assets/avatars/avatar_12.png',
-  'assets/avatars/avatar_13.png',
-  'assets/avatars/avatar_14.png',
-  'assets/avatars/avatar_15.png',
-  'assets/avatars/avatar_16.png',
-  'assets/avatars/avatar_17.png',
-  'assets/avatars/avatar_18.png',
-  'assets/avatars/avatar_19.png',
-  'assets/avatars/avatar_20.png',
-];
+///
+/// Listeler dosya adına göre KURULUR (elle yazılmaz): dosya numarası = üretici
+/// betiklerdeki sıra. Kullanıcıların seçtiği avatar dosya adına bağlı olduğu
+/// için numaralar asla kaydırılmaz; yeni avatar yalnızca sona eklenir.
 
-/// Hareketli (animasyonlu GIF) hazır avatarlar — 55 adet.
+/// Klasik (modern düz illüstrasyon) avatar sayısı.
+/// Üretici: `scripts/generate_classic_avatars.py`.
+const int kClassicAvatarCount = 20;
+
+/// Hareketli (GIF) avatar sayısı. 01-55: `generate_animated_avatars.py`
+/// (geometrik), 56-79: `generate_elegant_animated_avatars.py` (şık sahneler
+/// ve göz kırpan portreler).
+const int kAnimatedAvatarCount = 79;
+
+/// Bu numaradan (dahil) sonrakiler "şık" sette; sekmede öne alınır.
+const int kElegantAnimatedFirst = 56;
+
+/// Kız & erkek karakter sayısı (50 erkek + 50 kadın). Tarifler:
+/// `character_avatar_recipes.dart`.
+const int kCharacterAvatarCount = 100;
+
+String _two(int n) => n.toString().padLeft(2, '0');
+
+/// Klasik avatarlar — modern düz illüstrasyon (kep, bere, gözlük, başörtüsü,
+/// kulaklık, kedi kulağı, robot…).
+final List<String> kPresetAvatars = List<String>.unmodifiable(<String>[
+  for (var i = 1; i <= kClassicAvatarCount; i++) 'assets/avatars/avatar_${_two(i)}.png',
+]);
+
+/// Hareketli (animasyonlu GIF) hazır avatarlar.
 ///
 /// NEDEN GIF: Seçilen avatar, kaydederken storage'a yüklenip sıradan bir
 /// avatar_url olarak saklanıyor. GIF sayesinde avatarı gösteren HİÇBİR ekranı
 /// değiştirmek gerekmedi — CachedNetworkImage/Image.network animasyonlu GIF'i
 /// zaten oynatıyor. (Lottie/SVG seçilseydi feed, yorumlar, sohbet, admin...
 /// hepsinde ayrı bir oynatıcı gerekirdi.)
-///
-/// İlk 30 tanesi (01-30) orijinal set; 31-55 arası sonradan eklenen 25 yeni
-/// animasyon (konfeti, spiral, patlama, parlama, sonsuzluk döngüsü stilleri).
-///
-/// Dosyalar `scripts/generate_animated_avatars.py` ile üretilir; paleti veya
-/// hareketi değiştirmek isteyen o betiği çalıştırmalı.
-const List<String> kAnimatedAvatars = <String>[
-  'assets/avatars_animated/avatar_anim_01.gif',
-  'assets/avatars_animated/avatar_anim_02.gif',
-  'assets/avatars_animated/avatar_anim_03.gif',
-  'assets/avatars_animated/avatar_anim_04.gif',
-  'assets/avatars_animated/avatar_anim_05.gif',
-  'assets/avatars_animated/avatar_anim_06.gif',
-  'assets/avatars_animated/avatar_anim_07.gif',
-  'assets/avatars_animated/avatar_anim_08.gif',
-  'assets/avatars_animated/avatar_anim_09.gif',
-  'assets/avatars_animated/avatar_anim_10.gif',
-  'assets/avatars_animated/avatar_anim_11.gif',
-  'assets/avatars_animated/avatar_anim_12.gif',
-  'assets/avatars_animated/avatar_anim_13.gif',
-  'assets/avatars_animated/avatar_anim_14.gif',
-  'assets/avatars_animated/avatar_anim_15.gif',
-  'assets/avatars_animated/avatar_anim_16.gif',
-  'assets/avatars_animated/avatar_anim_17.gif',
-  'assets/avatars_animated/avatar_anim_18.gif',
-  'assets/avatars_animated/avatar_anim_19.gif',
-  'assets/avatars_animated/avatar_anim_20.gif',
-  'assets/avatars_animated/avatar_anim_21.gif',
-  'assets/avatars_animated/avatar_anim_22.gif',
-  'assets/avatars_animated/avatar_anim_23.gif',
-  'assets/avatars_animated/avatar_anim_24.gif',
-  'assets/avatars_animated/avatar_anim_25.gif',
-  'assets/avatars_animated/avatar_anim_26.gif',
-  'assets/avatars_animated/avatar_anim_27.gif',
-  'assets/avatars_animated/avatar_anim_28.gif',
-  'assets/avatars_animated/avatar_anim_29.gif',
-  'assets/avatars_animated/avatar_anim_30.gif',
-  'assets/avatars_animated/avatar_anim_31.gif',
-  'assets/avatars_animated/avatar_anim_32.gif',
-  'assets/avatars_animated/avatar_anim_33.gif',
-  'assets/avatars_animated/avatar_anim_34.gif',
-  'assets/avatars_animated/avatar_anim_35.gif',
-  'assets/avatars_animated/avatar_anim_36.gif',
-  'assets/avatars_animated/avatar_anim_37.gif',
-  'assets/avatars_animated/avatar_anim_38.gif',
-  'assets/avatars_animated/avatar_anim_39.gif',
-  'assets/avatars_animated/avatar_anim_40.gif',
-  'assets/avatars_animated/avatar_anim_41.gif',
-  'assets/avatars_animated/avatar_anim_42.gif',
-  'assets/avatars_animated/avatar_anim_43.gif',
-  'assets/avatars_animated/avatar_anim_44.gif',
-  'assets/avatars_animated/avatar_anim_45.gif',
-  'assets/avatars_animated/avatar_anim_46.gif',
-  'assets/avatars_animated/avatar_anim_47.gif',
-  'assets/avatars_animated/avatar_anim_48.gif',
-  'assets/avatars_animated/avatar_anim_49.gif',
-  'assets/avatars_animated/avatar_anim_50.gif',
-  'assets/avatars_animated/avatar_anim_51.gif',
-  'assets/avatars_animated/avatar_anim_52.gif',
-  'assets/avatars_animated/avatar_anim_53.gif',
-  'assets/avatars_animated/avatar_anim_54.gif',
-  'assets/avatars_animated/avatar_anim_55.gif',
-];
+final List<String> kAnimatedAvatars = List<String>.unmodifiable(<String>[
+  for (var i = 1; i <= kAnimatedAvatarCount; i++) 'assets/avatars_animated/avatar_anim_${_two(i)}.gif',
+]);
 
-/// Kız / erkek karakter (bitmoji tarzı) avatarları — 49 adet.
-///
-/// Klasik set (`kPresetAvatars`) 20 adette sabitlendiği ve eski seçimlerle
-/// birebir eşleştiği için yeni karakterler ayrı klasöre + ayrı sekmeye alındı.
-/// Dosyalar `scripts/generate_character_avatars.py` ile üretilir; saç/ten/kıyafet
-/// paletini değiştirmek isteyen o betiği çalıştırmalı.
-///
-/// İlk 24'ü (12 erkek + 12 kız) orijinal set. 25-49 arası sonradan eklenen
-/// 25 yeni karakter (12 erkek + 13 kız) — yeni saç stilleri (uzun dalgalı,
-/// yarım topuz, tek örgü, dağınık, kel, bere) ve yeni aksesuarlar (kolye,
-/// saç bandı) ile genişletildi. Ten tonları, saç renkleri ve aksesuarlar:
-/// gözlük, sakal, kep, başörtüsü, örgü, topuz, at kuyruğu, küpe, fiyonk...
-const List<String> kCharacterAvatars = <String>[
-  'assets/avatars_characters/avatar_char_01.png',
-  'assets/avatars_characters/avatar_char_02.png',
-  'assets/avatars_characters/avatar_char_03.png',
-  'assets/avatars_characters/avatar_char_04.png',
-  'assets/avatars_characters/avatar_char_05.png',
-  'assets/avatars_characters/avatar_char_06.png',
-  'assets/avatars_characters/avatar_char_07.png',
-  'assets/avatars_characters/avatar_char_08.png',
-  'assets/avatars_characters/avatar_char_09.png',
-  'assets/avatars_characters/avatar_char_10.png',
-  'assets/avatars_characters/avatar_char_11.png',
-  'assets/avatars_characters/avatar_char_12.png',
-  'assets/avatars_characters/avatar_char_13.png',
-  'assets/avatars_characters/avatar_char_14.png',
-  'assets/avatars_characters/avatar_char_15.png',
-  'assets/avatars_characters/avatar_char_16.png',
-  'assets/avatars_characters/avatar_char_17.png',
-  'assets/avatars_characters/avatar_char_18.png',
-  'assets/avatars_characters/avatar_char_19.png',
-  'assets/avatars_characters/avatar_char_20.png',
-  'assets/avatars_characters/avatar_char_21.png',
-  'assets/avatars_characters/avatar_char_22.png',
-  'assets/avatars_characters/avatar_char_23.png',
-  'assets/avatars_characters/avatar_char_24.png',
-  'assets/avatars_characters/avatar_char_25.png',
-  'assets/avatars_characters/avatar_char_26.png',
-  'assets/avatars_characters/avatar_char_27.png',
-  'assets/avatars_characters/avatar_char_28.png',
-  'assets/avatars_characters/avatar_char_29.png',
-  'assets/avatars_characters/avatar_char_30.png',
-  'assets/avatars_characters/avatar_char_31.png',
-  'assets/avatars_characters/avatar_char_32.png',
-  'assets/avatars_characters/avatar_char_33.png',
-  'assets/avatars_characters/avatar_char_34.png',
-  'assets/avatars_characters/avatar_char_35.png',
-  'assets/avatars_characters/avatar_char_36.png',
-  'assets/avatars_characters/avatar_char_37.png',
-  'assets/avatars_characters/avatar_char_38.png',
-  'assets/avatars_characters/avatar_char_39.png',
-  'assets/avatars_characters/avatar_char_40.png',
-  'assets/avatars_characters/avatar_char_41.png',
-  'assets/avatars_characters/avatar_char_42.png',
-  'assets/avatars_characters/avatar_char_43.png',
-  'assets/avatars_characters/avatar_char_44.png',
-  'assets/avatars_characters/avatar_char_45.png',
-  'assets/avatars_characters/avatar_char_46.png',
-  'assets/avatars_characters/avatar_char_47.png',
-  'assets/avatars_characters/avatar_char_48.png',
-  'assets/avatars_characters/avatar_char_49.png',
-];
+/// Kız / erkek karakter avatarları: yüzünden avatar oluşturan aynı gerçekçi
+/// çizim motoruyla üretilir (gerçekçi ten/göz/saç/sakal). Cinsiyet bilgisi
+/// tariflerde tutulur ([isFemaleCharacter]).
+final List<String> kCharacterAvatars = List<String>.unmodifiable(<String>[
+  for (var i = 1; i <= kCharacterAvatarCount; i++)
+    'assets/avatars_characters/avatar_char_${_two(i)}.png',
+]);
 
 /// Seçiciye giren tüm hazır avatarlar (sekme sırasıyla).
-const List<String> kAllPresetAvatars = <String>[
+final List<String> kAllPresetAvatars = List<String>.unmodifiable(<String>[
   ...kCharacterAvatars,
   ...kAnimatedAvatars,
   ...kPresetAvatars,
-];
+]);
 
 /// Verilen asset yolu hareketli (GIF) avatar mı?
-bool isAnimatedAvatarAsset(String assetPath) =>
-    assetPath.toLowerCase().endsWith('.gif');
+bool isAnimatedAvatarAsset(String assetPath) => assetPath.toLowerCase().endsWith('.gif');
 
 /// Hazır avatar seçme sayfasını açar. Seçim yapılırsa asset yolunu,
 /// vazgeçilirse null döner.
-Future<String?> showPresetAvatarPicker(
-  BuildContext context, {
-  String? selected,
-}) {
+Future<String?> showPresetAvatarPicker(BuildContext context, {String? selected}) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
@@ -187,6 +75,10 @@ Future<String?> showPresetAvatarPicker(
     builder: (_) => _PresetAvatarSheet(selected: selected),
   );
 }
+
+enum _CharacterFilter { all, male, female }
+
+enum _AnimatedFilter { all, elegant, classic }
 
 class _PresetAvatarSheet extends StatefulWidget {
   const _PresetAvatarSheet({this.selected});
@@ -197,10 +89,11 @@ class _PresetAvatarSheet extends StatefulWidget {
   State<_PresetAvatarSheet> createState() => _PresetAvatarSheetState();
 }
 
-class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
-    with SingleTickerProviderStateMixin {
+class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   late String? _selected = widget.selected;
+  _CharacterFilter _characterFilter = _CharacterFilter.all;
+  _AnimatedFilter _animatedFilter = _AnimatedFilter.all;
 
   @override
   void initState() {
@@ -216,17 +109,43 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
         initialIndex = 2;
       }
     }
-    _tabController = TabController(
-      length: 3,
-      vsync: this,
-      initialIndex: initialIndex,
-    );
+    _tabController = TabController(length: 3, vsync: this, initialIndex: initialIndex);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  List<String> get _characters {
+    switch (_characterFilter) {
+      case _CharacterFilter.all:
+        return kCharacterAvatars;
+      case _CharacterFilter.male:
+        return [
+          for (var i = 0; i < kCharacterAvatars.length; i++)
+            if (!isFemaleCharacter(i)) kCharacterAvatars[i],
+        ];
+      case _CharacterFilter.female:
+        return [
+          for (var i = 0; i < kCharacterAvatars.length; i++)
+            if (isFemaleCharacter(i)) kCharacterAvatars[i],
+        ];
+    }
+  }
+
+  List<String> get _animated {
+    final classic = kAnimatedAvatars.sublist(0, kElegantAnimatedFirst - 1);
+    final elegant = kAnimatedAvatars.sublist(kElegantAnimatedFirst - 1);
+    switch (_animatedFilter) {
+      case _AnimatedFilter.all:
+        return [...elegant, ...classic]; // şıklar önde
+      case _AnimatedFilter.elegant:
+        return elegant;
+      case _AnimatedFilter.classic:
+        return classic;
+    }
   }
 
   @override
@@ -268,18 +187,12 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
                         children: [
                           const Text(
                             'Hazır Avatar Seç',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             'Kendi fotoğrafını yüklemek istemiyorsan birini seç',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.hintColor,
-                            ),
+                            style: TextStyle(fontSize: 12, color: theme.hintColor),
                           ),
                         ],
                       ),
@@ -314,9 +227,37 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
                     // korunmasını istemiyoruz; her sekme kendi listesini
                     // baştan çizer (DraggableScrollableSheet'in controller'ı
                     // yalnızca ilk sekmeye bağlanabilir).
-                    _grid(kCharacterAvatars, scrollController),
-                    _grid(kAnimatedAvatars, null),
-                    _grid(kPresetAvatars, null),
+                    _tab(
+                      chips: _filterChips<_CharacterFilter>(
+                        values: _CharacterFilter.values,
+                        current: _characterFilter,
+                        labelOf: (f) => switch (f) {
+                          _CharacterFilter.all => 'Hepsi',
+                          _CharacterFilter.male => 'Erkek',
+                          _CharacterFilter.female => 'Kadın',
+                        },
+                        onPick: (f) => setState(() => _characterFilter = f),
+                      ),
+                      assets: _characters,
+                      controller: scrollController,
+                      tabKey: 'char-${_characterFilter.name}',
+                    ),
+                    _tab(
+                      chips: _filterChips<_AnimatedFilter>(
+                        values: _AnimatedFilter.values,
+                        current: _animatedFilter,
+                        labelOf: (f) => switch (f) {
+                          _AnimatedFilter.all => 'Hepsi',
+                          _AnimatedFilter.elegant => 'Şık & Portre (${kAnimatedAvatarCount - kElegantAnimatedFirst + 1})',
+                          _AnimatedFilter.classic => 'Geometrik',
+                        },
+                        onPick: (f) => setState(() => _animatedFilter = f),
+                      ),
+                      assets: _animated,
+                      controller: null,
+                      tabKey: 'anim-${_animatedFilter.name}',
+                    ),
+                    _tab(chips: null, assets: kPresetAvatars, controller: null, tabKey: 'classic'),
                   ],
                 ),
               ),
@@ -327,10 +268,58 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
     );
   }
 
+  Widget _filterChips<T>({
+    required List<T> values,
+    required T current,
+    required String Function(T) labelOf,
+    required void Function(T) onPick,
+  }) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        itemCount: values.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final v = values[i];
+          final selected = v == current;
+          return ChoiceChip(
+            label: Text(
+              labelOf(v),
+              style: TextStyle(fontSize: 12, color: selected ? Colors.white : Theme.of(context).hintColor),
+            ),
+            selected: selected,
+            showCheckmark: false,
+            selectedColor: primaryColor,
+            visualDensity: VisualDensity.compact,
+            onSelected: (_) => onPick(v),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _tab({
+    required Widget? chips,
+    required List<String> assets,
+    required ScrollController? controller,
+    required String tabKey,
+  }) {
+    return Column(
+      key: ValueKey(tabKey),
+      children: [
+        if (chips != null) chips,
+        Expanded(child: _grid(assets, controller)),
+      ],
+    );
+  }
+
   Widget _grid(List<String> assets, ScrollController? controller) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     final crossAxisCount = width >= 720
         ? 6
         : width >= 480
@@ -339,12 +328,7 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
 
     return GridView.builder(
       controller: controller,
-      padding: EdgeInsets.fromLTRB(
-        16,
-        16,
-        16,
-        MediaQuery.of(context).padding.bottom + 24,
-      ),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.paddingOf(context).bottom + 24),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
         crossAxisSpacing: 12,
@@ -372,7 +356,11 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
                   ),
                 ),
                 child: ClipOval(
-                  child: Image.asset(asset, fit: BoxFit.cover),
+                  child: Image.asset(
+                    asset,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  ),
                 ),
               ),
               if (isSelected)
@@ -384,16 +372,9 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet>
                     decoration: BoxDecoration(
                       color: primaryColor,
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: theme.scaffoldBackgroundColor,
-                        width: 2,
-                      ),
+                      border: Border.all(color: theme.scaffoldBackgroundColor, width: 2),
                     ),
-                    child: const Icon(
-                      Icons.check,
-                      size: 12,
-                      color: Colors.white,
-                    ),
+                    child: const Icon(Icons.check, size: 12, color: Colors.white),
                   ),
                 ),
             ],

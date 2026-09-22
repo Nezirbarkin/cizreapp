@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../engine/okey_tile.dart';
@@ -7,6 +8,7 @@ import 'okey_drag_payload.dart';
 import 'okey_hud_chrome.dart';
 import 'okey_table_metrics.dart';
 import 'okey_tile_widget.dart';
+import 'okey_turn_ring.dart';
 
 /// Oyuncu kartının masanın HANGİ kenarında durduğu.
 ///
@@ -71,6 +73,20 @@ class OkeyCornerPileWidget extends StatelessWidget {
   final bool isCurrentTurn;
   final bool isMe;
   final bool isOpened;
+
+  /// SÜRE HALKASI (düzen v5) — kalan saniye.
+  ///
+  /// Verilirse ve sıra BU koltuktaysa, avatarın kendi halkasının tam üstüne
+  /// azalan bir yay çizilir (bkz. [OkeyTurnRing]). v4'te süre ekranın
+  /// dibinde ayrı bir çizgiydi ve kimin süresi olduğunu söylemiyordu; masaya
+  /// bakan oyuncu her seferinde "bu kimin süresi" sorusunu yeniden soruyordu.
+  ///
+  /// Null ise yay hiç çizilmez: ıskarta kutuları ve seyirci görünümü bu
+  /// bilgiyi taşımaz.
+  final ValueListenable<int>? turnSecondsLeft;
+
+  /// Turun toplam süresi — yayın "tam daire" karşılığı.
+  final int turnTotalSeconds;
 
   /// Bu oyuncunun ıskartasından taş ÇEKİLEBİLİR (soldaki oyuncu).
   final bool isDrawSource;
@@ -160,6 +176,8 @@ class OkeyCornerPileWidget extends StatelessWidget {
     required this.seatNo,
     required this.tileCount,
     required this.isCurrentTurn,
+    this.turnSecondsLeft,
+    this.turnTotalSeconds = 20,
     required this.size,
     this.topDiscard,
     this.score = 0,
@@ -378,6 +396,34 @@ class OkeyCornerPileWidget extends StatelessWidget {
   /// Dikey levhanın tepesindeki KARE avatar (referansta fotoğraf oraya
   /// oturur). Yuvarlak avatar dar levhada yanlarda boşluk bırakıyordu.
   Widget _avatarSquare(double d) {
+    final seconds = turnSecondsLeft;
+    if (isCurrentTurn && seconds != null) {
+      // SÜRE YAYI kare avatarda da saat 12'den başlar ve aynı yönde tükenir
+      // (bkz. [OkeyTurnRing.cornerRadius]): masanın dört kenarında oyuncu
+      // AYNI hareketi görür, biçim farkı anlamı değiştirmez.
+      return SizedBox(
+        width: d,
+        height: d,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _avatarSquareFace(d),
+            IgnorePointer(
+              child: OkeyTurnRing(
+                secondsLeft: seconds,
+                totalSeconds: turnTotalSeconds,
+                stroke: (d * 0.055).clamp(1.5, 3.0).toDouble(),
+                cornerRadius: 5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return _avatarSquareFace(d);
+  }
+
+  Widget _avatarSquareFace(double d) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(5),
       child: Container(
@@ -671,13 +717,24 @@ class OkeyCornerPileWidget extends StatelessWidget {
     // etrafında ipliğe dönüşüyor, sıra vurgusu (parlak halka) okunmuyordu.
     final ring = (d * 0.055).clamp(1.5, 3.0).toDouble();
 
-    return Container(
+    // SÜRE YAYI (v5): sıra bu koltuktayken avatarın KENDİ halkasının tam
+    // üstüne çizilir. Kutuyu büyütmez — büyütseydi sıra dolaştıkça dört
+    // avatar sırayla şişip inecek, masa nefes alıyormuş gibi titreyecekti.
+    final seconds = turnSecondsLeft;
+    final showArc = isCurrentTurn && seconds != null;
+
+    final face = Container(
       width: d,
       height: d,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: const Color(0xFF06222B),
-        border: Border.all(color: ringColor, width: ring),
+        // Yay varken KENDİ halkası sönükleşir: ikisi aynı parlaklıkta
+        // durursa yayın nerede bittiği okunmaz.
+        border: Border.all(
+          color: showArc ? const Color(0x33FFFFFF) : ringColor,
+          width: ring,
+        ),
         boxShadow: [
           // Koyu plakanın üstünde avatarı ayıran ince gölge. Büyüdükçe
           // gerekli oldu: küçük daire zaten "rozet" gibi okunuyordu, büyüğü
@@ -701,6 +758,28 @@ class OkeyCornerPileWidget extends StatelessWidget {
                 errorBuilder: (_, _, _) => _avatarIcon(d),
               )
             : _avatarIcon(d),
+      ),
+    );
+
+    if (!showArc) return face;
+
+    return SizedBox(
+      width: d,
+      height: d,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          face,
+          // Yay dokunmayı YUTMAZ: levhaya dokununca profil kartı açılmaya
+          // devam etmeli.
+          IgnorePointer(
+            child: OkeyTurnRing(
+              secondsLeft: seconds,
+              totalSeconds: turnTotalSeconds,
+              stroke: ring,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -103,9 +103,9 @@ class _OkeyRoomsTabState extends State<_OkeyRoomsTab> {
     _future = _service.listActiveRooms(includeIdle: _includeIdle);
   }
 
-  void _reload() => setState(
-    () => _future = _service.listActiveRooms(includeIdle: _includeIdle),
-  );
+  void _reload() => setState(() {
+    _future = _service.listActiveRooms(includeIdle: _includeIdle);
+  });
 
   /// Ölü masaları kapatır (maçı bitmiş, boş bekleyen ve 30 dk etkinliksiz).
   Future<void> _cleanup() async {
@@ -262,7 +262,12 @@ class _RoomCardState extends State<_RoomCard> {
   bool get _isPlaying => widget.room.status == 'in_progress';
 
   void _loadSeats() {
-    setState(() => _seatsFuture = _service.listRoomPlayers(widget.room.roomId));
+    // Gövde blok olmalı: `() => _seatsFuture = ...` atamanın değeri olan
+    // Future'ı döndürür ve setState "callback argument returned a Future"
+    // hatası fırlatır.
+    setState(() {
+      _seatsFuture = _service.listRoomPlayers(widget.room.roomId);
+    });
   }
 
   /// "3 dk önce" — masanın gerçekten canlı olup olmadığını gösteren tek sayı.
@@ -293,185 +298,193 @@ class _RoomCardState extends State<_RoomCard> {
         side: BorderSide(color: statusColor.withValues(alpha: 0.35), width: 1),
       ),
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(width: 4, color: statusColor),
-            Expanded(
-              child: ExpansionTile(
-                // Koltuk listesi ancak kart AÇILINCA istenir; kapalı 20
-                // masanın hepsi için peşinen RPC atmanın anlamı yok.
-                onExpansionChanged: (open) {
-                  if (open && _seatsFuture == null) _loadSeats();
-                },
-                leading: CircleAvatar(
-                  radius: 16,
-                  backgroundColor: statusColor.withValues(alpha: 0.15),
-                  child: Icon(
-                    _isPlaying ? Icons.play_arrow : Icons.hourglass_top,
-                    color: statusColor,
-                    size: 18,
-                  ),
+      // IntrinsicHeight + Row(stretch) DEĞİL: ExpansionTile alt başlığındaki
+      // `Wrap` çok satıra inince intrinsic yükseklik gerçek yüksekliği
+      // tutturamıyor ve kart alttan taşıyordu (48px). Durum çubuğu Stack
+      // içinde konumlanır; yüksekliği içerik belirler.
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: ExpansionTile(
+              // Koltuk listesi ancak kart AÇILINCA istenir; kapalı 20
+              // masanın hepsi için peşinen RPC atmanın anlamı yok.
+              onExpansionChanged: (open) {
+                if (open && _seatsFuture == null) _loadSeats();
+              },
+              leading: CircleAvatar(
+                radius: 16,
+                backgroundColor: statusColor.withValues(alpha: 0.15),
+                child: Icon(
+                  _isPlaying ? Icons.play_arrow : Icons.hourglass_top,
+                  color: statusColor,
+                  size: 18,
                 ),
-                title: Row(
-                  children: [
-                    // Masa etiketi ESNER: ExpansionTile'ın başlık alanı
-                    // ikon + ok tuşundan artan yerdir ve dar bir admin
-                    // panelinde (ya da büyütülmüş yazı tipinde) sabit
-                    // genişlikli iki öğe satırı taşırıyordu.
-                    Flexible(
-                      child: Text(
-                        'Masa #$shortLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: OkeyBadgeChip(
-                        icon: _isPlaying
-                            ? Icons.play_circle_outline
-                            : Icons.hourglass_top,
-                        label: _isPlaying ? 'Oynanıyor' : 'Bekliyor',
-                        color: statusColor,
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 6, bottom: 2),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      OkeyBadgeChip(
-                        icon: Icons.style,
-                        label: room.gameMode == 'katlamali'
-                            ? 'Katlamalı'
-                            : 'Katlamasız',
-                        color: Colors.deepPurple,
-                      ),
-                      OkeyBadgeChip(
-                        icon: Icons.groups,
-                        label: room.teamMode == 'esli' ? 'Eşli' : 'Eşsiz',
-                        color: Colors.indigo,
-                      ),
-                      OkeyBadgeChip(
-                        icon: Icons.support_agent,
-                        label: room.assistMode == 'yardimsiz'
-                            ? 'Yardımsız'
-                            : 'Yardımlı',
-                        color: Colors.teal,
-                      ),
-                      if (room.isPrivate)
-                        const OkeyBadgeChip(
-                          icon: Icons.lock,
-                          label: 'Özel',
-                          color: Colors.brown,
-                        ),
-                      OkeyBadgeChip(
-                        icon: Icons.person,
-                        label: '${room.seatedCount} oyuncu',
-                        color: Colors.blue,
-                      ),
-                      if (room.botCount > 0)
-                        OkeyBadgeChip(
-                          icon: Icons.smart_toy,
-                          label: '${room.botCount} bot',
-                          color: Colors.blueGrey,
-                        ),
-                      if (room.handNo > 0)
-                        OkeyBadgeChip(
-                          icon: Icons.filter_9_plus,
-                          label: '${room.handNo}. el',
-                          color: Colors.orange,
-                        ),
-                      if (room.spectatorCount > 0)
-                        OkeyBadgeChip(
-                          icon: Icons.visibility,
-                          label: '${room.spectatorCount} izleyici',
-                          color: Colors.green,
-                        ),
-                      // SON ETKİNLİK: masanın canlı olup olmadığını söyleyen
-                      // tek sayı. Bu rozet olmadan "oynanıyor" etiketi, beş
-                      // gündür kimsenin dokunmadığı bir masada da yeşil
-                      // yanıyordu.
-                      OkeyBadgeChip(
-                        icon: idle ? Icons.bedtime : Icons.bolt,
-                        label: idle
-                            ? 'terk edilmiş · $_activityLabel'
-                            : _activityLabel,
-                        color: idle ? Colors.grey : Colors.lightGreen,
-                      ),
-                    ],
-                  ),
-                ),
+              ),
+              title: Row(
                 children: [
-                  FutureBuilder<List<OkeyAdminSeat>>(
-                    future: _seatsFuture,
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting ||
-                          _seatsFuture == null) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      // HATA DALI: eskiden yalnızca `!snap.hasData`
-                      // kontrol ediliyordu, yani çağrı hata verdiğinde kart
-                      // sonsuza kadar dönen bir çemberle kalıyordu.
-                      if (snap.hasError) {
-                        return Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Koltuklar alınamadı: '
-                                '${OkeyAdminService.describeError(snap.error!)}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.red,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton.icon(
-                                onPressed: _loadSeats,
-                                icon: const Icon(Icons.refresh, size: 16),
-                                label: const Text('Tekrar dene'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-                      final seats = snap.data ?? const <OkeyAdminSeat>[];
-                      if (seats.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text('Bu masada koltuk kaydı yok.'),
-                        );
-                      }
-                      return Column(
-                        children: [
-                          for (final s in seats)
-                            _SeatRow(
-                              room: room,
-                              seat: s,
-                              onChanged: () {
-                                _loadSeats();
-                                widget.onChanged();
-                              },
-                            ),
-                        ],
-                      );
-                    },
+                  // Masa etiketi ESNER: ExpansionTile'ın başlık alanı
+                  // ikon + ok tuşundan artan yerdir ve dar bir admin
+                  // panelinde (ya da büyütülmüş yazı tipinde) sabit
+                  // genişlikli iki öğe satırı taşırıyordu.
+                  Flexible(
+                    child: Text(
+                      'Masa #$shortLabel',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: OkeyBadgeChip(
+                      icon: _isPlaying
+                          ? Icons.play_circle_outline
+                          : Icons.hourglass_top,
+                      label: _isPlaying ? 'Oynanıyor' : 'Bekliyor',
+                      color: statusColor,
+                    ),
                   ),
                 ],
               ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 2),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    OkeyBadgeChip(
+                      icon: Icons.style,
+                      label: room.gameMode == 'katlamali'
+                          ? 'Katlamalı'
+                          : 'Katlamasız',
+                      color: Colors.deepPurple,
+                    ),
+                    OkeyBadgeChip(
+                      icon: Icons.groups,
+                      label: room.teamMode == 'esli' ? 'Eşli' : 'Eşsiz',
+                      color: Colors.indigo,
+                    ),
+                    OkeyBadgeChip(
+                      icon: Icons.support_agent,
+                      label: room.assistMode == 'yardimsiz'
+                          ? 'Yardımsız'
+                          : 'Yardımlı',
+                      color: Colors.teal,
+                    ),
+                    if (room.isPrivate)
+                      const OkeyBadgeChip(
+                        icon: Icons.lock,
+                        label: 'Özel',
+                        color: Colors.brown,
+                      ),
+                    OkeyBadgeChip(
+                      icon: Icons.person,
+                      label: '${room.seatedCount} oyuncu',
+                      color: Colors.blue,
+                    ),
+                    if (room.botCount > 0)
+                      OkeyBadgeChip(
+                        icon: Icons.smart_toy,
+                        label: '${room.botCount} bot',
+                        color: Colors.blueGrey,
+                      ),
+                    if (room.handNo > 0)
+                      OkeyBadgeChip(
+                        icon: Icons.filter_9_plus,
+                        label: '${room.handNo}. el',
+                        color: Colors.orange,
+                      ),
+                    if (room.spectatorCount > 0)
+                      OkeyBadgeChip(
+                        icon: Icons.visibility,
+                        label: '${room.spectatorCount} izleyici',
+                        color: Colors.green,
+                      ),
+                    // SON ETKİNLİK: masanın canlı olup olmadığını söyleyen
+                    // tek sayı. Bu rozet olmadan "oynanıyor" etiketi, beş
+                    // gündür kimsenin dokunmadığı bir masada da yeşil
+                    // yanıyordu.
+                    OkeyBadgeChip(
+                      icon: idle ? Icons.bedtime : Icons.bolt,
+                      label: idle
+                          ? 'terk edilmiş · $_activityLabel'
+                          : _activityLabel,
+                      color: idle ? Colors.grey : Colors.lightGreen,
+                    ),
+                  ],
+                ),
+              ),
+              children: [
+                FutureBuilder<List<OkeyAdminSeat>>(
+                  future: _seatsFuture,
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting ||
+                        _seatsFuture == null) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    // HATA DALI: eskiden yalnızca `!snap.hasData`
+                    // kontrol ediliyordu, yani çağrı hata verdiğinde kart
+                    // sonsuza kadar dönen bir çemberle kalıyordu.
+                    if (snap.hasError) {
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Text(
+                              'Koltuklar alınamadı: '
+                              '${OkeyAdminService.describeError(snap.error!)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.red,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: _loadSeats,
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Tekrar dene'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    final seats = snap.data ?? const <OkeyAdminSeat>[];
+                    if (seats.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('Bu masada koltuk kaydı yok.'),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final s in seats)
+                          _SeatRow(
+                            room: room,
+                            seat: s,
+                            onChanged: () {
+                              _loadSeats();
+                              widget.onChanged();
+                            },
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            child: ColoredBox(color: statusColor),
+          ),
+        ],
       ),
     );
   }
@@ -515,9 +528,9 @@ class _SeatRowState extends State<_SeatRow> {
   void didUpdateWidget(_SeatRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.seat.userId != widget.seat.userId) {
-      setState(
-        () => _banFuture = _isHuman ? _checkBanned(widget.seat.userId!) : null,
-      );
+      setState(() {
+        _banFuture = _isHuman ? _checkBanned(widget.seat.userId!) : null;
+      });
     }
   }
 
@@ -540,7 +553,9 @@ class _SeatRowState extends State<_SeatRow> {
   /// tazeler ki menü doğru aksiyonu göstermeye devam etsin.
   void _refreshBanStatus() {
     if (!mounted) return;
-    setState(() => _banFuture = _checkBanned(widget.seat.userId!));
+    setState(() {
+      _banFuture = _checkBanned(widget.seat.userId!);
+    });
   }
 
   Future<void> _confirmAndRun(

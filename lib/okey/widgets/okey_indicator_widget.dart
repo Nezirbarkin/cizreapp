@@ -16,8 +16,8 @@ import 'okey_tile_widget.dart';
 /// sarmasında sık hata kaynağıydı. Okey taşı sunucudan zaten geliyor
 /// (`OkeyMatch.okeyTile`), o yüzden doğrudan gösterilir.
 ///
-/// Sıra süre sayacı BURADA DEĞİLDİR: ıstakanın üstündeki azalan çizgiye
-/// taşındı (bkz. OkeyTurnTimerBar).
+/// Sıra süre sayacı BURADA DEĞİLDİR: sırası gelen oyuncunun avatarını
+/// çevreleyen yaya taşındı (bkz. `OkeyTurnRing`, düzen v5).
 class OkeyIndicatorWidget extends StatelessWidget {
   final OkeyTile indicatorTile;
 
@@ -118,35 +118,74 @@ class OkeyIndicatorWidget extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _labelled(
-              'GÖSTERGE',
-              OkeyV3.textFaint,
-              OkeyTileWidget(
-                tile: indicatorTile,
-                width: tileWidth,
-                height: _tileHeight,
-                tight: true,
-              ),
+        // GÖSTERGE KAİDESİ — iki taş, aralarında bir ok, pirinç bir mahfaza
+        // içinde.
+        //
+        // v4'te ikisi yan yana duruyor ama aralarında hiçbir şey yoktu:
+        // oyuncu "gösterge 6 sarı, okey 7 sarı" ilişkisini ancak kuralı
+        // BİLİYORSA kuruyordu. Ok, ilişkiyi tek bakışta anlatıyor; mahfaza
+        // ise ikisini masadaki diğer taşlardan ayırıyor — bunlar oynanan
+        // taşlar değil, elin SABİTİ.
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: tileWidth * 0.18,
+            vertical: tileWidth * 0.14,
+          ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                OkeyColors.accentGold.withValues(alpha: 0.14),
+                const Color(0x38000000),
+              ],
             ),
-            if (okeyTile != null) ...[
-              SizedBox(width: tileWidth * 0.24),
+            borderRadius: BorderRadius.circular(OkeyV3.radiusSm + 2),
+            border: Border.all(
+              color: OkeyColors.accentGold.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               _labelled(
-                'OKEY',
-                OkeyV3.turn,
+                'GÖSTERGE',
+                OkeyV3.textFaint,
                 OkeyTileWidget(
-                  tile: okeyTile!,
+                  tile: indicatorTile,
                   width: tileWidth,
                   height: _tileHeight,
                   tight: true,
-                  highlightAsOkey: true,
                 ),
               ),
+              if (okeyTile != null) ...[
+                SizedBox(width: tileWidth * 0.10),
+                // Ok TAŞLARIN hizasında durur, etiketlerin değil: ilişki
+                // taşlar arasında.
+                Padding(
+                  padding: EdgeInsets.only(top: _tileHeight * 0.42),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: tileWidth * 0.44,
+                    color: OkeyColors.accentGold.withValues(alpha: 0.85),
+                  ),
+                ),
+                SizedBox(width: tileWidth * 0.10),
+                _labelled(
+                  'OKEY',
+                  OkeyV3.turn,
+                  OkeyTileWidget(
+                    tile: okeyTile!,
+                    width: tileWidth,
+                    height: _tileHeight,
+                    tight: true,
+                    highlightAsOkey: true,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
         SizedBox(height: tileWidth * 0.34),
         _labelled(

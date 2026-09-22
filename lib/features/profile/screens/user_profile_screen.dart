@@ -24,8 +24,10 @@ import '../services/follow_request_service.dart';
 import 'followers_screen.dart';
 import 'edit_profile_screen.dart';
 import '../widgets/profile_shared_widgets.dart';
+import '../../chat/models/chat_presence.dart';
 import '../../chat/services/chat_service.dart';
 import '../../chat/screens/chat_detail_screen.dart';
+import '../../chat/widgets/presence_status_line.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 import '../../../kullaniciozellikler/widgets/cover_effect_frame.dart';
 import '../widgets/profile_post_grid.dart';
@@ -839,6 +841,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                           GestureDetector(
                             onTap: () => showFullScreenImage(context, coverUrl),
                             child: CachedNetworkImage(
+                              memCacheWidth: 1000,
                               imageUrl: coverUrl,
                               fit: BoxFit.cover,
                               errorWidget: (context, url, error) {
@@ -925,6 +928,18 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                         onFriendsTap: () =>
                             _navigateToFollowList(FollowListType.friends),
                         website: _buildWebsiteChip(),
+                        // Kendi profilimde gösterilmez. Kimin neyi göreceğine sunucu
+                        // karar verir (engel, gizli hesap, hayalet, "son görülmeyi
+                        // gizle", yönetici ayarı, 7 gün sınırı).
+                        presenceLine: isOwnProfile
+                            ? null
+                            : PresenceStatusLine(
+                                userId: widget.userId,
+                                presenceContext: PresenceContext.profile,
+                                style: PresenceLineStyle.onLight,
+                                fontSize: 12.5,
+                                showClockIcon: true,
+                              ),
                         showHero: false,
                         statusBadge: _isBlocked
                             ? Container(

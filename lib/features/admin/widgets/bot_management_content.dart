@@ -610,7 +610,7 @@ class _BotEditorSheetState extends State<_BotEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
@@ -620,7 +620,7 @@ class _BotEditorSheetState extends State<_BotEditorSheet> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -1221,14 +1221,14 @@ class _QueuePostEditorSheetState extends State<_QueuePostEditorSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),

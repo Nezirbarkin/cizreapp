@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/conversation_model.dart';
 import '../../../core/services/privacy_service.dart';
+import '../models/chat_presence.dart';
 import '../services/chat_service.dart';
 import '../services/group_chat_service.dart';
 import '../services/presence_service.dart';
+import '../services/user_presence_service.dart';
 import 'chat_detail_screen.dart';
 import 'chat_privacy_settings_screen.dart';
 import 'group_list_screen.dart';
@@ -39,6 +41,12 @@ class _ChatListScreenState extends State<ChatListScreen>
   StreamSubscription<List<String>>? _onlineSub;
   Set<String> _onlineIds = <String>{};
 
+  // Sunucunun, BU kullanıcıya göre çözümlediği durum (kim kimi görebilir).
+  // Canlı presence akışı engel/gizlilik kurallarını bilmez; akıştan gelen
+  // "çevrimiçi" bilgisi yalnız bu haritada canSeeOnline=true olanlar için gösterilir.
+  Map<String, UserPresence> _presence = const {};
+  String _presenceKey = '';
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +57,8 @@ class _ChatListScreenState extends State<ChatListScreen>
     _loadActiveUsers();
     _subscribeToConversations();
     _subscribeOnlinePresence();
+    // Akıştaki mevcut çevrimiçiler (sonradan açılan ekran ilk olayı beklemesin).
+    _onlineIds = PresenceService.instance.onlineIds.toSet();
   }
 
   @override
@@ -86,7 +96,26 @@ class _ChatListScreenState extends State<ChatListScreen>
         _conversations = conversations;
         _isLoading = false;
       });
+      _refreshPresence(conversations);
     }
+  }
+
+  /// Sohbet ettiğim kişilerin durumunu TEK çağrıyla çözer. Kimlik kümesi
+  /// değişmediyse yeniden sormaz.
+  Future<void> _refreshPresence(List<Conversation> conversations) async {
+    final ids = conversations
+        .map((c) => c.otherUserId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final key = (ids.toList()..sort()).join(',');
+    if (key == _presenceKey) return;
+    _presenceKey = key;
+    final resolved = await UserPresenceService.instance.fetch(
+      ids,
+      context: PresenceContext.list,
+    );
+    if (!mounted) return;
+    setState(() => _presence = resolved);
   }
 
   Future<void> _loadUnreadCount() async {
@@ -106,8 +135,24 @@ class _ChatListScreenState extends State<ChatListScreen>
         return;
       }
 
-      // ÖNEMLI DÜZELTME (2026-07-02):
-      // Önce yeni get_online_users RPC'sini dene - hızlı ve doğru sonuç
+      // Çevrimiçi özelliğini yönetici kapattıysa şerit hiç çizilmez.
+      final settings = await UserPresenceService.instance.loadSettings();
+      if (!settings.online) {
+        if (mounted) {
+          setState(() {
+            _activeUsers = [];
+            _isLoadingActiveUsers = false;
+          });
+        }
+        return;
+      }
+
+      // Sunucu YALNIZ bu kullanıcının görebildiği (engel, hayalet, gizli hesap,
+      // "çevrimiçi görünme" tercihi süzülmüş) aktif kullanıcıları döner.
+      //
+      // Eskiden RPC hata verirse `profiles` tablosunu doğrudan okuyan iki yedek
+      // sorgu vardı; onlar bu kuralların HİÇBİRİNİ uygulamıyordu. RPC artık her
+      // ortamda var, o yüzden hata durumunda şerit boş kalır (güvenli taraf).
       List<Map<String, dynamic>> users = [];
       try {
         final rpcResponse = await Supabase.instance.client.rpc(
@@ -116,30 +161,9 @@ class _ChatListScreenState extends State<ChatListScreen>
         );
         if (rpcResponse != null) {
           users = (rpcResponse as List).cast<Map<String, dynamic>>();
-          debugPrint('✅ get_online_users RPC: ${users.length} users');
         }
       } catch (e) {
-        debugPrint('get_online_users RPC başarısız, fallback: $e');
-        // Fallback: eski sorgu
-        try {
-          final response = await Supabase.instance.client
-              .from('profiles')
-              .select(
-                'id, full_name, avatar_url, last_seen, is_online, is_ghost_mode, is_online_enabled',
-              )
-              .neq('id', currentUserId)
-              .or('is_ghost_mode.eq.false,is_ghost_mode.is.null')
-              .limit(50);
-          users = (response as List).cast<Map<String, dynamic>>();
-        } catch (e2) {
-          // Son fallback: basit sorgu
-          final response = await Supabase.instance.client
-              .from('profiles')
-              .select('id, full_name, avatar_url, last_seen, is_online')
-              .neq('id', currentUserId)
-              .limit(50);
-          users = (response as List).cast<Map<String, dynamic>>();
-        }
+        debugPrint('get_online_users RPC başarısız: $e');
       }
 
       if (mounted) {
@@ -216,6 +240,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         setState(() {
           _conversations = conversations;
         });
+        _refreshPresence(conversations);
         _loadUnreadCount();
       }
     });
@@ -575,9 +600,14 @@ class _ChatListScreenState extends State<ChatListScreen>
     final username = otherUser?['username'] as String?;
     final isOtherUserOnline = otherUser?['is_online'] as bool? ?? false;
     final otherUserLastSeen = _parseDateTime(otherUser?['last_seen']);
-    // Gerçek aktiflik kontrolü: presence stream VEYA (is_online VE last_seen son 3 dk)
+    // Aktiflik: görünümden gelen (sunucuca maskelenmiş) is_online + taze nabız
+    // VEYA canlı presence akışı. Akış ham olduğundan yalnız sunucunun "bu kişinin
+    // çevrimiçi durumunu görebilirsin" dediği kişiler için sayılır.
     final otherId = otherUser?['id'] as String?;
-    final isOnPresence = otherId != null && _onlineIds.contains(otherId);
+    final isOnPresence =
+        otherId != null &&
+        _onlineIds.contains(otherId) &&
+        (_presence[otherId]?.canSeeOnline ?? false);
     final isDbTrulyActive = PrivacyService.isUserTrulyActive(
       isOtherUserOnline,
       otherUserLastSeen,

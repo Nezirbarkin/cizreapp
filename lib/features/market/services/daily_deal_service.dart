@@ -1,8 +1,35 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/daily_deal_model.dart';
 
 class DailyDealService {
+  /// Misafir (oturumsuz) tıklamaları "benzersiz kişi" olarak sayabilmek için
+  /// uygulama oturumu başına rastgele anahtar. Kalıcı bir kimlik DEĞİLDİR:
+  /// uygulama yeniden açılınca değişir, kişisel veri içermez.
+  static final String _guestSessionKey =
+      '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+      '${Random().nextInt(1 << 32).toRadixString(36)}';
+
+  /// Bir fırsat kartına tıklandığını kaydeder (Admin > Günün Fırsatları'ndaki
+  /// "kaç kişi, kimler tıkladı" istatistiği). ASLA hata fırlatmaz: sayaç,
+  /// kartın açılmasını hiçbir koşulda engellememeli.
+  Future<void> logClick(String dealId) async {
+    try {
+      await _supabase.rpc(
+        'log_daily_deal_click',
+        params: {
+          'p_deal_id': dealId,
+          'p_platform': kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase(),
+          'p_session_key': _guestSessionKey,
+        },
+      );
+    } catch (e) {
+      debugPrint('Fırsat tıklaması kaydedilemedi: $e');
+    }
+  }
+
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get _supabase {
     try {

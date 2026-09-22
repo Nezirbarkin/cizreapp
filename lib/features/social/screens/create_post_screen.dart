@@ -8,6 +8,7 @@ import '../../profile/services/profile_service.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/text_background.dart';
+import '../../music/music.dart';
 
 /// Gonderi olusturma ekrani.
 ///
@@ -62,6 +63,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     // Punto ve "Paylas" butonunun etkinligi yaziya bagli: her tusa basista
     // tuvali tazele.
     _contentController.addListener(_onTextChanged);
+    _loadMusicFlag();
   }
 
   @override
@@ -215,6 +217,28 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   // ------------------------------------------------------------- paylasim
 
+  /// Gönderiye iliştirilmiş müzik. Seçilirken klip zaten kesilip
+  /// yüklendiği için burada tutulan nesne paylaşıma hazırdır.
+  AttachedMusic? _music;
+
+  /// "Müzik" aracı görünsün mü? Admin anahtarına bağlı; ayar okunana kadar
+  /// önbellekteki değer kullanılır.
+  bool _musicEnabled = MusicSettingsService.cached.feature &&
+      MusicSettingsService.cached.attach;
+
+  Future<void> _loadMusicFlag() async {
+    final settings = await MusicSettingsService.fetch();
+    if (!mounted) return;
+    final enabled = settings.feature && settings.attach;
+    if (enabled != _musicEnabled) setState(() => _musicEnabled = enabled);
+  }
+
+  Future<void> _pickMusic() async {
+    final picked = await MusicPickerSheet.show(context);
+    if (!mounted || picked == null) return;
+    setState(() => _music = picked);
+  }
+
   Future<void> _createPost() async {
     final content = _text;
     if (content.isEmpty && !_hasImages) {
@@ -253,6 +277,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         content: content,
         images: _uploadedImageUrls,
         background: _background?.id,
+        music: _music,
       );
 
       if (!mounted) return;
@@ -346,6 +371,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _authorRow(),
+                      if (_music != null) ...[
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: AttachedMusicChip(
+                            music: _music!,
+                            onDarkSurface: true,
+                            onRemove: _isPosting
+                                ? null
+                                : () => setState(() => _music = null),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       _composerCard(),
                       if (_hasImages) ...[
@@ -795,6 +833,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       label: 'Kamera',
                       onTap: _isPosting ? null : _takePhoto,
                     ),
+                  if (_musicEnabled)
+                    _toolButton(
+                      icon: Icons.music_note_rounded,
+                      label: 'Müzik',
+                      onTap: _isPosting ? null : _pickMusic,
+                      highlighted: _music != null,
+                    ),
                   const Spacer(),
                   if (_hasImages)
                     Padding(
@@ -820,6 +865,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     required IconData icon,
     required String label,
     required VoidCallback? onTap,
+    bool highlighted = false,
   }) {
     return Material(
       color: Colors.transparent,
@@ -831,12 +877,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 21, color: Colors.white70),
+              Icon(
+                icon,
+                size: 21,
+                color: highlighted ? MusicUI.accent : Colors.white70,
+              ),
               const SizedBox(width: 7),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white70,
+                style: TextStyle(
+                  color: highlighted ? MusicUI.accent : Colors.white70,
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                 ),

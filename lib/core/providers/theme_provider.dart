@@ -146,8 +146,28 @@ class ThemeProvider with ChangeNotifier {
 
   ThemeMode get themeMode => _themeMode;
 
+  // ColorScheme.fromSeed pahalı bir renk hesabı; MaterialApp her yeniden
+  // kurulduğunda (theme + darkTheme = 2 çağrı) tekrar yapılmasın diye tema
+  // yalnızca (koyu mu, ana renk) değişince yeniden üretilir.
+  ThemeData? _cachedThemeData;
+  bool? _cachedThemeIsDark;
+  Color? _cachedThemePrimary;
+
   ThemeData get themeData {
     final isDark = _themeMode == ThemeMode.dark;
+    final cached = _cachedThemeData;
+    if (cached != null &&
+        _cachedThemeIsDark == isDark &&
+        _cachedThemePrimary == _primaryColor) {
+      return cached;
+    }
+
+    return _cachedThemeData = _buildThemeData(isDark);
+  }
+
+  ThemeData _buildThemeData(bool isDark) {
+    _cachedThemeIsDark = isDark;
+    _cachedThemePrimary = _primaryColor;
 
     return ThemeData(
       useMaterial3: true,

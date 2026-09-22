@@ -5,6 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../../../core/models/digital_order_model.dart';
 import '../../../core/services/smm_service.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
+import '../widgets/common/seller_section_card.dart';
 
 class SellerDigitalOrdersScreen extends StatefulWidget {
   const SellerDigitalOrdersScreen({super.key});
@@ -180,171 +183,145 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Dijital Siparişler')),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SellerListSkeleton()
           : RefreshIndicator(
               onRefresh: _loadOrders,
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Card(
-                    color: Colors.green.shade50,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Dijital Ürün Kazancım',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Bakiyenize eklenen net kazanç',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
+                  SellerSectionCard(
+                    icon: Icons.account_balance_wallet_outlined,
+                    iconColor: Colors.green.shade700,
+                    title: 'Dijital Ürün Kazancım',
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Bakiyenize eklenen net kazanç',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
                           ),
-                          Text(
-                            '₺${totalEarnings.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade800,
-                            ),
+                        ),
+                        Text(
+                          '₺${totalEarnings.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade800,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
                   if (_orders.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: Text('Henüz dijital sipariş yok')),
+                    const SellerEmptyState(
+                      icon: Icons.list_alt_outlined,
+                      message: 'Henüz dijital sipariş yok',
                     )
                   else
                     ..._orders.map(
-                      (order) => Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      order.productName ?? 'Dijital Ürün',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  Text(
-                                    order.status.label,
+                      (order) => SellerSectionCard(
+                        title: order.productName ?? 'Dijital Ürün',
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              order.status.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 20,
+                              ),
+                              tooltip: 'Durumu Manuel Değiştir',
+                              onPressed: () =>
+                                  _showManualStatusDialog(order),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              order.targetUrl,
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.tag,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
                                     style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
+                                ),
+                                if (order.externalOrderId != null)
                                   IconButton(
-                                    icon: const Icon(
-                                      Icons.edit_outlined,
-                                      size: 20,
+                                    icon: const Icon(Icons.copy, size: 18),
+                                    onPressed: () => _copyToClipboard(
+                                      order.externalOrderId!,
                                     ),
-                                    tooltip: 'Durumu Manuel Değiştir',
-                                    onPressed: () =>
-                                        _showManualStatusDialog(order),
+                                    tooltip: 'Kopyala',
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                order.targetUrl,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.tag,
-                                    size: 16,
-                                    color: Colors.grey,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  if (order.externalOrderId != null)
-                                    IconButton(
-                                      icon: const Icon(Icons.copy, size: 18),
-                                      onPressed: () => _copyToClipboard(
-                                        order.externalOrderId!,
-                                      ),
-                                      tooltip: 'Kopyala',
-                                    ),
-                                ],
-                              ),
-                              Text(
-                                'Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                              if (order.startCount != null ||
-                                  order.remains != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  [
-                                    if (order.startCount != null)
-                                      'Başlangıç: ${order.startCount}',
-                                    if (order.remains != null)
-                                      'Kalan: ${order.remains}',
-                                  ].join(' • '),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
                               ],
-                              if (order.sellerCredited &&
-                                  order.netSellerAmount != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Net kazanç: ₺${order.netSellerAmount!.toStringAsFixed(2)} (komisyon: ₺${order.commissionAmount?.toStringAsFixed(2) ?? '-'})',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.green.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
+                            ),
+                            Text(
+                              'Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            if (order.startCount != null ||
+                                order.remains != null) ...[
                               const SizedBox(height: 4),
                               Text(
-                                'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())}',
+                                [
+                                  if (order.startCount != null)
+                                    'Başlangıç: ${order.startCount}',
+                                  if (order.remains != null)
+                                    'Kalan: ${order.remains}',
+                                ].join(' • '),
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade500,
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
                                 ),
                               ),
                             ],
-                          ),
+                            if (order.sellerCredited &&
+                                order.netSellerAmount != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Net kazanç: ₺${order.netSellerAmount!.toStringAsFixed(2)} (komisyon: ₺${order.commissionAmount?.toStringAsFixed(2) ?? '-'})',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.green.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 4),
+                            Text(
+                              'Oluşturulma: ${DateFormat('dd.MM.yyyy HH:mm').format(order.createdAt.toLocal())}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

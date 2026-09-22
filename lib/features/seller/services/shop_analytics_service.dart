@@ -436,6 +436,77 @@ class ShopAnalyticsService {
     }
   }
 
+  /// Mağazanın TÜM ürünleri için tek çağrıda görüntülenme+favori sayısı.
+  /// product_id -> {'view_count': int, 'favorite_count': int}
+  Future<Map<String, Map<String, int>>> getShopProductStats(String shopId) async {
+    try {
+      final response = await _supabase
+          .rpc('get_shop_product_stats', params: {'p_shop_id': shopId});
+      return {
+        for (final row in (response as List))
+          row['product_id'] as String: {
+            'view_count': (row['view_count'] as num?)?.toInt() ?? 0,
+            'favorite_count': (row['favorite_count'] as num?)?.toInt() ?? 0,
+          },
+      };
+    } catch (e) {
+      debugPrint('⚠️ getShopProductStats hatası: $e');
+      return {};
+    }
+  }
+
+  /// En çok beğenilen ürünler (getTopViewedProducts'ın beğeni karşılığı).
+  Future<List<Map<String, dynamic>>> getTopFavoritedProducts(String shopId, {int limit = 10}) async {
+    try {
+      final response = await _supabase.rpc('get_top_favorited_products', params: {
+        'p_shop_id': shopId,
+        'p_limit': limit,
+      });
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      debugPrint('⚠️ getTopFavoritedProducts hatası: $e');
+      return [];
+    }
+  }
+
+  /// Mağazanın toplam favori sayısı (getShopTotalViews'ın beğeni karşılığı).
+  Future<int> getShopTotalFavorites(String shopId) async {
+    try {
+      final response = await _supabase.rpc('get_shop_total_favorites', params: {'p_shop_id': shopId});
+      return (response as num?)?.toInt() ?? 0;
+    } catch (e) {
+      debugPrint('⚠️ getShopTotalFavorites hatası: $e');
+      return 0;
+    }
+  }
+
+  /// Tekil ürün özeti (ManageProductScreen düzenleme modu). Favori sayısı
+  /// için zaten güvenli (SECURITY DEFINER) olan get_product_favorite_count
+  /// RPC'si kullanılır — FavoriteService.getProductFavoriteCount KASITLI
+  /// olarak kullanılmaz, çünkü o RLS'e tabi kalıp yanlış/eksik sayı döner.
+  Future<Map<String, int>> getSingleProductStats(String productId) async {
+    var viewCount = 0;
+    var favoriteCount = 0;
+    try {
+      final result = await _supabase
+          .from('product_views')
+          .select()
+          .eq('product_id', productId)
+          .count(CountOption.exact);
+      viewCount = result.count;
+    } catch (e) {
+      debugPrint('⚠️ getSingleProductStats view hatası: $e');
+    }
+    try {
+      final response = await _supabase
+          .rpc('get_product_favorite_count', params: {'p_product_id': productId});
+      favoriteCount = (response as num?)?.toInt() ?? 0;
+    } catch (e) {
+      debugPrint('⚠️ getSingleProductStats favori hatası: $e');
+    }
+    return {'view_count': viewCount, 'favorite_count': favoriteCount};
+  }
+
   /// Ürün performans verileri
   Future<List<Map<String, dynamic>>> getProductPerformance(String shopId) async {
     try {

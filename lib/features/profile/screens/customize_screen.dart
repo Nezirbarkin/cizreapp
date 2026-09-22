@@ -28,11 +28,10 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
   bool _soundEffectsEnabled = true;
   bool _voiceEnabled = true;
 
-  // Arayüz
-  bool _hide101OkeyButton = false;
+  // Arayüz. ("101 Okey" kısayolu ve müzik çalar kartı yan menüdeki GÖRÜNÜM
+  // bölümüne taşındı — bkz. SettingsSidebar.)
   bool _hideCourierIcon = false;
   bool _hideSehiriciCard = false;
-  bool _hideMusicPlayer = false;
 
   @override
   void initState() {
@@ -42,20 +41,16 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
 
   Future<void> _load() async {
     await OkeySoundService.instance.load();
-    final hide101Okey = await AppCustomizationPrefs.getHide101OkeyButton();
     final hideCourierIcon = await AppCustomizationPrefs.getHideCourierIcon();
     final hideSehiriciCard =
         await AppCustomizationPrefs.getHideSehiriciCard();
-    final hideMusicPlayer = await AppCustomizationPrefs.getHideMusicPlayer();
     if (!mounted) return;
     setState(() {
       _musicEnabled = OkeySoundService.instance.isMusicEnabled;
       _soundEffectsEnabled = OkeySoundService.instance.isEnabled;
       _voiceEnabled = OkeySoundService.instance.isVoiceEnabled;
-      _hide101OkeyButton = hide101Okey;
       _hideCourierIcon = hideCourierIcon;
       _hideSehiriciCard = hideSehiriciCard;
-      _hideMusicPlayer = hideMusicPlayer;
       _isLoading = false;
     });
   }
@@ -144,21 +139,6 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
                     child: Column(
                       children: [
                         SwitchListTile(
-                          title: const Text('101 Okey Butonunu Gizle'),
-                          subtitle: const Text(
-                            'Yan menüde "101 Okey" oyun kısayolu görünmez',
-                          ),
-                          value: _hide101OkeyButton,
-                          onChanged: (value) async {
-                            setState(() => _hide101OkeyButton = value);
-                            await AppCustomizationPrefs.setHide101OkeyButton(
-                              value,
-                            );
-                          },
-                          contentPadding: EdgeInsets.zero,
-                          activeColor: Colors.teal,
-                        ),
-                        SwitchListTile(
                           title: const Text('Kurye İkonunu Gizle'),
                           subtitle: const Text(
                             'Sohbet ikonunun üzerindeki "Paket Gönder" '
@@ -184,22 +164,6 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
                           onChanged: (value) async {
                             setState(() => _hideSehiriciCard = value);
                             await AppCustomizationPrefs.setHideSehiriciCard(
-                              value,
-                            );
-                          },
-                          contentPadding: EdgeInsets.zero,
-                          activeColor: Colors.teal,
-                        ),
-                        SwitchListTile(
-                          title: const Text('Müzik Çalar Kartını Gizle'),
-                          subtitle: const Text(
-                            'Yan menünün en üstündeki şarkı kartı görünmez '
-                            '(müzik çalmaya devam eder)',
-                          ),
-                          value: _hideMusicPlayer,
-                          onChanged: (value) async {
-                            setState(() => _hideMusicPlayer = value);
-                            await AppCustomizationPrefs.setHideMusicPlayer(
                               value,
                             );
                           },

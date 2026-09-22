@@ -9,6 +9,7 @@ import 'dart:io';
 import '../../../core/models/daily_deal_model.dart';
 import '../../../core/models/category_model.dart';
 import '../../../features/market/services/daily_deal_service.dart';
+import 'daily_deal_click_stats.dart';
 
 class DailyDealsContent extends StatefulWidget {
   const DailyDealsContent({super.key});
@@ -23,6 +24,11 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
   
   List<DailyDeal> _deals = [];
   bool _isLoading = true;
+
+  // Kart tıklama istatistiği (admin_daily_deal_click_stats): özet + kart başına.
+  static const int _statsDays = 30;
+  Map<String, dynamic>? _clickStats;
+  final Map<String, Map<String, dynamic>> _clicksByDeal = {};
 
   @override
   void initState() {
@@ -45,6 +51,64 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+    _loadClickStats();
+  }
+
+  /// İstatistik yüklenemezse (ör. migration yok) kartlar yine listelenir;
+  /// yalnızca tıklama satırı görünmez.
+  Future<void> _loadClickStats() async {
+    try {
+      final res = await Supabase.instance.client.rpc(
+        'admin_daily_deal_click_stats',
+        params: {'p_days': _statsDays},
+      );
+      final stats = Map<String, dynamic>.from(res as Map);
+      final byDeal = <String, Map<String, dynamic>>{};
+      for (final d in (stats['deals'] as List? ?? const [])) {
+        final m = Map<String, dynamic>.from(d as Map);
+        byDeal[m['deal_id'] as String] = m;
+      }
+      if (!mounted) return;
+      setState(() {
+        _clickStats = stats;
+        _clicksByDeal
+          ..clear()
+          ..addAll(byDeal);
+      });
+    } catch (e) {
+      debugPrint('Fırsat tıklama istatistiği yüklenemedi: $e');
+    }
+  }
+
+  Future<void> _clearClicks() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tıklama kayıtlarını sil'),
+        content: const Text(
+          'Tüm fırsat kartlarının tıklama kayıtları (kim, ne zaman) silinecek. '
+          'Bu işlem geri alınamaz.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final n = await Supabase.instance.client.rpc('admin_clear_daily_deal_clicks');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$n tıklama kaydı silindi')));
+      _loadClickStats();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Silinemedi: $e')));
     }
   }
 
@@ -950,7 +1014,14 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
             ],
           ),
         ),
-        
+
+        // Tıklama özeti: kaç kişi tıkladı
+        if (_clickStats != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: DealClickSummary(stats: _clickStats!, onClear: _clearClicks),
+          ),
+
         // Deals List
         Expanded(
           child: _deals.isEmpty
@@ -1067,6 +1138,22 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                                       ),
                                     ],
                                   ),
+                                  // Kaç kişi tıkladı / kimler — dokununca liste açılır
+                                  if (_clickStats != null) ...[
+                                    const SizedBox(height: 6),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: DealClickChip(
+                                        deal: _clicksByDeal[deal.id],
+                                        onTap: () => showDealClickersSheet(
+                                          context,
+                                          dealId: deal.id,
+                                          title: deal.title,
+                                          days: _statsDays,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

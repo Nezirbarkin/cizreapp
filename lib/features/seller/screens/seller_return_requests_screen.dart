@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../shop/services/return_request_service.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_list_skeleton.dart';
 
 /// Satıcı İade Yönetimi Ekranı
 class SellerReturnRequestsScreen extends StatefulWidget {
@@ -226,7 +228,7 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
         elevation: 0,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SellerListSkeleton()
           : _returnRequests.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(
@@ -243,26 +245,9 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.assignment_outlined,
-            size: 80,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'İade talebi bulunmuyor',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ],
-      ),
+    return const SellerEmptyState(
+      icon: Icons.assignment_outlined,
+      message: 'İade talebi bulunmuyor',
     );
   }
 
@@ -407,10 +392,10 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
                 if (request.orderTotal != null)
                   Text(
                     '₺${request.orderTotal!.toStringAsFixed(2)}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: Color(0xFFF97316),
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
               ],

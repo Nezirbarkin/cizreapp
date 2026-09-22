@@ -492,6 +492,7 @@ class _NewsReporterPanelScreenState extends State<NewsReporterPanelScreen> {
                 borderRadius: BorderRadius.circular(8),
                 child: news.thumbnailUrl != null
                     ? CachedNetworkImage(
+                        memCacheWidth: 300,
                         imageUrl: news.thumbnailUrl!,
                         width: 100,
                         height: 100,

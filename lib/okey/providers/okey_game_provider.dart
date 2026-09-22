@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../engine/okey_action_queue.dart';
+import '../engine/okey_announcements.dart';
 import '../engine/okey_hand_hints.dart';
 import '../engine/okey_hand_partition.dart';
 import '../engine/okey_meld_validator.dart';
 import '../engine/okey_rack_layout.dart';
 import '../engine/okey_tile.dart';
+import '../engine/okey_win_detector.dart';
 import '../models/okey_models.dart';
 import '../services/okey_game_service.dart';
 import '../services/okey_gift_service.dart';
@@ -744,10 +746,22 @@ class OkeyGameProvider with ChangeNotifier {
     return _cachedRiskyIndices;
   }
 
+  /// Şimdi atacağım taş eli BİTİRİR mi? Sunucudaki koşulun aynısı
+  /// (bkz. [OkeyWinDetector.discardFinishesHand]): ıstakada tek taş kaldı ve
+  /// el açık. Eli bitiren atış "işlek taş" sayılmaz (kullanıcı isteği,
+  /// 2026-09-21) — uyarı, onay penceresi ve kırmızı yanıp sönme buna göre
+  /// susar; yoksa oyuncu sunucunun yazmayacağı bir cezayla korkutulurdu.
+  bool get _discardWouldFinishHand => OkeyWinDetector.discardFinishesHand(
+    handSize: _myHand.length,
+    isOpeningDone: _isOpeningDone,
+  );
+
   Set<int> _computeRiskyDiscardIndices() {
     // Yalnızca ATMA aşamasında anlamlı: sıra bende değilken kırmızı çizgiler
     // masada sürekli duran bir gürültüye dönüşürdü.
     if (_match == null || !canActOnHand) return const {};
+    // ELİ BİTİREN SON TAŞ risk taşımaz: atmak mecbur, ıstakada başka taş yok.
+    if (_discardWouldFinishHand) return const {};
     final result = <int>{};
     for (var i = 0; i < _rackSlots.length; i++) {
       final tile = _rackSlots[i];
@@ -2290,8 +2304,10 @@ class OkeyGameProvider with ChangeNotifier {
   //   * "Seri açıldı" / "Çift açıldı" — masada İLK açılış oldu. ELDE BİR
   //     KEZ; sonraki açılışlar ve indirilen ek perler susar
   //     (bkz. [_openingAnnounced]).
-  //   * "… son üç taş" — HERHANGİ bir oyuncunun ıstakasında 3 taş kaldı;
-  //     masadaki herkes duyar ve kimin bitmeye yaklaştığını bilir
+  //   * "… son üç taş" — HERHANGİ bir oyuncunun ıstakasında, taşını
+  //     ATTIKTAN SONRA tam 3 taş kaldı; masadaki herkes duyar ve kimin
+  //     bitmeye yaklaştığını bilir (2026-09-21: turun ortasında, atmadan
+  //     önce 3'e düşen ıstaka DUYURULMAZ — bkz. [OkeyAnnouncements])
   //
   // ## Neden hamle akışından (okey_moves) değil, DURUM farkından
   //
@@ -2326,7 +2342,7 @@ class OkeyGameProvider with ChangeNotifier {
       _openingAnnounced = melds.isNotEmpty;
       _lowTileAnnouncedSeats
         ..clear()
-        ..addAll(counts.entries.where((e) => e.value <= 3).map((e) => e.key));
+        ..addAll(OkeyAnnouncements.alreadyLow(counts));
       return;
     }
 
@@ -2351,22 +2367,24 @@ class OkeyGameProvider with ChangeNotifier {
       _announce(laidSeries ? 'Seri açıldı' : 'Çift açıldı');
     }
 
-    // SON ÜÇ TAŞ — koltuk 3'e (veya altına) düştüğü anda BİR KEZ.
-    // Sayı yeniden yükselirse (yandan çekme) işaret kalkar ki aynı oyuncu
-    // için ikinci kez tetiklenebilsin.
-    counts.forEach((seatNo, count) {
-      if (count <= 0) return;
-      if (count > 3) {
-        _lowTileAnnouncedSeats.remove(seatNo);
-        return;
-      }
-      if (!_lowTileAnnouncedSeats.add(seatNo)) return;
+    // SON ÜÇ TAŞ — ATIŞTAN SONRA ıstakada TAM 3 taş kalan koltuk için BİR KEZ
+    // (kullanıcı isteği, 2026-09-21: "son 3 taş sesi sadece takozda, taş
+    // attıktan sonra 3 kaldığında bildirilsin").
+    //
+    // Karar [OkeyAnnouncements.lastThreeTiles]'ta: turun ORTASINDA (çekilmiş
+    // ama atılmamış taşla) 3'e düşen ıstaka duyurulmaz; sıra oyuncudan çıkıp
+    // sayı kesinleşince duyurulur.
+    for (final seatNo in OkeyAnnouncements.lastThreeTiles(
+      counts: counts,
+      turnSeat: match.turnSeat,
+      announced: _lowTileAnnouncedSeats,
+    )) {
       _announce(
         seatNo == mySeatNo
             ? 'Sende son üç taş kaldı'
             : '${_spokenSeatName(seatNo)}, son üç taş',
       );
-    });
+    }
   }
 
   /// Anonsta okunacak oyuncu adı.
@@ -2843,11 +2861,15 @@ class OkeyGameProvider with ChangeNotifier {
   ///
   /// ## Neden HER durumda atmıyoruz
   ///
-  /// Sunucu, atılan taş masadaki bir pere İŞLENEBİLİYORSA ya da OKEY'se ceza
-  /// yazar (RULES.md §7/§8) ve bu ceza kazananın skoruna da eklenir
-  /// (okey_internal_finalize_hand: `-101 + penalty`). Yani "senin adına
-  /// attım" demek, oyuncuya sormadan 101 puana mal olabilirdi. O tek durumda
-  /// karar oyuncunun kalır; ne olduğu ve bedeli açıkça yazılır.
+  /// Sunucu, atılan taş OKEY'se ceza yazar (RULES.md §8) ve bu ceza kazananın
+  /// skoruna da eklenir (okey_internal_finalize_hand: `-101 + penalty`). Yani
+  /// "senin adına attım" demek, oyuncuya sormadan 101 puana mal olabilirdi. O
+  /// tek durumda karar oyuncunun kalır; ne olduğu ve bedeli açıkça yazılır.
+  ///
+  /// İŞLEK TAŞ artık bu istisnada DEĞİL (kullanıcı isteği, 2026-09-21): eli
+  /// bitiren son atış işlek taş cezası yazmaz (bkz.
+  /// [OkeyWinDetector.discardFinishesHand]), dolayısıyla son taş işlek olsa da
+  /// bedelsizdir ve turu kapatmak oyuncuya maliyet çıkarmaz.
   Future<void> _finishTurnAfterProcessing(List<OkeyTile> processed) async {
     if (processed.isEmpty || !_isOpeningDone || !canActOnHand) return;
 
@@ -2861,10 +2883,9 @@ class OkeyGameProvider with ChangeNotifier {
 
     final last = remaining.first;
     final okey = _match?.okeyTile;
-    if (_isTileProcessableOntoTable(last) ||
-        (okey != null && last.isJokerFor(okey))) {
+    if (okey != null && last.isJokerFor(okey)) {
       explain(
-        'Elinde tek taş kaldı ama o taş ceza yazdırır (işlek taş / okey). '
+        'Elinde tek taş kaldı ama o taş okey; atmak ceza yazdırır. '
         'Yine de bitirmek için taşa dokunup AT\'a bas.',
       );
       return;
@@ -3352,8 +3373,12 @@ class OkeyGameProvider with ChangeNotifier {
   Future<void> _discard(OkeyTile tile, {required int fromSlot}) async {
     // HATA UYARISI: bu taş aslında masadaki bir pere işlenebilirdi ama
     // oyuncu onun yerine atmayı seçti — kısa bir kırmızı yanıp-sönmeyle
-    // uyar (bkz. discardMistakeTick).
-    if (_isTileProcessableOntoTable(tile)) discardMistakeTick.value++;
+    // uyar (bkz. discardMistakeTick). Eli BİTİREN son atış hata değildir
+    // (bkz. [_discardWouldFinishHand]); bu kontrol atma ÖNCESİ elle yapılır,
+    // çünkü aşağıdaki yerel atma eli hemen küçültür.
+    if (!_discardWouldFinishHand && _isTileProcessableOntoTable(tile)) {
+      discardMistakeTick.value++;
+    }
     final rollback = _applyLocalDiscard(tile, fromSlot);
     _stagedGroups.clear();
     _selectedIndices.clear();

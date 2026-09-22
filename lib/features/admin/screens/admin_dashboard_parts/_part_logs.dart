@@ -26,7 +26,67 @@ extension on _AdminDashboardScreenState {
   // ve arka planda gereksiz sorgular tekrar tekrar atiliyordu.
   void _refreshLogsData() {
     if (!mounted) return;
-    setState(() => _logsDataFuture = _loadLogsData());
+    // Blok gövde: `() => x = future` atamanın değeri olan Future'ı döndürür ve
+    // debug'da setState "callback argument returned a Future" fırlatıp
+    // yeniden çizimi hiç tetiklemez (Yenile düğmesi sessizce çalışmazdı).
+    setState(() {
+      _logsDataFuture = _loadLogsData();
+    });
+  }
+
+  // --- _buildLogsTabs ---
+  // Loglar sayfası üç sekme: kullanıcıların tüm eylemleri (silinebilir), genel
+  // kullanım özeti (eski Loglar ekranı) ve yönetici işlemleri (admin_audit_log).
+  Widget _buildLogsTabs() {
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          Material(
+            color: Colors.white,
+            elevation: 1,
+            child: TabBar(
+              labelColor: Colors.purple.shade700,
+              indicatorColor: Colors.purple.shade700,
+              unselectedLabelColor: Colors.grey.shade600,
+              tabs: const [
+                Tab(
+                  height: 56,
+                  icon: Icon(Icons.history_rounded, size: 20),
+                  text: 'Kullanıcı Eylemleri',
+                ),
+                Tab(
+                  height: 56,
+                  icon: Icon(Icons.insights_rounded, size: 20),
+                  text: 'Genel Bakış',
+                ),
+                Tab(
+                  height: 56,
+                  icon: Icon(Icons.admin_panel_settings_outlined, size: 20),
+                  text: 'Yönetici İşlemleri',
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                UserActivityLogsContent(
+                  userId: _logsUserId,
+                  userLabel: _logsUserLabel,
+                  onClearUser: () => setState(() {
+                    _logsUserId = null;
+                    _logsUserLabel = null;
+                  }),
+                ),
+                _buildLogsContent(),
+                const AdminAuditLogContent(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- _buildLogsContent ---

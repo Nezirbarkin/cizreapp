@@ -26,7 +26,7 @@ import 'package:cizreapp/okey/widgets/okey_rack_bar_widget.dart';
 import 'package:cizreapp/okey/widgets/okey_room_backdrop.dart';
 import 'package:cizreapp/okey/widgets/okey_table_metrics.dart';
 import 'package:cizreapp/okey/widgets/okey_table_scaffold.dart';
-import 'package:cizreapp/okey/widgets/okey_turn_timer_bar.dart';
+import 'package:cizreapp/okey/widgets/okey_action_dock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -175,6 +175,11 @@ void main() {
                     tileCount: 13,
                     score: 5,
                     isCurrentTurn: true,
+                    // SÜRE HALKASI (düzen v5) — önizleme PNG'sinde de
+                    // görünsün: sıranın kimde olduğunu artık bu yay söylüyor,
+                    // ıstakanın üstündeki eski çizgi değil.
+                    turnSecondsLeft: seconds,
+                    turnTotalSeconds: 20,
                   ),
                   seatMine: (c, m) => Row(
                     mainAxisSize: MainAxisSize.min,
@@ -278,42 +283,40 @@ void main() {
                     tileWidth: m.meldTileWidth,
                     tileHeight: m.meldTileHeight,
                   ),
-                  rackCapStart: (c, m) =>
-                      OkeyDizCapButton.pairs(active: false, onPressed: _noop),
-                  rackCapEnd: (c, m) =>
-                      OkeyDizCapButton.series(active: true, onPressed: _noop),
-                  // onPressed VERİLİR: buton "etkin" görünümünü ancak geri
-                  // çağrısı olduğunda alır. Önizlemede boş bırakılınca dört
-                  // düğme de kapalı çiziliyor ve tasarımın asıl mesajı (altın
-                  // = şu an yapılabilir) hiç görünmüyordu.
-                  actions: (c, m) => const OkeyButtonRow(
+                  // SERİ DİZ / ÇİFT DİZ artık ıstakanın SOL ucunda ALT
+                  // ALTA (düzen v5); sağ uç hamle dock'unun.
+                  rackCapStart: (c, m) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      OkeyActionButton(
-                        title: 'SERİ AÇ',
-                        icon: Icons.view_week,
-                        badge: '108/101',
-                        tone: OkeyActionTone.ready,
-                        onPressed: _noop,
+                      Expanded(
+                        child: OkeyDizCapButton.series(
+                          active: true,
+                          onPressed: _noop,
+                        ),
                       ),
-                      OkeyActionButton(
-                        title: 'ÇİFT AÇ',
-                        icon: Icons.filter_2,
-                        badge: '2/5',
-                        enabled: false,
-                        onPressed: _noop,
-                      ),
-                      OkeyActionButton(
-                        title: 'İŞLE',
-                        icon: Icons.playlist_add,
-                        badge: '2',
-                        onPressed: _noop,
-                      ),
-                      OkeyActionButton(
-                        title: 'TAŞI AT',
-                        icon: Icons.arrow_downward,
-                        onPressed: _noop,
+                      const SizedBox(height: OkeyTableMetrics.rackCapGap),
+                      Expanded(
+                        child: OkeyDizCapButton.pairs(
+                          active: false,
+                          onPressed: _noop,
+                        ),
                       ),
                     ],
+                  ),
+                  // Geri çağrılar VERİLİR: dock "etkin" görünümünü ancak o
+                  // zaman alır. Önizlemede boş bırakılınca her düğme kapalı
+                  // çiziliyor ve tasarımın asıl mesajı (pirinç = şu an
+                  // yapılabilir) hiç görünmüyordu.
+                  actionDock: (c, m) => OkeyActionDock(
+                    drawPhase: false,
+                    canOpen: true,
+                    openBadge: '108/101',
+                    onOpen: _noop,
+                    canProcess: true,
+                    autoProcessCount: 2,
+                    onProcess: _noop,
+                    canDiscard: true,
+                    onDiscard: _noop,
                   ),
                   modeBadges: const OkeyModeBadgeStack(
                     items: [
@@ -361,12 +364,6 @@ void main() {
                         onTap: _noop,
                       ),
                     ],
-                  ),
-                  turnTimerBar: (c, m) => OkeyTurnTimerBar(
-                    secondsLeftListenable: seconds,
-                    totalSeconds: 20,
-                    isMyTurn: true,
-                    height: OkeyTableMetrics.timerBarHeight,
                   ),
                   rack: (c, m) => OkeyRackPanel(
                     rack: OkeyRackBarWidget(

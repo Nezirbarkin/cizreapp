@@ -126,11 +126,7 @@ class OkeyRoomService {
     final rows = await _client.rpc('okey_room_limits');
     final list = (rows as List?) ?? const [];
     if (list.isEmpty) {
-      return (
-        minEntryFee: minEntryFee,
-        roomCreationFee: 0,
-        walletPoints: 0,
-      );
+      return (minEntryFee: minEntryFee, roomCreationFee: 0, walletPoints: 0);
     }
     final m = list.first as Map<String, dynamic>;
     return (
@@ -179,6 +175,41 @@ class OkeyRoomService {
 
   Future<void> leaveRoom(String roomId) async {
     await _client.rpc('leave_okey_room', params: {'p_room_id': roomId});
+  }
+
+  /// BEKLEME ODASINDA KOLTUK DEĞİŞTİR — oturduğum koltuktan aynı odadaki BOŞ
+  /// bir koltuğa geçer (kullanıcı isteği, 2026-09-21: "oyuncular istediği
+  /// (eşli) kişinin karşısında oturabilsin").
+  ///
+  /// Eşli modda takımlar karşılıklı koltuklardır (0-2 ve 1-3), yani karşıma
+  /// oturan eşim olur. Sunucu yalnızca BOŞ koltuğa geçişe izin verir, hazır
+  /// işaretimi düşürür ve oyun başlamışsa reddeder (bkz. okey_choose_seat).
+  /// Döner: yeni koltuk numarası.
+  Future<int> chooseSeat(String roomId, int seatNo) async {
+    final r = await _client.rpc(
+      'okey_choose_seat',
+      params: {'p_room_id': roomId, 'p_seat_no': seatNo},
+    );
+    return (r as num).toInt();
+  }
+
+  /// [chooseSeat] hatasını oyuncuya gösterilecek cümleye çevirir.
+  ///
+  /// Sunucu hata KODU döner (`APP:seat_taken`), cümle değil; ham
+  /// `PostgrestException(...)` metni oyuncuya gösterilmez.
+  static String chooseSeatError(Object error) {
+    final raw = '$error';
+    if (raw.contains('seat_taken')) {
+      return 'Bu koltuk az önce doldu. Başka bir boş koltuk seç.';
+    }
+    if (raw.contains('room_not_waiting')) {
+      return 'Oyun başladığı için koltuk değiştirilemez.';
+    }
+    if (raw.contains('not_seated')) {
+      return 'Bu masada oturmuyorsun.';
+    }
+    if (raw.contains('invalid_seat')) return 'Geçersiz koltuk.';
+    return 'Koltuk değiştirilemedi. Tekrar dene.';
   }
 
   Future<void> setReady(String roomId, bool ready) async {

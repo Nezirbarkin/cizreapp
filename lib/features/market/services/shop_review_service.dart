@@ -58,40 +58,21 @@ class ShopReviewService {
     }
   }
 
-  /// Dükkan için tüm yorumları getir (user bilgisi ile birlikte)
+  /// Dükkan için tüm yorumları getir (user bilgisi ile birlikte).
+  /// Gizli yorumlarda ad maskelenir ve avatar dönmez — bu iş sunucuda yapılır
+  /// (get_shop_reviews), çünkü profiller herkese okunur.
   Future<List<ShopReview>> getShopReviews(String shopId) async {
     try {
       debugPrint('📝 Dükkan yorumları yükleniyor: $shopId');
-      
+
       final response = await _supabase
-          .from('shop_reviews')
-          .select('''
-            id,
-            shop_id,
-            user_id,
-            rating,
-            comment,
-            created_at,
-            updated_at,
-            seller_reply,
-            seller_replied_at,
-            order_id,
-            profiles(full_name, avatar_url)
-          ''')
-          .eq('shop_id', shopId)
-          .order('created_at', ascending: false);
+          .rpc('get_shop_reviews', params: {'p_shop_id': shopId}) as List;
 
       debugPrint('✅ ${response.length} yorum bulundu');
-      
-      return List<ShopReview>.from(response.map((review) {
-        // Profil bilgisini flatten et
-        final profile = review['profiles'] as Map<String, dynamic>?;
-        return ShopReview.fromJson({
-          ...review,
-          'user_name': profile?['full_name'],
-          'user_avatar': profile?['avatar_url'],
-        });
-      }));
+
+      return response
+          .map((review) => ShopReview.fromJson(review as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('❌ Yorumlar yüklenirken hata: $e');
       rethrow;
@@ -113,7 +94,8 @@ class ShopReviewService {
             updated_at,
             seller_reply,
             seller_replied_at,
-            order_id
+            order_id,
+            is_anonymous
           ''')
           .eq('shop_id', shopId)
           .eq('user_id', userId)
@@ -177,6 +159,7 @@ class ShopReviewService {
     String? comment,
     String? orderId,
     String? digitalOrderId,
+    bool isAnonymous = false,
   }) async {
     try {
       debugPrint('📝 Yorum oluşturuluyor: rating=$rating, shopId=$shopId');
@@ -200,6 +183,7 @@ class ShopReviewService {
             'comment': comment?.trim(),
             'order_id': orderId,
             'digital_order_id': digitalOrderId,
+            'is_anonymous': isAnonymous,
             'created_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })
@@ -219,6 +203,7 @@ class ShopReviewService {
     required String reviewId,
     required int rating,
     String? comment,
+    bool? isAnonymous,
   }) async {
     try {
       debugPrint('✏️ Yorum güncelleniyor: reviewId=$reviewId, rating=$rating');
@@ -232,6 +217,7 @@ class ShopReviewService {
           .update({
             'rating': rating,
             'comment': comment?.trim(),
+            if (isAnonymous != null) 'is_anonymous': isAnonymous,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', reviewId)
@@ -402,44 +388,10 @@ class ShopReviewService {
     }
   }
 
-  /// Satıcının mağaza yorumlarını getir (satıcı paneli için)
-  Future<List<ShopReview>> getSellerShopReviews(String shopId) async {
-    try {
-      debugPrint('🏪 Satıcı mağaza yorumları yükleniyor: $shopId');
-      
-      final response = await _supabase
-          .from('shop_reviews')
-          .select('''
-            id,
-            shop_id,
-            user_id,
-            rating,
-            comment,
-            created_at,
-            updated_at,
-            seller_reply,
-            seller_replied_at,
-            order_id,
-            profiles(full_name, avatar_url)
-          ''')
-          .eq('shop_id', shopId)
-          .order('created_at', ascending: false);
-
-      debugPrint('✅ ${response.length} yorum bulundu');
-      
-      return List<ShopReview>.from(response.map((review) {
-        final profile = review['profiles'] as Map<String, dynamic>?;
-        return ShopReview.fromJson({
-          ...review,
-          'user_name': profile?['full_name'],
-          'user_avatar': profile?['avatar_url'],
-        });
-      }));
-    } catch (e) {
-      debugPrint('❌ Satıcı yorumları yüklenirken hata: $e');
-      rethrow;
-    }
-  }
+  /// Satıcının mağaza yorumlarını getir (satıcı paneli için).
+  /// Satıcı da gizli yorumlarda yalnızca maskeli adı görür.
+  Future<List<ShopReview>> getSellerShopReviews(String shopId) =>
+      getShopReviews(shopId);
 
   /// Sipariş için değerlendirme yapılabilir mi kontrol et
   Future<bool> canReviewOrder({

@@ -1,16 +1,17 @@
-// ignore_for_file: deprecated_member_use
-
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
-import '../services/sehirici_line_service.dart';
 import '../services/sehirici_trip_service.dart';
+import '../utils/sehirici_arrivals.dart';
+import '../widgets/sehirici_common_widgets.dart';
 import '../widgets/sehirici_live_map.dart';
 import 'sehirici_line_detail_screen.dart';
 
-/// Kullanıcı: Hat listesi + harita + duraklar.
+/// Kullanıcı: canlı harita + aktif seferler + hat listesi.
 class SehiriciLinesScreen extends StatefulWidget {
   const SehiriciLinesScreen({super.key});
 
@@ -26,6 +27,7 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final p = context.read<SehiriciProvider>();
       p.initialize();
       _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -49,14 +51,19 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<SehiriciProvider>();
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Şehiriçi Servisler'),
+        title: const Text(
+          'Şehiriçi Servisler',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.star_outline),
-            onPressed: () => Navigator.of(context).pushNamed('/sehirici-favorites'),
+            icon: const Icon(Icons.star_outline_rounded),
+            onPressed: () =>
+                Navigator.of(context).pushNamed('/sehirici-favorites'),
             tooltip: 'Favori Duraklarım',
           ),
         ],
@@ -69,234 +76,462 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
             : provider.moduleEnabled == false
                 ? const _DisabledState()
                 : CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
+                      if (provider.cities.length > 1)
+                        SliverToBoxAdapter(child: _CityChips(provider: provider)),
                       // Harita
                       if (provider.selectedCity != null)
                         SliverToBoxAdapter(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                             child: SehiriciLiveMap(
                               lines: provider.lines,
                               activeTrips: provider.activeTrips,
                               center: provider.selectedCity!,
                               zoomLevel: provider.selectedCity!.zoomLevel,
-                              height: 260,
+                              height: 340,
                               highlightLineId: provider.highlightedLineId,
+                              showLineChips: true,
+                              onHighlightChanged: provider.highlightLine,
+                              borderRadius: 22,
                             ),
                           ),
                         ),
-                      // Vurgulu hat chip'i (kapatılabilir)
-                      if (provider.highlightedLineId != null)
-                        SliverToBoxAdapter(
-                          child: _HighlightedLineChip(
-                            line: provider.lines.firstWhere(
-                              (l) => l.id == provider.highlightedLineId,
-                              orElse: () => provider.lines.isNotEmpty
-                                  ? provider.lines.first
-                                  : const SehiriciLine(
-                                      id: '', code: '', name: ''),
-                            ),
-                            onClose: () => provider.highlightLine(null),
-                          ),
-                        ),
-                      // Aktif sefer özetleri
+                      // Özet
+                      SliverToBoxAdapter(child: _SummaryRow(provider: provider)),
+                      // Aktif seferler
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                          child: Text(
-                            'Aktif Seferler (${provider.activeTrips.length})',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w800),
-                          ),
+                        child: SehiriciSectionHeader(
+                          title: 'Aktif Seferler',
+                          trailing: '${provider.activeTrips.length}',
                         ),
                       ),
                       if (provider.activeTrips.isEmpty)
-                        const SliverToBoxAdapter(
+                        const SliverToBoxAdapter(child: _NoTripsCard())
+                      else
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 118,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              itemCount: provider.activeTrips.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 10),
+                              itemBuilder: (ctx, i) => _TripCard(
+                                trip: provider.activeTrips[i],
+                                line: _lineOf(provider, provider.activeTrips[i]),
+                                onTap: () => provider
+                                    .highlightLine(provider.activeTrips[i].lineId),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Hat listesi
+                      SliverToBoxAdapter(
+                        child: SehiriciSectionHeader(
+                          title: 'Hatlar',
+                          trailing: '${provider.lines.length}',
+                        ),
+                      ),
+                      if (provider.lines.isEmpty)
+                        SliverToBoxAdapter(
                           child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Center(
-                              child: Text(
-                                  'Şu an aktif sefer yok. Lütfen daha sonra tekrar deneyin.'),
+                            padding: const EdgeInsets.all(28),
+                            child: Text(
+                              'Bu şehir için henüz hat tanımlanmamış.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: scheme.onSurface.withValues(alpha: 0.55),
+                              ),
                             ),
                           ),
                         )
                       else
                         SliverList(
                           delegate: SliverChildBuilderDelegate(
-                            (ctx, i) => _ActiveTripTile(
-                                trip: provider.activeTrips[i]),
-                            childCount: provider.activeTrips.length,
+                            (ctx, i) => _LineCard(
+                              line: provider.lines[i],
+                              liveCount: provider.activeTrips
+                                  .where((t) => t.lineId == provider.lines[i].id)
+                                  .length,
+                              highlighted: provider.highlightedLineId ==
+                                  provider.lines[i].id,
+                            ),
+                            childCount: provider.lines.length,
                           ),
                         ),
-                      // Hat listesi
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 16, 12, 4),
-                          child: Text(
-                            'Hatlar (${provider.lines.length})',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ),
-                      SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (ctx, i) => _LineTile(line: provider.lines[i]),
-                          childCount: provider.lines.length,
-                        ),
-                      ),
-                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                      const SliverToBoxAdapter(child: SizedBox(height: 28)),
                     ],
                   ),
       ),
     );
   }
-}
 
-class _ActiveTripTile extends StatelessWidget {
-  final SehiriciActiveTrip trip;
-  const _ActiveTripTile({required this.trip});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: trip.color.withOpacity(0.15),
-          child: Icon(Icons.directions_bus, color: trip.color),
-        ),
-        title: Text('${trip.lineCode} — ${trip.lineName}'),
-        subtitle: trip.nextStopName == null
-            ? const Text('Yolda')
-            : Text('Sonraki: ${trip.nextStopName}'
-                '${trip.etaMinutes != null ? ' · ${trip.etaMinutes} dk' : ''}'),
-        trailing: trip.etaMinutes != null
-            ? Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: trip.color,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${trip.etaMinutes} dk',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700),
-                ),
-              )
-            : null,
-      ),
+  SehiriciLine _lineOf(SehiriciProvider provider, SehiriciActiveTrip trip) {
+    for (final l in provider.lines) {
+      if (l.id == trip.lineId) return l;
+    }
+    return SehiriciLine(
+      id: trip.lineId,
+      code: trip.lineCode,
+      name: trip.lineName,
+      colorHex: trip.lineColor,
     );
   }
 }
 
-class _LineTile extends StatelessWidget {
-  final SehiriciLine line;
-  const _LineTile({required this.line});
+class _CityChips extends StatelessWidget {
+  final SehiriciProvider provider;
+  const _CityChips({required this.provider});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: line.color.withOpacity(0.15),
-          child: Icon(line.vehicleType.icon, color: line.color),
-        ),
-        title: Text('${line.code} — ${line.name}'),
-        subtitle: Text(
-          '${line.stops.length} durak'
-          '${line.estimatedMinutes != null ? ' · ~${line.estimatedMinutes} dk' : ''}'
-          '${line.fareAmount > 0 ? ' · ${line.fareAmount.toStringAsFixed(0)} TL' : ''}',
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // "Haritada göster" — vurgulu değilse haritada vurgula, zaten
-            // vurguluysa temizle (toggle). Hat tıklanınca detay sayfası da
-            // açılır; ama bu ikon tıklaması onu tetiklemez — ikonu
-            // sarmalayan bir InkWell ile sadece _highlightLine çağrılır.
-            Builder(
-              builder: (ctx) {
-                final isHighlighted =
-                    ctx.watch<SehiriciProvider>().highlightedLineId == line.id;
-                return IconButton(
-                  tooltip: isHighlighted ? 'Vurguyu kaldır' : 'Haritada göster',
-                  icon: Icon(
-                    isHighlighted
-                        ? Icons.visibility
-                        : Icons.visibility_outlined,
-                    color: isHighlighted ? line.color : null,
-                  ),
-                  onPressed: () =>
-                      ctx.read<SehiriciProvider>().highlightLine(line.id),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right),
-              tooltip: 'Hat detayı',
-              onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => SehiriciLineDetailScreen(line: line),
-                ));
-              },
-            ),
-          ],
-        ),
-        onTap: () {
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => SehiriciLineDetailScreen(line: line),
-          ));
+    return SizedBox(
+      height: 46,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+        itemCount: provider.cities.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final c = provider.cities[i];
+          return ChoiceChip(
+            label: Text(c.name),
+            selected: c.id == provider.selectedCityId,
+            onSelected: (_) => provider.selectCity(c.id),
+            avatar: const Icon(Icons.location_city_rounded, size: 16),
+          );
         },
       ),
     );
   }
 }
 
-/// Vurgulanan hattı üst haritanın altında gösteren yatay chip. [×] ile
-/// vurgu kaldırılır; tıklamayla detay sayfasına gidilir.
-class _HighlightedLineChip extends StatelessWidget {
-  final SehiriciLine line;
-  final VoidCallback onClose;
-  const _HighlightedLineChip({required this.line, required this.onClose});
+/// Üç özet kutusu: aktif sefer, hat, durak.
+class _SummaryRow extends StatelessWidget {
+  final SehiriciProvider provider;
+  const _SummaryRow({required this.provider});
 
   @override
   Widget build(BuildContext context) {
+    final stopIds = <String>{
+      for (final l in provider.lines)
+        for (final s in l.stops) s.stopId,
+    };
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SehiriciStatTile(
+              icon: Icons.sensors_rounded,
+              value: '${provider.activeTrips.length}',
+              label: 'Yolda',
+              color: const Color(0xFF16A34A),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SehiriciStatTile(
+              icon: Icons.alt_route_rounded,
+              value: '${provider.lines.length}',
+              label: 'Hat',
+              color: const Color(0xFF1976D2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SehiriciStatTile(
+              icon: Icons.signpost_rounded,
+              value: '${stopIds.length}',
+              label: 'Durak',
+              color: const Color(0xFFF59E0B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoTripsCard extends StatelessWidget {
+  const _NoTripsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.bedtime_outlined,
+              size: 30, color: scheme.onSurface.withValues(alpha: 0.45)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Şu an yolda araç yok. Servisler başladığında burada canlı '
+              'olarak göreceksiniz.',
+              style: TextStyle(
+                height: 1.35,
+                color: scheme.onSurface.withValues(alpha: 0.65),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Yatay kaydırılan aktif sefer kartı.
+class _TripCard extends StatelessWidget {
+  final SehiriciActiveTrip trip;
+  final SehiriciLine line;
+  final VoidCallback onTap;
+
+  const _TripCard({
+    required this.trip,
+    required this.line,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onBreak = trip.status == SehiriciTripStatus.paused;
+    return SizedBox(
+      width: 250,
       child: Material(
-        color: line.color.withValues(alpha: 0.12),
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SehiriciLineDetailScreen(line: line),
-            ));
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: line.color.withValues(alpha: 0.35)),
+              boxShadow: [
+                BoxShadow(
+                  color: line.color.withValues(alpha: 0.10),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
             child: Row(
               children: [
-                Icon(Icons.visibility, color: line.color, size: 18),
-                const SizedBox(width: 8),
+                Container(
+                  width: 52,
+                  height: double.infinity,
+                  decoration: BoxDecoration(
+                    color: line.color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: SehiriciVehicleIcon.forLine(line, height: 62),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    'Seçili: ${line.code} — ${line.name}',
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w700),
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          SehiriciLineBadge(
+                            code: trip.lineCode.isEmpty ? line.code : trip.lineCode,
+                            color: line.color,
+                            height: 24,
+                            minWidth: 38,
+                          ),
+                          const SizedBox(width: 6),
+                          SehiriciStatusPill(
+                            label: onBreak ? 'Mola' : 'Yolda',
+                            color: onBreak
+                                ? const Color(0xFFF59E0B)
+                                : const Color(0xFF16A34A),
+                            dense: true,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        trip.nextStopName == null
+                            ? (trip.lineName.isEmpty ? line.name : trip.lineName)
+                            : 'Sıradaki: ${trip.nextStopName}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          height: 1.2,
+                        ),
+                      ),
+                      if (trip.etaMinutes != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          formatArrivalMinutes(trip.etaMinutes!),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            color: line.color,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: onClose,
-                  child: const Padding(
-                    padding: EdgeInsets.all(4),
-                    child: Icon(Icons.close, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Hat kartı: rozet + ad + araç ikonu + bilgi çipleri; dokununca hat detayı.
+class _LineCard extends StatelessWidget {
+  final SehiriciLine line;
+  final int liveCount;
+  final bool highlighted;
+
+  const _LineCard({
+    required this.line,
+    required this.liveCount,
+    required this.highlighted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: Material(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => SehiriciLineDetailScreen(line: line),
+          )),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: highlighted
+                    ? line.color
+                    : scheme.onSurface.withValues(alpha: 0.08),
+                width: highlighted ? 1.8 : 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.035),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 66,
+                  decoration: BoxDecoration(
+                    color: line.color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
                   ),
+                  alignment: Alignment.center,
+                  child: SehiriciVehicleIcon.forLine(line, height: 54),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          SehiriciLineBadge.forLine(line, height: 26, minWidth: 42),
+                          const SizedBox(width: 8),
+                          if (liveCount > 0)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SehiriciLiveDot(size: 7),
+                                Text(
+                                  '$liveCount araç yolda',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF16A34A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        line.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 5,
+                        children: [
+                          SehiriciMetaChip(
+                            icon: Icons.signpost_outlined,
+                            label: '${line.stops.length} durak',
+                          ),
+                          if (line.estimatedMinutes != null)
+                            SehiriciMetaChip(
+                              icon: Icons.schedule_rounded,
+                              label: '~${line.estimatedMinutes} dk',
+                            ),
+                          if (line.fareAmount > 0)
+                            SehiriciMetaChip(
+                              icon: Icons.payments_outlined,
+                              label: '${line.fareAmount.toStringAsFixed(0)} ₺',
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip:
+                          highlighted ? 'Vurguyu kaldır' : 'Haritada göster',
+                      onPressed: () =>
+                          context.read<SehiriciProvider>().highlightLine(line.id),
+                      icon: Icon(
+                        highlighted
+                            ? Icons.visibility_rounded
+                            : Icons.visibility_outlined,
+                        color: highlighted ? line.color : null,
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded,
+                        color: scheme.onSurface.withValues(alpha: 0.4)),
+                  ],
                 ),
               ],
             ),
@@ -312,23 +547,34 @@ class _DisabledState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.directions_bus_outlined,
-              size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          const Text('Bu özellik şu anda kapalı',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(
-            'Şehiriçi servisler modülü yönetici tarafından kapatıldı.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey.shade600),
+    final scheme = Theme.of(context).colorScheme;
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.6,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.directions_bus_outlined,
+                    size: 64, color: scheme.onSurface.withValues(alpha: 0.3)),
+                const SizedBox(height: 12),
+                const Text(
+                  'Bu özellik şu anda kapalı',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Şehiriçi servisler modülü yönetici tarafından kapatıldı.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.6)),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

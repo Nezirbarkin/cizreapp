@@ -457,6 +457,7 @@ class _TaskCard extends StatelessWidget {
             task.imageUrl!,
             width: 52,
             height: 52,
+            cacheWidth: 160,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _categoryAvatar(accent),
           ),
@@ -796,6 +797,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     task.imageUrl!,
                     height: 200,
                     width: double.infinity,
+                    cacheWidth: 800,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
                       height: 200,
@@ -1248,6 +1250,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                       s.screenshotUrl!,
                       height: 80,
                       width: double.infinity,
+                      cacheWidth: 500,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),

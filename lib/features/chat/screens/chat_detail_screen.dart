@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/models/post_model.dart';
 import '../services/chat_service.dart';
+import '../services/typing_channel.dart';
+import '../widgets/presence_status_line.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../../ilanlar/screens/ilan_detail_screen.dart';
@@ -55,6 +57,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   Message? _replyToMessage;
   final FocusNode _messageFocusNode = FocusNode();
 
+  // "Yazıyor…": karşı taraf yazıyorsa başlıkta gösterilir; kendi yazdığımız da
+  // (tercihimiz ve yönetici izin veriyorsa) karşıya bildirilir.
+  TypingChannel? _typingChannel;
+  final ValueNotifier<bool> _peerTyping = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +69,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _currentUserId = Supabase.instance.client.auth.currentUser?.id;
     _loadMessages();
     _subscribeToMessages();
+    _startTyping();
     // Mesajları okundu olarak işaretle (bana gelen mesajlar)
     _chatService.markMessagesAsRead(widget.conversationId);
 
@@ -84,11 +92,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _isAtBottom = (maxScroll - currentScroll) < 50;
   }
 
+  void _startTyping() {
+    final uid = _currentUserId;
+    if (uid == null) return;
+    final channel = TypingChannel(
+      transport: SupabaseTypingTransport.direct(widget.otherUserId),
+      selfId: uid,
+    );
+    _typingChannel = channel;
+    channel.typing.addListener(_syncPeerTyping);
+    _messageController.addListener(_onComposerChanged);
+    channel.start();
+  }
+
+  void _syncPeerTyping() {
+    _peerTyping.value =
+        _typingChannel?.typing.value.contains(widget.otherUserId) ?? false;
+  }
+
+  // Metin kutusu boşaldığında (mesaj gönderilince `clear()` dahil) kanal
+  // kendiliğinden "yazmıyor" der.
+  void _onComposerChanged() {
+    _typingChannel?.onTextChanged(_messageController.text);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Uygulama ön plana geldiğinde mesajları okundu işaretle
     if (state == AppLifecycleState.resumed && mounted) {
       _chatService.markMessagesAsRead(widget.conversationId);
+    }
+    // Arka plana giderken "yazıyor" takılı kalmasın.
+    if (state != AppLifecycleState.resumed) {
+      _typingChannel?.stopTyping();
     }
   }
 
@@ -113,6 +149,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onScroll);
+    _messageController.removeListener(_onComposerChanged);
+    _typingChannel?.typing.removeListener(_syncPeerTyping);
+    // "Yazmıyor"u gönderip kanalı kapatır; beklenmez.
+    unawaited(_typingChannel?.dispose());
+    _peerTyping.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
@@ -402,10 +443,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  widget.otherUserName,
-                  style: const TextStyle(fontSize: 18),
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.otherUserName,
+                      style: const TextStyle(fontSize: 18, height: 1.15),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    // çevrimiçi / son görülme / yazıyor… — gösterilecek bir şey
+                    // yoksa hiç yer kaplamaz.
+                    PresenceStatusLine(
+                      userId: widget.otherUserId,
+                      typing: _peerTyping,
+                      fontSize: 12,
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -635,7 +689,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
 
     // PERFORMANCE: MediaQuery'i bir kez al
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     // PERFORMANCE: Renk ve stil değerlerini önceden hesapla (withOpacity tekrarlarını önle)
     final bubbleColor = isMe ? Colors.deepPurple : Colors.white;
     final textColor = isMe ? Colors.white : Colors.grey[900]!;
@@ -760,7 +814,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        width: MediaQuery.of(context).size.width * .72,
+        width: MediaQuery.sizeOf(context).width * .72,
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -785,6 +839,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     top: Radius.circular(15),
                   ),
                   child: CachedNetworkImage(
+                    memCacheWidth: 700,
                     imageUrl: imageUrl,
                     height: 125,
                     width: double.infinity,
@@ -946,7 +1001,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.85,
+          maxWidth: MediaQuery.sizeOf(context).width * 0.85,
         ),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1051,6 +1106,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: CachedNetworkImage(
+                          memCacheWidth: 700,
                           imageUrl: message.sharedPostImageUrl!,
                           height: 150,
                           width: double.infinity,

@@ -15,6 +15,9 @@ toplami ~1-2 MB'ta kaliyor.
 Kullanim:
     python scripts/generate_animated_avatars.py
 
+NOT: 56-79 arasi (sik sahneler + goz kirpan portreler) ayri betikle uretilir:
+`scripts/generate_elegant_animated_avatars.py`. Bu betik yalniz 01-55'i uretir.
+
 Cikti: assets/avatars_animated/avatar_anim_01.gif ... _55.gif
        (ilk 30: orijinal set - DEGISTIRILMEDI, ayni STYLES/PALETTES ile ayni
        sirada uretilir. 31-55 arasi: 25 yeni animasyon - 5 yeni stil

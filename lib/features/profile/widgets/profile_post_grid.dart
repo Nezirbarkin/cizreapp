@@ -203,6 +203,7 @@ class ProfilePostGrid extends StatelessWidget {
 
   Widget _imageLayer(String url) {
     return CachedNetworkImage(
+      memCacheWidth: 480,
       imageUrl: url,
       fit: BoxFit.cover,
       placeholder: (context, _) => Container(color: const Color(0xFFECEFF3)),

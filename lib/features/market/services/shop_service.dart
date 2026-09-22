@@ -314,6 +314,63 @@ class ShopService {
     }
   }
 
+  /// Şu an geçerli kuponu olan dükkanların id'leri ("Kupon Var" rozeti için).
+  ///
+  /// Kart başına ayrı sorgu atmak yerine (N+1) liste başına TEK sorgu çalışır.
+  /// Süzgeç "Kuponlarım" ekranıyla aynıdır: aktif + tarih penceresi + kotası
+  /// dolmamış. Böylece kartta rozet görünüp dükkanda kupon bulunamaması olmaz.
+  /// `shop_coupons_select` RLS'i herkesin aktif kayıtları okumasına izin verir.
+  ///
+  /// Hata olursa boş küme döner: rozet yalnızca görünmez, liste bozulmaz.
+  Future<Set<String>> getShopIdsWithActiveCoupons(
+    Iterable<String> shopIds,
+  ) async {
+    final ids = shopIds.toSet().toList();
+    if (ids.isEmpty) return <String>{};
+
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+
+      // PostgREST URL uzunluk sınırını aşmamak için id'ler parçalanır.
+      const chunkSize = 80;
+      final chunks = <List<String>>[
+        for (var i = 0; i < ids.length; i += chunkSize)
+          ids.sublist(
+            i,
+            i + chunkSize < ids.length ? i + chunkSize : ids.length,
+          ),
+      ];
+
+      final pages = await Future.wait(
+        chunks.map(
+          (chunk) => _supabase
+              .from('shop_coupons')
+              .select('shop_id, usage_limit, usage_count')
+              .inFilter('shop_id', chunk)
+              .eq('is_active', true)
+              .or('end_date.is.null,end_date.gte.$now')
+              .or('start_date.is.null,start_date.lte.$now')
+              .timeout(const Duration(seconds: 8)),
+        ),
+      );
+
+      final result = <String>{};
+      for (final rows in pages) {
+        for (final row in rows) {
+          final limit = (row['usage_limit'] as num?)?.toInt();
+          final used = (row['usage_count'] as num?)?.toInt() ?? 0;
+          if (limit != null && used >= limit) continue; // kotası bitmiş
+          final shopId = row['shop_id'] as String?;
+          if (shopId != null) result.add(shopId);
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('Kupon rozeti için kuponlar alınamadı: $e');
+      return <String>{};
+    }
+  }
+
   /// Cache'i temizle
   void clearCache() {
     _shopCache.clear();

@@ -254,7 +254,15 @@ extension on _AdminDashboardScreenState {
       case 'Dashboard':
         return _buildDashboardContent();
       case 'Kullanıcılar':
-        return _buildUsersContent();
+        return AdminUsersContent(
+          onOpenUserLogs: (userId, label) {
+            setState(() {
+              _logsUserId = userId;
+              _logsUserLabel = label;
+              _selectedMenu = 'Loglar';
+            });
+          },
+        );
       case 'Kullanıcı Özellikleri':
         return const UserFeaturesAdminContent();
       case 'Gönderiler':
@@ -269,8 +277,12 @@ extension on _AdminDashboardScreenState {
         return const AdminSmmProvidersScreen();
       case 'Kategoriler':
         return _buildCategoriesContent();
+      case 'Ürün Görsel Kütüphanesi':
+        return const ProductImageLibraryContent();
       case 'Dükkanlar':
         return _buildShopsContent();
+      case 'Satıcı Duyuruları':
+        return const SellerAnnouncementsContent();
       case 'Siparişler':
         return _buildOrdersContent();
       case 'Kurye Yönetimi':
@@ -302,6 +314,8 @@ extension on _AdminDashboardScreenState {
         return const OkeyAdminContent();
       case 'Gruplar':
         return const GroupsManagementContent();
+      case 'Sohbet Durumu':
+        return const ChatPresenceSettingsContent();
       case 'Bildirimler':
         return const NotificationsContentV2();
       // NOT: 'Gönderi Şikayetleri' case'i kaldirildi. _selectedMenu bu degeri
@@ -318,10 +332,14 @@ extension on _AdminDashboardScreenState {
         return _buildReportsPageContent();
       case 'Günün Fırsatları':
         return const DailyDealsContent();
+      case 'Liderler Tablosu':
+        return const LeaderboardManagementContent();
+      case 'Müzik Çalar':
+        return const MusicManagementContent();
       case 'Analitik':
         return _buildAnalyticsContent();
       case 'Loglar':
-        return _buildLogsContent();
+        return _buildLogsTabs();
       case 'API Ayarları':
         return _buildAPISettingsContent();
       case 'Ayarlar':

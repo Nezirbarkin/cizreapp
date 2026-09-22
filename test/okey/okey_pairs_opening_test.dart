@@ -1,5 +1,6 @@
 import 'package:cizreapp/okey/okey.dart';
 import 'package:cizreapp/okey/widgets/okey_action_panel_widget.dart';
+import 'package:cizreapp/okey/widgets/okey_action_dock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -160,6 +161,9 @@ void main() {
   });
 
   group('Kapalı düğme sebebini söyler', () {
+    // v5: hamle düğmeleri ıstakanın sağındaki dikey dock'ta
+    // ([OkeyActionDock]). Kural değişmedi: kapalı düğme GÖRÜNÜR kalır,
+    // dokunuşa cevap verir, ama hamleyi değil SEBEBİNİ çalıştırır.
     testWidgets('KAPALI düğmeye dokunmak onBlockedTap tetikler', (
       tester,
     ) async {
@@ -171,15 +175,14 @@ void main() {
           home: Scaffold(
             body: Center(
               child: SizedBox(
-                width: 120,
-                height: 46,
-                child: OkeyActionButton(
-                  title: 'ÇİFT AÇ',
-                  icon: Icons.filter_2,
-                  badge: '5/5',
-                  enabled: false,
-                  onPressed: () => pressed++,
-                  onBlockedTap: () => explained++,
+                width: 104,
+                height: 160,
+                child: OkeyActionDock(
+                  drawPhase: false,
+                  canOpen: false,
+                  openBadge: '5/5',
+                  onOpen: () => pressed++,
+                  onOpenBlocked: () => explained++,
                 ),
               ),
             ),
@@ -187,7 +190,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('ÇİFT AÇ'));
+      await tester.tap(find.text('AÇ'));
       await tester.pump();
 
       expect(explained, 1, reason: 'sebep sorulmuş olmalı');
@@ -205,14 +208,14 @@ void main() {
           home: Scaffold(
             body: Center(
               child: SizedBox(
-                width: 120,
-                height: 46,
-                child: OkeyActionButton(
-                  title: 'ÇİFT AÇ',
-                  icon: Icons.filter_2,
-                  enabled: true,
-                  onPressed: () => pressed++,
-                  onBlockedTap: () => explained++,
+                width: 104,
+                height: 160,
+                child: OkeyActionDock(
+                  drawPhase: false,
+                  canOpen: true,
+                  openBadge: '108/101',
+                  onOpen: () => pressed++,
+                  onOpenBlocked: () => explained++,
                 ),
               ),
             ),
@@ -220,11 +223,11 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('ÇİFT AÇ'));
+      await tester.tap(find.text('AÇ'));
       await tester.pump();
 
-      expect(pressed, 1);
-      expect(explained, 0);
+      expect(pressed, 1, reason: 'açık düğme hamleyi yapmalı');
+      expect(explained, 0, reason: 'açık düğme sebep sormaz');
     });
   });
 }

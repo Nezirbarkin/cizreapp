@@ -20,7 +20,7 @@ import '../services/cart_service.dart';
 import '../providers/cart_provider.dart';
 import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
-import 'shop_detail_screen.dart';
+import '../widgets/shop_card.dart';
 import 'category_shops_screen.dart';
 import 'product_detail_screen.dart';
 
@@ -42,6 +42,8 @@ class _SearchScreenState extends State<SearchScreen> {
   final FocusNode _searchFocusNode = FocusNode();
 
   List<Shop> _shopResults = [];
+  // Şu an geçerli kuponu olan arama sonucu dükkanları ("Kupon Var" rozeti).
+  Set<String> _couponShopIds = {};
   List<Product> _productResults = [];
   List<Category> _categoryResults = [];
   List<Map<String, dynamic>> _userResults = [];
@@ -259,12 +261,24 @@ class _SearchScreenState extends State<SearchScreen> {
 
         // Global sipariş flag'ını ve ürünlerin dükkan durumlarını paralel yükle
         _loadGlobalOrdersEnabled();
+        _loadShopCoupons(_shopResults);
         _loadShopAcceptingOrdersForProducts(_productResults);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSearching = false);
       }
+    }
+  }
+
+  /// Arama sonucu dükkanların kupon rozetleri. Kullanıcı bu arada yeni bir
+  /// arama yaptıysa (liste değiştiyse) eski sorgunun cevabı yok sayılır.
+  Future<void> _loadShopCoupons(List<Shop> shops) async {
+    final ids = await _shopService.getShopIdsWithActiveCoupons(
+      shops.map((s) => s.id),
+    );
+    if (mounted && identical(shops, _shopResults)) {
+      setState(() => _couponShopIds = ids);
     }
   }
 
@@ -530,7 +544,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+        crossAxisCount: MediaQuery.sizeOf(context).width > 600 ? 4 : 3,
         childAspectRatio: 0.68,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
@@ -596,7 +610,7 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             sliver: SliverGrid(
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+                crossAxisCount: MediaQuery.sizeOf(context).width > 600 ? 4 : 3,
                 childAspectRatio: 0.68,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
@@ -630,41 +644,11 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildShopTile(Shop shop) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            image: shop.logoUrl != null
-                ? DecorationImage(
-                    image: NetworkImage(shop.logoUrl!),
-                    fit: BoxFit.cover,
-                  )
-                : null,
-            color: Colors.grey.shade200,
-          ),
-          child: shop.logoUrl == null
-              ? const Icon(Icons.store, color: Colors.grey)
-              : null,
-        ),
-        title: Text(
-          shop.name,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(shop.description ?? ''),
-        trailing: Icon(Icons.star, color: Colors.amber.shade600, size: 20),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ShopDetailScreen(shopId: shop.id),
-            ),
-          );
-        },
-      ),
+    return ShopCard(
+      shop: shop,
+      globalOrdersEnabled: _globalOrdersEnabled,
+      hasCoupon: _couponShopIds.contains(shop.id),
+      margin: const EdgeInsets.only(bottom: 10),
     );
   }
 

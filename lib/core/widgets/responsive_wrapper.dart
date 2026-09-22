@@ -27,7 +27,7 @@ class ResponsiveWrapper extends StatelessWidget {
       return child;
     }
 
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     // Mobil web cihazlar için threshold'u 600px'e düşürdük (önceden 800px idi)
     // Bu sayede mobil web tarayıcılarda desktop modu devreye girmeyecek
     final isDesktop = screenSize.width > 600;
@@ -93,7 +93,7 @@ class ResponsiveScaffoldWrapper extends StatelessWidget {
     }
 
     // Web'de maksimum genişlik ile merkezi layout
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     // Mobil web cihazlar için threshold'u 600px'e düşürdük
     final isDesktop = screenSize.width > 600;
 
@@ -155,7 +155,7 @@ class ResponsiveBottomNav extends StatelessWidget {
       return child;
     }
 
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     // Mobil web cihazlar için threshold'u 600px'e düşürdük
     final isDesktop = screenSize.width > 600;
 

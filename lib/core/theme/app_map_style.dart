@@ -90,6 +90,74 @@ class MapThemePreference {
       };
 }
 
+/// Haritanın altındaki zemin: çizilmiş standart harita ya da uydu görüntüsü.
+enum MapBaseType { standard, satellite }
+
+/// Harita türü tercihi (Standart / Uydu) — cihaz yereli, kalıcı.
+///
+/// Uydu görüntüsü gerçek binaları/yolları gösterir; durak ve güzergâh
+/// çizgileri üstünde aynen görünür. Şehiriçi haritası bu tercihi kullanır.
+class MapTypePreference {
+  const MapTypePreference._();
+
+  static const String _prefsKey = 'map_base_type';
+
+  static final ValueNotifier<MapBaseType> choice =
+      ValueNotifier<MapBaseType>(MapBaseType.standard);
+
+  static bool _loaded = false;
+  static Future<void>? _loading;
+
+  static Future<void> ensureLoaded() {
+    if (_loaded) return Future<void>.value();
+    return _loading ??= _load();
+  }
+
+  static Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_prefsKey);
+      if (saved != null) {
+        choice.value = MapBaseType.values.firstWhere(
+          (c) => c.name == saved,
+          orElse: () => MapBaseType.standard,
+        );
+      }
+    } catch (_) {
+      // Okunamadıysa standart harita.
+    } finally {
+      _loaded = true;
+    }
+  }
+
+  static Future<void> set(MapBaseType value) async {
+    choice.value = value;
+    _loaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, value.name);
+    } catch (_) {
+      // Kaydedilemese de oturum içinde geçerli kalır.
+    }
+  }
+
+  static Future<void> toggle() => set(
+        choice.value == MapBaseType.standard
+            ? MapBaseType.satellite
+            : MapBaseType.standard,
+      );
+
+  static String labelOf(MapBaseType value) => switch (value) {
+        MapBaseType.standard => 'Standart',
+        MapBaseType.satellite => 'Uydu',
+      };
+
+  static IconData iconOf(MapBaseType value) => switch (value) {
+        MapBaseType.standard => Icons.layers_outlined,
+        MapBaseType.satellite => Icons.satellite_alt,
+      };
+}
+
 /// Harita teması tercihini dinleyip güncel stil JSON'unu veren sarmalayıcı.
 ///
 /// ```dart
@@ -125,15 +193,17 @@ class _MapStyleBuilderState extends State<MapStyleBuilder> {
   }
 }
 
-/// Uygulama genelinde tek tip, modern harita görünümü.
+/// Uygulama genelinde tek tip, modern ve gerçekçi harita görünümü.
 ///
 /// Google'ın varsayılan haritası yoğun renkli ve POI ikonlarıyla kalabalıktır;
 /// üzerine çizdiğimiz hat/rota polyline'ları ve marker'lar arka planda kaybolur.
-/// Buradaki stiller zemini düşük doygunluklu nötr griye çeker, POI ikonlarını
-/// kapatır ve yolları ince kontrastlarla ayırır — böylece asıl içerik
-/// (duraklar, kuryeler, rotalar) öne çıkar.
-///
-/// Renkler [AppTheme] gri paletiyle uyumludur (gray400/gray500/gray200 …).
+/// Buradaki stiller zemini sıcak, düşük doygunluklu bir "kâğıt" tonuna çeker,
+/// yolları beyaz gövde + ince kenarlıkla ayırır, bina izlerini belli belirsiz
+/// gösterir (yakın zoom'da gerçek şehir dokusu), park ve suyu yumuşak renkle
+/// verir. POI ikonları kapalıdır; yalnızca yön bulmaya yarayan yerlerin
+/// (okul, hastane, cami, kamu binası, park) YAZISI kalır. Google'ın kendi
+/// toplu taşıma durakları gizlenir — durakları biz çiziyoruz, ikiye
+/// katlanmasınlar.
 ///
 /// Kullanım — `GoogleMap` kurulumunda tek satır:
 /// ```dart
@@ -163,80 +233,82 @@ class AppMapStyle {
   /// Temaya göre stil JSON'u.
   static String forBrightness(bool isDark) => isDark ? dark : light;
 
-  /// Modern açık stil: kırık beyaz zemin, beyaz yollar, yumuşak mavi su.
+  /// Modern açık stil: sıcak kâğıt zemin, beyaz yollar, belirgin bina izleri,
+  /// yumuşak yeşil park ve mavi su.
   static const String light = '''
 [
-  {"elementType": "geometry", "stylers": [{"color": "#f6f7f9"}]},
+  {"elementType": "geometry", "stylers": [{"color": "#f2f1ed"}]},
   {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"elementType": "labels.text.fill", "stylers": [{"color": "#6b7280"}]},
-  {"elementType": "labels.text.stroke", "stylers": [{"color": "#ffffff"}, {"weight": 2}]},
-  {"featureType": "administrative", "elementType": "geometry", "stylers": [{"color": "#e5e7eb"}]},
+  {"elementType": "labels.text.fill", "stylers": [{"color": "#616875"}]},
+  {"elementType": "labels.text.stroke", "stylers": [{"color": "#ffffff"}, {"weight": 3}]},
+  {"featureType": "administrative", "elementType": "geometry.stroke", "stylers": [{"color": "#d6d3cb"}]},
   {"featureType": "administrative.land_parcel", "stylers": [{"visibility": "off"}]},
-  {"featureType": "administrative.neighborhood", "elementType": "labels.text.fill", "stylers": [{"color": "#9ca3af"}]},
-  {"featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{"color": "#4b5563"}]},
-  {"featureType": "landscape.man_made", "elementType": "geometry", "stylers": [{"color": "#f1f2f5"}]},
-  {"featureType": "landscape.natural", "elementType": "geometry", "stylers": [{"color": "#eef1ee"}]},
-  {"featureType": "poi", "elementType": "geometry", "stylers": [{"color": "#eceef1"}]},
-  {"featureType": "poi", "elementType": "labels", "stylers": [{"visibility": "off"}]},
-  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#e2eddf"}]},
+  {"featureType": "administrative.neighborhood", "elementType": "labels.text.fill", "stylers": [{"color": "#8f95a1"}]},
+  {"featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{"color": "#3b4250"}]},
+  {"featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [{"color": "#e7e5dd"}]},
+  {"featureType": "landscape.man_made", "elementType": "geometry.stroke", "stylers": [{"color": "#d3d0c6"}]},
+  {"featureType": "landscape.natural", "elementType": "geometry.fill", "stylers": [{"color": "#eeede8"}]},
+  {"featureType": "poi", "elementType": "geometry", "stylers": [{"color": "#e9eae3"}]},
+  {"featureType": "poi", "elementType": "labels.text", "stylers": [{"visibility": "off"}]},
+  {"featureType": "poi.school", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.medical", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.government", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.place_of_worship", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.school", "elementType": "geometry", "stylers": [{"color": "#e5e3da"}]},
+  {"featureType": "poi.medical", "elementType": "geometry", "stylers": [{"color": "#f0e0de"}]},
+  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#d7e8cb"}]},
   {"featureType": "poi.park", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
-  {"featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{"color": "#8aa682"}]},
-  {"featureType": "poi.medical", "elementType": "geometry", "stylers": [{"color": "#f4e7e7"}]},
+  {"featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{"color": "#6b915f"}]},
   {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#ffffff"}]},
-  {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#e8eaef"}]},
-  {"featureType": "road", "elementType": "labels.text.fill", "stylers": [{"color": "#9ca3af"}]},
-  {"featureType": "road.local", "elementType": "geometry.stroke", "stylers": [{"color": "#eceef2"}]},
-  {"featureType": "road.arterial", "elementType": "geometry.fill", "stylers": [{"color": "#ffffff"}]},
-  {"featureType": "road.arterial", "elementType": "geometry.stroke", "stylers": [{"color": "#e1e4ea"}]},
-  {"featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{"color": "#fdfdfe"}]},
-  {"featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{"color": "#d7dbe3"}]},
-  {"featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{"color": "#7c8494"}]},
-  {"featureType": "road.highway.controlled_access", "elementType": "geometry.fill", "stylers": [{"color": "#fbfbfd"}]},
-  {"featureType": "road.highway.controlled_access", "elementType": "geometry.stroke", "stylers": [{"color": "#ccd2dc"}]},
-  {"featureType": "transit", "elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"featureType": "transit.line", "elementType": "geometry", "stylers": [{"color": "#e6e8ec"}]},
-  {"featureType": "transit.station", "elementType": "geometry", "stylers": [{"color": "#eceef1"}]},
-  {"featureType": "transit", "elementType": "labels.text.fill", "stylers": [{"color": "#a5abb5"}]},
-  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#d4e4f0"}]},
-  {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#7ba0bd"}]},
-  {"featureType": "water", "elementType": "labels.text.stroke", "stylers": [{"color": "#d4e4f0"}]}
+  {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#dedbd2"}]},
+  {"featureType": "road", "elementType": "labels.text.fill", "stylers": [{"color": "#8b909b"}]},
+  {"featureType": "road.local", "elementType": "geometry.stroke", "stylers": [{"color": "#e6e3da"}]},
+  {"featureType": "road.arterial", "elementType": "geometry.stroke", "stylers": [{"color": "#dad7cd"}]},
+  {"featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{"color": "#fde6b0"}]},
+  {"featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{"color": "#efca7d"}]},
+  {"featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{"color": "#7a6a42"}]},
+  {"featureType": "transit", "stylers": [{"visibility": "off"}]},
+  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#b9d8ef"}]},
+  {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#5f8fb4"}]},
+  {"featureType": "water", "elementType": "labels.text.stroke", "stylers": [{"color": "#e3f0fa"}]}
 ]
 ''';
 
-  /// Modern koyu stil: mürekkep grisi zemin, ışıklı yollar.
+  /// Modern koyu stil: mürekkep grisi zemin, seçilebilir bina izleri, ışıklı yollar.
   static const String dark = '''
 [
-  {"elementType": "geometry", "stylers": [{"color": "#181a1f"}]},
+  {"elementType": "geometry", "stylers": [{"color": "#1a1d23"}]},
   {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"elementType": "labels.text.fill", "stylers": [{"color": "#9ca3af"}]},
-  {"elementType": "labels.text.stroke", "stylers": [{"color": "#14161a"}, {"weight": 2}]},
-  {"featureType": "administrative", "elementType": "geometry", "stylers": [{"color": "#2c3038"}]},
+  {"elementType": "labels.text.fill", "stylers": [{"color": "#9aa1ad"}]},
+  {"elementType": "labels.text.stroke", "stylers": [{"color": "#14161a"}, {"weight": 3}]},
+  {"featureType": "administrative", "elementType": "geometry.stroke", "stylers": [{"color": "#2d323b"}]},
   {"featureType": "administrative.land_parcel", "stylers": [{"visibility": "off"}]},
   {"featureType": "administrative.neighborhood", "elementType": "labels.text.fill", "stylers": [{"color": "#6b7280"}]},
   {"featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{"color": "#d1d5db"}]},
-  {"featureType": "landscape.man_made", "elementType": "geometry", "stylers": [{"color": "#1c1f25"}]},
-  {"featureType": "landscape.natural", "elementType": "geometry", "stylers": [{"color": "#1a1d22"}]},
+  {"featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [{"color": "#22262d"}]},
+  {"featureType": "landscape.man_made", "elementType": "geometry.stroke", "stylers": [{"color": "#2e333c"}]},
+  {"featureType": "landscape.natural", "elementType": "geometry.fill", "stylers": [{"color": "#1c1f25"}]},
   {"featureType": "poi", "elementType": "geometry", "stylers": [{"color": "#20242a"}]},
-  {"featureType": "poi", "elementType": "labels", "stylers": [{"visibility": "off"}]},
-  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#1b2620"}]},
+  {"featureType": "poi", "elementType": "labels.text", "stylers": [{"visibility": "off"}]},
+  {"featureType": "poi.school", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.medical", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.government", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.place_of_worship", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
+  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#1b2820"}]},
   {"featureType": "poi.park", "elementType": "labels.text", "stylers": [{"visibility": "on"}]},
   {"featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{"color": "#5d7a63"}]},
-  {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#2a2e36"}]},
-  {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#1f2229"}]},
+  {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#2f343d"}]},
+  {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#1e2126"}]},
   {"featureType": "road", "elementType": "labels.text.fill", "stylers": [{"color": "#8b919c"}]},
-  {"featureType": "road.local", "elementType": "geometry.fill", "stylers": [{"color": "#24282f"}]},
-  {"featureType": "road.arterial", "elementType": "geometry.fill", "stylers": [{"color": "#31363f"}]},
-  {"featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{"color": "#3a404b"}]},
-  {"featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{"color": "#22262d"}]},
-  {"featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{"color": "#b6bcc7"}]},
-  {"featureType": "road.highway.controlled_access", "elementType": "geometry.fill", "stylers": [{"color": "#454c58"}]},
-  {"featureType": "transit", "elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"featureType": "transit.line", "elementType": "geometry", "stylers": [{"color": "#272b32"}]},
-  {"featureType": "transit.station", "elementType": "geometry", "stylers": [{"color": "#20242a"}]},
-  {"featureType": "transit", "elementType": "labels.text.fill", "stylers": [{"color": "#7a808b"}]},
-  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#0f151c"}]},
+  {"featureType": "road.local", "elementType": "geometry.fill", "stylers": [{"color": "#292d35"}]},
+  {"featureType": "road.arterial", "elementType": "geometry.fill", "stylers": [{"color": "#373d47"}]},
+  {"featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{"color": "#4a4536"}]},
+  {"featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{"color": "#2b281f"}]},
+  {"featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{"color": "#c9bea0"}]},
+  {"featureType": "transit", "stylers": [{"visibility": "off"}]},
+  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#0e1a26"}]},
   {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#4a637a"}]},
-  {"featureType": "water", "elementType": "labels.text.stroke", "stylers": [{"color": "#0f151c"}]}
+  {"featureType": "water", "elementType": "labels.text.stroke", "stylers": [{"color": "#0e1a26"}]}
 ]
 ''';
 }

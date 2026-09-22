@@ -4,6 +4,8 @@ import '../services/okey_sound_service.dart';
 
 import 'okey_theme.dart';
 
+export 'okey_salon.dart';
+
 /// 101 Okey modülünün ORTAK TASARIM SİSTEMİ.
 ///
 /// ## Neden var
@@ -48,34 +50,73 @@ abstract final class OkeyUI {
   static const double radiusLg = 20;
 
   // --- Yüzeyler ------------------------------------------------------------
-  /// Ekran zemini: masanın keçesiyle akraba, ama daha koyu ve sakin —
-  /// içerik okunurluğu için kontrast masadan yüksek.
+  //
+  // SALON TASARIM DİLİ (2026-09-20): lobi/oda/puan/sonuç ekranları artık
+  // masayla AYNI malzemeyi konuşur — espresso zemin, ceviz kartlar, pirinç
+  // vurgu. Eskiden bu ekranlar düz koyu turkuazdı ve masadan (ceviz + çuha +
+  // fildişi) ayrı bir uygulama gibi duruyordu.
+
+  /// Oda zemini: espresso, üstte çuhanın hafif yeşil ışığı.
   static const LinearGradient screenGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Color(0xFF0B2E38), Color(0xFF07202A)],
+    colors: [Color(0xFF14322E), Color(0xFF120C09), Color(0xFF0D0806)],
+    stops: [0, 0.38, 1],
   );
 
-  /// Kart yüzeyi — keçenin üstünde duran cam gibi.
-  static const Color cardFill = Color(0xFF0F3B47);
-  static const Color cardFillRaised = Color(0xFF144957);
-  static const Color cardBorder = Color(0x24FFFFFF);
+  /// [screenGradient]'in en üst rengi. Scaffold zemini olarak da kullanılır:
+  /// şeffaf AppBar'ın arkasında kalan bant, gövde gradyanıyla kesintisiz
+  /// birleşsin (eskiden masa temasının turkuazı görünüyordu).
+  static const Color screenTop = Color(0xFF14322E);
 
-  /// Vurgulu (altın) yüzey — birincil aksiyonlar.
+  /// Kart yüzeyi — espresso üstünde duran koyu cam.
+  static const Color cardFill = Color(0xFF1F1811);
+  static const Color cardFillRaised = Color(0xFF2B2018);
+  static const Color cardBorder = Color(0x24FFF0D2);
+
+  /// Vurgulu (pirinç) yüzey — birincil aksiyonlar.
   static const List<Color> goldGradient = [
-    Color(0xFFFFCF5C),
-    Color(0xFFE39A16),
+    Color(0xFFF5CB6A),
+    Color(0xFFD9972A),
   ];
-  static const Color onGold = Color(0xFF2A1C05);
+  static const Color onGold = Color(0xFF2A1A05);
+
+  /// Pirinç — tek vurgu rengi (seçili çip, kazanan satırı, rozet).
+  static const Color brass = Color(0xFFE4B04C);
+
+  /// Pirinç düğmenin altındaki "basılabilir kalınlık" gölgesi.
+  static const Color goldEdge = Color(0xFF9A6A17);
+
+  /// Çip sayıları ve altın vurgulu rakamlar.
+  static const Color chipText = Color(0xFFFFE7A8);
 
   // --- Metin ---------------------------------------------------------------
-  static const Color text = Color(0xFFF2F7F8);
-  static const Color textDim = Color(0xB3FFFFFF);
-  static const Color textFaint = Color(0x73FFFFFF);
+  static const Color text = Color(0xFFF5EBD8);
+  static const Color textDim = Color(0xC7F5EBD8);
+  static const Color textFaint = Color(0x94F5EBD8);
+
+  /// Ekran yazı tipi: başlık, çip sayısı, taş numarası. Yalnızca büyük ve
+  /// kısa metinde kullanılır; gövde metni sistem yazı tipinde kalır.
+  static const String displayFont = 'Fraunces';
+
+  static TextStyle display({
+    double size = 22,
+    Color color = text,
+    double height = 1.1,
+  }) => TextStyle(
+    fontFamily: displayFont,
+    fontWeight: FontWeight.w800,
+    fontSize: size,
+    height: height,
+    color: color,
+    // Sayılar sütun halinde dizildiğinde kaymasın.
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
 
   static const TextStyle titleLg = TextStyle(
+    fontFamily: displayFont,
     color: text,
-    fontSize: 20,
+    fontSize: 22,
     height: 1.15,
     fontWeight: FontWeight.w800,
   );
@@ -96,7 +137,7 @@ abstract final class OkeyUI {
     height: 1.25,
   );
   static const TextStyle sectionLabel = TextStyle(
-    color: Color(0xFFFFD98A),
+    color: Color(0xFFF0C462),
     fontSize: 11,
     height: 1.2,
     fontWeight: FontWeight.w800,
@@ -120,6 +161,14 @@ class OkeyScreen extends StatelessWidget {
   final Future<void> Function()? onRefresh;
   final Widget? leading;
 
+  /// Tam genişlikte alt gezinme çubuğu (bkz. [OkeyBottomNav]). Kaydırma
+  /// alanının ve [bottomBar]'ın DIŞINDA, ekranın en altında durur.
+  final Widget? bottomNav;
+
+  /// `false` ise üst çubuk çizilmez; ekran kendi başlığını slivers içinde
+  /// çizer (lobi: kimlik satırı + çip hapı).
+  final bool showAppBar;
+
   const OkeyScreen({
     super.key,
     required this.title,
@@ -128,6 +177,8 @@ class OkeyScreen extends StatelessWidget {
     this.bottomBar,
     this.onRefresh,
     this.leading,
+    this.bottomNav,
+    this.showAppBar = true,
   });
 
   @override
@@ -136,10 +187,13 @@ class OkeyScreen extends StatelessWidget {
       // Liste kısa olsa bile aşağı çekilebilsin (RefreshIndicator için şart).
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
-        SliverPadding(
-          padding: OkeyUI.screenPadding,
-          sliver: SliverList.list(children: const []),
-        ),
+        if (showAppBar)
+          SliverPadding(
+            padding: OkeyUI.screenPadding,
+            sliver: SliverList.list(children: const []),
+          )
+        else
+          const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gapSm)),
         ...slivers,
         // Alt güvenlik payı: son kart ekranın en altına yapışmasın.
         const SliverToBoxAdapter(child: SizedBox(height: OkeyUI.gapXl)),
@@ -147,26 +201,29 @@ class OkeyScreen extends StatelessWidget {
     );
 
     return Scaffold(
-      backgroundColor: OkeyColors.screenBackground,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: OkeyUI.text,
-        leading: leading,
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        actions: actions,
-      ),
+      backgroundColor: OkeyUI.screenTop,
+      bottomNavigationBar: bottomNav,
+      appBar: showAppBar
+          ? AppBar(
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: OkeyUI.text,
+              leading: leading,
+              title: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: OkeyUI.display(size: 20),
+              ),
+              actions: actions,
+            )
+          : null,
       extendBodyBehindAppBar: false,
       body: Container(
         decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
         child: SafeArea(
-          top: false,
+          top: !showAppBar,
           child: Column(
             children: [
               Expanded(
@@ -174,7 +231,7 @@ class OkeyScreen extends StatelessWidget {
                     ? scroll
                     : RefreshIndicator(
                         onRefresh: onRefresh!,
-                        color: OkeyColors.accentGold,
+                        color: OkeyUI.brass,
                         backgroundColor: OkeyUI.cardFill,
                         child: scroll,
                       ),
@@ -217,7 +274,7 @@ class OkeyCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(OkeyUI.radius),
         border: Border.all(
           color: highlighted
-              ? OkeyColors.accentGold.withValues(alpha: 0.55)
+              ? OkeyUI.brass.withValues(alpha: 0.55)
               : OkeyUI.cardBorder,
           width: highlighted ? 1.4 : 1,
         ),
@@ -229,7 +286,7 @@ class OkeyCard extends StatelessWidget {
           ),
           if (highlighted)
             BoxShadow(
-              color: OkeyColors.accentGold.withValues(alpha: 0.15),
+              color: OkeyUI.brass.withValues(alpha: 0.15),
               blurRadius: 16,
             ),
         ],
@@ -281,6 +338,9 @@ class OkeyButton extends StatelessWidget {
   final bool busy;
   final bool expand;
 
+  /// Kart içi kompakt düğme (36 px): masa kartındaki OTUR/İZLE gibi.
+  final bool dense;
+
   const OkeyButton({
     super.key,
     required this.label,
@@ -289,6 +349,7 @@ class OkeyButton extends StatelessWidget {
     this.tone = OkeyButtonTone.secondary,
     this.busy = false,
     this.expand = true,
+    this.dense = false,
   });
 
   @override
@@ -312,16 +373,16 @@ class OkeyButton extends StatelessWidget {
         null,
       ),
       OkeyButtonTone.secondary => (
-        const Color(0xFF16505E),
+        const Color(0xFF2B2018),
         null,
         OkeyUI.text,
-        const Color(0x33FFFFFF),
+        const Color(0x3DFFF0D2),
       ),
       OkeyButtonTone.ghost => (
         Colors.transparent,
         null,
         OkeyUI.text,
-        const Color(0x59FFFFFF),
+        const Color(0x59FFF0D2),
       ),
       OkeyButtonTone.danger => (
         const Color(0xFF7A2733),
@@ -343,7 +404,11 @@ class OkeyButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 18, color: enabled ? fg : OkeyUI.textFaint),
+                  Icon(
+                    icon,
+                    size: dense ? 15 : 18,
+                    color: enabled ? fg : OkeyUI.textFaint,
+                  ),
                   const SizedBox(width: 7),
                 ],
                 Text(
@@ -352,10 +417,10 @@ class OkeyButton extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: enabled ? fg : OkeyUI.textFaint,
-                    fontSize: 14,
+                    fontSize: dense ? 12 : 14,
                     height: 1.1,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
+                    letterSpacing: 0.6,
                   ),
                 ),
               ],
@@ -365,30 +430,33 @@ class OkeyButton extends StatelessWidget {
     final button = Opacity(
       opacity: enabled ? 1 : 0.5,
       child: Container(
-        height: 46,
+        height: dense ? 36 : 50,
         decoration: BoxDecoration(
           color: fill,
           gradient: enabled ? gradient : null,
-          borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+          borderRadius: BorderRadius.circular(OkeyUI.radius),
           border: border == null ? null : Border.all(color: border),
+          // Birincil düğme fiziksel bir tuş gibi: altında pirinç kenar
+          // kalınlığı + yumuşak gölge.
           boxShadow: tone == OkeyButtonTone.primary && enabled
               ? const [
+                  BoxShadow(color: OkeyUI.goldEdge, offset: Offset(0, 3)),
                   BoxShadow(
                     color: Color(0x59000000),
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
+                    blurRadius: 12,
+                    offset: Offset(0, 6),
                   ),
                 ]
               : null,
         ),
         child: Material(
           color: Colors.transparent,
-          borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+          borderRadius: BorderRadius.circular(OkeyUI.radius),
           child: InkWell(
             onTap: enabled ? withOkeyTapSound(onPressed) : null,
-            borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+            borderRadius: BorderRadius.circular(OkeyUI.radius),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: EdgeInsets.symmetric(horizontal: dense ? 16 : 14),
               child: Center(child: content),
             ),
           ),
@@ -507,12 +575,12 @@ class OkeyStatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = this.color ?? OkeyColors.accentGold;
+    final color = this.color ?? OkeyUI.brass;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: OkeyUI.cardFill,
-        borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
+        borderRadius: BorderRadius.circular(OkeyUI.radius),
         border: Border.all(color: OkeyUI.cardBorder),
       ),
       child: Column(
@@ -571,7 +639,7 @@ class OkeyPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = this.color ?? OkeyColors.accentGold;
+    final color = this.color ?? OkeyUI.brass;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -636,9 +704,9 @@ class OkeyAvatar extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFF0A2C36),
+        color: const Color(0xFF2B2018),
         border: Border.all(
-          color: highlighted ? OkeyColors.accentGold : OkeyColors.avatarRing,
+          color: highlighted ? OkeyUI.brass : OkeyColors.avatarRing,
           width: 2,
         ),
       ),
@@ -647,7 +715,7 @@ class OkeyAvatar extends StatelessWidget {
             ? Icon(
                 Icons.person,
                 size: size * 0.5,
-                color: const Color(0xFF9FD9CF),
+                color: const Color(0xFFC9B88F),
               )
             : Image.network(
                 url!,
@@ -655,7 +723,7 @@ class OkeyAvatar extends StatelessWidget {
                 errorBuilder: (_, _, _) => Icon(
                   Icons.person,
                   size: size * 0.5,
-                  color: const Color(0xFF9FD9CF),
+                  color: const Color(0xFFC9B88F),
                 ),
               ),
       ),

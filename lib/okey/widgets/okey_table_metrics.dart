@@ -7,6 +7,41 @@ import 'okey_rack_chrome.dart';
 
 /// 101 Okey masasının ÖLÇÜ SÖZLEŞMESİ — ekranın tamamından türetilir.
 ///
+/// ## Düzen v5 (2026-09-20) — v4'ün üstüne dört değişiklik
+///
+/// 1. **Hamle düğmeleri konsoldan SAĞ DİKEY DOCK'A taşındı**
+///    ([actionDockWidth], [OkeyActionDock]). Yatay tutuşta sağ baş parmak
+///    ekranın sağ KENARINDADIR, alt kenarının ortasında değil; üstelik
+///    yatay şerit doğrudan per tablasından yükseklik yiyordu. Dock
+///    ıstakayla AYNI şeritte durur — masadan bir piksel bile dikey yer
+///    almaz.
+///
+/// 2. **Süre çizgisi kalktı** ([timerBarHeight] artık 0). Süre, sırası
+///    gelen oyuncunun avatarını çevreleyen bir yay oldu ([OkeyTurnRing]):
+///    "kimin süresi bu" sorusu ortadan kalktı.
+///
+/// 3. **Dizme araçları tek başlıkta birleşti.** SERİ DİZ / ÇİFT DİZ artık
+///    ıstakanın SOL ucunda alt alta; sağ uç dock'un oldu.
+///
+/// 4. **Konsol kısaldı** (0,115 → 0,105) ve ıstaka payı arttı
+///    (0,34 → 0,355): dock'un aldığı genişliğin taş boyuna etkisi
+///    yükseklikten geri kazanıldı.
+///
+/// Alt şerit artık şöyledir:
+///
+/// ```
+///  │ (çifte gidiyorum)   ◔ BEN ● (0) ▰▰▱ çek·düzenle·AT              │
+///  ├──────┬───────────────────────────────────────────┬──────────────┤
+///  │ SERİ │                                           │    AÇ  ›     │
+///  │  DİZ │███████  I S T A K A M  ███████████████████│    İŞLE      │
+///  │ ÇİFT │                                           │   TAŞI AT    │
+///  │  DİZ │                                           │              │
+///  └──────┴───────────────────────────────────────────┴──────────────┘
+/// ```
+///
+/// Orta bant ve üst şerit DEĞİŞMEDİ; aşağıdaki v4 şeması onlar için hâlâ
+/// geçerlidir (yalnızca en alttaki üç satırı yukarıdakiyle değişti).
+///
 /// ## Düzen v4 (2026-09) — referans masa yerleşimi
 ///
 /// ```
@@ -64,8 +99,18 @@ class OkeyTableMetrics {
   /// Istakadaki BİR taş satırının yüksekliği.
   final double rackRowHeight;
 
-  /// Istakanın İKİ UCUNDAKİ dizme düğmesinin genişliği.
+  /// Istakanın SOL ucundaki dizme başlığının genişliği.
+  ///
+  /// v5'te tek başlık kaldı: SERİ DİZ ve ÇİFT DİZ artık onun İÇİNDE alt alta
+  /// durur. Sağ uç, hamle dock'una verildi ([actionDockWidth]).
   final double rackCapWidth;
+
+  /// Istakanın SAĞ ucundaki DİKEY hamle dock'unun genişliği.
+  ///
+  /// Yatay tutuşta sağ baş parmağın durduğu yer burasıdır; dört hamle düğmesi
+  /// v5'te masanın alt kenarındaki yatay şeritten buraya taşındı
+  /// (bkz. [OkeyActionDock]).
+  final double actionDockWidth;
 
   /// Masanın ALT kenarındaki kontrol şeridinin yüksekliği.
   final double consoleHeight;
@@ -104,6 +149,7 @@ class OkeyTableMetrics {
     required this.rackHeight,
     required this.rackRowHeight,
     required this.rackCapWidth,
+    required this.actionDockWidth,
     required this.consoleHeight,
     required this.topStripHeight,
     required this.sidePodWidth,
@@ -126,8 +172,17 @@ class OkeyTableMetrics {
   /// Istakanın iç süslemesinin toplam yüksekliği.
   static const double rackChrome = okeyRackChromeHeight;
 
-  /// Istakanın hemen üstündeki süre çizgisinin yüksekliği.
-  static const double timerBarHeight = 4;
+  /// SÜRE ÇİZGİSİ KALDIRILDI (düzen v5, 2026-09-20).
+  ///
+  /// Süre artık sırası gelen oyuncunun AVATARININ etrafında bir yay olarak
+  /// döner (bkz. [OkeyTurnRing]). Çizgi hem yanlış yerdeydi — kimin süresi
+  /// olduğunu söylemiyordu — hem de dikey bütçeden 4 piksel yiyordu; o
+  /// piksel ıstakanın en kıt kaynağıydı.
+  ///
+  /// Sabit SIFIR olarak duruyor, silinmedi: masanın dikey bütçesini kuran
+  /// üç yerde (`boardAreaHeight`, fabrika, iskelet) aritmetiğin okunur
+  /// kalması, "burada bir zamanlar bir şerit vardı"yı da anlatıyor.
+  static const double timerBarHeight = 0;
 
   /// Istakanın yatay iç dolgusu (iki kenar toplamı).
   static const double _rackHorizontalPadding = 12;
@@ -156,24 +211,23 @@ class OkeyTableMetrics {
 
   /// Istaka ekran yüksekliğinin en fazla bu kadarını alır.
   ///
+  /// 2026-09-20 (v5): 0,34 → 0,355. Hamle dock'u ıstakanın sağ ucundan
+  /// ~%11 genişlik aldı; o genişlik taş boyuna "kaç slot sığar" hesabından
+  /// (`byWidth`) yansıyordu. Oranın yükselmesi yükseklik bütçesini aynı
+  /// oranda açıyor, yani taş boyu dock'tan ÖNCEKİ haline dönüyor. Pay,
+  /// kaldırılan süre çizgisinden ve kısalan konsoldan geliyor — per tablası
+  /// hiç kaybetmedi.
+  ///
   /// 2026-09-07: 0,32 → 0,34. Gerçekçi takoz için ıstakanın iç süslemesi
   /// 17px'ten 25px'e çıktı (ara raf ve ön çıta artık gerçek birer kademe,
   /// bkz. okey_rack_chrome.dart). Oran sabit kalsaydı bu 8 piksel doğrudan
   /// TAŞLARDAN kısılırdı — süslemeyi taş boyuyla ödemek, kazanılan
   /// gerçekçiliği anlamsız kılardı. Pay ise masanın en bol olduğu yerden,
   /// per tablasının boyundan gelir.
-  static const double _rackHeightRatio = 0.34;
+  static const double _rackHeightRatio = 0.355;
 
   /// Konsoldaki kontrollerin arasındaki standart boşluk.
   static const double consoleGap = 7;
-
-  /// Aksiyon butonları ile ıskarta kutusu arasındaki GÜVENLİK boşluğu.
-  ///
-  /// Kozmetik değil, HATA ÖNLEME: ıskarta bir bırakma hedefidir; taşı oraya
-  /// sürüklerken parmak son anda kayarsa bitişikteki "ÇİFT AÇ"a basmak eli
-  /// açmak gibi GERİ ALINAMAZ bir hamleyi tetikler. Regresyon testi bu
-  /// mesafenin 24px'ten büyük kalmasını şart koşuyor.
-  static const double discardSafeGap = 34;
 
   factory OkeyTableMetrics.from(BoxConstraints c) {
     final w = (c.hasBoundedWidth && c.maxWidth > 0) ? c.maxWidth : 900.0;
@@ -183,8 +237,12 @@ class OkeyTableMetrics {
     // Alt şerit ıstakanın ve iki ucundaki dizme düğmesinindir. Satır
     // yüksekliği ya kalan genişlikten (16 slot yan yana) ya da yükseklik
     // bütçesinden gelir — hangisi küçükse.
+    // Alt şerit v5'te ÜÇ parçadır: [dizme başlığı] [ıstaka] [hamle dock'u].
+    // Dock, başlıktan belirgin biçimde geniştir — içinde dört satır düğme
+    // var ve her biri gerçek bir dokunma hedefi olmalı (>=44 px).
     final capW = (w * 0.062).clamp(44.0, 112.0).toDouble();
-    final rackTrack = math.max(w - capW * 2 - rackCapGap * 2, 80.0);
+    final dockW = (w * 0.105).clamp(82.0, 150.0).toDouble();
+    final rackTrack = math.max(w - capW - dockW - rackCapGap * 2, 80.0);
 
     final byWidth =
         ((rackTrack - _rackHorizontalPadding) / OkeyRackLayout.slotsPerRow) /
@@ -221,7 +279,13 @@ class OkeyTableMetrics {
     // kalmalı (>=34px) ama masayı yutmamalı. Üst şeritle aynı gerekçeyle
     // yükseldi ama daha ölçülü: konsolda plakanın yanında dört hamle düğmesi
     // var, şeritte ise yalnız sayaçlar.
-    final console = (h * 0.115).clamp(36.0, 58.0).toDouble();
+    //
+    // 2026-09-20 (v5): 0,115 → 0,105. Şeritteki dört hamle düğmesi sağdaki
+    // dikey dock'a taşındı; konsolda artık yalnızca kimlik plakam, ceza/açık
+    // puan rozetlerim ve tur şeridi var. Yükseklik onlara göre yeniden
+    // ölçüldü — düğmeler gittiği halde şerit aynı kalsaydı, kazanılan yer
+    // boş bir banda dönüşürdü.
+    final console = (h * 0.105).clamp(34.0, 56.0).toDouble();
 
     // AVATAR ÇAPI — 0,115 → 0,150 (tavan 44 → 56).
     //
@@ -268,6 +332,7 @@ class OkeyTableMetrics {
       rackHeight: rackH,
       rackRowHeight: rowH,
       rackCapWidth: capW,
+      actionDockWidth: dockW,
       consoleHeight: console,
       topStripHeight: topStrip,
       sidePodWidth: side,
@@ -307,9 +372,10 @@ class OkeyTableMetrics {
   double get rackWidth =>
       (rackTileWidth * OkeyRackLayout.slotsPerRow) + _rackHorizontalPadding;
 
-  /// Istakanın EN FAZLA genişliği — iki dizme düğmesi dışarıda kalır.
+  /// Istakanın EN FAZLA genişliği — dizme başlığı ve hamle dock'u dışarıda
+  /// kalır.
   double get rackMaxWidth =>
-      math.max(width - rackCapWidth * 2 - rackCapGap * 2, 80.0);
+      math.max(width - rackCapWidth - actionDockWidth - rackCapGap * 2, 80.0);
 
   // ---------------------------------------------------------------------
   // MASA BÖLGELERİ
@@ -363,13 +429,12 @@ class OkeyTableMetrics {
   // ---------------------------------------------------------------------
   // KONSOL (masanın alt kenarı)
   // ---------------------------------------------------------------------
-
-  /// Konsoldaki bir butonun yüksekliği.
-  double get actionButtonHeight => (consoleHeight - 6).clamp(28.0, 46.0);
-
-  /// SERİ DİZ / ÇİFT DİZ düğmelerinin yüksekliği — artık ıstakanın kendi
-  /// yüksekliğinden türer, çünkü ıstakanın iki ucunda dururlar.
-  double get sortButtonHeight => rackHeight;
+  //
+  // v5'te konsolda HAMLE DÜĞMESİ YOK: hepsi ıstakanın sağındaki dikey
+  // dock'a taşındı. Iskarta ile hamle düğmeleri arasındaki eski "güvenlik
+  // boşluğu" sabiti (`discardSafeGap = 34`) da bu yüzden silindi — ayrım
+  // artık bir paya değil, YAPIYA dayanıyor: ıskarta orta bantta, dock
+  // ıstaka şeridinde. Parmak kayması düğmeye değil, boş çuhaya denk gelir.
 
   /// Konsoldaki kimlik kartımın genişliği.
   double get myPodWidth => (width * 0.20).clamp(96.0, 260.0).toDouble();

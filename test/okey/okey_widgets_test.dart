@@ -6,7 +6,8 @@ import 'package:cizreapp/okey/widgets/okey_rack_bar_widget.dart';
 import 'package:cizreapp/okey/widgets/okey_corner_pile_widget.dart';
 import 'package:cizreapp/okey/widgets/okey_drag_payload.dart';
 import 'package:cizreapp/okey/widgets/okey_tile_widget.dart';
-import 'package:cizreapp/okey/widgets/okey_turn_timer_bar.dart';
+import 'package:cizreapp/okey/widgets/okey_action_dock.dart';
+import 'package:cizreapp/okey/widgets/okey_turn_ring.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -110,51 +111,26 @@ void main() {
     });
   });
 
-  group('OkeyTurnTimerBar', () {
-    // Sıra sayacı artık ıstakanın üstündeki AZALAN ÇİZGİDİR.
+  group('OkeyTurnRing', () {
+    // Sıra sayacı artık SIRASI GELEN OYUNCUNUN AVATARINI çevreleyen bir
+    // yaydır (düzen v5). Eskiden ıstakanın üstünde ayrı bir çizgiydi:
+    // kimin süresi olduğunu söylemiyordu ve masadan dikey yer yiyordu.
     //
     // Bu grubun ikinci testi gerçek bir ÇÖKME regresyonunu korur: sayaç
     // saniyede bir provider.notifyListeners() ile güncellenirse tüm masa
     // (sürüklenebilir taşlar ve DragTarget'lar dahil) yeniden kurulur ve
     // aktif bir sürükleme sırasında Flutter'ın Element ağacı bozulur.
-    // Bu yüzden sayaç AYRI bir ValueListenable üzerinden akar.
+    // Bu yüzden sayaç AYRI bir ValueListenable üzerinden akar — yön
+    // değişti, kural değişmedi.
 
-    testWidgets('kalan süre azaldıkça çizgi kısalır', (tester) async {
-      final seconds = ValueNotifier<int>(20);
-      addTearDown(seconds.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 400,
-              child: OkeyTurnTimerBar(
-                secondsLeftListenable: seconds,
-                totalSeconds: 20,
-                isMyTurn: true,
-              ),
-            ),
-          ),
-        ),
-      );
-
-      double factor() => tester
-          .widget<FractionallySizedBox>(find.byType(FractionallySizedBox))
-          .widthFactor!;
-
-      expect(factor(), closeTo(1.0, 0.001));
-
-      seconds.value = 5;
-      await tester.pump();
-      expect(
-        factor(),
-        closeTo(0.25, 0.001),
-        reason: 'süre azaldığında çizgi kısalmadı',
-      );
-
-      seconds.value = 0;
-      await tester.pump();
-      expect(factor(), closeTo(0.0, 0.001));
+    test('kalan süre azaldıkça yay kısalır', () {
+      expect(OkeyTurnRing.fractionFor(20, 20), closeTo(1.0, 0.001));
+      expect(OkeyTurnRing.fractionFor(5, 20), closeTo(0.25, 0.001));
+      expect(OkeyTurnRing.fractionFor(0, 20), closeTo(0.0, 0.001));
+      // Sunucudan gelen bozuk değerler yayı taşırmaz.
+      expect(OkeyTurnRing.fractionFor(99, 20), closeTo(1.0, 0.001));
+      expect(OkeyTurnRing.fractionFor(-3, 20), closeTo(0.0, 0.001));
+      expect(OkeyTurnRing.fractionFor(10, 0), closeTo(0.5, 0.001));
     });
 
     testWidgets('sayaç güncellemesi TÜM ağacı yeniden kurmadan yansır', (
@@ -171,11 +147,12 @@ void main() {
               builder: (context) {
                 outerBuilds++;
                 return SizedBox(
-                  width: 400,
-                  child: OkeyTurnTimerBar(
-                    secondsLeftListenable: seconds,
+                  width: 48,
+                  height: 48,
+                  child: OkeyTurnRing(
+                    secondsLeft: seconds,
                     totalSeconds: 20,
-                    isMyTurn: true,
+                    stroke: 3,
                   ),
                 );
               },
@@ -200,19 +177,28 @@ void main() {
       );
     });
 
-    testWidgets('sıra bende değilken soluk kalır', (tester) async {
-      final seconds = ValueNotifier<int>(10);
+    testWidgets('kare avatarda da (dikey levha) sorunsuz çizilir', (
+      tester,
+    ) async {
+      final seconds = ValueNotifier<int>(4);
       addTearDown(seconds.dispose);
 
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: SizedBox(
-              width: 300,
-              child: OkeyTurnTimerBar(
-                secondsLeftListenable: seconds,
-                totalSeconds: 20,
-                isMyTurn: false,
+            body: Center(
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                // cornerRadius > 0 = yuvarlatılmış KARE yol. Yay orada elle
+                // kurulan bir Path üzerinde yürür; dairede hiç çalışmayan
+                // bir kod yolu olduğu için ayrıca denenmeli.
+                child: OkeyTurnRing(
+                  secondsLeft: seconds,
+                  totalSeconds: 20,
+                  stroke: 2.5,
+                  cornerRadius: 5,
+                ),
               ),
             ),
           ),
@@ -248,23 +234,24 @@ void main() {
       expect(find.byType(OkeyTileWidget), findsNWidgets(21));
     });
 
-    testWidgets('ÇİFT DİZ / SERİ DİZ butonları kurulur ve tıklanır', (
+    testWidgets('ÇİFT DİZ / SERİ DİZ başlığı kurulur ve tıklanır', (
       tester,
     ) async {
+      // v5: dizme araçları ıstakanın SOL başlığında alt alta durur. Başlık
+      // yarı yüksekliğe indiği için kutu 54 px — düğme o boyda da kurulmalı.
       var tapped = false;
       await _pump(
         tester,
         SizedBox(
-          height: 108,
-          child: OkeyDizButton(
-            title: 'ÇİFT DİZ',
-            icon: Icons.filter_2,
+          width: 62,
+          height: 54,
+          child: OkeyDizCapButton.pairs(
             active: true,
             onPressed: () => tapped = true,
           ),
         ),
       );
-      await tester.tap(find.byType(OkeyDizButton));
+      await tester.tap(find.byType(OkeyDizCapButton));
       expect(tapped, isTrue);
     });
 
@@ -330,54 +317,97 @@ void main() {
       // DEĞİL (bkz. OkeyTileWidget.debugNumberText) — ad ve sayaç hâlâ düz
       // Text olduğu için onlar aynı kaldı.
       expect(
-        tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget)).debugNumberText,
+        tester
+            .widget<OkeyTileWidget>(find.byType(OkeyTileWidget))
+            .debugNumberText,
         '10',
       );
       expect(find.text('Ali'), findsOneWidget);
       expect(find.text('21'), findsOneWidget);
     });
 
-    testWidgets('aksiyon butonu pasifken tıklanmaz', (tester) async {
-      var tapped = false;
+    testWidgets('dock düğmesi pasifken hamleyi DENEMEZ, sebebini sorar', (
+      tester,
+    ) async {
+      // v5: hamleler dikey dock'ta. Kapalı düğme GÖRÜNÜR kalır ve dokunuşa
+      // cevap verir — ama hamleyi değil, sebebini çalıştırır. Kaybolan ya da
+      // sessiz kalan bir düğme oyuncuya hiçbir şey öğretmez.
+      var pressed = 0;
+      var explained = 0;
+
       await _pump(
         tester,
         SizedBox(
-          width: 168,
-          child: OkeyActionButton(
-            title: 'SERİ AÇ',
-            icon: Icons.view_week,
-            badge: '46/101',
-            enabled: false,
-            onPressed: () => tapped = true,
+          width: 104,
+          height: 160,
+          child: OkeyActionDock(
+            drawPhase: false,
+            canOpen: false,
+            openBadge: '46/101',
+            onOpen: () => pressed++,
+            onOpenBlocked: () => explained++,
           ),
         ),
       );
-      expect(find.text('SERİ AÇ'), findsOneWidget);
+
+      expect(find.text('AÇ'), findsOneWidget);
       expect(find.text('46/101'), findsOneWidget);
-      await tester.tap(find.byType(OkeyActionButton), warnIfMissed: false);
-      expect(tapped, isFalse);
+
+      await tester.tap(find.text('AÇ'));
+      await tester.pump();
+
+      expect(pressed, 0, reason: 'kapalı düğme hamleyi DENEMEZ');
+      expect(explained, 1, reason: 'sebep sorulmuş olmalı');
     });
 
-    testWidgets('dar aksiyon sütununda + uzun rozetle TAŞMAZ (regresyon)', (
+    testWidgets('dar dock sütununda + uzun rozetle TAŞMAZ (regresyon)', (
       tester,
     ) async {
-      // OkeyTableMetrics.actionWidth alt sınırı 96'dır; buton kendi
-      // Padding'leriyle (dış 4+4, iç 8+8) bu kadar dar bir gerçek genişlik
-      // görebilir. Rozet ÖNCE sınırsız genişlikteydi — uzun bir rozet
-      // ("103/101" gibi) bu genişlikte "RenderFlex overflowed" veriyordu.
+      // OkeyTableMetrics.actionDockWidth alt sınırı 82'dir ve dock kendi
+      // dolgusunu da içeriden düşer. Dört satır düğme, "AT — BİTİR" gibi
+      // uzun bir etiket ve "103/101" rozeti bu genişlikte yan yana
+      // sığmalı — sığmazsa FittedBox küçültmeli, taşma OLMAMALI.
       await _pump(
         tester,
         const SizedBox(
-          width: 68,
-          child: OkeyActionButton(
-            title: 'SERİ AÇ',
-            icon: Icons.view_week,
-            badge: '103/101',
-            onPressed: null,
+          width: 82,
+          height: 132,
+          child: OkeyActionDock(
+            drawPhase: false,
+            canOpen: true,
+            openBadge: '103/101',
+            canProcess: true,
+            autoProcessCount: 4,
+            canDiscard: true,
+            isWinningDiscard: true,
           ),
         ),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('çekme aşamasında dock TEK büyük düğmeye döner', (
+      tester,
+    ) async {
+      // Dört sönük düğme yerine tek bir hedef: o an yapılabilecek tek şey
+      // taş çekmek. Diğer üç etiket ekranda HİÇ bulunmamalı.
+      await _pump(
+        tester,
+        SizedBox(
+          width: 104,
+          height: 160,
+          child: OkeyActionDock(
+            drawPhase: true,
+            drawSubtitle: 'Desteden ya da soldan',
+            onDraw: () {},
+          ),
+        ),
+      );
+
+      expect(find.text('TAŞ ÇEK'), findsOneWidget);
+      expect(find.text('AÇ'), findsNothing);
+      expect(find.text('İŞLE'), findsNothing);
+      expect(find.text('TAŞI AT'), findsNothing);
     });
   });
 
@@ -588,12 +618,10 @@ void main() {
       );
       final okeyTile = tester
           .widgetList<OkeyTileWidget>(find.byType(OkeyTileWidget))
-          .firstWhere((w) => w.tile.color == OkeyColor.blue && w.tile.number == 2);
-      expect(
-        okeyTile.debugNumberText,
-        '2',
-        reason: 'yardımsızda okey açık',
-      );
+          .firstWhere(
+            (w) => w.tile.color == OkeyColor.blue && w.tile.number == 2,
+          );
+      expect(okeyTile.debugNumberText, '2', reason: 'yardımsızda okey açık');
     });
   });
 
@@ -702,7 +730,9 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(
-        tester.widget<OkeyTileWidget>(find.byType(OkeyTileWidget)).debugNumberText,
+        tester
+            .widget<OkeyTileWidget>(find.byType(OkeyTileWidget))
+            .debugNumberText,
         '13',
       );
     });

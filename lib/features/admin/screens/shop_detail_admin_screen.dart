@@ -1748,7 +1748,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
           ),
           content: SingleChildScrollView(
             child: SizedBox(
-              width: MediaQuery.of(context).size.width * 0.9,
+              width: MediaQuery.sizeOf(context).width * 0.9,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

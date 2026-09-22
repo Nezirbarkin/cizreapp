@@ -5,10 +5,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/theme/app_map_style.dart';
+import '../../core/utils/map_marker_icons.dart';
+import '../../core/widgets/map_controls.dart';
+import '../../features/admin/widgets/admin_ui.dart';
 import '../models/sehirici_models.dart';
 import '../utils/sehirici_route_geometry.dart';
-import '../../core/theme/app_map_style.dart';
-import '../../core/widgets/map_controls.dart';
 
 /// Çoklu seçim modunda haritadan toplanan tek bir durak adayı.
 class SehiriciPickedStop {
@@ -18,20 +20,20 @@ class SehiriciPickedStop {
   String name;
 }
 
-/// Admin'in durak konumunu elle lat/lng yazmak yerine haritaya dokunarak
-/// (veya pini sürükleyerek) seçmesini sağlayan dialog.
+/// Admin'in konumu elle lat/lng yazmak yerine haritaya dokunarak (veya pini
+/// sürükleyerek) seçmesini sağlayan ekran.
 ///
 /// İki modda çalışır:
 ///  • **Tek seçim** ([SehiriciLocationPickerDialog.pickSingle]) — tek bir pin,
-///    "Bu Konumu Kullan" ile [LatLng] döner. Durak formundaki "Haritadan Seç"
-///    bunu kullanır.
+///    "Bu konumu kullan" ile [LatLng] döner. Durak ve şehir formundaki
+///    "Haritadan seç" bunu kullanır.
 ///  • **Çoklu seçim** ([SehiriciLocationPickerDialog.pickMultiple]) — haritaya
-///    her dokunuşta sıralı bir durak pini eklenir, adları satır içinde
-///    düzenlenebilir, hepsi tek seferde kaydedilir. Bir hattın duraklarını
-///    tek tek form doldurarak girmek yerine güzergâh üzerinde tıklayarak
+///    her dokunuşta sıralı, NUMARALI bir durak pini eklenir; adları alttaki
+///    listeden düzenlenir, hepsi tek seferde döner. Bir hattın duraklarını
+///    tek tek form doldurarak girmek yerine güzergâh üzerinde dokunarak
 ///    dizmek için.
 ///
-/// [existingStops] verilirse şehirdeki mevcut duraklar haritada gri pinlerle
+/// [existingStops] verilirse şehirdeki mevcut duraklar küçük gri noktalarla
 /// referans olarak gösterilir; yeni pin bunlardan birine çok yakın düşerse
 /// uyarı verilir (yanlışlıkla kopya durak oluşturmayı engeller).
 class SehiriciLocationPickerDialog extends StatefulWidget {
@@ -41,6 +43,9 @@ class SehiriciLocationPickerDialog extends StatefulWidget {
   final bool multiSelect;
   final List<SehiriciStop> existingStops;
 
+  /// Yeni pinlerin rengi (hat rengi). Verilmezse admin marka rengi.
+  final Color? lineColor;
+
   const SehiriciLocationPickerDialog({
     super.key,
     required this.initialLat,
@@ -48,6 +53,7 @@ class SehiriciLocationPickerDialog extends StatefulWidget {
     this.initialZoom = 15,
     this.multiSelect = false,
     this.existingStops = const [],
+    this.lineColor,
   });
 
   /// Tek konum seçtirir. İptal edilirse null döner.
@@ -78,6 +84,7 @@ class SehiriciLocationPickerDialog extends StatefulWidget {
     required double initialLng,
     double initialZoom = 15,
     List<SehiriciStop> existingStops = const [],
+    Color? lineColor,
   }) {
     return showDialog<List<SehiriciPickedStop>>(
       context: context,
@@ -87,6 +94,7 @@ class SehiriciLocationPickerDialog extends StatefulWidget {
         initialZoom: initialZoom,
         multiSelect: true,
         existingStops: existingStops,
+        lineColor: lineColor,
       ),
     );
   }
@@ -116,27 +124,70 @@ class _SehiriciLocationPickerDialogState
   /// açıkça güncelliyoruz.
   final List<TextEditingController> _nameCtrls = [];
 
+  /// Mevcut duraklar için küçük gri nokta ve numaralı pinler (async üretilir).
+  BitmapDescriptor? _dot;
+  final Map<int, BitmapDescriptor> _pins = {};
+
+  /// Ekranın üstünde kısa süre görünen uyarı (SnackBar diyaloğun ARKASINDA
+  /// kalırdı).
+  String? _notice;
+  Timer? _noticeTimer;
+
+  Color get _pinColor => widget.lineColor ?? AdminUi.brand;
+  bool get _isMulti => widget.multiSelect;
+
   @override
   void initState() {
     super.initState();
-    if (!widget.multiSelect) {
+    if (!_isMulti) {
       _picked.add(SehiriciPickedStop(
         position: LatLng(widget.initialLat, widget.initialLng),
         name: '',
       ));
       _nameCtrls.add(TextEditingController());
     }
+    _loadIcons();
   }
 
   @override
   void dispose() {
+    _noticeTimer?.cancel();
     for (final c in _nameCtrls) {
       c.dispose();
     }
     super.dispose();
   }
 
-  bool get _isMulti => widget.multiSelect;
+  Future<void> _loadIcons() async {
+    final dot = await MapMarkerIcons.stop(
+      style: MapStopStyle.dot,
+      detail: MapStopDetail.mid,
+      lineColors: const [Color(0xFF64748B)],
+    );
+    if (!mounted) return;
+    setState(() => _dot = dot);
+    await _ensurePins();
+  }
+
+  /// Şu an gereken numaralı pinleri üretir (yoksa).
+  Future<void> _ensurePins() async {
+    final wanted = _isMulti
+        ? [for (var i = 1; i <= _picked.length; i++) i]
+        : const [0];
+    var changed = false;
+    for (final n in wanted) {
+      if (_pins.containsKey(n)) continue;
+      _pins[n] = await MapMarkerIcons.numberedPin(
+        number: _isMulti ? n : null,
+        color: _pinColor,
+        large: !_isMulti,
+      );
+      changed = true;
+    }
+    if (changed && mounted) setState(() {});
+  }
+
+  // ── Düzenleme ────────────────────────────────────────────────
 
   void _onMapTap(LatLng target) {
     if (!_isMulti) {
@@ -153,6 +204,7 @@ class _SehiriciLocationPickerDialogState
       _picked.add(SehiriciPickedStop(position: target, name: name));
       _nameCtrls.add(TextEditingController(text: name));
     });
+    _ensurePins();
   }
 
   /// [target]'a [_kDuplicateRadiusMeters] içindeki mevcut/yeni durağın adı;
@@ -175,9 +227,11 @@ class _SehiriciLocationPickerDialogState
   }
 
   void _warn(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.orange),
-    );
+    _noticeTimer?.cancel();
+    setState(() => _notice = message);
+    _noticeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _notice = null);
+    });
   }
 
   void _onPinDragged(int index, LatLng target) {
@@ -212,6 +266,20 @@ class _SehiriciLocationPickerDialogState
     });
   }
 
+  void _submit() {
+    if (_picked.isEmpty) return;
+    if (_isMulti) {
+      final unnamed = _picked.where((p) => p.name.trim().isEmpty).toList();
+      if (unnamed.isNotEmpty) {
+        _warn('Adı boş durak var. Tüm duraklara ad verin.');
+        return;
+      }
+    }
+    Navigator.of(context).pop(_picked);
+  }
+
+  // ── Harita ───────────────────────────────────────────────────
+
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
 
@@ -220,10 +288,11 @@ class _SehiriciLocationPickerDialogState
       markers.add(Marker(
         markerId: MarkerId('existing_${s.id}'),
         position: LatLng(s.lat, s.lng),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueAzure,
-        ),
-        alpha: 0.6,
+        icon: _dot ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        anchor: const Offset(0.5, 0.5),
+        alpha: 0.9,
+        zIndexInt: 1,
         consumeTapEvents: true,
         infoWindow: InfoWindow(title: s.name, snippet: 'Mevcut durak'),
         onTap: () {},
@@ -232,14 +301,15 @@ class _SehiriciLocationPickerDialogState
 
     for (var i = 0; i < _picked.length; i++) {
       final p = _picked[i];
+      final icon = _pins[_isMulti ? i + 1 : 0];
       markers.add(Marker(
         markerId: MarkerId('picked_$i'),
         position: p.position,
         draggable: true,
         onDragEnd: (pos) => _onPinDragged(i, pos),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueRed,
-        ),
+        icon: icon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        anchor: const Offset(0.5, 1),
+        zIndexInt: 5,
         infoWindow: _isMulti
             ? InfoWindow(title: '${i + 1}. ${p.name}')
             : InfoWindow.noText,
@@ -253,87 +323,24 @@ class _SehiriciLocationPickerDialogState
     if (!_isMulti || _picked.length < 2) return const {};
     return {
       Polyline(
+        polylineId: const PolylineId('picked_order_casing'),
+        points: _picked.map((p) => p.position).toList(),
+        color: Colors.white.withValues(alpha: 0.9),
+        width: 7,
+        jointType: JointType.round,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+      ),
+      Polyline(
         polylineId: const PolylineId('picked_order'),
         points: _picked.map((p) => p.position).toList(),
-        color: Colors.red.withValues(alpha: 0.55),
-        width: 3,
-        consumeTapEvents: false,
+        color: _pinColor.withValues(alpha: 0.9),
+        width: 4,
+        jointType: JointType.round,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
       ),
     };
-  }
-
-  void _submit() {
-    if (_picked.isEmpty) return;
-    if (_isMulti) {
-      final unnamed = _picked.where((p) => p.name.trim().isEmpty).toList();
-      if (unnamed.isNotEmpty) {
-        _warn('Adı boş durak var. Tüm duraklara ad verin.');
-        return;
-      }
-    }
-    Navigator.of(context).pop(_picked);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final mediaWidth = MediaQuery.of(context).size.width;
-    final mediaHeight = MediaQuery.of(context).size.height;
-    final dialogWidth = mediaWidth < 720 ? mediaWidth - 24 : 640.0;
-    final dialogHeight = mediaHeight < 600 ? mediaHeight - 24 : 620.0;
-
-    return Dialog(
-      insetPadding: const EdgeInsets.all(12),
-      child: Container(
-        width: dialogWidth,
-        height: dialogHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Theme.of(context).colorScheme.surface,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: [
-            _header(context),
-            Expanded(child: _map()),
-            if (_isMulti) _pickedList(),
-            _footer(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _header(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: Theme.of(context).colorScheme.primary,
-      child: Row(
-        children: [
-          const Icon(Icons.location_on, color: Colors.white, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _isMulti ? 'Haritadan Çoklu Durak' : 'Haritadan Konum Seç',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          if (_isMulti && _picked.isNotEmpty)
-            IconButton(
-              tooltip: 'Son durağı geri al',
-              icon: const Icon(Icons.undo, color: Colors.white),
-              onPressed: () => _removeAt(_picked.length - 1),
-            ),
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-    );
   }
 
   /// Cam zoom butonları için ortak kamera hareketi.
@@ -388,108 +395,244 @@ class _SehiriciLocationPickerDialogState
           right: 12,
           bottom: 12,
           child: MapHintBar(
-            text: _isMulti
-                ? 'Güzergâh üzerinde durak sırasıyla haritaya dokunun. '
-                    'Pinleri sürükleyerek düzeltebilirsiniz.'
-                : 'Durağın olacağı noktaya dokunun veya pini sürükleyin.',
+            text: _notice ??
+                (_isMulti
+                    ? 'Güzergâh üzerinde durak sırasıyla haritaya dokunun. '
+                        'Pinleri sürükleyerek düzeltebilirsiniz.'
+                    : 'Konumun olacağı noktaya dokunun veya pini sürükleyin.'),
+            icon: _notice == null ? Icons.touch_app : Icons.info_outline_rounded,
+            accentColor: _notice == null ? null : const Color(0xFFD97706),
           ),
         ),
       ],
     );
   }
 
-  /// Çoklu modda seçilen durakların düzenlenebilir listesi.
-  Widget _pickedList() {
-    if (_picked.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Text(
-          'Henüz durak eklenmedi — haritaya dokunarak başlayın.',
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-        ),
+  // ── Arayüz ───────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final narrow = size.width < 720;
+    final content = Column(
+      children: [
+        _header(),
+        Expanded(child: _map()),
+        if (_isMulti) _pickedList(),
+        _footer(),
+      ],
+    );
+    if (narrow) {
+      // Telefonda tam ekran: haritaya en çok yer.
+      return Dialog.fullscreen(
+        backgroundColor: AdminUi.page,
+        child: SafeArea(child: content),
       );
     }
-    return SizedBox(
-      height: 132,
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        itemCount: _picked.length,
-        itemBuilder: (ctx, i) {
-          final p = _picked[i];
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      backgroundColor: AdminUi.page,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: 680,
+        height: size.height < 700 ? size.height - 48 : 660,
+        child: content,
+      ),
+    );
+  }
+
+  Widget _header() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 6, 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AdminUi.brand, const Color(0xFF3F1D7A)],
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              _isMulti ? Icons.pin_drop_rounded : Icons.location_on_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 13,
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  child: Text(
-                    '${i + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                Text(
+                  _isMulti ? 'Haritadan Çoklu Durak' : 'Haritadan Konum Seç',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _nameCtrls[i],
-                    onChanged: (v) => p.name = v,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      hintText: 'Durak adı',
-                      border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Kaldır',
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => _removeAt(i),
+                Text(
+                  _isMulti
+                      ? '${_picked.length} durak · dokunarak ekleyin'
+                      : 'Dokunun ya da pini sürükleyin',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                 ),
               ],
             ),
+          ),
+          if (_isMulti && _picked.isNotEmpty)
+            IconButton(
+              tooltip: 'Son durağı geri al',
+              icon: const Icon(Icons.undo_rounded, color: Colors.white),
+              onPressed: () => _removeAt(_picked.length - 1),
+            ),
+          IconButton(
+            tooltip: 'Kapat',
+            icon: const Icon(Icons.close_rounded, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Çoklu modda seçilen durakların düzenlenebilir listesi.
+  Widget _pickedList() {
+    if (_picked.isEmpty) {
+      return Container(
+        width: double.infinity,
+        color: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: const Row(
+          children: [
+            Icon(Icons.touch_app_rounded, color: AdminUi.muted, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Henüz durak eklenmedi — haritaya dokunarak başlayın.',
+                style: TextStyle(color: AdminUi.muted, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Container(
+      color: Colors.white,
+      constraints: const BoxConstraints(maxHeight: 176),
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+        itemCount: _picked.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 6),
+        itemBuilder: (ctx, i) {
+          final p = _picked[i];
+          return Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(color: _pinColor, shape: BoxShape.circle),
+                alignment: Alignment.center,
+                child: Text(
+                  '${i + 1}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _nameCtrls[i],
+                  onChanged: (v) => p.name = v,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Durak adı',
+                    filled: true,
+                    fillColor: AdminUi.page,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Kaldır',
+                icon: const Icon(Icons.close_rounded, size: 20),
+                color: AdminUi.muted,
+                onPressed: () => _removeAt(i),
+              ),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _footer(BuildContext context) {
+  Widget _footer() {
     final canSubmit = _picked.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.all(12),
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AdminUi.line)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              _isMulti
-                  ? '${_picked.length} durak seçildi'
-                  : '${_picked.first.position.latitude.toStringAsFixed(6)}, '
-                      '${_picked.first.position.longitude.toStringAsFixed(6)}',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          if (!_isMulti)
+            Expanded(
+              child: Text(
+                '${_picked.first.position.latitude.toStringAsFixed(6)}, '
+                '${_picked.first.position.longitude.toStringAsFixed(6)}',
+                style: const TextStyle(
+                  color: AdminUi.muted,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('İptal'),
+            child: const Text('Vazgeç'),
           ),
           const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: canSubmit ? _submit : null,
-            icon: const Icon(Icons.check, size: 18),
-            label: Text(
-              _isMulti
-                  ? '${_picked.length} Durağı Kaydet'
-                  : 'Bu Konumu Kullan',
-            ),
-          ),
+          if (_isMulti)
+            Expanded(child: _submitButton(canSubmit))
+          else
+            _submitButton(canSubmit),
         ],
+      ),
+    );
+  }
+  Widget _submitButton(bool canSubmit) {
+    return FilledButton.icon(
+      onPressed: canSubmit ? _submit : null,
+      icon: const Icon(Icons.check_rounded, size: 20),
+      label: Text(
+        _isMulti
+            ? (_picked.isEmpty ? 'Ekle' : '${_picked.length} durağı ekle')
+            : 'Bu konumu kullan',
+      ),
+      style: FilledButton.styleFrom(
+        backgroundColor: AdminUi.brand,
+        minimumSize: const Size(0, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }

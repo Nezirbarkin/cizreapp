@@ -165,7 +165,6 @@ Future<void> _pumpForSize(
               canDragFromDeck: canDraw,
               tileWidth: m.islandTileWidth,
             ),
-            actions: (c, m) => const SizedBox.shrink(),
             rack: (c, m) => OkeyRackBarWidget(
               metrics: m,
               slots: _rackWithTiles(),

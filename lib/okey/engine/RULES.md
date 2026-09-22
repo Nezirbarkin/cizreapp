@@ -1,4 +1,4 @@
-# 101 Okey Plus — Kural ve Puanlama Referansı (v2.5)
+# 101 Okey Plus — Kural ve Puanlama Referansı (v2.6)
 
 Bu dosya, `lib/okey/engine/` içindeki kural motorunun ve backend'deki tüm
 Okey RPC'lerinin **tek doğruluk kaynağıdır**. Kullanıcının sağladığı
@@ -209,6 +209,33 @@ azalması**, dolayısıyla ayrı bir kod yolu gerekmez. Seri açanın bu hakkı
 
 Katlamasız/Katlamalı ile Eşsiz/Eşli **birbirinden bağımsız** seçilir (4 kombinasyon).
 
+### Koltuk seçimi (v2.6, 2026-09-21)
+
+Eşli modda **karşımda oturan eşimdir** (0-2 ve 1-3). Bunu oyuncunun seçebilmesi
+için bekleme odasında oturulan koltuk **değiştirilebilir**:
+
+- Oyuncu masaya girince yine en düşük numaralı boş koltuğa oturur
+  (`join_okey_room`); sonra bekleme odasında **boş bir koltuğa dokunarak** oraya
+  geçer (`okey_choose_seat`, istemcide `OkeySeatTable`).
+- **Yalnızca BOŞ koltuk.** Başka bir insanın (ya da botun) oturduğu koltuk
+  onun onayı olmadan alınamaz (`APP:seat_taken`).
+- **Yalnızca bekleme aşamasında** (`APP:room_not_waiting`): oyun başlayınca
+  koltuk numarası el dağıtımına ve sıra düzenine işlenmiştir.
+- **Hazır işareti düşer.** Herkes hazırken biri sessizce başka koltuğa geçip eşini
+  değiştirebilir ve el, o kişinin haberi olmadan başlardı; geçen oyuncu yeniden
+  "hazırım" der. Aynı koltuğa "geçmek" işlemsizdir ve hazır işaretini korur.
+- Kilit, `join`/`leave`/hazır/bot-doldur ile ortaktır (`okey_rooms` satırı,
+  `FOR UPDATE`): iki kişi aynı boş koltuğa aynı anda geçmeye çalışırsa biri
+  kazanır, öbürü `APP:seat_taken` alır.
+- Ekranda koltuklar gerçek masadaki yerinde durur — 0. alt, 1. sağ, 2. üst, 3.
+  sol (oyundaki sıra yönü, bkz. `OkeySeating`). Eşli modda karşılıklı koltuklar
+  aynı renkte ve bir bağ çizgisiyle bağlı görünür; boş koltuğun altında **oraya
+  geçersem eşimin kim olacağı** yazar.
+
+> **Bilinçli sınır:** dolu bir masada iki oyuncunun kendi aralarında yer
+> değiştirmesi (karşılıklı onay) yoktur. Bu özellik yalnızca boş koltuğa geçişi
+> kapsar; dolu masada eş seçmek için yer henüz boşken davranmak gerekir.
+
 ---
 
 ## 6. Bitiş türleri
@@ -261,6 +288,21 @@ hamlesi eli tamamen boşaltamaz:
 | **Çift açıp bitiremeyenler** | Elinde kalanların toplamının **2 katı** |
 | **Hatalı hamle** | Anında **+101** |
 
+**ÇİFT AÇANIN KALAN TAŞLARI 2 KATI SAYILIR.** Örnek: çift açan oyuncunun elinde
+kalan taşların toplamı **11** ise cezası **22**'dir (seri açanın aynı 11'i 11
+kalır). Kural `okey_internal_finalize_hand` içinde durur (`opened_with_pairs` →
+`okey_hand_penalty_value(...) * 2`) ve canlıda doğrulanmıştır — ayrıca bkz.
+`supabase/tests/manual/okey_seat_choice_and_finishing_discard_test.sql` [C1]/[B4].
+
+- Yalnızca **ilk açılışın türü** belirler: seri açıp sonradan çift indiren
+  oyuncunun bayrağı `false` kalır, taşları katlanmaz (bkz. §3).
+- **Sıra:** önce 2 katı, sonra bitiş çarpanı, en sonda baraj ödülü.
+  Okeyle biten bir elde çift açanın 11'i `11 × 2 × 2 = 44` olur.
+- **Baraj ödülü katlamadan SONRA düşer.** 6+ çift açan oyuncunun cezasından
+  `baraj_bonus` (101) çıkarılır; 11 taşlı çift açan `22 − 101 = -79` görür.
+  Ekranda "22 beklerken eksi bir sayı" görmenin nedeni katlamanın uygulanmaması
+  değil, bu ödüldür.
+
 ### Bitiş çarpanları (diğer tüm oyuncuların cezaları çarpılır)
 
 | Bitiş türü | Çarpan |
@@ -307,6 +349,29 @@ Beyan, 404 cezasının karşılığıdır ve **iki yönlü bir taahhüttür**:
 - Açamayacağı halde yandan taş çekmek → alınan taşı o turda kullanmamak
   (`side_draw_penalty`, bkz. §4)
 - Diğer kural dışı hamleler
+
+**İSTİSNA — ELİ BİTİREN SON ATIŞ İŞLEK SAYILMAZ (v2.6, 2026-09-21).**
+Elde **tek taş** kalmış ve el **açıksa** o taşı atmak eli bitirir; taş masadaki
+bir pere işlenebilir olsa bile işlek taş cezası **yazılmaz**. Sebep: §6'ya göre
+bitiş yalnızca atmayla olur ve açma/işleme eli boşaltamaz — oyuncunun o son
+taşla yapabileceği başka hamle yoktur. Atış bir seçim değil zorunluluktur ve
+ıstakada (takozda) başka taş kalmamıştır. Eskiden bu atış +101 yazıyor ve ceza
+kazananın skoruna da ekleniyordu (`-101 + 101`): eli bitirmek fiilen bedavaya
+iniyordu.
+
+- Koşul tek yerde: sunucuda `okey_internal_discard_for_seat` (`v_finishes`),
+  istemcide `OkeyWinDetector.discardFinishesHand` — kırmızı uyarı, "işlek taş"
+  onay penceresi ve kırmızı yanıp sönme aynı koşulda susar; uyarı ile ceza
+  ayrışamaz.
+- **YALNIZCA işlek cezası** muaftır. **Okey atma cezası** (§8) ve yandan
+  çekilen taşı kullanmama cezası (§4) bitiş atışında da işler.
+- Eli **açılmamış** oyuncunun tek taşı eli bitirmez (bitiş açık el ister); o
+  atış işlek cezasına tabi kalır.
+- **Deste bitişini kapatan atış** (kazanan yok) bu istisnanın DIŞINDADIR: orada
+  oyuncunun elinde başka taşlar vardır, seçim onundur.
+- "İŞLE" ile son taş kalınca tur otomatik kapanır ve son taş **işlek olsa da**
+  atılır (bedelsiz); yalnızca son taş **okey** ise oyuncuya sorulur, çünkü okey
+  atma cezası yazılır.
 
 **Cezaların üst üste binmemesi:**
 
@@ -401,3 +466,31 @@ Botlar gerçek oyuncularla aynı kurallara tabidir ve aynı hamleleri yapar:
 Bot hamlesini masadaki herhangi bir istemci tetikler; tetikleme **sıra
 kimliğini (`turn_token`) taşır**, böylece bayat bir zamanlayıcı artık sırası
 gelmiş BAŞKA bir botu gecikmesiz oynatamaz.
+
+---
+
+## §9 — SESLİ ANONSLAR (istemci, v2.6)
+
+Masadaki herkes duyar (`OkeyGameProvider._updateAnnouncements`); kararlar saf
+hesap olarak `lib/okey/engine/okey_announcements.dart`'ta durur.
+
+| Anons | Ne zaman |
+|---|---|
+| "Seri açıldı" / "Çift açıldı" | Masadaki **ilk** açılışta, elde bir kez |
+| "… son üç taş" / "Sende son üç taş kaldı" | Bir oyuncu taşını **attıktan sonra** ıstakasında **tam 3 taş** kalınca |
+
+**"Son üç taş" ATIŞTAN SONRA duyulur** (kullanıcı isteği, 2026-09-21: "son 3 taş
+sesi sadece takozda, taş attıktan sonra 3 kaldığında bildirilsin"; "takoz" =
+ıstaka). Bir ıstaka yalnızca **kendi turunda** değişir (çek +1, per/işle −n, at
+−1) ve sıra oyuncudan ancak atışıyla çıkar. Bu yüzden:
+
+- **Sırası kendindeyken** okunan sayı ara durumdur (çekilmiş ama atılmamış taş
+  dahil) — 3 olsa bile **duyurulmaz**. Eskiden duyuruluyordu: oyuncu perlerini
+  indirip 3 taşa düşüyor, anons "son üç taş" diyordu, atınca ıstakasında 2 taş
+  kalıyordu.
+- **Tam 3** aranır. 5'ten 1'e inen oyuncu için "üç taş" yanlış bilgi olurdu.
+- Sayı 3'ün **üstüne** çıkarsa (taş çekti) işaret kalkar; aynı oyuncu sonra
+  atışla yeniden 3'e inerse yeniden duyurulur.
+- Elin ortasında masaya oturan/yeniden bağlanan oyuncu geçmiş anonsları
+  dinlemez: elin ilk görüşünde 3 ve altındaki koltuklar "zaten duyuruldu"
+  sayılır.

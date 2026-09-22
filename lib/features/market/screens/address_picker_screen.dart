@@ -18,11 +18,16 @@ class AddressPickerScreen extends StatefulWidget {
   final double? initialLongitude;
   final String? initialAddress;
 
+  /// Verilirse haritanın üstünde sabit bir uyarı şeridi gösterilir
+  /// (ör. satıcıya gerçek dükkan konumunu işaretlemesi hatırlatılır).
+  final String? warningBanner;
+
   const AddressPickerScreen({
     super.key,
     this.initialLatitude,
     this.initialLongitude,
     this.initialAddress,
+    this.warningBanner,
   });
 
   @override
@@ -606,6 +611,30 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
       ),
       body: Column(
         children: [
+          if (widget.warningBanner != null)
+            Container(
+              width: double.infinity,
+              color: Colors.amber.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.warningBanner!,
+                      style: TextStyle(
+                        color: Colors.amber.shade900,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // Google Maps
           Expanded(
             flex: 3,

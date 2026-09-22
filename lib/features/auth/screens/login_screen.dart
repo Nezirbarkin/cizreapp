@@ -259,8 +259,8 @@ class _LoginScreenState extends State<LoginScreen>
     return AnimatedBuilder(
       animation: _floatingAnimation,
       builder: (context, _) {
-        final screenHeight = MediaQuery.of(context).size.height;
-        final screenWidth = MediaQuery.of(context).size.width;
+        final screenHeight = MediaQuery.sizeOf(context).height;
+        final screenWidth = MediaQuery.sizeOf(context).width;
         
         final yOffset = math.sin(
           _floatingAnimation.value * 2 * math.pi * shape.speed,

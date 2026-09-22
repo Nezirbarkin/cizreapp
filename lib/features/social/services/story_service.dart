@@ -8,6 +8,7 @@ import '../../../core/models/post_model.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/image_compression_helper.dart';
+import '../../music/models/attached_music.dart';
 
 class StoryService {
   /// Klasik begeni tepkisi. story_likes.emoji sutununun DB varsayilani da ayni.
@@ -329,6 +330,7 @@ class StoryService {
     String mediaType = 'image',
     String? thumbnailUrl,
     bool isPinned = false,
+    AttachedMusic? music,
   }) async {
     try {
       final now = DateTime.now().toUtc(); // UTC'ye çevir
@@ -349,6 +351,9 @@ class StoryService {
         'is_pinned': isPinned,
         'created_at': now.toIso8601String(),
         'expires_at': expiresAt.toIso8601String(),
+        // Sunucudaki `music_attach_guard` tetikleyicisi admin anahtarı
+        // kapalıyken bu alanı sessizce düşürür.
+        if (music != null) 'music': music.toJson(),
       };
       
       // Video ise thumbnail URL'ini ekle
@@ -380,6 +385,7 @@ class StoryService {
     required String text,
     required String background,
     bool isPinned = false,
+    AttachedMusic? music,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -402,6 +408,7 @@ class StoryService {
             'is_pinned': isPinned,
             'created_at': now.toIso8601String(),
             'expires_at': expiresAt.toIso8601String(),
+            if (music != null) 'music': music.toJson(),
           })
           .select()
           .maybeSingle();

@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/smm_provider_model.dart';
 import '../../../core/services/smm_service.dart';
 import '../../wallet/screens/wallet_screen.dart';
+import '../widgets/common/seller_empty_state.dart';
+import '../widgets/common/seller_section_card.dart';
 
 class SmmProviderSettingsScreen extends StatefulWidget {
   const SmmProviderSettingsScreen({super.key});
@@ -182,6 +184,9 @@ class _SmmProviderSettingsScreenState extends State<SmmProviderSettingsScreen> {
     return Card(
       color: Colors.purple.shade50,
       margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(SellerSectionCard.radius),
+      ),
       child: ListTile(
         leading: Icon(Icons.smart_toy_outlined, color: Colors.purple.shade700),
         title: const Text('Dijital Ürün Kazancı'),
@@ -217,21 +222,9 @@ class _SmmProviderSettingsScreenState extends State<SmmProviderSettingsScreen> {
                     padding: const EdgeInsets.all(24),
                     children: [
                       _buildDigitalEarningsCard(),
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade400),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Kendi SMM API panelinizi ekleyebilmek için yönetici onayı gereklidir.',
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
+                      const SellerEmptyState(
+                        icon: Icons.lock_outline,
+                        message: 'Kendi SMM API panelinizi ekleyebilmek için yönetici onayı gereklidir.',
                       ),
                     ],
                   ),
@@ -249,11 +242,12 @@ class _SmmProviderSettingsScreenState extends State<SmmProviderSettingsScreen> {
                       ),
                       const SizedBox(height: 16),
                       if (_providers.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('Henüz sağlayıcı eklenmemiş.'),
+                        const SellerEmptyState(
+                          icon: Icons.dns_outlined,
+                          message: 'Henüz sağlayıcı eklenmemiş.',
                         ),
-                      ..._providers.map((p) => Card(
+                      ..._providers.map((p) => SellerSectionCard(
+                            margin: const EdgeInsets.only(bottom: 12),
                             child: ListTile(
                               leading: Icon(
                                 p.isActive ? Icons.check_circle : Icons.cancel,

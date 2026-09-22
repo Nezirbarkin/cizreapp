@@ -3,6 +3,7 @@
 
 // Modeller
 export 'models/sehirici_models.dart';
+export 'models/sehirici_icon_models.dart';
 
 // Servisler
 export 'services/sehirici_city_service.dart';
@@ -11,6 +12,9 @@ export 'services/sehirici_trip_service.dart';
 export 'services/sehirici_favorite_service.dart';
 export 'services/sehirici_driver_service.dart';
 export 'services/sehirici_location_tracker.dart';
+export 'services/sehirici_icon_service.dart';
+export 'services/sehirici_icon_catalog.dart';
+export 'services/sehirici_errors.dart';
 
 // Provider
 export 'providers/sehirici_provider.dart';
@@ -18,6 +22,8 @@ export 'providers/sehirici_provider.dart';
 // Util'ler
 export 'utils/sehirici_time_utils.dart';
 export 'utils/sehirici_route_geometry.dart';
+export 'utils/sehirici_arrivals.dart';
+export 'utils/sehirici_marker_bitmaps.dart';
 export 'services/sehirici_road_snap_service.dart';
 
 // Widget'lar

@@ -221,7 +221,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
-            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
             child: SingleChildScrollView(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -801,6 +801,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             itemCount: widget.post.images.length,
                             itemBuilder: (context, index) {
                               return CachedNetworkImage(
+                                memCacheWidth: 1000,
                                 imageUrl: widget.post.images[index],
                                 fit: BoxFit.cover,
                               );
@@ -1164,8 +1165,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
-  String _formatDate(DateTime date) {
-    // Veritabanındaki tarih zaten doğru saat diliminde (UTC+3), direkt kullan
+  String _formatDate(DateTime utcDate) {
+    final date = utcDate.toLocal();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));

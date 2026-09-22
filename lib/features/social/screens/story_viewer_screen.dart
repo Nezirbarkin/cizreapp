@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use, duplicate_ignore
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -11,6 +13,7 @@ import '../services/story_service.dart';
 import 'story_viewers_screen.dart';
 import '../../chat/services/chat_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../music/music.dart';
 
 class StoryViewerScreen extends StatefulWidget {
   final List<Story> stories;
@@ -63,6 +66,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     // başlatıldığı için ilk açılışta video oynamıyor, başka story'ye geçip
     // dönünce oynuyordu. Burada ilk story tipine göre başlatıyoruz.
     final firstStory = _stories[_currentIndex];
+    // Anahtarlar okunmadan çalmaya kalkarsak kapalı bir özelliği açmış
+    // oluruz; önce ayarı tazeleyip sonra karar veriyoruz.
+    MusicSettingsService.fetch().then((_) {
+      if (mounted) _syncStoryMusic(firstStory);
+    });
     if (firstStory.isVideo) {
       _initializeVideo(firstStory.imageUrl);
     } else {
@@ -205,6 +213,30 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     } catch (e) {
       debugPrint('Previous story error: $e');
     }
+  }
+
+  /// Gösterilen hikayenin müziğini çalar, yoksa çalanı susturur.
+  ///
+  /// ## Neden burada otomatik çalıyor
+  ///
+  /// Akıştaki gönderi rozetinin aksine hikaye tam ekran, süreli ve zaten
+  /// "izlenen" bir deneyim; kullanıcı ayrıca bir düğmeye basmayı beklemez.
+  ///
+  /// ## Videolu hikayede çalmaz
+  ///
+  /// Video kendi sesini taşıyor olabilir. İkisini üst üste bindirmek ikisini
+  /// de anlaşılmaz yapardı; video varsa söz videodadır.
+  void _syncStoryMusic(Story story) {
+    final music = story.music;
+    if (music == null || story.isVideo) {
+      unawaited(ClipPlayer.instance.stop());
+      return;
+    }
+    if (!MusicSettingsService.cached.feature ||
+        !MusicSettingsService.cached.attach) {
+      return;
+    }
+    unawaited(ClipPlayer.instance.play(music));
   }
 
   Future<void> _initializeVideo(String videoUrl) async {
@@ -472,6 +504,9 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     _pageController.dispose();
     _animationController.dispose();
     _videoController?.dispose();
+    // Ekran kapanınca müzik SUSMALI: hikaye bittiğinde arkada çalmaya devam
+    // eden bir kesit, kullanıcının kapattığını sandığı bir sesi sürdürür.
+    unawaited(ClipPlayer.instance.stop());
     _replyController.dispose();
     _replyFocusNode.dispose();
     super.dispose();
@@ -495,7 +530,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
           Positioned(
             left: 0,
             right: 0,
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
             child: _buildBottomBar(),
           ),
         ],
@@ -530,7 +565,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
           });
         },
         onTapDown: (details) {
-          final width = MediaQuery.of(context).size.width;
+          final width = MediaQuery.sizeOf(context).width;
           if (details.globalPosition.dx < width / 3) {
             _previousStory();
           } else if (details.globalPosition.dx > width * 2 / 3) {
@@ -565,6 +600,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                    // Profil bilgileri artık Story içinde geliyor, ek sorgu gerekmiyor!
                    _markStoryAsViewed(story);
                    _syncMyReaction(story);
+                   _syncStoryMusic(story);
                    
                    if (story.isVideo) {
                      _initializeVideo(story.imageUrl);

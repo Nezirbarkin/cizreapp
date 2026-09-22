@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/utils/search_query.dart';
+import '../models/sehirici_models.dart';
+import 'sehirici_errors.dart';
 
 /// Şoför kayıt ve atama servisi (admin + sürücü tarafı).
 class SehiriciDriverService {
@@ -20,6 +23,87 @@ class SehiriciDriverService {
     }
   }
 
+  /// Admin şoför listesi (typed): çalışma saatleri ve otomatik sefer bilgisiyle.
+  /// Hata olursa istisna fırlatır — boş liste "şoför yok" ile karışmasın.
+  Future<List<SehiriciDriver>> getDriversAdmin() async {
+    try {
+      final response = await _client.from('sehirici_drivers').select(
+          'id, profile_id, license_number, phone, assigned_line_id, '
+          'is_on_duty, working_hours_start, working_hours_end, '
+          'auto_trip_enabled, profiles!inner(full_name, username, avatar_url)');
+      return (response as List)
+          .map((e) =>
+              SehiriciDriver.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (e) {
+      debugPrint('getDriversAdmin hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
+  /// Şoför kaydı oluşturur; başarısız olursa nedenini fırlatır (ör. kullanıcı
+  /// zaten şoför).
+  Future<String> createDriverOrThrow({
+    required String profileId,
+    String? licenseNumber,
+    String? phone,
+    String? assignedLineId,
+  }) async {
+    try {
+      final response = await _client
+          .from('sehirici_drivers')
+          .insert({
+            'profile_id': profileId,
+            'license_number': licenseNumber,
+            'phone': phone,
+            'assigned_line_id': assignedLineId,
+          })
+          .select('id')
+          .single();
+      return response['id'] as String;
+    } catch (e) {
+      debugPrint('createDriver hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
+  Future<void> assignLineOrThrow(String driverId, String? lineId) async {
+    try {
+      await _client
+          .from('sehirici_drivers')
+          .update({'assigned_line_id': lineId}).eq('id', driverId);
+    } catch (e) {
+      debugPrint('assignLine hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
+  Future<void> updateDriverOrThrow(
+    String driverId, {
+    String? licenseNumber,
+    String? phone,
+  }) async {
+    try {
+      await _client.from('sehirici_drivers').update({
+        'license_number':
+            (licenseNumber ?? '').trim().isEmpty ? null : licenseNumber!.trim(),
+        'phone': (phone ?? '').trim().isEmpty ? null : phone!.trim(),
+      }).eq('id', driverId);
+    } catch (e) {
+      debugPrint('updateDriver hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
+  Future<void> deleteDriverOrThrow(String driverId) async {
+    try {
+      await _client.from('sehirici_drivers').delete().eq('id', driverId);
+    } catch (e) {
+      debugPrint('deleteDriver hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
   /// Mevcut kullanıcının şoför kaydını getir (yoksa null).
   Future<Map<String, dynamic>?> getMyDriverProfile() async {
     try {
@@ -28,7 +112,8 @@ class SehiriciDriverService {
       final response = await _client
           .from('sehirici_drivers')
           .select(
-              '*, sehirici_lines(id, code, name, color_hex, vehicle_type), '
+              '*, sehirici_lines(id, code, name, color_hex, vehicle_type, '
+              'route_polyline), '
               'working_hours_start, working_hours_end, auto_location_enabled, '
               'auto_route_from_traveled_path, auto_trip_enabled')
           .eq('profile_id', user.id)
@@ -154,7 +239,9 @@ class SehiriciDriverService {
       final response = await _client
           .from('profiles')
           .select('id, full_name, username, avatar_url, role')
-          .or('username.ilike.%$query%,full_name.ilike.%$query%')
+          // Ham metin filtreye gömülürse virgül/parantez içeren aramalar 400
+          // verir ve % joker olur; güvenli kalıp kullanılır.
+          .or(buildIlikeOrFilter(const ['username', 'full_name'], query))
           .limit(20);
       return List<Map<String, dynamic>>.from(response as List);
     } catch (e) {

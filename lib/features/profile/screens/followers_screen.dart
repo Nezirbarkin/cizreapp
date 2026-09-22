@@ -472,6 +472,7 @@ class _UserListItemState extends State<_UserListItem> {
           .eq('following_id', widget.userId)
           .maybeSingle();
 
+      if (!mounted) return;
       setState(() {
         _isFollowing = response != null;
       });
@@ -484,7 +485,11 @@ class _UserListItemState extends State<_UserListItem> {
     setState(() => _isLoadingFollow = true);
     
     await widget.onToggleFollow(_isFollowing);
-    
+    // Takip isteği sürerken liste kaydırılıp öğe dispose olabilir; bu durumda
+    // setState "called after dispose()" ile yakalanmamış hata veriyordu
+    // (canlıda 100+ kayıt).
+    if (!mounted) return;
+
     setState(() {
       _isFollowing = !_isFollowing;
       _isLoadingFollow = false;

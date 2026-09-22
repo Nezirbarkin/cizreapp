@@ -7,16 +7,21 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/services/permission_service.dart';
 import '../../../core/widgets/text_background.dart';
+import '../../music/music.dart';
 
 // Instagram tarzı story oluşturma widget'ı
 class InstagramStoryCreator extends StatefulWidget {
   final ImagePicker imagePicker;
-  final Function(XFile, String) onMediaSelected;
+
+  /// Medya seçildi. Üçüncü değer, kullanıcı hikayeye müzik iliştirdiyse
+  /// paylaşıma hazır kliptir (yoksa null).
+  final Function(XFile, String, AttachedMusic?) onMediaSelected;
 
   /// Arka planlı METİN hikayesi seçildiğinde çağrılır (yüklenecek dosya yok).
   /// Verilmezse "Metin" seçeneği gösterilmez — böylece bu widget'ı kullanan
   /// eski çağrı yerleri değişmeden çalışır.
-  final void Function(String text, String backgroundId)? onTextStory;
+  final void Function(String text, String backgroundId, AttachedMusic? music)?
+  onTextStory;
 
   const InstagramStoryCreator({
     required this.imagePicker,
@@ -45,6 +50,33 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
   String _textBackgroundId = kTextBackgrounds.first.id;
 
   String get _storyText => _textController.text.trim();
+
+  /// Hikayeye iliştirilecek müzik. Seçim sırasında klip kesilip yüklendiği
+  /// için buradaki nesne paylaşıma hazırdır.
+  AttachedMusic? _music;
+
+  /// Müzik düğmesi görünsün mü? Admin anahtarına bağlı.
+  bool _musicEnabled =
+      MusicSettingsService.cached.feature && MusicSettingsService.cached.attach;
+
+  Future<void> _loadMusicFlag() async {
+    final settings = await MusicSettingsService.fetch();
+    if (!mounted) return;
+    final enabled = settings.feature && settings.attach;
+    if (enabled != _musicEnabled) setState(() => _musicEnabled = enabled);
+  }
+
+  Future<void> _pickMusic() async {
+    final picked = await MusicPickerSheet.show(context);
+    if (!mounted || picked == null) return;
+    setState(() => _music = picked);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMusicFlag();
+  }
 
   @override
   void dispose() {
@@ -81,12 +113,12 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Metin modunda klavye açılıyor: sayfa yüksekliğinden klavyeyi düşürmezsek
     // zemin tuvali klavyenin altında kalıyor ve yazdığını göremiyorsun.
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final maxHeight = screenSize.height * 0.92;
     final height = (maxHeight - bottomInset).clamp(240.0, maxHeight);
 
@@ -102,6 +134,20 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
           children: [
             // Üst kısım: Kapat butonu, başlık, İleri butonu
             _buildTopBar(isDark),
+            if (_music != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: AttachedMusicChip(
+                    music: _music!,
+                    onDarkSurface: true,
+                    onRemove: _isUploading
+                        ? null
+                        : () => setState(() => _music = null),
+                  ),
+                ),
+              ),
             // Ana alan: Önizleme, metin bestecisi veya kamera/galeri placeholder
             Expanded(
               child: _isTextMode
@@ -168,16 +214,36 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
                 letterSpacing: 0.3,
               ),
             ),
-            // İleri butonu
-            IconButton(
-              onPressed: _canProceed ? _onNext : null,
-              icon: Icon(
-                Icons.arrow_forward,
-                color: _canProceed ? Colors.white : Colors.white38,
-                size: 28,
-              ),
-              padding: const EdgeInsets.all(12),
-              constraints: const BoxConstraints(),
+            // Müzik + İleri
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_musicEnabled)
+                  IconButton(
+                    tooltip: 'Müzik ekle',
+                    onPressed: _isUploading ? null : _pickMusic,
+                    icon: Icon(
+                      Icons.music_note_rounded,
+                      // Müzik seçiliyse ikon marka rengine geçer: rozet
+                      // ekranın altında kalsa bile "müzik var" bilgisi
+                      // düğmenin kendisinden okunur.
+                      color: _music != null ? MusicUI.accent : Colors.white,
+                      size: 24,
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    constraints: const BoxConstraints(),
+                  ),
+                IconButton(
+                  onPressed: _canProceed ? _onNext : null,
+                  icon: Icon(
+                    Icons.arrow_forward,
+                    color: _canProceed ? Colors.white : Colors.white38,
+                    size: 28,
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  constraints: const BoxConstraints(),
+                ),
+              ],
             ),
           ],
         ),
@@ -898,7 +964,7 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
 
       setState(() => _isUploading = true);
       Navigator.pop(context);
-      onTextStory(text, _textBackgroundId);
+      onTextStory(text, _textBackgroundId, _music);
       return;
     }
 
@@ -910,6 +976,6 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
     Navigator.pop(context);
 
     // Mevcut story oluşturma akışını başlat
-    widget.onMediaSelected(_selectedMedia!, _mediaType ?? 'image');
+    widget.onMediaSelected(_selectedMedia!, _mediaType ?? 'image', _music);
   }
 }

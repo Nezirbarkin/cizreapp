@@ -307,6 +307,7 @@ class _CartScreenState extends State<CartScreen>
               borderRadius: BorderRadius.circular(12),
               child: item.productImageUrl != null
                   ? CachedNetworkImage(
+                      memCacheWidth: 300,
                       imageUrl: item.productImageUrl!,
                       fit: BoxFit.cover,
                       errorWidget: (context, url, error) => const Center(

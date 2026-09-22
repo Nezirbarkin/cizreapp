@@ -684,6 +684,9 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String?>(
+                      // isExpanded: yan yana iki açılır kutuda seçili ad
+                      // uzunsa satır sağdan taşıyordu (RenderFlex overflow).
+                      isExpanded: true,
                       value: _selectedCategoryId,
                       decoration: InputDecoration(
                         labelText: 'Kategori',
@@ -699,7 +702,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                         ...widget.categories.map(
                           (c) => DropdownMenuItem(
                             value: c.id,
-                            child: Text(c.name),
+                            child: Text(c.name, overflow: TextOverflow.ellipsis),
                           ),
                         ),
                       ],
@@ -709,6 +712,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String?>(
+                      isExpanded: true,
                       value: _selectedInstitutionId,
                       decoration: InputDecoration(
                         labelText: 'Kurum',
@@ -724,7 +728,7 @@ class _NewsEditorScreenState extends State<NewsEditorScreen> {
                         ...widget.institutions.map(
                           (i) => DropdownMenuItem(
                             value: i.id,
-                            child: Text(i.name),
+                            child: Text(i.name, overflow: TextOverflow.ellipsis),
                           ),
                         ),
                       ],

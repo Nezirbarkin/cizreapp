@@ -1342,7 +1342,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         16,
         16,
         16,
-        MediaQuery.of(context).viewInsets.bottom + 16,
+        MediaQuery.viewInsetsOf(context).bottom + 16,
       ),
       child: _isLoading
           ? const Center(child: CircularProgressIndicator())

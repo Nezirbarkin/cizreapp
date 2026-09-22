@@ -32,6 +32,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
   final _productCommentController = TextEditingController();
   int _shopRating = 0;
   int _productRating = 0;
+  bool _shopAnonymous = false;
   bool _isSubmitting = false;
 
   @override
@@ -66,6 +67,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
               : _shopCommentController.text.trim(),
           orderId: widget.pendingReview.orderId,
           digitalOrderId: widget.pendingReview.digitalOrderId,
+          isAnonymous: _shopAnonymous,
         );
       }
 
@@ -134,6 +136,7 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(12),
                             child: CachedNetworkImage(
+                              memCacheWidth: 200,
                               imageUrl: widget.pendingReview.shopLogo!,
                               fit: BoxFit.cover,
                               errorWidget: (_, __, ___) => Icon(
@@ -330,7 +333,19 @@ class _PendingReviewDialogState extends State<PendingReviewDialog> {
                 maxLines: 2,
                 textCapitalization: TextCapitalization.sentences,
               ),
-              const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Satıcı yorumunda kimliğimi gizle'),
+                subtitle: const Text(
+                  'Adınız n******b gibi görünür, fotoğrafınız gösterilmez',
+                ),
+                value: _shopAnonymous,
+                onChanged: _isSubmitting
+                    ? null
+                    : (value) => setState(() => _shopAnonymous = value),
+              ),
+              const SizedBox(height: 8),
 
               // Actions
               Row(

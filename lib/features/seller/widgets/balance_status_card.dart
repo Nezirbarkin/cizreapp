@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/payout_service.dart';
+import 'common/seller_section_card.dart';
 
 /// Satıcının borç/alacak durumunu gösteren card widget
 /// 
@@ -24,17 +25,15 @@ class BalanceStatusCard extends StatelessWidget {
       future: _loadBalanceData(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange.shade700),
-                  ),
+          return SellerSectionCard(
+            margin: EdgeInsets.zero,
+            child: Center(
+              child: SizedBox(
+                width: 30,
+                height: 30,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
                 ),
               ),
             ),
@@ -42,13 +41,11 @@ class BalanceStatusCard extends StatelessWidget {
         }
 
         if (snapshot.hasError) {
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Bilgi yüklenemedi: ${snapshot.error}',
-                style: TextStyle(color: Colors.red.shade600),
-              ),
+          return SellerSectionCard(
+            margin: EdgeInsets.zero,
+            child: Text(
+              'Bilgi yüklenemedi: ${snapshot.error}',
+              style: TextStyle(color: Colors.red.shade600),
             ),
           );
         }
@@ -62,34 +59,13 @@ class BalanceStatusCard extends StatelessWidget {
         final netPayable = data['net_payable'] as double? ?? 0;
         final totalPaid = data['total_paid'] as double? ?? 0;
 
-        return Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
+        return SellerSectionCard(
+          margin: EdgeInsets.zero,
+          title: 'Ödeme Durumu',
+          icon: Icons.account_balance_wallet,
+          child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Başlık
-                Row(
-                  children: [
-                    Icon(
-                      Icons.account_balance_wallet,
-                      color: Colors.orange.shade700,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Ödeme Durumu',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Divider(),
-                const SizedBox(height: 16),
-
                 // Şimdiye kadar toplam kazanç
                 if (totalPaid > 0)
                   Container(
@@ -448,7 +424,6 @@ class BalanceStatusCard extends StatelessWidget {
                 ],
               ],
             ),
-          ),
         );
       },
     );

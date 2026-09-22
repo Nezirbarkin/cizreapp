@@ -170,11 +170,31 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.photo_library_outlined,
+                    title: 'Ürün Görsel Kütüphanesi',
+                    isSelected: _selectedMenu == 'Ürün Görsel Kütüphanesi',
+                    onTap: () {
+                      setState(
+                        () => _selectedMenu = 'Ürün Görsel Kütüphanesi',
+                      );
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.store_rounded,
                     title: 'Dükkanlar',
                     isSelected: _selectedMenu == 'Dükkanlar',
                     onTap: () {
                       setState(() => _selectedMenu = 'Dükkanlar');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.campaign_rounded,
+                    title: 'Satıcı Duyuruları',
+                    isSelected: _selectedMenu == 'Satıcı Duyuruları',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Satıcı Duyuruları');
                       Navigator.pop(context);
                     },
                   ),
@@ -232,6 +252,15 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.forum_rounded,
+                    title: 'Sohbet Durumu',
+                    isSelected: _selectedMenu == 'Sohbet Durumu',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Sohbet Durumu');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.flag_rounded,
                     title: 'Şikayetler',
                     isSelected: _selectedMenu == 'Şikayetler',
@@ -275,6 +304,24 @@ extension on _AdminDashboardScreenState {
                     isSelected: _selectedMenu == 'Günün Fırsatları',
                     onTap: () {
                       setState(() => _selectedMenu = 'Günün Fırsatları');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.emoji_events_rounded,
+                    title: 'Liderler Tablosu',
+                    isSelected: _selectedMenu == 'Liderler Tablosu',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Liderler Tablosu');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.headphones_rounded,
+                    title: 'Müzik Çalar',
+                    isSelected: _selectedMenu == 'Müzik Çalar',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Müzik Çalar');
                       Navigator.pop(context);
                     },
                   ),

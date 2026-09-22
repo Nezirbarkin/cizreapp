@@ -126,9 +126,9 @@ class OkeyRoomProvider with ChangeNotifier {
   /// İLK YÜKLEMEDE SUSAR: odaya girdiğinde zaten oturmuş olan üç kişi için
   /// üst üste üç ses çalmak "üç kişi şu an geldi" demek olurdu.
   ///
-  /// KİMLİĞE DEĞİL, KOLTUĞA BAKAR: bir koltuk boşken doluysa katılımdır.
-  /// Aynı koltuktaki oyuncunun değişmesi (biri kalktı, yerine başkası
-  /// oturdu) da katılımdır ve o da duyulur.
+  /// MASAYA YENİ BİRİ GELDİYSE katılımdır: boş bir koltuk doldu ya da bir
+  /// koltuktaki oyuncunun yerine başkası oturdu. Var olan bir oyuncunun başka
+  /// bir koltuğa GEÇMESİ katılım değildir (bkz. [seatJoined]).
   ///
   /// SES BİR KEZ ÇALAR: aynı yoklamada iki koltuk birden dolduysa (örneğin
   /// uygulama arka plandayken) iki ses üst üste binerdi.
@@ -153,34 +153,64 @@ class OkeyRoomProvider with ChangeNotifier {
   /// Saf fonksiyon: kararın kendisi test edilebilsin diye ayrıldı (sağlayıcı
   /// Supabase'siz kurulamıyor).
   ///
-  /// KİMLİĞE DEĞİL, KOLTUĞA BAKAR: boş bir koltuk dolduysa katılımdır. Aynı
-  /// koltuktaki oyuncunun DEĞİŞMESİ (biri kalktı, yerine başkası oturdu) da
-  /// katılımdır — masaya yeni biri gelmiştir.
+  /// Boş bir koltuk dolduysa ya da bir koltuktaki oyuncunun yerine BAŞKASI
+  /// oturduysa katılımdır — masaya yeni biri gelmiştir.
   ///
   /// BOTU AYIRMAZ. Yalnız insanlar için çalsaydı sessizlik "gelen bottu"
   /// demenin en açık yolu olurdu (bkz. OkeySound.playerJoin).
+  ///
+  /// ## KOLTUK DEĞİŞTİRMEK KATILIM DEĞİLDİR (2026-09-21)
+  ///
+  /// Karar koltuğa değil OTURANLARIN KÜMESİNE bakar: sonrasında öncekinde
+  /// olmayan biri varsa katılımdır. Oyuncular artık boş bir koltuğa geçebiliyor
+  /// (bkz. [chooseSeat]); koltuk-koltuk karşılaştırma, geçen oyuncunun yeni
+  /// koltuğunu "birisi oturdu" sayıp KENDİ hamlemde ve başkasının hamlesinde
+  /// katılım sesi çaldırırdı. Aynı koltuğa BAŞKASI oturması hâlâ katılımdır —
+  /// oturanlar kümesine yeni bir kimlik girer.
   @visibleForTesting
   static bool seatJoined({
     required List<OkeyRoomSeat> before,
     required List<OkeyRoomSeat> after,
   }) {
-    String? occupantOf(List<OkeyRoomSeat> seats, int seatNo) {
-      for (final s in seats) {
-        if (s.seatNo != seatNo) continue;
-        if (s.isEmpty) return null;
-        // Bot koltuğunun user_id'si yoktur; kimliği bot profilidir. İkisi de
-        // yoksa (profili tanımlanmamış bot) koltuk numarası kimlik sayılır.
-        return s.userId ?? s.botProfileId ?? 'seat-${s.seatNo}';
-      }
-      return null;
-    }
+    Set<String> occupants(List<OkeyRoomSeat> seats) => {
+      for (final s in seats)
+        if (!s.isEmpty)
+          // Bot koltuğunun user_id'si yoktur; kimliği bot profilidir. İkisi de
+          // yoksa (profili tanımlanmamış bot) koltuk numarası kimlik sayılır.
+          s.userId ?? s.botProfileId ?? 'seat-${s.seatNo}',
+    };
 
-    for (var seatNo = 0; seatNo < 4; seatNo++) {
-      final was = occupantOf(before, seatNo);
-      final now = occupantOf(after, seatNo);
-      if (now != null && now != was) return true;
+    final was = occupants(before);
+    return occupants(after).any((id) => !was.contains(id));
+  }
+
+  /// BOŞ BİR KOLTUĞA GEÇ (kullanıcı isteği, 2026-09-21: "oyuncular istediği
+  /// (eşli) kişinin karşısında oturabilsin").
+  ///
+  /// Yalnızca bekleme aşamasında ve masada oturuyorken anlamlıdır; aksi halde
+  /// sessizce çıkar (arayüz zaten bu durumda dokunmaya izin vermez). Sunucu
+  /// hazır işaretimi düşürür — o yüzden başarıdan sonra da masa tazelenir.
+  ///
+  /// HATADA da tazelenir: en yaygın hata, koltuğun tam ben dokunurken başkası
+  /// tarafından alınmasıdır ve oyuncunun güncel doluluğu görüp yeniden
+  /// seçebilmesi gerekir. Hata cümlesi tazelemeden SONRA yazılır, çünkü
+  /// başarılı bir tazeleme hata alanını temizler.
+  Future<void> chooseSeat(int seatNo) async {
+    final my = mySeat;
+    if (my == null || my.seatNo == seatNo) return;
+    if (_room?.status != 'waiting') return;
+
+    String? failure;
+    try {
+      await _service.chooseSeat(roomId, seatNo);
+    } catch (e) {
+      failure = OkeyRoomService.chooseSeatError(e);
     }
-    return false;
+    await refresh(silent: true);
+    if (failure != null) {
+      _error = failure;
+      _notify();
+    }
   }
 
   Future<void> toggleReady() async {

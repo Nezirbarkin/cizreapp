@@ -7,6 +7,35 @@
 
 ---
 
+## ⚠️ AdMob uyumluluk düzeltmesi (2026-09-21) — mağazaya girilen metni GÜNCELLE
+
+Bu dosyadaki metin, Play Console'a girildiği hâliyle **AdMob'un "Apps that offer compensation
+programs" ve "Policies for ad units that offer rewards" kurallarına aykırıydı**:
+
+| Eski (canlıda hâlâ yayında olabilir) | Neden sorunlu |
+|---|---|
+| "Reklam izleyerek ücretsiz bakiye kazanın. Her gün **sınırsız kazanç** fırsatı." | Reklam izlemeye karşılık ödeme/ücret vaadi; ödül parasal değer olarak sunuluyor. |
+| "**Kazancınız varsa para çekme talebi oluşturun.**" | Reklam ödülünün yanında nakde çevirme/çekim ima ediyor. Doğrudan parasal ödül hiçbir koşulda kabul edilmez. |
+| "Reklam izleyerek bakiye kazanma" (madde listesi, öne çıkan metin, anahtar kelimeler) | Aynı vaat, tekrar tekrar. |
+
+Bu dosyadaki metinler artık **puan dili**ne çevrildi (nakde çevrilemez, isteğe bağlı, uygulama içi).
+**Yapılacaklar (yalnızca Play Console / App Store Connect'ten yapılabilir):**
+
+1. Play Console → Mağaza varlığı → Ana mağaza girişi: aşağıdaki 2A (uzun açıklama) ve 3 (öne çıkan metin)
+   metinlerini yapıştır. Eski "bakiye kazanma" satırlarının **hiçbiri** kalmamalı.
+2. App Store Connect → Sürüm açıklaması / Tanıtım metni: 2B ve 3'ü yapıştır (App Store'daki mevcut
+   açıklama zaten temizdir; yine de yeni sürümde aynı dile uydur).
+3. Ekran görüntüsü 5 başlığını (bölüm 7) güncelle; cüzdan ekran görüntüsünde "Görev Yaparak Kazan" /
+   TL kazanç ima eden kart varsa kadraja alma.
+4. AdMob → Uygulamalar → ilgili uygulama → gözden geçirme isteği (bunu sen gönderirsin) — ancak
+   yukarıdaki listeleme değişikliği yayına girdikten SONRA.
+
+Kurallar (özet): ödül yalnızca uygulama içinde kullanılabilir, devredilemez olmalı; parasal eşdeğer
+(TL bakiye, çekim, IBAN) ödül olarak sunulamaz; kullanıcıya ödülün ne olduğu reklamdan ÖNCE açıkça
+söylenmeli ve izlemek isteğe bağlı olmalı.
+
+---
+
 ## 1. KISA AÇIKLAMA (Short Description)
 
 > Google Play: **80 karakter limiti** (boşluk dahil)
@@ -52,10 +81,10 @@ Arkadaşlarınız ve satıcılarla özel mesajlaşın. Grup sohbetleri, konuşma
 Hikâyeler paylaşın — metin, fotoğraf veya video formatında, 24 saat sonra otomatik kaybolur. Gönderilerinizde çoklu fotoğraf carousel desteği, beğeni ve yorum sistemi. Takipçi listesi ve profil özelleştirme.
 
 💰 CÜZDAN VE ÖDEME
-Dahili bakiye sistemi: Kredi kartıyla bakiye yükleyin, siparişlerinizde kullanın. Kazancınız varsa para çekme talebi oluşturun. iyzico altyapısıyla güvenli ödeme.
+Dahili bakiye sistemi: Kredi kartıyla bakiye yükleyin, siparişlerinizde kullanın. Satıcılar ve kuryeler, hak edişleri için ödeme talebi oluşturabilir. iyzico altyapısıyla güvenli ödeme.
 
-🎁 ÜCRETSİZ BAKİYE KAZANMA
-Reklam izleyerek ücretsiz bakiye kazanın. Her gün sınırsız kazanç fırsatı.
+🎁 İSTEĞE BAĞLI ÖDÜLLÜ REKLAM
+İsterseniz kısa bir reklam izleyerek uygulama içinde kullanabileceğiniz puan kazanabilirsiniz. Puanlar nakde çevrilemez, para olarak çekilemez ve başkasına devredilemez; yalnızca uygulamadaki uygun özelliklerde kullanılır. Reklam izlemek tamamen isteğe bağlıdır ve günlük izleme limiti vardır.
 
 🤖 YAPAY ZEKA ASİSTANI
 CizreApp AI — sorularınızı yanıtlar, alışveriş önerileri sunar, günlük hayatınızda yardımcı olur. Sohbet tabanlı, doğal dil desteği.
@@ -71,7 +100,7 @@ NEDEN CİZREAPP?
 • Cizre'ye özel tek platform
 • Alışveriş ve sosyal medya tek uygulamada
 • Ücretsiz mağaza açma
-• Reklam izleyerek bakiye kazanma
+• İsteğe bağlı ödüllü reklamla uygulama içi puan
 • AI destekli alışveriş deneyimi
 • Yerel satıcılarla doğrudan iletişim
 • Grup sohbetleri ve kanal desteği
@@ -103,10 +132,10 @@ Arkadaşlarınızla ve satıcılarla özel mesajlaşın. Grup sohbetleri ve anl�
 Hikâyeler paylaşın — fotoğraf veya video formatında, 24 saat sonra otomatik kaybolur. Çoklu fotoğraflı gönderiler, beğeni ve yorum sistemi.
 
 💰 Cüzdan ve Güvenli Ödeme
-Dahili bakiye sistemiyle kolay ödeme. iyzico altyapısıyla kredi kartıyla bakiye yükleyin veya kazancınızı çekin.
+Dahili bakiye sistemiyle kolay ödeme. iyzico altyapısıyla kredi kartıyla bakiye yükleyin. Satıcılar ve kuryeler hak edişleri için ödeme talebi oluşturabilir.
 
-🎁 Ücretsiz Bakiye Kazanma
-Reklam izleyerek her gün bakiye kazanın.
+🎁 İsteğe Bağlı Ödüllü Reklam
+İsterseniz kısa bir reklam izleyerek uygulama içinde kullanabileceğiniz puan kazanabilirsiniz. Puanlar nakde çevrilemez.
 
 🤖 Yapay Zeka Asistanı
 CizreApp AI, alışveriş önerileri ve günlük sorularınız için sohbet tabanlı destek sunar.
@@ -118,7 +147,7 @@ Neden CizreApp?
 • Cizre'ye özel tek platform
 • Alışveriş ve sosyal medya tek uygulamada
 • Ücretsiz mağaza açma imkânı
-• Reklam izleyerek bakiye kazanma
+• İsteğe bağlı ödüllü reklamla uygulama içi puan
 • Yapay zeka destekli alışveriş deneyimi
 ```
 
@@ -138,7 +167,7 @@ Neden CizreApp?
 ✓ Grup sohbetleri, kanallar ve özel mesajlaşma
 ✓ Hikâyeler ve çoklu fotoğraflı gönderiler
 ✓ AI asistanı ile akıllı alışveriş rehberi
-✓ Reklam izleyerek ücretsiz bakiye kazanma
+✓ İsteğe bağlı ödüllü reklamla uygulama içi puan
 ✓ iyzico ile güvenli online ödeme
 ✓ Harita üzerinde satıcı ve mağaza bulma
 ✓ Google ve Apple hesabıyla hızlı giriş
@@ -155,7 +184,7 @@ Neden CizreApp?
 ✓ Group chats, channels & private messaging
 ✓ Stories & multi-photo posts
 ✓ AI shopping assistant
-✓ Earn free balance by watching ads
+✓ Optional rewarded ads for in-app points (not cash)
 ✓ Secure payments via iyzico
 ✓ Find sellers on the map
 ✓ Quick login with Google & Apple
@@ -211,7 +240,7 @@ Açıklama içinde geçen anahtar kelimeler (SEO için yeterli):
 ```
 Cizre, Cizre alışveriş, Cizre pazar, Cizre sosyal ağ, Cizre uygulama,
 yerel satıcı, online alışveriş, sosyal medya, hikaye paylas, grup sohbet,
-cuzdan, bakiye, reklam izle, bakiye kazan, AI asistan, iyzico, harita,
+cuzdan, bakiye, puan, AI asistan, iyzico, harita,
 Cizre app, Cizre ticaret, yerel ticaret, mağaza açma, satış yap,
 çoklu fotoğraf, gönderi paylaş, sohbet uygulaması, mesajlaşma, bildirim
 ```
@@ -263,7 +292,7 @@ mesajlaşma,AI,asistan,cüzdan,bakiye,ödeme,iyzico,harita,gruplar
 2. "Yüzlerce yerel satıcı ve ürün"
 3. "AI asistanınız her zaman yanınızda"
 4. "Arkadaşlarınızla ve satıcılarla sohbet edin"
-5. "Bakiyenizi yönetin, reklam izleyerek kazanın"
+5. "Bakiyenizi ve puanlarınızı tek ekranda yönetin"
 6. "Profilinizi özelleştirin, mağazanızı açın"
 ```
 

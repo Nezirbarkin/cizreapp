@@ -126,6 +126,79 @@ class MapThemeToggleButton extends StatelessWidget {
   }
 }
 
+/// Harita zeminini Standart ↔ Uydu arasında çeviren cam düğme.
+///
+/// Tercih [MapTypePreference] üzerinde cihaz yereli saklanır. Haritanın
+/// seçimi anında uygulaması için `mapType`'ı [MapTypePreference.choice]
+/// ile besleyin (bkz. şehiriçi canlı harita).
+class MapBaseTypeToggleButton extends StatelessWidget {
+  final double size;
+
+  const MapBaseTypeToggleButton({super.key, this.size = 42});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<MapBaseType>(
+      valueListenable: MapTypePreference.choice,
+      builder: (context, type, _) => MapGlassButton(
+        icon: MapTypePreference.iconOf(type),
+        size: size,
+        tooltip: 'Harita türü: ${MapTypePreference.labelOf(type)} (değiştir)',
+        onPressed: MapTypePreference.toggle,
+      ),
+    );
+  }
+}
+
+/// Buzlu cam yüzey: çip şeridi, durum hapı ve bilgi kartları için ortak zemin.
+class MapGlassPanel extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+
+  /// Zemin opaklığı; yoğun içerik (yazı) için yükseltilir.
+  final double? opacity;
+
+  const MapGlassPanel({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    this.radius = 16,
+    this.opacity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: (isDark ? const Color(0xFF12151A) : Colors.white)
+                .withValues(alpha: opacity ?? (isDark ? 0.72 : 0.86)),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: (isDark ? Colors.white : Colors.black)
+                  .withValues(alpha: isDark ? 0.12 : 0.06),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 /// Dikey cam buton yığını — butonlar arasında tutarlı boşluk bırakır.
 class MapGlassControls extends StatelessWidget {
   final List<Widget> children;

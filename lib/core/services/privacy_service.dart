@@ -99,9 +99,28 @@ class PrivacyService {
         text.contains('clientexception') ||
         text.contains('connection closed') ||
         text.contains('connection reset') ||
+        text.contains('connection terminated') ||
         text.contains('network is unreachable') ||
+        text.contains('failed host lookup') ||
+        text.contains('handshakeexception') ||
+        text.contains('authretryablefetchexception') ||
         text.contains('timeoutexception') ||
         text.contains('timed out');
+  }
+
+  /// Ağ kopukluğunu uyarı, gerçek hatayı hata olarak yazar.
+  ///
+  /// Yalnızca heartbeat değil, tercih/hayalet-modu okuma ve yazma çağrıları da
+  /// aynı geçici kopukluklarla düşüyordu ("Connection closed before full
+  /// header was received", "HandshakeException", "Failed host lookup") ve
+  /// canlıda "Error getting ghost mode" gibi düzeltilecek bir şey olmayan
+  /// kayıtlarla admin "Son Hatalar" listesini dolduruyordu.
+  static void _logFailure(String message, Object error, StackTrace stackTrace) {
+    if (_isTransientNetworkFailure(error)) {
+      AppLogger.warning('$message (network): $error');
+      return;
+    }
+    AppLogger.error(message, error: error, stackTrace: stackTrace);
   }
 
   /// Kullanıcının *tercihini* (çevrimiçi görünüp görünmeyeceğini) günceller.
@@ -130,11 +149,7 @@ class PrivacyService {
       AppLogger.debug('Online enabled updated successfully');
       return true;
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error updating online enabled',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      _logFailure('Error updating online enabled', e, stackTrace);
       return false;
     }
   }
@@ -163,11 +178,7 @@ class PrivacyService {
       AppLogger.debug('Ghost mode updated successfully');
       return true;
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error updating ghost mode',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      _logFailure('Error updating ghost mode', e, stackTrace);
       return false;
     }
   }
@@ -194,11 +205,7 @@ class PrivacyService {
       final profile = await _fetchMyProfile();
       return (profile?['is_online'] as bool?) ?? false;
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error getting online status',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      _logFailure('Error getting online status', e, stackTrace);
       return false;
     }
   }
@@ -209,11 +216,7 @@ class PrivacyService {
       final profile = await _fetchMyProfile();
       return (profile?['is_online_enabled'] as bool?) ?? true;
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error getting online enabled',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      _logFailure('Error getting online enabled', e, stackTrace);
       return true;
     }
   }
@@ -224,11 +227,7 @@ class PrivacyService {
       final profile = await _fetchMyProfile();
       return (profile?['is_ghost_mode'] as bool?) ?? false;
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error getting ghost mode',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      _logFailure('Error getting ghost mode', e, stackTrace);
       return false;
     }
   }

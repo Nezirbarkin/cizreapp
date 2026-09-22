@@ -439,6 +439,35 @@ class ProductService {
     }
   }
 
+  /// Dijital ürünün sağlayıcı fiyat/ad tabanını yazar (smm_set_product_baseline).
+  ///
+  /// smm-sync-products, sağlayıcıda fiyat/servis değişince ürünü otomatik
+  /// "tükendi" yapabilmek için bu tabanla karşılaştırır. Taban ayrı ve
+  /// istemciye kapalı bir tabloda tutulur (sağlayıcı fiyatı satıcının
+  /// maliyetidir). Kayıt başarısız olursa ürün kaydı BOZULMAZ: sonraki senkron
+  /// mevcut değerleri taban olarak alır.
+  Future<void> setSmmBaseline({
+    required String productId,
+    required double? providerRate,
+    required String? serviceName,
+  }) async {
+    if (providerRate == null && (serviceName == null || serviceName.isEmpty)) {
+      return;
+    }
+    try {
+      await supabase.rpc(
+        'smm_set_product_baseline',
+        params: {
+          'p_product_id': productId,
+          'p_rate': providerRate,
+          'p_name': serviceName,
+        },
+      );
+    } catch (e) {
+      debugPrint('SMM taban değeri yazılamadı: $e');
+    }
+  }
+
   // Ürün güncelle (seller için)
   Future<Product> updateProduct({
     required String productId,

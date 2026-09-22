@@ -769,6 +769,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           GestureDetector(
                             onTap: () => showFullScreenImage(context, coverUrl),
                             child: CachedNetworkImage(
+                              memCacheWidth: 1000,
                               imageUrl: coverUrl,
                               fit: BoxFit.cover,
                               errorWidget: (context, url, error) {

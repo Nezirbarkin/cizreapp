@@ -65,5 +65,51 @@ void main() {
       expect(AnalyticsService.extractOriginForTest(null, null), isNull);
       expect(AnalyticsService.extractOriginForTest(null, ''), isNull);
     });
+
+    test('hatayi loglayan altyapi kareleri atlanir, cagiran kaynak olur', () {
+      // `AppErrorHandler.handleError(e)` yigin izi vermeyince `StackTrace.current`
+      // kullaniliyor; ilk uygulama karesi handler'in kendisidir.
+      final stack = StackTrace.fromString(
+        '#0      AppErrorHandler._logError '
+        '(package:cizreapp/core/utils/app_error_handler.dart:203:5)\n'
+        '#1      AppErrorHandler.processError '
+        '(package:cizreapp/core/utils/app_error_handler.dart:195:5)\n'
+        '#2      _SocialScreenState._loadData '
+        '(package:cizreapp/features/social/screens/social_screen.dart:262:30)\n',
+      );
+
+      expect(
+        AnalyticsService.extractOriginForTest(stack, null),
+        'features/social/screens/social_screen.dart:262',
+      );
+    });
+  });
+
+  group('messageRemainder', () {
+    test('mesajin iki nokta ustunden sonraki ayrintisini korur', () {
+      // AppLogger.error('Error getting unread count: $e') -> `error:` bos,
+      // ayrinti yalnizca mesajda. Tip normalizasyonu bunu atiyordu.
+      expect(
+        AnalyticsService.messageRemainderForTest(
+          '❌ Error getting unread count: PostgrestException(code: 42501)',
+        ),
+        'PostgrestException(code: 42501)',
+      );
+    });
+
+    test('iki nokta yoksa ya da baslik cok kisaysa null doner', () {
+      expect(
+        AnalyticsService.messageRemainderForTest('sendMessage RPC ERROR'),
+        isNull,
+      );
+      expect(AnalyticsService.messageRemainderForTest('Hata: x'), isNull);
+    });
+
+    test('bos ayrinti null sayilir', () {
+      expect(
+        AnalyticsService.messageRemainderForTest('Error getting ghost mode:  '),
+        isNull,
+      );
+    });
   });
 }

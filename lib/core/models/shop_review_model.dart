@@ -1,7 +1,8 @@
 class ShopReview {
   final String id;
   final String shopId;
-  final String userId;
+  // Gizli yorumlarda sunucu yazarın kimliğini döndürmez (yalnız kendi yorumunda dolu)
+  final String? userId;
   final int rating;
   final String? comment;
   final DateTime createdAt;
@@ -18,10 +19,13 @@ class ShopReview {
   // Sipariş ilişkisi
   final String? orderId;
 
+  // Yazar kendini gizlediyse userName maskelidir (n******b), userAvatar boştur
+  final bool isAnonymous;
+
   ShopReview({
     required this.id,
     required this.shopId,
-    required this.userId,
+    this.userId,
     required this.rating,
     this.comment,
     required this.createdAt,
@@ -31,13 +35,14 @@ class ShopReview {
     this.sellerReply,
     this.sellerRepliedAt,
     this.orderId,
+    this.isAnonymous = false,
   });
 
   factory ShopReview.fromJson(Map<String, dynamic> json) {
     return ShopReview(
       id: json['id'] as String,
       shopId: json['shop_id'] as String,
-      userId: json['user_id'] as String,
+      userId: json['user_id'] as String?,
       rating: json['rating'] as int,
       comment: json['comment'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
@@ -49,6 +54,7 @@ class ShopReview {
           ? DateTime.parse(json['seller_replied_at'] as String)
           : null,
       orderId: json['order_id'] as String?,
+      isAnonymous: json['is_anonymous'] as bool? ?? false,
     );
   }
 
@@ -64,6 +70,7 @@ class ShopReview {
       'seller_reply': sellerReply,
       'seller_replied_at': sellerRepliedAt?.toIso8601String(),
       'order_id': orderId,
+      'is_anonymous': isAnonymous,
     };
   }
   

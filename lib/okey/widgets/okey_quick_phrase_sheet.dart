@@ -66,7 +66,7 @@ class OkeyQuickPhraseSheet extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [const Color(0xFF16556E), OkeyColors.screenBackground],
+              colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
             ),
             borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
             border: Border.all(color: OkeyUI.cardBorder),

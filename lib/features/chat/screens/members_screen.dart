@@ -4,7 +4,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/privacy_service.dart';
+import '../models/chat_presence.dart';
 import '../services/presence_service.dart';
+import '../services/user_presence_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 
 class MembersScreen extends StatefulWidget {
@@ -25,9 +27,14 @@ class _MembersScreenState extends State<MembersScreen> {
   Set<String> _onlineIds = <String>{};
   StreamSubscription<List<String>>? _onlineSub;
 
+  // Sunucunun bu kullanıcıya göre çözümlediği durum. Canlı akış ham olduğundan
+  // "çevrimiçi" yalnız canSeeOnline=true olanlar için akıştan sayılır.
+  Map<String, UserPresence> _presence = const {};
+
   @override
   void initState() {
     super.initState();
+    _onlineIds = PresenceService.instance.onlineIds.toSet();
     _loadUsers();
     _onlineSub = PresenceService.instance.onlineUsersStream.listen((ids) {
       if (!mounted) return;
@@ -104,6 +111,7 @@ class _MembersScreenState extends State<MembersScreen> {
           _filteredUsers = users;
           _isLoading = false;
         });
+        _loadPresence(users);
       }
     } catch (e) {
       debugPrint('Kullanıcılar yüklenirken hata: $e');
@@ -111,6 +119,16 @@ class _MembersScreenState extends State<MembersScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _loadPresence(List<Map<String, dynamic>> users) async {
+    final ids = users.map((u) => u['id']).whereType<String>();
+    final resolved = await UserPresenceService.instance.fetch(
+      ids,
+      context: PresenceContext.list,
+    );
+    if (!mounted) return;
+    setState(() => _presence = resolved);
   }
 
   void _filterUsers(String query) {
@@ -148,7 +166,6 @@ class _MembersScreenState extends State<MembersScreen> {
         await Supabase.instance.client.from('follows').insert({
           'follower_id': currentUserId,
           'following_id': userId,
-          'created_at': DateTime.now().toIso8601String(),
         });
       }
 
@@ -288,9 +305,12 @@ class _MembersScreenState extends State<MembersScreen> {
     final fullName = user['full_name'] as String? ?? 'Kullanıcı';
     final username = user['username'] as String?;
     final bio = user['bio'] as String?;
-    // Canlı presence VEYA yükleme anındaki aktiflik → çevrimiçi say.
+    // Canlı presence (yalnız sunucu görmene izin verdiyse) VEYA yükleme anındaki
+    // — sunucuca maskelenmiş — aktiflik → çevrimiçi say.
     final isActive =
-        _onlineIds.contains(userId) || (user['_isActive'] as bool? ?? false);
+        (_onlineIds.contains(userId) &&
+            (_presence[userId]?.canSeeOnline ?? false)) ||
+        (user['_isActive'] as bool? ?? false);
     final isFollowing = _followingIds.contains(userId);
     final isFollowLoading = _isLoadingFollow[userId] == true;
 

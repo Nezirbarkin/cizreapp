@@ -414,7 +414,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       isScrollControlled: true,
       builder: (context) => Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: _buildAddReviewBottomSheet(existingReview: _userReview),
       ),
@@ -1015,7 +1015,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           16,
           16,
           16,
-          16 + MediaQuery.of(context).viewInsets.bottom,
+          16 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: SafeArea(
           child: (_product?.isDigital ?? false)
@@ -1320,6 +1320,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 panEnabled: true,
                 boundaryMargin: const EdgeInsets.all(20),
                 child: CachedNetworkImage(
+                  memCacheWidth: 1200,
                   imageUrl: product.images[_selectedImageIndex],
                   fit: BoxFit.contain,
                   errorWidget: (_, __, ___) => Container(

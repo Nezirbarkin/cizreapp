@@ -1017,6 +1017,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: CachedNetworkImage(
+                                memCacheWidth: 200,
                                 imageUrl: item.productImageUrl!,
                                 width: 60,
                                 height: 60,

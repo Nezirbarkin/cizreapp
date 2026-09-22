@@ -1,5 +1,6 @@
 // ignore_for_file: unused_field, curly_braces_in_flow_control_structures
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -8,11 +9,53 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/category_model.dart' as category_model;
+import '../../../core/models/product_image_preset_model.dart';
 import '../../market/services/product_service.dart';
 import '../../market/services/category_service.dart';
+import '../../market/services/product_image_preset_service.dart';
+import '../../market/services/product_image_scrape_service.dart';
+import '../../market/widgets/product_image_link_sheet.dart';
 import '../../../core/widgets/color_picker_widget.dart';
 import '../../../core/models/smm_provider_model.dart';
 import '../../../core/services/smm_service.dart';
+import '../services/shop_analytics_service.dart';
+import '../widgets/common/seller_product_stats_chips.dart';
+import '../widgets/common/seller_section_card.dart';
+
+/// Görsel state'i için tek sıralı liste girdisi — satıcının ekleme sırasını
+/// korur (kaynağı zaten-yüklü URL mi, cihazdan seçilmiş dosya mı yoksa linkten
+/// getirilmiş bayt mı fark etmeksizin), çünkü index 0 her zaman "Ana" görsel
+/// olarak gösteriliyor.
+class _ProductImageEntry {
+  final String? url;
+  final XFile? file;
+  final Uint8List? _bytes;
+  final String? _bytesFileName;
+
+  _ProductImageEntry.url(this.url)
+    : file = null,
+      _bytes = null,
+      _bytesFileName = null;
+  _ProductImageEntry.file(this.file)
+    : url = null,
+      _bytes = null,
+      _bytesFileName = null;
+  _ProductImageEntry.scraped(ScrapedProductImage image)
+    : url = null,
+      file = null,
+      _bytes = image.bytes,
+      _bytesFileName = image.fileName;
+
+  /// Henüz storage'a yüklenmemiş (dosya ya da linkten gelen bayt) mi?
+  bool get needsUpload => url == null;
+
+  Future<Uint8List> readBytes() =>
+      _bytes != null ? Future.value(_bytes) : file!.readAsBytes();
+
+  /// Küçük harfli dosya uzantısı (noktasız).
+  String get extension =>
+      (_bytesFileName ?? file!.name).split('.').last.toLowerCase();
+}
 
 class ManageProductScreen extends StatefulWidget {
   final Product? product;
@@ -39,6 +82,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   final _productService = ProductService();
   final _categoryService = CategoryService();
   final _smmService = SmmService();
+  final _analyticsService = ShopAnalyticsService();
+
+  // Salt-okunur görüntülenme/beğeni özeti (yalnızca düzenleme modunda).
+  int? _viewCount;
+  int? _favoriteCount;
 
   // Komisyon oranı
   double _commissionRate = 10.0;
@@ -59,9 +107,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   List<String> _sellerCategories = []; // Satıcının kendi kategorileri
   String? _selectedCategory;
 
-  // Çoklu görsel desteği
-  List<String> _imageUrls = [];
-  List<XFile> _selectedImages = [];
+  // Çoklu görsel desteği — bkz. _ProductImageEntry
+  final List<_ProductImageEntry> _images = [];
   final int _maxImages = 5;
   bool _hasDiscount = false;
   bool _hasBuy2Get1BalanceCampaign = false;
@@ -125,6 +172,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   // doldurmak ve satıcının aralık dışına çıkmasını engellemek için tutulur.
   int? _serviceLimitMin;
   int? _serviceLimitMax;
+  // Satıcı bir hizmeti LİSTEDEN SEÇTİĞİNDE sağlayıcının o anki fiyatı/adı. Kayıttan sonra
+  // sunucudaki karşılaştırma tabanına yazılır; sağlayıcıda fiyat/servis değişirse
+  // smm-sync-products ürünü otomatik "tükendi" yapar.
+  double? _pickedProviderRate;
+  String? _pickedProviderServiceName;
   bool _isPointsEligible = false;
 
   // Renk picker için global key
@@ -152,10 +204,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
     // Mevcut görselleri yükle
     if (widget.product?.imageUrl != null) {
-      _imageUrls.add(widget.product!.imageUrl!);
+      _images.add(_ProductImageEntry.url(widget.product!.imageUrl!));
     }
     if (widget.product?.additionalImages != null) {
-      _imageUrls.addAll(widget.product!.additionalImages);
+      _images.addAll(
+        widget.product!.additionalImages.map(_ProductImageEntry.url),
+      );
     }
 
     _hasDiscount = widget.product?.hasDiscount ?? false;
@@ -199,6 +253,16 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _loadCategories();
     _loadCommissionRate();
     _loadSmmProviders();
+    if (widget.product != null) _loadProductStats();
+  }
+
+  Future<void> _loadProductStats() async {
+    final stats = await _analyticsService.getSingleProductStats(widget.product!.id);
+    if (!mounted) return;
+    setState(() {
+      _viewCount = stats['view_count'];
+      _favoriteCount = stats['favorite_count'];
+    });
   }
 
   /// Mağaza komisyon oranını yükle
@@ -294,6 +358,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _smmServiceIdController.text = service.service;
       _serviceLimitMin = service.min;
       _serviceLimitMax = service.max;
+      _pickedProviderRate = service.rate;
+      _pickedProviderServiceName = service.name;
       if (service.rate != null)
         _pricePer1000Controller.text = service.rate.toString();
       if (service.min != null)
@@ -416,7 +482,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   }
 
   Future<void> _pickImages() async {
-    if (_selectedImages.length + _imageUrls.length >= _maxImages) {
+    if (_images.length >= _maxImages) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('En fazla $_maxImages resim ekleyebilirsiniz')),
       );
@@ -451,12 +517,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       }
 
       if (pickedFiles.isNotEmpty && mounted) {
-        final remainingSlots =
-            _maxImages - (_selectedImages.length + _imageUrls.length);
+        final remainingSlots = _maxImages - _images.length;
         final filesToAdd = pickedFiles.take(remainingSlots).toList();
 
         setState(() {
-          _selectedImages.addAll(filesToAdd);
+          _images.addAll(filesToAdd.map(_ProductImageEntry.file));
         });
 
         if (pickedFiles.length > remainingSlots) {
@@ -478,28 +543,71 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
   }
 
-  void _removeImage(int index, {bool isUrl = false}) {
+  Future<void> _pickFromLibrary() async {
+    if (_images.length >= _maxImages) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('En fazla $_maxImages resim ekleyebilirsiniz')),
+      );
+      return;
+    }
+
+    final preset = await showModalBottomSheet<ProductImagePreset>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => const _ImagePresetPickerSheet(),
+    );
+
+    if (preset != null && mounted) {
+      setState(() {
+        _images.add(_ProductImageEntry.url(preset.imageUrl));
+      });
+    }
+  }
+
+  Future<void> _addFromLink() async {
+    if (_images.length >= _maxImages) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('En fazla $_maxImages resim ekleyebilirsiniz')),
+      );
+      return;
+    }
+
+    final scraped = await showProductImageLinkSheet(context);
+    if (scraped != null && mounted) {
+      setState(() {
+        _images.add(_ProductImageEntry.scraped(scraped));
+      });
+    }
+  }
+
+  void _removeImage(int index) {
     setState(() {
-      if (isUrl) {
-        _imageUrls.removeAt(index);
-      } else {
-        _selectedImages.removeAt(index);
-      }
+      _images.removeAt(index);
     });
   }
 
   Future<List<String>> _uploadImages(String shopId) async {
-    final uploadedUrls = List<String>.from(_imageUrls);
-
-    if (_selectedImages.isEmpty) return uploadedUrls;
+    // Yüklenecek dosya yoksa (hepsi zaten URL) upload state'ine hiç girme.
+    if (_images.every((entry) => !entry.needsUpload)) {
+      return _images.map((entry) => entry.url!).toList();
+    }
 
     setState(() => _isUploadingImage = true);
 
+    final uploadedUrls = <String>[];
     try {
-      for (final image in _selectedImages) {
+      for (final entry in _images) {
+        if (entry.url != null) {
+          uploadedUrls.add(entry.url!);
+          continue;
+        }
+
         // Web ve mobile için ortak yaklaşım: XFile'dan byte array al
-        final imageBytes = await image.readAsBytes();
-        final fileExt = image.name.split('.').last.toLowerCase();
+        final imageBytes = await entry.readBytes();
+        final fileExt = entry.extension;
         final fileName =
             'product_${DateTime.now().millisecondsSinceEpoch}_${uploadedUrls.length}.$fileExt';
         final filePath = 'shops/$shopId/$fileName';
@@ -557,7 +665,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     // Görsel kontrolü
-    if (_selectedImages.isEmpty && _imageUrls.isEmpty) {
+    if (_images.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('En az bir ürün resmi eklemelisiniz')),
       );
@@ -757,7 +865,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       final colorsJson = _colors.map((c) => c.toJson()).toList();
 
       if (widget.product == null) {
-        await _productService.addProduct(
+        final created = await _productService.addProduct(
           shopId: shopId,
           name: _nameController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -792,6 +900,14 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           minOrderQuantity: minOrderQty,
           maxOrderQuantity: maxOrderQty,
         );
+
+        if (_productType == 'digital') {
+          await _productService.setSmmBaseline(
+            productId: created.id,
+            providerRate: _pickedProviderRate,
+            serviceName: _pickedProviderServiceName,
+          );
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -847,6 +963,14 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               _bulkDiscountPrice == null || _bulkDiscountPrice! >= price,
         );
 
+        if (_productType == 'digital') {
+          await _productService.setSmmBaseline(
+            productId: widget.product!.id,
+            providerRate: _pickedProviderRate,
+            serviceName: _pickedProviderServiceName,
+          );
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -881,7 +1005,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(isEditing ? 'Ürünü Düzenle' : 'Yeni Ürün Ekle'),
-        backgroundColor: Colors.orange.shade700,
         actions: [
           if (isEditing)
             IconButton(
@@ -898,6 +1021,18 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (isEditing && _viewCount != null && _favoriteCount != null) ...[
+                    SellerSectionCard(
+                      title: 'Ürün İstatistikleri',
+                      icon: Icons.insights_outlined,
+                      child: SellerProductStatsChips(
+                        viewCount: _viewCount!,
+                        favoriteCount: _favoriteCount!,
+                        rating: widget.product!.rating,
+                        totalReviews: widget.product!.totalReviews,
+                      ),
+                    ),
+                  ],
                   _buildImagePicker(),
                   const SizedBox(height: 24),
                   _buildBasicInfoSection(),
@@ -916,7 +1051,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   }
 
   Widget _buildImagePicker() {
-    final totalImages = _imageUrls.length + _selectedImages.length;
+    final totalImages = _images.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -949,23 +1084,23 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             ),
             itemCount: totalImages,
             itemBuilder: (context, index) {
-              final isUrl = index < _imageUrls.length;
+              final entry = _images[index];
 
               return Stack(
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: isUrl
+                    child: entry.url != null
                         ? CachedNetworkImage(
-                            imageUrl: _imageUrls[index],
+                            memCacheWidth: 800,
+                            imageUrl: entry.url!,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: double.infinity,
                             errorWidget: (_, __, ___) => _buildPlaceholder(),
                           )
                         : FutureBuilder<Uint8List>(
-                            future: _selectedImages[index - _imageUrls.length]
-                                .readAsBytes(),
+                            future: entry.readBytes(),
                             builder: (context, snapshot) {
                               if (snapshot.hasData) {
                                 return Image.memory(
@@ -984,10 +1119,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     top: 4,
                     right: 4,
                     child: InkWell(
-                      onTap: () => _removeImage(
-                        isUrl ? index : index - _imageUrls.length,
-                        isUrl: isUrl,
-                      ),
+                      onTap: () => _removeImage(index),
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(
@@ -1013,7 +1145,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.orange.shade700,
+                          color: Theme.of(context).colorScheme.primary,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
@@ -1033,18 +1165,45 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           const SizedBox(height: 8),
         ],
 
-        // Resim ekle butonu
+        // Resim ekle butonları
         if (totalImages < _maxImages)
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _pickImages,
+                  icon: const Icon(Icons.add_photo_alternate),
+                  label: Text(totalImages == 0 ? 'Resim Ekle' : 'Daha Fazla'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _pickFromLibrary,
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Kütüphaneden Seç'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+        if (totalImages < _maxImages) ...[
+          const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: _isLoading ? null : _pickImages,
-            icon: const Icon(Icons.add_photo_alternate),
-            label: Text(
-              totalImages == 0 ? 'Resim Ekle' : 'Daha Fazla Resim Ekle',
-            ),
+            onPressed: _isLoading ? null : _addFromLink,
+            icon: const Icon(Icons.link_rounded),
+            label: const Text('Linkten Görsel Ekle'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 48),
             ),
           ),
+        ],
 
         const SizedBox(height: 4),
         Text(
@@ -1101,6 +1260,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               // ignore: deprecated_member_use
               value: _sellerCategories.contains(_selectedCategory)
                   ? _selectedCategory
@@ -1209,8 +1369,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                         }
                       });
                     },
-                    selectedColor: Colors.orange.shade200,
-                    checkmarkColor: Colors.orange.shade700,
+                    selectedColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                    checkmarkColor: Theme.of(context).colorScheme.primary,
                   );
                 }).toList(),
               ),
@@ -1241,8 +1401,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                         }
                       });
                     },
-                    selectedColor: Colors.orange.shade200,
-                    checkmarkColor: Colors.orange.shade700,
+                    selectedColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                    checkmarkColor: Theme.of(context).colorScheme.primary,
                   );
                 }).toList(),
               ),
@@ -1251,7 +1411,43 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
             // Dijital ürün (SMM panel) alanları
             if (_productType == 'digital') ...[
+              // Sağlayıcıda fiyat/servis değiştiği için ürün otomatik "tükendi"
+              // yapıldıysa satıcı nedenini burada görür.
+              if (widget.product?.smmDisabledReason != null &&
+                  !(widget.product?.isAvailable ?? true)) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade700),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Bu ürün otomatik olarak satıştan kaldırıldı: '
+                          '${widget.product!.smmDisabledReason}.\n'
+                          'Sağlayıcıdaki yeni durumu kabul ediyorsanız hizmeti '
+                          'aşağıdan yeniden seçip fiyatınızı güncelleyin, sonra '
+                          'ürünü tekrar satışa açın.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 // ignore: deprecated_member_use
                 value: _smmProviders.any((p) => p.id == _selectedSmmProviderId)
                     ? _selectedSmmProviderId
@@ -1306,6 +1502,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               if (_smmProviderServices.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  // isExpanded ŞART: sağlayıcı hizmet adları çok uzun olur;
+                  // olmadan `ellipsis` etkisiz kalıp satır binlerce piksel
+                  // taşıyordu (RenderFlex overflowed by 1511 pixels).
+                  isExpanded: true,
                   // ignore: deprecated_member_use
                   value: _selectedSmmServiceKey,
                   decoration: const InputDecoration(
@@ -1592,7 +1792,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   Navigator.pop(context);
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                 ),
                 child: const Text('Ekle'),
               ),
@@ -1709,8 +1909,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               title: const Text('İndirim Var'),
               value: _hasDiscount,
               onChanged: (value) => setState(() => _hasDiscount = value),
-              activeTrackColor: Colors.orange.shade200,
-              activeThumbColor: Colors.orange.shade700,
+              activeTrackColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+              activeThumbColor: Theme.of(context).colorScheme.primary,
             ),
             if (_hasDiscount) ...[
               const SizedBox(height: 16),
@@ -2195,7 +2395,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     return ElevatedButton(
       onPressed: _isLoading || _isUploadingImage ? null : _saveProduct,
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.orange.shade700,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 16),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -2324,7 +2524,7 @@ class _ColorPickerWidgetState extends State<_ColorPickerWidget> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isSelected
-                        ? Colors.orange.shade700
+                        ? Theme.of(context).colorScheme.primary
                         : Colors.grey.shade300,
                     width: isSelected ? 3 : 1,
                   ),
@@ -2377,6 +2577,164 @@ class _ColorPickerWidgetState extends State<_ColorPickerWidget> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Satıcının ürün eklerken admin kütüphanesinden hazır görsel arayıp
+/// seçebildiği bottom sheet. Seçim `Navigator.pop(context, preset)` ile
+/// döner; kapatılırsa (seçim yapılmadan) null döner.
+class _ImagePresetPickerSheet extends StatefulWidget {
+  const _ImagePresetPickerSheet();
+
+  @override
+  State<_ImagePresetPickerSheet> createState() =>
+      _ImagePresetPickerSheetState();
+}
+
+class _ImagePresetPickerSheetState extends State<_ImagePresetPickerSheet> {
+  final _presetService = ProductImagePresetService();
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  List<ProductImagePreset> _presets = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPresets();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPresets() async {
+    setState(() => _isLoading = true);
+    try {
+      final query = _searchController.text.trim();
+      final results = query.isEmpty
+          ? await _presetService.getPresets()
+          : await _presetService.searchPresets(query);
+      if (mounted) setState(() => _presets = results);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), _loadPresets);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.75,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text(
+              'Görsel Kütüphanesi',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Admin tarafından eklenen hazır ürün görsellerinden seçin.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText: 'Ürün adı ile ara (örn. domates)',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _presets.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Görsel bulunamadı',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    )
+                  : GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                            childAspectRatio: 0.85,
+                          ),
+                      itemCount: _presets.length,
+                      itemBuilder: (context, index) {
+                        final preset = _presets[index];
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => Navigator.pop(context, preset),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: CachedNetworkImage(
+                                    memCacheWidth: 800,
+                                    imageUrl: preset.imageUrl,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    errorWidget: (_, __, ___) => Container(
+                                      color: Colors.grey.shade300,
+                                      child: const Icon(Icons.image),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                preset.name,
+                                style: const TextStyle(fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

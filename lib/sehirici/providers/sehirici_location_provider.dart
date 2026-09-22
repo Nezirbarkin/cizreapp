@@ -5,7 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import '../models/sehirici_models.dart';
 import '../services/sehirici_route_service.dart';
 
-/// Şöför konum takibi provider'ı
+/// Şoför konum takibi provider'ı
 class SehiriciLocationProvider extends ChangeNotifier {
   final SehiriciRouteService _routeService = SehiriciRouteService();
 

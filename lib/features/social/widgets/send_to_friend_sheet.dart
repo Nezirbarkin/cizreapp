@@ -55,7 +55,7 @@ Future<void> sendPostToFriend(BuildContext context, Post post) async {
             ),
             ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(sheetContext).size.height * 0.5,
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.5,
               ),
               child: ListView.builder(
                 shrinkWrap: true,

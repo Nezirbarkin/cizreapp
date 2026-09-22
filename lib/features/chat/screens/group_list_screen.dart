@@ -146,7 +146,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
           // Sağ alt köşede FAB benzeri butonlar (bottom navigation bar ile çakışmayı önle)
           Positioned(
             right: 16,
-            bottom: MediaQuery.of(context).padding.bottom + 80, // bottom bar + margin
+            bottom: MediaQuery.paddingOf(context).bottom + 80, // bottom bar + margin
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

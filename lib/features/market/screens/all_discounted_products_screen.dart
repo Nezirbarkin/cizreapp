@@ -307,7 +307,7 @@ class _AllDiscountedProductsScreenState
           : GridView.builder(
               padding: const EdgeInsets.all(16),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+                crossAxisCount: MediaQuery.sizeOf(context).width > 600 ? 4 : 3,
                 childAspectRatio: 0.68,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,

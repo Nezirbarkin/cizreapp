@@ -312,7 +312,7 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> with SingleTi
           left: 16,
           right: 16,
           top: 16,
-          bottom: 16 + MediaQuery.of(context).padding.bottom + 20, // Alt bar için padding
+          bottom: 16 + MediaQuery.paddingOf(context).bottom + 20, // Alt bar için padding
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1000,7 +1000,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
               left: 16,
               right: 16,
               top: 12,
-              bottom: 12 + MediaQuery.of(context).padding.bottom,
+              bottom: 12 + MediaQuery.paddingOf(context).bottom,
             ),
             decoration: BoxDecoration(
               color: Colors.white,

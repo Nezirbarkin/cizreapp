@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cizreapp/features/profile/models/character_avatar_recipes.dart';
 import 'package:cizreapp/features/profile/widgets/avatar_picker_sheet.dart';
 
 /// Hazır avatar seçici: üç sekme (Kız & Erkek / Hareketli / Klasik) listelenmeli,
@@ -46,8 +47,8 @@ void main() {
   }
 
   test('avatar listeleri: beklenen sayı, benzersiz yol, doğru klasör', () {
-    expect(kCharacterAvatars.length, 49);
-    expect(kAnimatedAvatars.length, 55);
+    expect(kCharacterAvatars.length, 100);
+    expect(kAnimatedAvatars.length, 79);
     expect(kPresetAvatars.length, 20);
 
     expect(
@@ -185,7 +186,32 @@ void main() {
     tester,
   ) async {
     await openPicker(tester, selected: kAnimatedAvatars.first);
-    expect(assetImage(kAnimatedAvatars.first), findsOneWidget);
+    // "Şık" avatarlar sekmede öne alınır; ilk görünen onlardan biridir.
+    expect(assetImage(kAnimatedAvatars[kElegantAnimatedFirst - 1]), findsOneWidget);
     expect(assetImage(kPresetAvatars.first), findsNothing);
+    expect(assetImage(kCharacterAvatars.first), findsNothing);
+  });
+
+  testWidgets('kız & erkek sekmesi cinsiyete göre süzülür', (tester) async {
+    await openPicker(tester);
+
+    // İlk karakter erkek, 13. karakter kadın (bkz. character_avatar_recipes).
+    expect(isFemaleCharacter(0), isFalse);
+    expect(isFemaleCharacter(12), isTrue);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Kadın'));
+    await tester.pumpAndSettle();
+    expect(assetImage(kCharacterAvatars[0]), findsNothing, reason: 'erkek gizlenmeli');
+    expect(assetImage(kCharacterAvatars[12]), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Erkek'));
+    await tester.pumpAndSettle();
+    expect(assetImage(kCharacterAvatars[0]), findsOneWidget);
+    expect(assetImage(kCharacterAvatars[12]), findsNothing);
+
+    // Süzülen listelerin toplamı tüm listeyi verir (50 + 50).
+    final females = [for (var i = 0; i < kCharacterAvatars.length; i++) isFemaleCharacter(i)];
+    expect(females.where((f) => f).length, 50);
+    expect(females.where((f) => !f).length, 50);
   });
 }

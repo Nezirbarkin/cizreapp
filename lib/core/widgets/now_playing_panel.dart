@@ -80,6 +80,12 @@ class NowPlayingPanel extends StatefulWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
 
+  /// Çalan şarkı kullanıcının kendi cihazından mı? Öyleyse adın önünde küçük
+  /// bir telefon simgesi görünür — kart artık hem sunucu listesini hem
+  /// kullanıcının kitaplığını çalıyor ve ikisini ayırt etmek bilgi değeri
+  /// taşıyor ("bu benim şarkım").
+  final bool fromDevice;
+
   const NowPlayingPanel({
     super.key,
     required this.trackName,
@@ -89,6 +95,7 @@ class NowPlayingPanel extends StatefulWidget {
     required this.onNext,
     this.showTrackNav = false,
     this.progress,
+    this.fromDevice = false,
   });
 
   @override
@@ -203,16 +210,31 @@ class _NowPlayingPanelState extends State<NowPlayingPanel>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _MarqueeText(
-                  text: widget.trackName,
-                  animate: widget.playing,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12.5,
-                    height: 1.15,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.1,
-                  ),
+                Row(
+                  children: [
+                    if (widget.fromDevice) ...[
+                      Icon(
+                        Icons.smartphone_rounded,
+                        size: 12,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        semanticLabel: 'Cihazından',
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Expanded(
+                      child: _MarqueeText(
+                        text: widget.trackName,
+                        animate: widget.playing,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          height: 1.15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 _ProgressLine(

@@ -116,11 +116,16 @@ class _SuspiciousUsersContentState extends State<SuspiciousUsersContent> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              const Text(
-                'Şüpheli Kullanıcılar',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              // Expanded: başlık + buton + yenile sabit genişlikte dar
+              // ekranda sağdan taşıyordu (RenderFlex overflow, 20px).
+              const Expanded(
+                child: Text(
+                  'Şüpheli Kullanıcılar',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               ),
-              const Spacer(),
               ElevatedButton.icon(
                 onPressed: _flagUserDialog,
                 icon: const Icon(Icons.flag),

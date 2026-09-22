@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Modern / gercekci bitmoji tarzi kiz-erkek profil avatarlari (256x256 PNG).
+"""[ESKI - KULLANIMDAN KALDIRILDI] Bitmoji tarzi kiz-erkek avatarlari (256x256).
+
+DIKKAT: assets/avatars_characters/ artik BU BETIKLE URETILMIYOR. Yeni set, yuzunden
+avatar olusturan gercekci Flutter cizim motoruyla uretilir:
+
+    lib/features/profile/models/character_avatar_recipes.dart   (100 tarif)
+    test/tools/generate_character_avatars_test.dart              (PNG uretir)
+    scripts/finalize_character_avatars.py                        (kucultur/paketler)
+
+Bu dosya yalnizca tarihce icin duruyor; calistirmak yeni PNG'lerin UZERINE eski
+bitmoji gorselleri yazar, bu yuzden `--eski-seti-uret` verilmedikce cikar.
+
+--- eski aciklama ---
+Modern / gercekci bitmoji tarzi kiz-erkek profil avatarlari (256x256 PNG).
 
 Kullanim:
     python scripts/generate_character_avatars.py
@@ -1188,6 +1201,10 @@ def render(character, index):
 
 
 def main():
+    import sys
+    if "--eski-seti-uret" not in sys.argv:
+        sys.exit("Bu betik eski (bitmoji) seti uretir ve yeni gercekci seti EZER. "
+                 "Yeni set icin dosyanin basindaki notu okuyun.")
     os.makedirs(OUT_DIR, exist_ok=True)
     total = 0
     for i, character in enumerate(CHARACTERS, start=1):

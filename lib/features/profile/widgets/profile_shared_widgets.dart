@@ -96,6 +96,9 @@ class ProfileIdentityHeader extends StatelessWidget {
   final VoidCallback onFriendsTap;
   final Widget? website;
   final Widget? statusBadge;
+
+  /// Adın altındaki "çevrimiçi" / "son görülme …" satırı (yoksa null).
+  final Widget? presenceLine;
   final bool showHero;
 
   const ProfileIdentityHeader({
@@ -116,6 +119,7 @@ class ProfileIdentityHeader extends StatelessWidget {
     required this.onFriendsTap,
     this.website,
     this.statusBadge,
+    this.presenceLine,
     this.showHero = false,
   });
 
@@ -288,6 +292,10 @@ class ProfileIdentityHeader extends StatelessWidget {
                     ],
                   ],
                 ),
+                if (presenceLine != null) ...[
+                  const SizedBox(height: 4),
+                  presenceLine!,
+                ],
                 if (bio != null && bio!.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(

@@ -253,6 +253,25 @@ class FaceAvatarAnalyzer {
         archRatio: iod > 0 ? browArch / iod : 0,
       );
 
+      // ------------------------------------------------- burun ve dudak
+      var noseIndex = 0;
+      if (metrics.noseWidth > 1.10) {
+        noseIndex = _indexOfLabel(kNoseStyles.map((e) => e.label).toList(), 'Geniş');
+      } else if (metrics.noseWidth < 0.90) {
+        noseIndex = _indexOfLabel(kNoseStyles.map((e) => e.label).toList(), 'İnce');
+      }
+      var lipIndex = 0;
+      final lipLabels = kLipStyles.map((e) => e.label).toList();
+      if (metrics.smile > 0.7) {
+        lipIndex = _indexOfLabel(lipLabels, 'Gülümseyen');
+      } else if (metrics.lipFullness > 1.14) {
+        lipIndex = _indexOfLabel(lipLabels, 'Dolgun');
+      } else if (metrics.lipFullness < 0.86) {
+        lipIndex = _indexOfLabel(lipLabels, 'İnce');
+      } else if (metrics.mouthWidth > 1.10) {
+        lipIndex = _indexOfLabel(lipLabels, 'Geniş');
+      }
+
       // --------------------------------------------------------- renkler
       var skinTone = FaceAvatarConfig.defaultConfig.skinTone;
       var eyeColor = kEyeColors[1];
@@ -291,7 +310,7 @@ class FaceAvatarAnalyzer {
             sampleAt(box.center.dx + box.width * 0.26, topY + box.height * 0.05, radius: 5),
           ];
           samples.sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
-          hairColor = nearest(samples.first, kHairColors);
+          hairColor = nearest(samples.first, kHairColors.take(kNaturalHairColorCount).toList());
         }
 
         // Kulak hizasının dışında saç var mı? (uzunluk tespiti)
@@ -354,6 +373,8 @@ class FaceAvatarAnalyzer {
         eye: eyeIndex,
         eyeColor: eyeColor,
         lash: 1,
+        nose: noseIndex,
+        lips: lipIndex,
         beard: beardIndex,
         glasses: 0,
         clothingColor: kClothingColors.first,
@@ -386,9 +407,11 @@ class FaceAvatarAnalyzer {
     const avgForehead = 0.93;
     const avgLength = 1.50;
 
-    double specJaw(FaceShapeSpec s) => (37 * s.jaw) / (45 * s.cheek);
-    double specForehead(FaceShapeSpec s) => (41.5 * s.forehead) / (45 * s.cheek);
-    double specLength(FaceShapeSpec s) => (50 * s.chin - 1) / (45 * s.cheek);
+    double specJaw(FaceShapeSpec s) => (kFaceBaseJawHalf * s.jaw) / (kFaceBaseCheekHalf * s.cheek);
+    double specForehead(FaceShapeSpec s) =>
+        (kFaceBaseForeheadHalf * s.forehead) / (kFaceBaseCheekHalf * s.cheek);
+    double specLength(FaceShapeSpec s) =>
+        (kFaceBaseChinLength * s.chin - 1) / (kFaceBaseCheekHalf * s.cheek);
 
     final oval = kFaceShapes.first;
     final refJaw = specJaw(oval);
@@ -473,6 +496,11 @@ class FaceAvatarAnalyzer {
 
   static int _indexOfEye(String label) {
     final i = kEyeStyles.indexWhere((s) => s.label == label);
+    return i < 0 ? 0 : i;
+  }
+
+  static int _indexOfLabel(List<String> labels, String label) {
+    final i = labels.indexOf(label);
     return i < 0 ? 0 : i;
   }
 

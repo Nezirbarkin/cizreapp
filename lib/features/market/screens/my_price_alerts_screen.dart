@@ -166,6 +166,7 @@ class _MyPriceAlertsScreenState extends State<MyPriceAlertsScreen> {
                   height: 72,
                   child: alert.productImageUrl != null
                       ? CachedNetworkImage(
+                          memCacheWidth: 240,
                           imageUrl: alert.productImageUrl!,
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => Container(

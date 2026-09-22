@@ -491,6 +491,7 @@ class _MyCouponsScreenState extends State<MyCouponsScreen> {
           borderRadius: BorderRadius.circular(10),
           child: coupon.shopLogo != null && coupon.shopLogo!.isNotEmpty
               ? CachedNetworkImage(
+                  memCacheWidth: 150,
                   imageUrl: coupon.shopLogo!,
                   width: 34,
                   height: 34,

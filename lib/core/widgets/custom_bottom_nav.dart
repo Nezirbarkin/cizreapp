@@ -16,7 +16,7 @@ class CustomBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -81,7 +81,7 @@ class CustomBottomNav extends StatelessWidget {
           
           // Ortadaki yükseltilmiş sepet butonu
           Positioned(
-            left: MediaQuery.of(context).size.width / 2 - 32,
+            left: MediaQuery.sizeOf(context).width / 2 - 32,
             top: -10,
             child: GestureDetector(
               onTap: () => onTap(2),

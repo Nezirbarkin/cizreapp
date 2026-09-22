@@ -1,3 +1,4 @@
+import '../../features/music/models/attached_music.dart';
 // Yazar rolü enum'u (profiles.role ile uyumlu)
 enum AuthorRole {
   customer,
@@ -78,6 +79,14 @@ class Post {
   // gonderilerde anlamlidir; kimlik lib/core/widgets/text_background.dart
   // paletine bakar. NULL veya taninmayan kimlik = SADE metin gonderisi.
   final String? background;
+
+  /// Gönderiye iliştirilmiş müzik (`posts.music` jsonb kolonu).
+  ///
+  /// Admin `music_attach_enabled` anahtarını kapattığında misafir
+  /// akışı bu alanı null döndürür; üye akışında ise oynatıcı
+  /// [MusicSettingsService] anahtarına bakar. Yani kolonun dolu olması
+  /// tek başına "çalacak" demek değildir.
+  final AttachedMusic? music;
   final String? location;
   final double? latitude;
   final double? longitude;
@@ -105,6 +114,7 @@ class Post {
     this.images = const [],
     this.imageUrl,
     this.background,
+    this.music,
     this.location,
     this.latitude,
     this.longitude,
@@ -131,6 +141,7 @@ class Post {
     List<String>? images,
     String? imageUrl,
     String? background,
+    AttachedMusic? music,
     String? location,
     double? latitude,
     double? longitude,
@@ -156,6 +167,7 @@ class Post {
       images: images ?? this.images,
       imageUrl: imageUrl ?? this.imageUrl,
       background: background ?? this.background,
+      music: music ?? this.music,
       location: location ?? this.location,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
@@ -184,6 +196,7 @@ class Post {
       'images': images,
       if (imageUrl != null) 'image_url': imageUrl,
       if (background != null) 'background': background,
+      if (music != null) 'music': music!.toJson(),
       'location': location,
       'latitude': latitude,
       'longitude': longitude,
@@ -258,6 +271,7 @@ class Post {
       // Gorselli gonderide arka plan cizilmez; DB'de eski bir deger kalmis
       // olsa bile burada dusurulur ki feed/izgara tutarli olsun.
       background: images.isEmpty ? json['background'] as String? : null,
+      music: AttachedMusic.fromJson(json['music']),
       location: json['location'] as String?,
       latitude: json['latitude'] != null ? (json['latitude'] as num).toDouble() : null,
       longitude: json['longitude'] != null ? (json['longitude'] as num).toDouble() : null,
@@ -381,6 +395,13 @@ class Story {
 
   /// Metin hikayesinin yazisi (DB: stories.text_content).
   final String? textContent;
+
+  /// Hikayeye iliştirilmiş müzik (`stories.music` jsonb kolonu).
+  ///
+  /// Gönderideki rozetin aksine hikayede müzik OTOMATİK çalar: hikaye zaten
+  /// tam ekran ve süreli bir deneyim, kullanıcı ayrıca bir düğmeye basmayı
+  /// beklemez. Sesli videolarda çalmaz (bkz. StoryViewerScreen).
+  final AttachedMusic? music;
   final int viewsCount;
   final int likesCount;
   final DateTime createdAt;
@@ -405,6 +426,7 @@ class Story {
     this.mediaType = 'image',
     this.background,
     this.textContent,
+    this.music,
     this.viewsCount = 0,
     this.likesCount = 0,
     required this.createdAt,
@@ -437,6 +459,7 @@ class Story {
     String? mediaType,
     String? background,
     String? textContent,
+    AttachedMusic? music,
     int? viewsCount,
     int? likesCount,
     DateTime? createdAt,
@@ -460,6 +483,7 @@ class Story {
       mediaType: mediaType ?? this.mediaType,
       background: background ?? this.background,
       textContent: textContent ?? this.textContent,
+      music: music ?? this.music,
       viewsCount: viewsCount ?? this.viewsCount,
       likesCount: likesCount ?? this.likesCount,
       createdAt: createdAt ?? this.createdAt,
@@ -486,6 +510,7 @@ class Story {
       'media_type': mediaType,
       if (background != null) 'background': background,
       if (textContent != null) 'text_content': textContent,
+      if (music != null) 'music': music!.toJson(),
       'views_count': viewsCount,
       'likes_count': likesCount,
       'created_at': createdAt.toIso8601String(),
@@ -507,6 +532,7 @@ class Story {
       mediaType: json['media_type'] as String? ?? 'image',
       background: json['background'] as String?,
       textContent: json['text_content'] as String?,
+      music: AttachedMusic.fromJson(json['music']),
       viewsCount: json['views_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
       createdAt: DateTime.parse(json['created_at'] as String),

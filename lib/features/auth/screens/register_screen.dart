@@ -333,8 +333,8 @@ class _RegisterScreenState extends State<RegisterScreen>
       100,
       (index) => ConfettiParticle(
         position: Offset(
-          MediaQuery.of(context).size.width / 2,
-          MediaQuery.of(context).size.height / 2,
+          MediaQuery.sizeOf(context).width / 2,
+          MediaQuery.sizeOf(context).height / 2,
         ),
         velocity: Offset(
           (math.Random().nextDouble() - 0.5) * 20,
@@ -477,8 +477,8 @@ class _RegisterScreenState extends State<RegisterScreen>
     return AnimatedBuilder(
       animation: _floatingAnimation,
       builder: (context, _) {
-        final screenHeight = MediaQuery.of(context).size.height;
-        final screenWidth = MediaQuery.of(context).size.width;
+        final screenHeight = MediaQuery.sizeOf(context).height;
+        final screenWidth = MediaQuery.sizeOf(context).width;
         
         final yOffset = math.sin(
           _floatingAnimation.value * 2 * math.pi * shape.speed,
@@ -1112,7 +1112,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         hintStyle: TextStyle(
           color: Colors.white.withOpacity(0.4),
         ),
-        helperText: 'Kullanıcı adınız (değiştirilemez)',
+        helperText: 'Kullanıcı adınız',
         helperStyle: TextStyle(
           color: Colors.white.withOpacity(0.6),
           fontSize: 12,

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/sehirici_models.dart';
 import '../utils/sehirici_route_geometry.dart';
+import 'sehirici_errors.dart';
 
 /// Hatlar ve duraklar servisi.
 class SehiriciLineService {
@@ -86,25 +87,95 @@ class SehiriciLineService {
   // Admin CRUD — Hat
   // ─────────────────────────────────────────────
 
+  /// Şehirdeki TÜM hatlar (pasifler dahil) DURAKLARIYLA birlikte.
+  ///
+  /// Eskiden duraklar hiç çekilmiyordu (`'stops': const []`), bu yüzden admin
+  /// hat listesinde her hat "0 durak" görünüyordu ve rotanın güncelliği
+  /// (durak imzası) hesaplanamıyordu.
   Future<List<SehiriciLine>> getAllLinesAdmin(String cityId) async {
     try {
       final response = await _client
           .from('sehirici_lines')
-          .select()
+          .select(
+            '*, sehirici_line_stops(stop_id, stop_order, minutes_from_start, '
+            'distance_km, sehirici_stops(name, lat, lng, code, address))',
+          )
           .eq('city_id', cityId)
-          .order('display_order', ascending: true);
-      return (response as List)
-          .map((e) => SehiriciLine.fromJson({
-                ...e as Map<String, dynamic>,
-                'stops': const [],
-              }))
-          .toList();
+          .order('display_order', ascending: true)
+          .order('code', ascending: true);
+      return (response as List).map((raw) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final nested = row.remove('sehirici_line_stops');
+        final stops = <Map<String, dynamic>>[];
+        if (nested is List) {
+          for (final item in nested) {
+            if (item is! Map) continue;
+            final m = Map<String, dynamic>.from(item);
+            final stop = m['sehirici_stops'] is Map
+                ? Map<String, dynamic>.from(m['sehirici_stops'] as Map)
+                : const <String, dynamic>{};
+            stops.add({
+              'stop_id': m['stop_id'],
+              'stop_order': m['stop_order'],
+              'minutes_from_start': m['minutes_from_start'],
+              'distance_km': m['distance_km'],
+              'name': stop['name'],
+              'lat': stop['lat'],
+              'lng': stop['lng'],
+              'code': stop['code'],
+              'address': stop['address'],
+            });
+          }
+          stops.sort((a, b) => ((a['stop_order'] as num?) ?? 0)
+              .compareTo((b['stop_order'] as num?) ?? 0));
+        }
+        return SehiriciLine.fromJson({...row, 'stops': stops});
+      }).toList();
     } catch (e) {
       debugPrint('getAllLinesAdmin hata: $e');
       return [];
     }
   }
 
+  /// Hattı kaydeder; başarısız olursa nedenini içeren [SehiriciAdminException]
+  /// fırlatır (boş kod, çakışan kod, geçersiz renk/tür…). [vehicleKey] ikon
+  /// kütüphanesindeki anahtardır. [displayOrder] null ise mevcut sıra korunur
+  /// (yeni hat listenin sonuna eklenir).
+  Future<String> saveLine({
+    String? id,
+    required String cityId,
+    required String code,
+    required String name,
+    required String colorHex,
+    required String vehicleKey,
+    int? estimatedMinutes,
+    double fareAmount = 0,
+    bool isActive = true,
+    int? displayOrder,
+  }) async {
+    try {
+      final lineId = id ?? const Uuid().v4();
+      await _client.rpc('admin_upsert_sehirici_line', params: {
+        'p_id': lineId,
+        'p_city_id': cityId,
+        'p_code': code.trim(),
+        'p_name': name.trim(),
+        'p_color_hex': colorHex.trim(),
+        'p_vehicle_type': vehicleKey,
+        'p_estimated_minutes': estimatedMinutes,
+        'p_fare_amount': fareAmount,
+        'p_is_active': isActive,
+        'p_display_order': displayOrder,
+      });
+      clearCache();
+      return lineId;
+    } catch (e) {
+      debugPrint('saveLine hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
+  /// Eski imza: yalnız başarı bilgisi döner. Yeni kod [saveLine] kullanmalı.
   Future<bool> upsertLine({
     String? id,
     required String cityId,
@@ -112,31 +183,43 @@ class SehiriciLineService {
     required String name,
     required String colorHex,
     required SehiriciVehicleType vehicleType,
+    String? vehicleKey,
     int? estimatedMinutes,
     double fareAmount = 0,
     bool isActive = true,
-    int displayOrder = 0,
+    int? displayOrder,
   }) async {
     try {
-      // RLS bypass: admin RPC üzerinden yaz
-      final lineId = id ?? const Uuid().v4();
-      await _client.rpc('admin_upsert_sehirici_line', params: {
-        'p_id': lineId,
+      await saveLine(
+        id: id,
+        cityId: cityId,
+        code: code,
+        name: name,
+        colorHex: colorHex,
+        vehicleKey: vehicleKey ?? vehicleType.name,
+        estimatedMinutes: estimatedMinutes,
+        fareAmount: fareAmount,
+        isActive: isActive,
+        displayOrder: displayOrder,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hatların listedeki sırasını tek çağrıyla kaydeder ([lineIds] görüntüleme
+  /// sırasıdır).
+  Future<void> reorderLines(String cityId, List<String> lineIds) async {
+    try {
+      await _client.rpc('admin_reorder_sehirici_lines', params: {
         'p_city_id': cityId,
-        'p_code': code,
-        'p_name': name,
-        'p_color_hex': colorHex,
-        'p_vehicle_type': vehicleType.name,
-        'p_estimated_minutes': estimatedMinutes,
-        'p_fare_amount': fareAmount,
-        'p_is_active': isActive,
-        'p_display_order': displayOrder,
+        'p_line_ids': lineIds,
       });
       clearCache();
-      return true;
     } catch (e) {
-      debugPrint('upsertLine hata: $e');
-      return false;
+      debugPrint('reorderLines hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
     }
   }
 
@@ -155,12 +238,22 @@ class SehiriciLineService {
 
   Future<bool> deleteLine(String lineId) async {
     try {
-      await _client.from('sehirici_lines').delete().eq('id', lineId);
-      clearCache();
+      await deleteLineOrThrow(lineId);
       return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hattı ve (CASCADE ile) duraklarla bağını siler. Bu hatta atanmış
+  /// şoförlerin ataması boşa düşer (FK: ON DELETE SET NULL).
+  Future<void> deleteLineOrThrow(String lineId) async {
+    try {
+      await _client.rpc('admin_delete_sehirici_line', params: {'p_id': lineId});
+      clearCache();
     } catch (e) {
       debugPrint('deleteLine hata: $e');
-      return false;
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
     }
   }
 
@@ -195,6 +288,41 @@ class SehiriciLineService {
     bool isActive = true,
   }) async {
     try {
+      await saveStop(
+        id: id,
+        cityId: cityId,
+        name: name,
+        code: code,
+        lat: lat,
+        lng: lng,
+        address: address,
+        isActive: isActive,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Durağı kaydeder; başarısız olursa [SehiriciAdminException] fırlatır.
+  /// Kaydedilen durağın id'sini döner.
+  Future<String> saveStop({
+    String? id,
+    required String cityId,
+    required String name,
+    String? code,
+    required double lat,
+    required double lng,
+    String? address,
+    bool isActive = true,
+  }) async {
+    if (name.trim().isEmpty) {
+      throw const SehiriciAdminException('Durak adı boş olamaz.');
+    }
+    if (!lat.isFinite || !lng.isFinite || lat.abs() > 90 || lng.abs() > 180) {
+      throw const SehiriciAdminException('Geçerli bir konum girin.');
+    }
+    try {
       final stopId = id ?? const Uuid().v4();
       await _client.rpc('admin_upsert_sehirici_stop', params: {
         'p_id': stopId,
@@ -210,21 +338,31 @@ class SehiriciLineService {
         'p_address': address,
       });
       clearCache();
-      return true;
+      return stopId;
     } catch (e) {
-      debugPrint('upsertStop hata: $e');
-      return false;
+      debugPrint('saveStop hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
     }
   }
 
   Future<bool> deleteStop(String stopId) async {
     try {
+      await deleteStopOrThrow(stopId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Durağı siler. Bir hatta bağlıysa o hattın durak listesinden de
+  /// (CASCADE ile) çıkar — çağıran bunu kullanıcıya önceden söylemeli.
+  Future<void> deleteStopOrThrow(String stopId) async {
+    try {
       await _client.rpc('admin_delete_sehirici_stop', params: {'p_id': stopId});
       clearCache();
-      return true;
     } catch (e) {
       debugPrint('deleteStop hata: $e');
-      return false;
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
     }
   }
 
@@ -265,27 +403,38 @@ class SehiriciLineService {
     List<Map<String, dynamic>> stops,
   ) async {
     try {
-      // Sil + yeniden ekle (basit ve güvenli)
-      await _client.from('sehirici_line_stops').delete().eq('line_id', lineId);
-      if (stops.isEmpty) {
-        clearCache();
-        return true;
-      }
-      final rows = stops
-          .map((s) => {
-                'line_id': lineId,
-                'stop_id': s['stop_id'],
-                'stop_order': s['stop_order'],
-                'minutes_from_start': s['minutes_from_start'] ?? 0,
-                'distance_km': s['distance_km'] ?? 0,
-              })
-          .toList();
-      await _client.from('sehirici_line_stops').insert(rows);
-      clearCache();
+      await setLineStopsOrThrow(lineId, stops);
       return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hattın duraklarını TEK İŞLEMDE değiştirir (`admin_set_sehirici_line_stops`).
+  ///
+  /// Eskiden "önce hepsini sil, sonra yeniden ekle" diye iki ayrı istek
+  /// atılıyordu; ikincisi başarısız olursa hat DURAKSIZ kalıyordu. Sunucu
+  /// işlevi silme + eklemeyi birlikte yapar: hata olursa eski duraklar korunur.
+  Future<void> setLineStopsOrThrow(
+    String lineId,
+    List<Map<String, dynamic>> stops,
+  ) async {
+    try {
+      await _client.rpc('admin_set_sehirici_line_stops', params: {
+        'p_line_id': lineId,
+        'p_stops': stops
+            .map((s) => {
+                  'stop_id': s['stop_id'],
+                  'stop_order': s['stop_order'],
+                  'minutes_from_start': s['minutes_from_start'] ?? 0,
+                  'distance_km': s['distance_km'] ?? 0,
+                })
+            .toList(),
+      });
+      clearCache();
     } catch (e) {
       debugPrint('setLineStops hata: $e');
-      return false;
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
     }
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/push_notification_service.dart';
+import '../services/user_activity_service.dart';
 
 /// Root navigator'a global erişim.
 ///
@@ -26,6 +27,14 @@ class AppNavigator {
   /// [destination] varsayılan olarak misafir ana ekrandır ('/'). Admin/kurye
   /// panelleri için '/login' kullanılabilir.
   static Future<void> signOutAndReset([String destination = '/']) async {
+    // Çıkış eylemi de signOut'tan ÖNCE yazılmalı (RPC oturum gerektirir);
+    // kısa zaman aşımı çıkışı asla geciktirmesin.
+    try {
+      await UserActivityService.instance
+          .log('logout', category: 'auth', summary: 'Çıkış yaptı')
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
+
     // FCM token mutlaka signOut'tan ÖNCE temizlenmeli (session hâlâ gerekli).
     // Zaman aşımı: ağ/Firebase çağrısı yanıt vermezse bile çıkış akışı
     // asılı kalmadan devam etsin (kullanıcı "çıkış yap"a basınca hiçbir

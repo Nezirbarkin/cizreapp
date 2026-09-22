@@ -36,7 +36,10 @@ class ServerQuoteDisplay extends StatelessWidget {
                     dense: true,
                     leading: it.imageUrl != null
                         ? Image.network(it.imageUrl!,
-                            width: 40, height: 40, fit: BoxFit.cover)
+                            width: 40,
+                            height: 40,
+                            cacheWidth: 120,
+                            fit: BoxFit.cover)
                         : const Icon(Icons.image),
                     title: Text(it.productName,
                         maxLines: 1, overflow: TextOverflow.ellipsis),

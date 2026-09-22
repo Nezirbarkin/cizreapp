@@ -24,6 +24,10 @@ class Shop {
   final String? accountHolder;
   final double rating;
   final int totalReviews;
+  // Gerçek yorum sayısı: shop_reviews trigger'ı (update_shop_rating) bunu
+  // günceller. total_reviews sütunu hiç yazılmadığı için kartlarda/listelerde
+  // bu alan kullanılmalı.
+  final int reviewCount;
   final int totalOrders;
   final bool isVerified;
   final bool isActive;
@@ -74,6 +78,7 @@ class Shop {
     this.accountHolder,
     this.rating = 0.0,
     this.totalReviews = 0,
+    this.reviewCount = 0,
     this.totalOrders = 0,
     this.isVerified = false,
     this.isActive = true,
@@ -88,6 +93,10 @@ class Shop {
     this.isPinned = false,
     this.pickupEnabled = false,
   }) : _isOpenManual = isOpen;
+
+  /// Satıcı dükkanı ayarlardan elle kapattıysa true. Çalışma saatlerinden
+  /// bağımsızdır; "şu saatte açılır" gibi bir vaat bu durumda verilmemeli.
+  bool get isManuallyClosed => !_isOpenManual;
 
   // Türkiye saatine göre (UTC+3) dükkan açık mı hesapla
   bool get isOpen {
@@ -245,6 +254,7 @@ class Shop {
     String? accountHolder,
     double? rating,
     int? totalReviews,
+    int? reviewCount,
     int? totalOrders,
     bool? isVerified,
     bool? isActive,
@@ -285,6 +295,7 @@ class Shop {
       accountHolder: accountHolder ?? this.accountHolder,
       rating: rating ?? this.rating,
       totalReviews: totalReviews ?? this.totalReviews,
+      reviewCount: reviewCount ?? this.reviewCount,
       totalOrders: totalOrders ?? this.totalOrders,
       isVerified: isVerified ?? this.isVerified,
       isActive: isActive ?? this.isActive,
@@ -328,6 +339,7 @@ class Shop {
       'account_holder': accountHolder,
       'rating': rating,
       'total_reviews': totalReviews,
+      'review_count': reviewCount,
       'total_orders': totalOrders,
       'is_verified': isVerified,
       'is_active': isActive,
@@ -397,6 +409,9 @@ class Shop {
       accountHolder: json['account_holder'] as String? ?? json['account_holder_name'] as String?,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       totalReviews: json['total_reviews'] as int? ?? 0,
+      reviewCount: (json['review_count'] as num?)?.toInt() ??
+          (json['total_reviews'] as num?)?.toInt() ??
+          0,
       totalOrders: json['total_orders'] as int? ?? 0,
       isVerified: json['is_verified'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,

@@ -769,9 +769,9 @@ extension on _AdminDashboardScreenState {
   // NOT: Buradaki eski _showSendNotificationDialog (hedef kitle filtresini
   // uygulamayan, doğrudan notifications tablosuna yazan) kaldırıldı —
   // hiçbir buton bu metodu çağırmıyordu (ölü kod) ve zaten doğru/güncel
-  // uygulaması NotificationsContentV2._showSendNotificationDialog'da
-  // (admin_broadcast_notification / admin_send_personal_notification RPC'leri
-  // ile, hedef kitleyi sunucu tarafında uygulayan) mevcut.
+  // uygulaması artık Bildirim Merkezi'nde: NotificationsContentV2 +
+  // AdminNotificationComposerScreen (admin_send_notification RPC'si ile,
+  // hedef kitleyi ve zamanlamayı sunucu tarafında uygulayan).
 
   // --- _buildInvoiceProviderCard ---
   // Aktif e-fatura sağlayıcısını (Nilvera/Paraşüt) ve ortamını (test/canlı)

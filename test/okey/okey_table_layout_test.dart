@@ -5,7 +5,7 @@ import 'package:cizreapp/okey/engine/okey_tile.dart';
 import 'package:cizreapp/okey/models/okey_models.dart';
 import 'package:cizreapp/okey/widgets/okey_action_panel_widget.dart';
 import 'package:cizreapp/okey/widgets/okey_board_grid.dart';
-import 'package:cizreapp/okey/widgets/okey_turn_timer_bar.dart';
+import 'package:cizreapp/okey/widgets/okey_action_dock.dart';
 import 'package:cizreapp/okey/widgets/okey_board_widget.dart';
 import 'package:cizreapp/okey/widgets/okey_drag_payload.dart';
 import 'package:cizreapp/okey/widgets/okey_hud_chrome.dart';
@@ -271,31 +271,6 @@ Widget _table({required bool withError}) {
         style: TextStyle(fontSize: 10, color: Colors.white70),
       ),
     ),
-    turnTimerBar: (c, m) => OkeyTurnTimerBar(
-      secondsLeftListenable: _testSeconds,
-      totalSeconds: 20,
-      isMyTurn: true,
-      height: OkeyTableMetrics.timerBarHeight,
-    ),
-    // KONSOLUN HAMLE SATIRI — gerçek ekrandaki en UZUN metinlerle, çünkü
-    // taşma riski tam olarak orada.
-    actions: (c, m) => const OkeyButtonRow(
-      children: [
-        OkeyActionButton(
-          title: 'SERİ AÇ',
-          icon: Icons.view_week,
-          badge: '103/101',
-          tone: OkeyActionTone.ready,
-        ),
-        OkeyActionButton(title: 'ÇİFT AÇ', icon: Icons.filter_2, badge: '3/5'),
-        OkeyActionButton(title: 'İŞLE', icon: Icons.playlist_add, badge: '4'),
-        OkeyActionButton(
-          title: 'AT — BİTİR',
-          icon: Icons.emoji_events,
-          tone: OkeyActionTone.winning,
-        ),
-      ],
-    ),
     // GERÇEK üretim yerleşimini birebir yansıtır: OkeyGameScreen'in rack
     // builder'ı iki ÇİFT/SERİ DİZ düğmesini ve ortalanmış genişlik sınırını
     // (rackMaxWidth) da içerir. Önceden burada yalnızca OkeyRackBarWidget
@@ -315,14 +290,32 @@ Widget _table({required bool withError}) {
         onMove: (_, _) {},
       ),
     ),
-    // ÇİFT DİZ / SERİ DİZ artık ıstakanın İKİ UCUNDA. Üretimdeki yerleşimin
-    // birebir aynısı kurulur: bu düğmeler kısa ekranlarda bir kez taşmıştı
-    // (RenderFlex overflowed by 6.0 pixels) ve o regresyon ancak GERÇEK
-    // bileşim test edildiğinde yakalanır.
-    rackCapStart: (c, m) =>
-        OkeyDizCapButton.pairs(active: true, onPressed: () {}),
-    rackCapEnd: (c, m) =>
-        OkeyDizCapButton.series(active: false, onPressed: () {}),
+    // SERİ DİZ / ÇİFT DİZ artık ıstakanın SOL ucunda ALT ALTA (düzen v5),
+    // sağ uç ise hamle dock'unun. Üretimdeki yerleşimin birebir aynısı
+    // kurulur: bu düğmeler kısa ekranlarda bir kez taşmıştı (RenderFlex
+    // overflowed by 6.0 pixels) ve yarı yüksekliğe inmeleri o riski
+    // artırdı — bileşim GERÇEK hâliyle test edilmeli.
+    rackCapStart: (c, m) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: OkeyDizCapButton.series(active: false, onPressed: () {}),
+        ),
+        const SizedBox(height: OkeyTableMetrics.rackCapGap),
+        Expanded(child: OkeyDizCapButton.pairs(active: true, onPressed: () {})),
+      ],
+    ),
+    // HAMLE DOCK'U — gerçek ekrandaki en UZUN etiketlerle, çünkü taşma riski
+    // tam olarak orada: dar bir sütunda "AT — BİTİR" ve "103/101".
+    actionDock: (c, m) => const OkeyActionDock(
+      drawPhase: false,
+      canOpen: true,
+      openBadge: '103/101',
+      canProcess: true,
+      autoProcessCount: 4,
+      canDiscard: true,
+      isWinningDiscard: true,
+    ),
   );
 }
 
@@ -490,29 +483,55 @@ void main() {
       /// aradaki fark boşluk olarak düğmeyle ıstakanın arasına düşüyordu:
       /// 1280x800'de her yanda 90 pikselden fazla. Artık üçü tek grup olarak
       /// ortalanır ve mesafe hangi ekranda olursak olalım sabittir.
-      testWidgets('$label — DİZ düğmeleri ıstakaya bitişik', (tester) async {
+      // DÜZEN v5: alt şerit artık `[DİZ başlığı] [ıstaka] [hamle dock'u]`.
+      // İki dizme düğmesi SOL başlıkta alt alta durur; sağ uç dock'undur.
+      // Üçü de ıstakaya BİTİŞİK olmalı — aralarına boşluk girdiğinde
+      // "düğme, düzenlediği nesneye yapışıktır" fikri bozulur ve dock
+      // ekranın kenarından kopup havada duran bir panele dönüşür.
+      testWidgets('$label — DİZ başlığı ve dock ıstakaya bitişik', (
+        tester,
+      ) async {
         await _pumpTable(tester, size, withError: false);
 
         final rack = tester.getRect(find.byType(OkeyRackPanel));
         final caps = find.byType(OkeyDizCapButton);
         expect(caps, findsNWidgets(2));
 
-        final left = tester.getRect(caps.at(0));
-        final right = tester.getRect(caps.at(1));
-        // Sol düğme ıstakanın SOLUNDA, sağdaki SAĞINDA durmalı.
-        expect(left.right, lessThanOrEqualTo(rack.left + 0.01));
-        expect(right.left, greaterThanOrEqualTo(rack.right - 0.01));
+        final top = tester.getRect(caps.at(0));
+        final bottom = tester.getRect(caps.at(1));
+        // İKİSİ DE ıstakanın solunda ve ALT ALTA.
+        expect(top.right, lessThanOrEqualTo(rack.left + 0.01));
+        expect(bottom.right, lessThanOrEqualTo(rack.left + 0.01));
+        expect(
+          bottom.top,
+          greaterThanOrEqualTo(top.bottom - 0.01),
+          reason: '$label: dizme düğmeleri üst üste biniyor',
+        );
 
         const tolerance = OkeyTableMetrics.rackCapGap + 0.5;
         expect(
-          rack.left - left.right,
+          rack.left - top.right,
+          lessThanOrEqualTo(tolerance),
+          reason: '$label: SERİ DİZ ıstakadan uzak',
+        );
+        expect(
+          rack.left - bottom.right,
           lessThanOrEqualTo(tolerance),
           reason: '$label: ÇİFT DİZ ıstakadan uzak',
         );
+
+        final dock = tester.getRect(find.byType(OkeyActionDock));
+        expect(dock.left, greaterThanOrEqualTo(rack.right - 0.01));
         expect(
-          right.left - rack.right,
+          dock.left - rack.right,
           lessThanOrEqualTo(tolerance),
-          reason: '$label: SERİ DİZ ıstakadan uzak',
+          reason: '$label: hamle dock ıstakadan uzak',
+        );
+        // Dock ıstakayla AYNI şeritte: masadan dikey yer almaz.
+        expect(
+          dock.height,
+          closeTo(rack.height, 2),
+          reason: '$label: dock ıstaka şeridinin dışına taşıyor',
         );
       });
     });
@@ -561,27 +580,25 @@ void main() {
         reason: 'ıskartam kimlik kartımın solunda kalmış',
       );
 
-      // Iskartam masanın SAĞ kenarında ve aksiyon butonlarına BİTİŞİK
-      // DEĞİL. Aradaki boşluk kozmetik değil, hata önleme: ıskarta bir
-      // bırakma hedefidir; taşı oraya sürüklerken parmak son anda kayarsa,
-      // bitişikteki "ÇİFT AÇ"a basmak eli açma gibi geri alınamaz bir hamleyi
-      // tetikleyebilir.
-      var rightmostButton = double.negativeInfinity;
-      for (
-        var i = 0;
-        i < find.byType(OkeyActionButton).evaluate().length;
-        i++
-      ) {
-        final r = tester.getRect(find.byType(OkeyActionButton).at(i));
-        if (r.right > rightmostButton) rightmostButton = r.right;
-      }
+      // Iskartam ile hamle düğmeleri ARASINDA gerçek bir mesafe olmalı.
+      // Kozmetik değil, hata önleme: ıskarta bir bırakma hedefidir; taşı
+      // oraya sürüklerken parmak son anda kayarsa bitişikteki bir hamle
+      // düğmesine basmak, eli açmak gibi GERİ ALINAMAZ bir sonuç doğurur.
+      //
+      // v4'te ikisi de masanın alt yarısındaydı ve mesafe YATAYDI: aradaki
+      // boşluk 34 px'e ayarlanmış bir paydı. v5'te hamleler ıstakanın
+      // sağındaki dock'a taşındı; artık ayrım YAPISALDIR — ıskarta masanın
+      // orta bandında, dock ise ıstaka şeridinde, yani farklı satırlarda.
+      // Test bu yüzden yatay boşluğu değil, BANTLARIN AYRILIĞINI doğrular:
+      // parmak kayması artık düğmeye değil, boş çuhaya denk gelir.
+      final dockRect = tester.getRect(find.byType(OkeyActionDock));
       expect(
-        discardRect.left - rightmostButton,
-        greaterThan(24),
+        dockRect.top - discardRect.bottom,
+        greaterThan(0),
         reason:
-            'ıskarta ile aksiyon butonları arasında yeterli boşluk yok '
-            '(${(discardRect.left - rightmostButton).toStringAsFixed(1)}px) — '
-            'taş atarken yanlışlıkla butona basılabilir',
+            'ıskartam ile hamle dock aynı bantta — taş atarken '
+            'yanlışlıkla düğmeye basılabilir '
+            '(${(dockRect.top - discardRect.bottom).toStringAsFixed(1)}px)',
       );
 
       // Ve taş ÇEKTİĞİM ıskartanın (solumdaki oyuncunun) sağında.

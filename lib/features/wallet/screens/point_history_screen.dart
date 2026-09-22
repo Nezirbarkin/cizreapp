@@ -16,7 +16,9 @@ class _PointHistoryScreenState extends State<PointHistoryScreen> {
   late Future<List<PointLedgerEntry>> _future = _service.getMyLedger();
 
   Future<void> _refresh() async {
-    setState(() => _future = _service.getMyLedger());
+    setState(() {
+      _future = _service.getMyLedger();
+    });
     await _future;
   }
 

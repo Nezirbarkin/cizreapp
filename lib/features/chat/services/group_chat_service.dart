@@ -5,6 +5,8 @@ import '../../../core/models/group_message_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/utils/app_logger.dart';
 import '../../../core/utils/search_query.dart';
+import '../models/chat_presence.dart';
+import 'user_presence_service.dart';
 
 class GroupChatService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -465,12 +467,15 @@ class GroupChatService {
 
       final list = List<Map<String, dynamic>>.from(response);
 
-      // Her üye için profil bilgisini ayrı sorgula (FK garantili değil)
+      // Her üye için profil bilgisini ayrı sorgula (FK garantili değil).
+      // is_online / last_seen BURADA okunmaz: ham sütunlar hayalet modu, "son
+      // görülmeyi gizle", engel ve yönetici ayarlarını bilmez. Aşağıda sunucunun
+      // kural uyguladığı cevapla doldurulur.
       for (var i = 0; i < list.length; i++) {
         try {
           final profile = await _supabase
               .from('profiles')
-              .select('full_name, username, avatar_url, is_online, last_seen')
+              .select('full_name, username, avatar_url')
               .eq('id', list[i]['user_id'])
               .maybeSingle();
           if (profile != null) {
@@ -479,6 +484,18 @@ class GroupChatService {
         } catch (_) {
           // Profile bulunamazsa boş bırak
         }
+      }
+
+      final presence = await UserPresenceService.instance.fetch(
+        list.map((m) => m['user_id']).whereType<String>(),
+        context: PresenceContext.list,
+      );
+      for (final member in list) {
+        final profile = member['profiles'];
+        if (profile is! Map) continue;
+        final visible = presence[member['user_id']];
+        profile['is_online'] = visible?.online ?? false;
+        profile['last_seen'] = visible?.lastSeen?.toUtc().toIso8601String();
       }
 
       return list

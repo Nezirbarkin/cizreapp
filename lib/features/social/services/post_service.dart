@@ -10,6 +10,7 @@ import '../../../core/services/performance_monitoring_service.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/app_logger.dart';
+import '../../music/models/attached_music.dart';
 
 class PostService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -135,6 +136,7 @@ class PostService {
     double? latitude,
     double? longitude,
     String? background,
+    AttachedMusic? music,
   }) async {
     // Görsel listesini temizle - boş string'leri çıkar
     final cleanImages = images
@@ -150,11 +152,14 @@ class PostService {
         // varsa DB'ye yazılmaz (feed/ızgara tutarlılığı model tarafında da
         // aynı kuralla korunuyor).
         'background': cleanImages.isEmpty ? background : null,
+        // İliştirilmiş müzik. Sunucudaki `music_attach_guard` tetikleyicisi
+        // admin anahtarı kapalıyken bu alanı sessizce düşürür — yani
+        // istemcinin göndermesi tek başına yayınlanacağı anlamına gelmez.
+        if (music != null) 'music': music.toJson(),
         'location': location,
         'latitude': latitude,
         'longitude': longitude,
         'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
       }).select().maybeSingle();
 
       if (response == null) return null;
@@ -196,7 +201,6 @@ class PostService {
       await _supabase.from('post_likes').insert({
         'post_id': postId,
         'user_id': userId,
-        'created_at': DateTime.now().toIso8601String(),
       });
 
       // NOT: Beğeni bildirimi SQL trigger tarafından otomatik gönderiliyor
@@ -318,7 +322,6 @@ class PostService {
             'post_id': postId,
             'user_id': userId,
             'content': trimmed,
-            'created_at': DateTime.now().toIso8601String(),
             if (parentCommentId != null) 'parent_comment_id': parentCommentId,
           })
           .select(
@@ -419,7 +422,6 @@ class PostService {
       await _supabase.from('follows').insert({
         'follower_id': followerId,
         'following_id': followingId,
-        'created_at': DateTime.now().toIso8601String(),
       });
 
       // NOT: Takip bildirimi SQL trigger tarafından otomatik gönderiliyor

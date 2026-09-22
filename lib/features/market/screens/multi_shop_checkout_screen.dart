@@ -1311,6 +1311,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: CachedNetworkImage(
+                          memCacheWidth: 150,
                           imageUrl: item.productImageUrl!,
                           width: 40,
                           height: 40,

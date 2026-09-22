@@ -235,15 +235,14 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     try {
       final nested = profile['sehirici_lines'] as Map?;
       final stops = await _lineService.getLineStops(lineId);
-      return SehiriciLine(
-        id: lineId,
-        code: nested?['code'] as String? ?? '',
-        name: nested?['name'] as String? ?? '',
-        colorHex: nested?['color_hex'] as String? ?? '#1976D2',
-        vehicleType: SehiriciVehicleType.fromString(
-            nested?['vehicle_type'] as String?),
-        stops: stops,
-      );
+      // fromJson: özel araç türü anahtarını ve kayıtlı yol rotasını da taşır
+      // (elle kurulan SehiriciLine ikisini de kaybediyor, şoförün haritası
+      // yol yerine düz durak çizgisi gösteriyordu).
+      final line = SehiriciLine.fromJson({
+        if (nested != null) ...Map<String, dynamic>.from(nested),
+        'id': lineId,
+      });
+      return line.copyWith(stops: stops);
     } catch (e) {
       debugPrint('_resolveDriverLine hata: $e');
       return null;

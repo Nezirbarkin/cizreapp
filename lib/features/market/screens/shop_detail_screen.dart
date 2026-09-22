@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_review_model.dart';
@@ -215,6 +216,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     final commentController = TextEditingController(
       text: _userReview?.comment ?? '',
     );
+    bool isAnonymous = _userReview?.isAnonymous ?? false;
 
     final result = await showDialog<bool>(
       context: context,
@@ -266,6 +268,17 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Kimliğimi gizle'),
+                  subtitle: const Text(
+                    'Adınız n******b gibi görünür, fotoğrafınız gösterilmez',
+                  ),
+                  value: isAnonymous,
+                  onChanged: (value) =>
+                      setDialogState(() => isAnonymous = value),
+                ),
               ],
             ),
           ),
@@ -312,12 +325,14 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                       userId: userId,
                       rating: selectedRating,
                       comment: commentController.text.trim(),
+                      isAnonymous: isAnonymous,
                     );
                   } else {
                     await _reviewService.updateReview(
                       reviewId: _userReview!.id,
                       rating: selectedRating,
                       comment: commentController.text.trim(),
+                      isAnonymous: isAnonymous,
                     );
                   }
 
@@ -576,7 +591,25 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     }
   }
 
+  /// Dükkanın gerçek konumunu harita uygulamasında açar.
+  Future<void> _openShopLocationOnMap() async {
+    final shop = _shop;
+    if (shop?.latitude == null || shop?.longitude == null) return;
+
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=${shop!.latitude},${shop.longitude}',
+    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Harita açılamadı')),
+      );
+    }
+  }
+
   /// Dükkan koordinatı varsa uzaklık rozetini döndürür; yoksa boş widget.
+  /// Uzaklık henüz hesaplanmadıysa dokunma [_requestDistance]'ı tetikler;
+  /// hesaplandıktan sonra dokunma dükkanın gerçek konumunu haritada açar.
   Widget _buildDistanceBadge() {
     final shop = _shop;
     if (shop?.latitude == null || shop?.longitude == null) {
@@ -587,7 +620,9 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: InkWell(
-        onTap: hasDistance || _isResolvingDistance ? null : _requestDistance,
+        onTap: _isResolvingDistance
+            ? null
+            : (hasDistance ? _openShopLocationOnMap : _requestDistance),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -622,6 +657,14 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   color: Colors.blueGrey.shade800,
                 ),
               ),
+              if (hasDistance) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.map_outlined,
+                  size: 12,
+                  color: Colors.blueGrey.shade700,
+                ),
+              ],
             ],
           ),
         ),
@@ -865,6 +908,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 ),
                 background: _shop!.bannerUrl != null
                     ? CachedNetworkImage(
+                        memCacheWidth: 1000,
                         imageUrl: _shop!.bannerUrl!,
                         fit: BoxFit.cover,
                       )
@@ -1546,7 +1590,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 left: 16,
                 right: 16,
                 top: 16,
-                bottom: 16 + MediaQuery.of(context).padding.bottom + 60,
+                bottom: 16 + MediaQuery.paddingOf(context).bottom + 60,
               ),
               sliver: _filteredProducts.isEmpty
                   ? SliverToBoxAdapter(
@@ -1584,7 +1628,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     )
                   : SliverGrid(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: MediaQuery.of(context).size.width > 600
+                        crossAxisCount: MediaQuery.sizeOf(context).width > 600
                             ? 4
                             : 3,
                         childAspectRatio: 0.68,
@@ -1614,12 +1658,14 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
               backgroundImage: review.userAvatar != null
                   ? NetworkImage(review.userAvatar!)
                   : null,
-              child: review.userAvatar == null
-                  ? Text(
-                      review.userName?.substring(0, 1).toUpperCase() ?? 'U',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    )
-                  : null,
+              child: review.userAvatar != null
+                  ? null
+                  : review.isAnonymous
+                      ? const Icon(Icons.person_outline)
+                      : Text(
+                          review.userName?.substring(0, 1).toUpperCase() ?? 'U',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1807,6 +1853,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                       color: Colors.grey.shade100,
                       child: product.images.isNotEmpty
                           ? CachedNetworkImage(
+                              memCacheWidth: 400,
                               imageUrl: product.images.first,
                               fit: BoxFit.cover,
                               errorWidget: (context, url, error) {

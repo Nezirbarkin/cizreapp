@@ -8,6 +8,7 @@ import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
 import '../widgets/okey_invite_sheet.dart';
 import '../widgets/okey_profile_sheet.dart';
+import '../widgets/okey_seat_table.dart';
 import 'okey_game_screen.dart';
 
 /// Bekleme odası: 4 koltuk masa düzeninde, oyuncular hazır oldukça oyun başlar.
@@ -69,7 +70,7 @@ class _OkeyRoomViewState extends State<_OkeyRoomView> {
           SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
-              child: CircularProgressIndicator(color: OkeyColors.accentGold),
+              child: CircularProgressIndicator(color: OkeyUI.brass),
             ),
           ),
         ],
@@ -122,7 +123,23 @@ class _OkeyRoomViewState extends State<_OkeyRoomView> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: _SeatGrid(provider: provider),
+            // KOLTUK SEÇİMİ (kullanıcı isteği, 2026-09-21: "oyuncular
+            // istediği (eşli) kişinin karşısında oturabilsin"). Boş koltuğa
+            // dokunmak oraya geçirir; yalnızca masadayken ve oda bekliyorken.
+            child: OkeySeatTable(
+              seats: provider.seats,
+              mySeatNo: provider.mySeat?.seatNo,
+              isTeams: room?.teamMode == 'esli',
+              canPick: room?.status == 'waiting' && provider.mySeat != null,
+              onPickSeat: provider.chooseSeat,
+              onSeatTap: (s) => OkeyProfileSheet.show(
+                context,
+                userId: s.userId,
+                botProfileId: s.botProfileId,
+                name: s.displayLabel,
+                avatarUrl: s.avatarUrl,
+              ),
+            ),
           ),
         ),
 
@@ -214,7 +231,7 @@ class _StatusCard extends StatelessWidget {
           Icon(
             starting ? Icons.play_circle_fill : Icons.hourglass_top,
             size: 26,
-            color: starting ? const Color(0xFFB9F6CA) : OkeyColors.accentGold,
+            color: starting ? const Color(0xFFB9F6CA) : OkeyUI.brass,
           ),
           const SizedBox(width: OkeyUI.gap),
           Expanded(
@@ -264,11 +281,7 @@ class _InviteFriendCard extends StatelessWidget {
           showOkeyInviteSheet(context, roomId: roomId, joinCode: joinCode),
       child: Row(
         children: [
-          Icon(
-            Icons.person_add_alt_1,
-            size: 22,
-            color: OkeyColors.accentGold,
-          ),
+          Icon(Icons.person_add_alt_1, size: 22, color: OkeyUI.brass),
           const SizedBox(width: OkeyUI.gap),
           const Expanded(
             child: Column(
@@ -308,7 +321,7 @@ class _JoinCodeCard extends StatelessWidget {
       },
       child: Row(
         children: [
-          Icon(Icons.vpn_key, size: 18, color: OkeyColors.accentGold),
+          Icon(Icons.vpn_key, size: 18, color: OkeyUI.brass),
           const SizedBox(width: OkeyUI.gapSm),
           const Text('Davet kodu', style: OkeyUI.body),
           const SizedBox(width: OkeyUI.gap),
@@ -322,7 +335,7 @@ class _JoinCodeCard extends StatelessWidget {
                 code,
                 maxLines: 1,
                 style: TextStyle(
-                  color: OkeyColors.accentGold,
+                  color: OkeyUI.brass,
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
                   letterSpacing: 2,
@@ -383,158 +396,10 @@ class _RulesCard extends StatelessWidget {
               value:
                   '${room.tableStake} puan  '
                   '(${room.entryFee} × ${room.totalHands} el)',
-              valueColor: OkeyColors.accentGold,
+              valueColor: OkeyUI.brass,
             ),
         ],
       ),
-    );
-  }
-}
-
-/// 4 koltuk masa düzeninde (2×2) gösterilir.
-class _SeatGrid extends StatelessWidget {
-  final OkeyRoomProvider provider;
-
-  const _SeatGrid({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    OkeyRoomSeat? seatAt(int n) {
-      for (final s in provider.seats) {
-        if (s.seatNo == n) return s;
-      }
-      return null;
-    }
-
-    final myUserId = provider.mySeat?.userId;
-    final isTeams = provider.room?.teamMode == 'esli';
-
-    Widget cell(int n) => _SeatCard(
-      seat: seatAt(n),
-      seatNo: n,
-      isMe: seatAt(n)?.userId != null && seatAt(n)?.userId == myUserId,
-      // Eşli modda 0-2 bir takım, 1-3 diğeri.
-      teamLabel: isTeams ? (n % 2 == 0 ? 'A takımı' : 'B takımı') : null,
-    );
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(child: cell(0)),
-            const SizedBox(width: OkeyUI.gapSm),
-            Expanded(child: cell(1)),
-          ],
-        ),
-        const SizedBox(height: OkeyUI.gapSm),
-        Row(
-          children: [
-            Expanded(child: cell(3)),
-            const SizedBox(width: OkeyUI.gapSm),
-            Expanded(child: cell(2)),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _SeatCard extends StatelessWidget {
-  final OkeyRoomSeat? seat;
-  final int seatNo;
-  final bool isMe;
-  final String? teamLabel;
-
-  const _SeatCard({
-    required this.seat,
-    required this.seatNo,
-    required this.isMe,
-    this.teamLabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final s = seat;
-    final empty = s == null || s.isEmpty;
-    final ready = s != null && !s.isEmpty && s.isReady;
-
-    final name = empty
-        ? 'Boş koltuk'
-        : isMe
-        ? 'Sen'
-        // Bot olup olmadığını ELE VERMEZ (bkz. OkeyRoomSeat.displayLabel).
-        : s.displayLabel;
-
-    final card = Container(
-      decoration: BoxDecoration(
-        color: empty ? const Color(0x0AFFFFFF) : OkeyUI.cardFill,
-        borderRadius: BorderRadius.circular(OkeyUI.radius),
-        border: Border.all(
-          color: isMe
-              ? OkeyColors.accentGold
-              : ready
-              ? const Color(0xB3B9F6CA)
-              : OkeyUI.cardBorder,
-          width: isMe || ready ? 1.6 : 1,
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      // SABİT YÜKSEKLİK YOK. Eski kart `height: 132` idi; sistem yazı tipi
-      // büyütülünce içerik o kutuya sığmıyordu. Artık kart içeriğine göre
-      // uzar — iki kart yan yana olduğu için satır yine hizalı kalır.
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          OkeyAvatar(url: s?.avatarUrl, size: 46, highlighted: isMe),
-          const SizedBox(height: OkeyUI.gapSm),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: OkeyUI.body.copyWith(
-              color: empty ? OkeyUI.textFaint : OkeyUI.text,
-              fontWeight: isMe ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (empty)
-            const Text('bekleniyor…', style: OkeyUI.caption)
-          else
-            OkeyPill(
-              text: ready ? 'Hazır' : 'Bekliyor',
-              icon: ready ? Icons.check_circle : Icons.hourglass_empty,
-              color: ready ? const Color(0xFFB9F6CA) : OkeyUI.textFaint,
-            ),
-          if (teamLabel != null) ...[
-            const SizedBox(height: 5),
-            Text(
-              teamLabel!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: OkeyUI.caption.copyWith(color: const Color(0xFF80D8FF)),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    // KOLTUĞA DOKUNUNCA PROFİL KARTI — masadaki oyuncu levhalarıyla aynı
-    // davranış (kullanıcı isteği: "diğer kişilerin profiline tıklamasına
-    // izin verilsin"). Masaya oturmadan ÖNCE rakibine bakmak, oturduktan
-    // sonra bakmaktan daha da makul bir istek.
-    if (empty) return card;
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => OkeyProfileSheet.show(
-        context,
-        userId: s.userId,
-        botProfileId: s.botProfileId,
-        name: s.displayLabel,
-        avatarUrl: s.avatarUrl,
-      ),
-      child: card,
     );
   }
 }

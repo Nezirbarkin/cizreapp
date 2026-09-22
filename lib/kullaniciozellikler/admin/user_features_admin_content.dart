@@ -948,7 +948,7 @@ class _PricingSheetState extends State<_PricingSheet> {
           20,
           4,
           20,
-          24 + MediaQuery.of(context).viewInsets.bottom,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1053,7 +1053,7 @@ class _OrderUnlockSheetState extends State<_OrderUnlockSheet> {
           20,
           4,
           20,
-          24 + MediaQuery.of(context).viewInsets.bottom,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
