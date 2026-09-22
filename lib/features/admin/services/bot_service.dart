@@ -191,9 +191,9 @@ class BotFollowSettings {
   const BotFollowSettings({
     this.enabled = true,
     this.minHours = 0,
-    this.maxHours = 72,
-    this.minCount = 3,
-    this.maxCount = 8,
+    this.maxHours = 1,
+    this.minCount = 1,
+    this.maxCount = 1,
   });
 
   BotFollowSettings copyWith({
@@ -224,10 +224,10 @@ class BotLikeSettings {
 
   const BotLikeSettings({
     this.enabled = true,
-    this.minHours = 1,
-    this.maxHours = 48,
+    this.minHours = 0,
+    this.maxHours = 1,
     this.minCount = 1,
-    this.maxCount = 7,
+    this.maxCount = 1,
     this.lookbackDays = 10,
   });
 
