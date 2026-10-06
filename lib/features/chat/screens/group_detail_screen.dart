@@ -6,6 +6,7 @@ import '../../../core/models/group_model.dart';
 import '../services/group_chat_service.dart';
 import 'group_chat_screen.dart';
 import '../../../core/widgets/group_avatar_viewer.dart';
+import '../../../core/utils/image_url.dart';
 
 /// Üye olmayan kullanıcılar için grup detay ekranı
 /// Grup bilgilerini, üyeleri ve katılım butonunu gösterir
@@ -202,7 +203,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                                 CircleAvatar(
                                   radius: 22,
                                   backgroundImage: (_creatorProfile?['avatar_url'] as String?)?.isNotEmpty == true
-                                      ? NetworkImage(_creatorProfile!['avatar_url'])
+                                      ? avatarImage(_creatorProfile!['avatar_url'])
                                       : null,
                                   child: (_creatorProfile?['avatar_url'] as String?)?.isNotEmpty != true
                                       ? const Icon(Icons.person)
@@ -250,7 +251,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                                   leading: CircleAvatar(
                                     radius: 18,
                                     backgroundImage: (m['avatar_url'] as String?)?.isNotEmpty == true
-                                        ? NetworkImage(m['avatar_url'])
+                                        ? avatarImage(m['avatar_url'])
                                         : null,
                                     child: (m['avatar_url'] as String?)?.isNotEmpty != true
                                         ? const Icon(Icons.person, size: 18)

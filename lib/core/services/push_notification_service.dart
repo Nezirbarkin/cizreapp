@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -440,6 +441,16 @@ class PushNotificationService {
         _navigateToMainScreen(context);
         break;
 
+      // Sepetteki ürün indirime girdi (Görev 3.3) / fiyat alarmı: ürünü aç.
+      case 'cart_price_drop':
+      case 'price_drop':
+        if (entityId != null && entityId.isNotEmpty) {
+          _navigateToProduct(context, entityId);
+        } else {
+          _navigateToMainScreen(context);
+        }
+        break;
+
       case 'order':
       case 'order_update':
       case 'order_status':
@@ -447,6 +458,26 @@ class PushNotificationService {
       case 'new_order':
       case 'delivered':
         _navigateToMainScreen(context);
+        break;
+
+      // İlan süresi doluyor / doldu (Görev 3.9): ilanı aç (sahibi uzatır).
+      case 'ilan_expiring':
+      case 'ilan_expired':
+        if (entityId != null && entityId.isNotEmpty) {
+          _navigateToRoute(context, '/ilan/$entityId');
+        } else {
+          _navigateToMainScreen(context);
+        }
+        break;
+
+      // Takip edilen/abone olunan mağaza canlı yayına başladı: yayını aç
+      // (bittiyse izleyici "Yayın sona erdi" özetini gösterir).
+      case 'live_started':
+        if (entityId != null && entityId.isNotEmpty) {
+          _navigateToRoute(context, '/live/$entityId');
+        } else {
+          _navigateToMainScreen(context);
+        }
         break;
 
       case 'courier_order_assigned':
@@ -514,6 +545,33 @@ class PushNotificationService {
       debugPrint('✅ MainScreen\'e yönlendirildi');
     } catch (e) {
       debugPrint('❌ MainScreen\'e yönlendirme hatası: $e');
+    }
+  }
+
+  /// Ürün detayını açar: ana ekran yığının dibine konur, ürün ONUN ÜSTÜNE
+  /// itilir (geri tuşu kullanıcıyı boş yığında bırakmasın).
+  static void _navigateToProduct(BuildContext context, String productId) {
+    try {
+      final navigator = Navigator.of(context);
+      navigator.pushNamedAndRemoveUntil('/main', (route) => false);
+      navigator.pushNamed('/p/$productId');
+      debugPrint('✅ Ürün detayına yönlendirildi: $productId');
+    } catch (e) {
+      debugPrint('❌ Ürün detayına yönlendirme hatası: $e');
+      _navigateToMainScreen(context);
+    }
+  }
+
+  /// Ana ekran yığının dibine konur, [route] ONUN ÜSTÜNE itilir (geri tuşu
+  /// kullanıcıyı boş yığında bırakmasın).
+  static void _navigateToRoute(BuildContext context, String route) {
+    try {
+      final navigator = Navigator.of(context);
+      navigator.pushNamedAndRemoveUntil('/main', (route) => false);
+      navigator.pushNamed(route);
+    } catch (e) {
+      debugPrint('❌ Bildirim yönlendirme hatası ($route): $e');
+      _navigateToMainScreen(context);
     }
   }
 
@@ -672,12 +730,16 @@ class PushNotificationService {
 
   /// FCM token'ı temizle (çıkış yaparken çağrılmalı)
   /// NOT: Bu metodu signOut() çağrısından ÖNCE çalıştırın!
+  ///
+  /// Token RPC'si İLK iş olarak çağrılır çünkü oturum gerektirir. Eskiden
+  /// önce eski konu abonelikleri iptal ediliyordu; Play Services yavaşsa bu
+  /// adım çıkışın zaman aşımını dolduruyor, RPC oturum kapandıktan sonra
+  /// çalışıp atlanıyor ve cihaz çıkış yapılan hesabın bildirimlerini almaya
+  /// devam ediyordu. Konu iptali oturum istemez; arka planda sürer.
   static Future<void> clearTokenOnLogout() async {
     if (kIsWeb) return;
 
     try {
-      await _removeLegacyTopicSubscriptions();
-
       // Kullanıcı çıkış yaparken FCM token'ını veritabanından sil
       // Böylece bildirimler artık bu cihaza gönderilmez
       // profiles tablosuna doğrudan UPDATE izni yok; SECURITY DEFINER
@@ -697,6 +759,8 @@ class PushNotificationService {
       debugPrint('✅ Çıkışta FCM token temizlendi (userId: $userId)');
     } catch (e) {
       debugPrint('❌ Çıkışta FCM token temizleme hatası: $e');
+    } finally {
+      unawaited(_removeLegacyTopicSubscriptions());
     }
   }
 

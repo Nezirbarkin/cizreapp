@@ -1,5 +1,13 @@
 part of '../face_avatar_painter.dart';
 
+// ============================================================================
+// ORTAK GEOMETRİ, PALET VE ÇİZİM YARDIMCILARI
+//
+// Bitmoji tarzı: büyük kafa (karenin ~%62'si), iri gözler, yumuşak ama net
+// "cel" gölgeler ve her parçanın kendi renginin koyusuyla çizilen ince
+// konturu. Tüm koordinatlar 200x200 birimlik tuvaldedir.
+// ============================================================================
+
 const double _cx = 100;
 
 double _lerpD(double a, double b, double t) => a + (b - a) * t;
@@ -14,6 +22,13 @@ Color _alpha(Color c, double a) => c.withValues(alpha: a.clamp(0.0, 1.0));
 Color _tone(Color c, double amount) {
   if (amount >= 0) return _mix(c, Colors.white, amount);
   return _mix(c, Colors.black, -amount);
+}
+
+Offset _mirX(Offset p) => Offset(_cx - (p.dx - _cx), p.dy);
+
+Offset _norm(Offset o) {
+  final d = o.distance;
+  return d == 0 ? const Offset(0, 1) : o / d;
 }
 
 /// Kapalı/açık Catmull-Rom eğrisi. Noktalardan geçen pürüzsüz bir Path üretir.
@@ -39,6 +54,16 @@ Path _spline(List<Offset> pts, {bool closed = false, double tension = 1.0}) {
   return path;
 }
 
+/// Sağ yarısı verilen simetrik kapalı biçim: [right] tepeden (x=0) başlayıp
+/// alttaki orta noktada (x=0) biter; x'ler merkezden uzaklıktır.
+Path _symmetric(List<Offset> right, {double tension = 1.0}) {
+  final pts = <Offset>[...right];
+  for (var i = right.length - 2; i >= 1; i--) {
+    pts.add(Offset(-right[i].dx, right[i].dy));
+  }
+  return _spline(pts.map((p) => Offset(_cx + p.dx, p.dy)).toList(), closed: true, tension: tension);
+}
+
 /// Noktalardan geçen açık eğri için [n] eşit aralıklı örnek üretir.
 List<Offset> _sampleSpline(List<Offset> pts, int n) {
   final path = _spline(pts);
@@ -53,24 +78,29 @@ List<Offset> _sampleSpline(List<Offset> pts, int n) {
   return out;
 }
 
-/// Kökü kalın, ucu ince bir tel/kıl çizer (kıl gibi incelen çokgen).
-void _taper(Canvas canvas, List<Offset> pts, double w0, double w1, Paint paint) {
-  if (pts.length < 2) return;
+/// Kökü kalın, ucu ince bir şerit/tel çizer (kalem darbesi gibi incelen çokgen).
+Path _taperPath(List<Offset> pts, double w0, double w1, {double wMid = -1}) {
+  final path = Path();
+  if (pts.length < 2) return path;
   final left = <Offset>[];
   final right = <Offset>[];
   for (var i = 0; i < pts.length; i++) {
     final prev = pts[math.max(0, i - 1)];
     final next = pts[math.min(pts.length - 1, i + 1)];
-    var d = next - prev;
-    final len = d.distance;
-    d = len == 0 ? const Offset(0, 1) : d / len;
+    final d = _norm(next - prev);
     final nrm = Offset(-d.dy, d.dx);
     final t = pts.length == 1 ? 0.0 : i / (pts.length - 1);
-    final w = _lerpD(w0, w1, t) / 2;
-    left.add(pts[i] + nrm * w);
-    right.add(pts[i] - nrm * w);
+    final double w;
+    if (wMid >= 0) {
+      // Ortası dolgun (yaprak biçimi) şerit.
+      w = t < 0.5 ? _lerpD(w0, wMid, t * 2) : _lerpD(wMid, w1, (t - 0.5) * 2);
+    } else {
+      w = _lerpD(w0, w1, t);
+    }
+    left.add(pts[i] + nrm * (w / 2));
+    right.add(pts[i] - nrm * (w / 2));
   }
-  final path = Path()..moveTo(left.first.dx, left.first.dy);
+  path.moveTo(left.first.dx, left.first.dy);
   for (var i = 1; i < left.length; i++) {
     path.lineTo(left[i].dx, left[i].dy);
   }
@@ -78,7 +108,34 @@ void _taper(Canvas canvas, List<Offset> pts, double w0, double w1, Paint paint) 
     path.lineTo(right[i].dx, right[i].dy);
   }
   path.close();
-  canvas.drawPath(path, paint);
+  return path;
+}
+
+void _taper(Canvas canvas, List<Offset> pts, double w0, double w1, Paint paint) {
+  if (pts.length < 2) return;
+  canvas.drawPath(_taperPath(pts, w0, w1), paint);
+}
+
+/// Kuadratik Bezier üzerinde [n] nokta.
+List<Offset> _quadPts(Offset a, Offset c, Offset b, [int n = 10]) {
+  final out = <Offset>[];
+  for (var i = 0; i <= n; i++) {
+    final t = i / n;
+    final u = 1 - t;
+    out.add(a * (u * u) + c * (2 * u * t) + b * (t * t));
+  }
+  return out;
+}
+
+/// Kübik Bezier üzerinde [n] nokta.
+List<Offset> _cubicPts(Offset a, Offset c1, Offset c2, Offset b, [int n = 12]) {
+  final out = <Offset>[];
+  for (var i = 0; i <= n; i++) {
+    final t = i / n;
+    final u = 1 - t;
+    out.add(a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t));
+  }
+  return out;
 }
 
 class _Rig {
@@ -109,57 +166,58 @@ class _Rig {
   int get age => cfg.age.clamp(0, 3);
 
   // ------------------------------------------------------------- geometri
-  static const double skullTop = 32;
-  static const double eyeY = 91;
+  /// Kafatasının tepesi (saçsız) ve göz hattı.
+  static const double skullTop = 22;
+  static const double eyeY = 95;
 
   late final double cheekHalf = kFaceBaseCheekHalf * shape.cheek * m.faceWidth;
   late final double foreheadHalf =
-      math.min(kFaceBaseForeheadHalf * shape.forehead * m.faceWidth, cheekHalf + 1.5);
+      math.min(kFaceBaseForeheadHalf * shape.forehead * (0.6 + 0.4 * m.faceWidth), cheekHalf + 1.0);
+  late final double templeHalf = _lerpD(foreheadHalf, cheekHalf, 0.55);
   late final double jawHalf = kFaceBaseJawHalf * shape.jaw * m.jawWidth;
   late final double chinY = eyeY + kFaceBaseChinLength * shape.chin * m.chinLength;
-  late final double chinHalf = 10.5 * shape.chinWidth * (0.85 + 0.15 * m.jawWidth);
-  late final double eyeDx = 17.4 * m.eyeSpacing * (0.92 + 0.08 * shape.cheek);
-  late final double eyeW = 9.2 * m.eyeSize * eye.width;
-  late final double eyeH = 4.8 * m.eyeSize * eye.height;
-  late final double browBaseY = eyeY - 11.5 - (m.browHeight - 1) * 8 - brow.lift;
-  late final double noseBaseY = eyeY + 20.5 * nose.length;
-  late final double noseTipY = noseBaseY - 3.2;
-  late final double noseHalf = 6.3 * nose.width * m.noseWidth;
-  late final double mouthY = noseBaseY + (chinY - noseBaseY) * 0.375;
-  late final double mouthHalf = 16.8 * lip.width * m.mouthWidth;
-  late final double neckHalf = 13.6 + jawHalf * 0.05;
+  late final double chinHalf = 15.5 * shape.chinWidth * (0.85 + 0.15 * m.jawWidth);
+  late final double gonionY = eyeY + 26 + 4 * shape.corner + (chinY - eyeY - kFaceBaseChinLength) * 0.45;
+  late final double eyeDx = 21.6 * m.eyeSpacing * (0.94 + 0.06 * shape.cheek);
+  late final double eyeW = 10.3 * m.eyeSize * eye.width;
+  late final double eyeH = 6.9 * m.eyeSize * eye.height;
+  late final double browBaseY = eyeY - 14.6 - (m.browHeight - 1) * 8 - brow.lift;
+  late final double noseBaseY = eyeY + 19.0 * nose.length * m.noseLength * (0.82 + 0.18 * m.chinLength);
+  late final double noseTipY = noseBaseY - 2.8;
+  late final double noseHalf = 6.6 * nose.width * m.noseWidth;
+  late final double mouthY = noseBaseY + (chinY - noseBaseY) * 0.42;
+  late final double mouthHalf = 12.8 * lip.width * m.mouthWidth;
+  late final double neckHalf = 16.5 + jawHalf * 0.05;
 
-  /// Kafa silueti: alın → elmacık → çene, Catmull-Rom ile yumuşatılmış.
+  /// Kulak: yanağın dışına taşan küçük oval.
+  late final double earTop = eyeY - 7;
+  late final double earBottom = noseBaseY + 3;
+
+  /// Kafa silueti: tepe → alın → şakak → elmacık → çene köşesi → çene ucu.
   late final Path head = _buildHead();
 
   Path _buildHead() {
     final k = shape.corner;
     final fh = foreheadHalf, cw = cheekHalf, jw = jawHalf, ch = chinHalf;
-    final top = skullTop;
-    final gonY = 121 + 8 * k;
+    const top = skullTop;
     final gonX = jw * (1 + 0.05 * k);
-    final midJawX = _lerpD(gonX, ch, 0.52) + (1 - k) * 2.4;
-    final midJawY = _lerpD(gonY, chinY, 0.6);
+    final gonY = gonionY;
+    final midJawX = _lerpD(gonX, ch, 0.52) + (1 - k) * 3.0;
+    final midJawY = _lerpD(gonY, chinY, 0.58);
 
-    final right = <Offset>[
-      Offset(0, top),
-      Offset(fh * 0.50, top + 4.6),
-      Offset(fh * 0.866, top + 17),
-      Offset(fh * 0.985, top + 28.1),
-      Offset(fh, 66),
-      Offset(_lerpD(fh, cw, 0.55), 80),
-      Offset(cw, 92),
-      Offset(_lerpD(cw, gonX, 0.5) + 0.4, _lerpD(100, gonY, 0.55)),
+    return _symmetric([
+      const Offset(0, top),
+      Offset(fh * 0.54, top + 3.4),
+      Offset(fh * 0.88, top + 13.5),
+      Offset(fh * 0.995, top + 28),
+      Offset(_lerpD(fh, cw, 0.62), eyeY - 17),
+      Offset(cw, eyeY + 3),
+      Offset(_lerpD(cw, gonX, 0.55) + 0.8 * (1 - k), _lerpD(eyeY + 3, gonY, 0.55)),
       Offset(gonX, gonY),
       Offset(midJawX, midJawY),
-      Offset(ch * 1.02, chinY - 2.6),
+      Offset(ch * 1.05, chinY - 2.8),
       Offset(0, chinY),
-    ];
-    final pts = <Offset>[...right];
-    for (var i = right.length - 2; i >= 1; i--) {
-      pts.add(Offset(-right[i].dx, right[i].dy));
-    }
-    return _spline(pts.map((p) => Offset(_cx + p.dx, p.dy)).toList(), closed: true);
+    ]);
   }
 
   // ------------------------------------------------------ kafa çizgisi arama
@@ -194,6 +252,17 @@ class _Rig {
     return pts.last.dx - _cx;
   }
 
+  /// Kafa siluetinin sağ yarısı, [y0]..[y1] aralığında (aşağı doğru).
+  List<Offset> headEdge(double y0, double y1, {int n = 8, double inset = 0}) {
+    return [
+      for (var i = 0; i <= n; i++)
+        () {
+          final y = _lerpD(y0, y1, i / n);
+          return Offset(_cx + headX(y) - inset, y);
+        }(),
+    ];
+  }
+
   // ------------------------------------------------- başlık - saç etkileşimi
   bool get hatCoversScalp {
     switch (headwear.kind) {
@@ -212,7 +281,7 @@ class _Rig {
     }
   }
 
-  late final double hairVol = hatCoversScalp ? math.min(hair.volume, 0.30) : hair.volume;
+  late final double hairVol = hatCoversScalp ? math.min(hair.volume, 0.25) : hair.volume;
   late final double hairWid = hatCoversScalp ? math.min(hair.width, 0.30) : hair.width;
 
   /// Şapka altında görünmeyecek biçimler (topuz, dikenler…) sadeleştirilir.
@@ -258,34 +327,46 @@ class _Rig {
   /// 0 = çok açık ten, 1 = çok koyu.
   late final double skinDepth = (1 - (skinLum / 0.62)).clamp(0.0, 1.0);
 
-  late final Color skinShadow = _mix(skin, const Color(0xFF8A3A22), 0.30 - 0.06 * skinDepth);
-  late final Color skinDeep = _mix(skin, const Color(0xFF3A160C), 0.56);
-  late final Color skinLight = _mix(skin, const Color(0xFFFFF1E2), 0.26 * (1 - 0.45 * skinDepth) + 0.10);
-  late final Color skinWarm = _mix(skin, const Color(0xFFD8564E), 0.40);
-  late final Color blush = _mix(skin, const Color(0xFFDE5E5A), 0.55);
+  /// Cel gölge: sıcak, hafif doygun.
+  late final Color skinShadow = _mix(skin, const Color(0xFFA0503A), 0.24 - 0.06 * skinDepth);
+  late final Color skinDeep = _mix(skin, const Color(0xFF4A1C10), 0.46 + 0.04 * skinDepth);
+  late final Color skinLine = _mix(skin, const Color(0xFF3C170C), 0.52 + 0.06 * skinDepth);
+  late final Color skinLight = _mix(skin, const Color(0xFFFFF4EA), 0.30 * (1 - 0.40 * skinDepth) + 0.06);
+  late final Color blush = _mix(skin, const Color(0xFFF0656A), 0.48 - 0.12 * skinDepth);
 
   late final Color lipBase = () {
     final chosen = kLipColors[cfg.lipColor.clamp(0, kLipColors.length - 1)];
     if (chosen.a > 0) return chosen;
-    return _mix(skin, const Color(0xFFB4525A), 0.50 - 0.10 * skinDepth);
+    return _mix(skin, const Color(0xFFC0565E), 0.48 - 0.12 * skinDepth);
   }();
-  late final Color lipDark = _mix(lipBase, const Color(0xFF2A0A10), 0.36);
-  late final Color lipLight = _mix(lipBase, Colors.white, 0.34);
+  late final Color lipDark = _mix(lipBase, const Color(0xFF2A0A10), 0.30);
+  late final Color lipLight = _mix(lipBase, Colors.white, 0.30);
 
   /// Yaşa göre grileşen saç rengi.
   late final Color hairColor = () {
-    const gray = Color(0xFFD9DCE0);
-    const t = [0.0, 0.14, 0.42, 0.80];
-    return _mix(cfg.hairColor, gray, t[age]);
+    const gray = Color(0xFFD5D8DC);
+    const t = [0.0, 0.16, 0.45, 0.82];
+    final c = _mix(cfg.hairColor, gray, t[age]);
+    // Simsiyah saç düz siyah leke gibi durmasın: Bitmoji'deki koyu arduvaz tonu.
+    final lum = c.computeLuminance();
+    if (lum < 0.03) return _mix(c, const Color(0xFF3A3B47), 0.38 * (1 - lum / 0.03));
+    return c;
   }();
   late final double hairLum = hairColor.computeLuminance();
-  late final Color hairDark = _mix(hairColor, const Color(0xFF0B0604), 0.52);
-  late final Color hairMid = _mix(hairColor, const Color(0xFF0B0604), 0.24);
-  late final Color hairLight = _mix(hairColor, const Color(0xFFFFEBCB), 0.30 + 0.25 * (1 - hairLum));
-  late final Color hairShine = _mix(hairColor, const Color(0xFFFFF6E6), 0.55);
 
-  late final Color browColor = _mix(hairColor, const Color(0xFF2E2018), 0.12 + 0.42 * hairLum.clamp(0.0, 1.0));
-  late final Color lashColor = _mix(hairDark, const Color(0xFF120B08), 0.55);
+  /// Saçın gölgesi, konturu ve parlaması. Çok koyu saçta parlama soğuk-gri
+  /// (Bitmoji'deki mavimsi siyah), açık saçta sıcak açık ton.
+  late final Color hairShadow = _mix(hairColor, const Color(0xFF120A06), 0.30 + 0.10 * hairLum);
+  late final Color hairLine = _mix(hairColor, const Color(0xFF0A0604), 0.55);
+  late final Color hairLight = hairLum < 0.04
+      ? _mix(hairColor, const Color(0xFF8C8FA6), 0.42)
+      : _mix(hairColor, const Color(0xFFFFF0D8), 0.28 + 0.18 * (1 - hairLum));
+  late final Color hairShine = _mix(hairLight, Colors.white, 0.30);
+
+  late final Color browColor =
+      _mix(hairColor, const Color(0xFF2E2018), (0.10 + 0.50 * hairLum).clamp(0.0, 0.7));
+  late final Color lashColor = _mix(hairLine, const Color(0xFF120B08), 0.6);
+  static const Color ink = Color(0xFF1E1412);
 
   // -------------------------------------------------------------- yardımcı
   Paint fill(Color c) => Paint()..color = c;
@@ -307,6 +388,9 @@ class _Rig {
     return p;
   }
 
+  /// Konturun kalınlığı (küçük önizlemede biraz kalın ki görünsün).
+  double get lineW => detailed ? 1.05 : 1.5;
+
   /// Sol tarafı çizdirir, sonra aynasını çizer. [isMirror] ikinci geçişte true
   /// olur — ışık yönüne bağlı öğeler (parlama, gölge) bunu kullanır.
   void mirrored(Canvas canvas, void Function(Canvas c, bool isMirror) drawLeft) {
@@ -318,11 +402,18 @@ class _Rig {
     canvas.restore();
   }
 
-  /// [sgn]: -1 sol, +1 sağ. İşaretle çarpılan x ofsetleriyle her iki yan çizilir.
-  void mirroredPaths(void Function(double sgn) draw) {
-    draw(-1);
-    draw(1);
-  }
-
   math.Random rngFor(int salt) => math.Random(salt * 9973 + 17);
+
+  /// Cel gölge: [shape]'in, ışığa göre kaydırılmış kopyasının dışında kalan
+  /// kısmı ([offset] yönünde hilal). Boolean yol işlemi yerine şeklin tamamı
+  /// gölgelenir, kaydırılmış kopya [base] (şeklin taban rengi) ile yeniden
+  /// boyanır — aynı görüntü, çok daha ucuz. Bu yüzden şeklin dolgusundan
+  /// HEMEN SONRA, dokulardan önce çağrılmalıdır.
+  void celShade(Canvas canvas, Path shape, Color color, {required Color base, Offset offset = const Offset(-5, -3), double blur = 1.4}) {
+    canvas.save();
+    canvas.clipPath(shape);
+    canvas.drawPath(shape, fill(color));
+    canvas.drawPath(shape.shift(offset), soft(base, blur));
+    canvas.restore();
+  }
 }

@@ -157,7 +157,9 @@ List<AdminNotification> _sample() => [
     iconType: 'update',
     audience: AdminNotifAudience.allUsers,
     isScheduled: false,
-    sentAt: _now.subtract(const Duration(hours: 2)),
+    // Gece 00:00–02:00 arasında "2 saat önce" düne düşüp "BUGÜN" grubu
+    // boş kalıyordu (test her gece kırmızıydı); bugünün başı hep bugündür.
+    sentAt: DateTime(_now.year, _now.month, _now.day),
     recipientCount: 175,
     readCount: 42,
     liveCount: 175,

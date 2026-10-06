@@ -401,6 +401,13 @@ void main() {
       expect(all.pickup, isTrue);
       expect(all.coupon, isTrue);
     });
+
+    test('ücretli öne çıkarma da "Sponsor" sayılır (Görev 3.2)', () {
+      final paid = ShopCardInfo.from(_shop(), globalOrdersEnabled: true, paidSponsored: true);
+      expect(paid.sponsored, isTrue);
+      final none = ShopCardInfo.from(_shop(), globalOrdersEnabled: true);
+      expect(none.sponsored, isFalse);
+    });
   });
 
   // ── kupon sorgusu ─────────────────────────────────────────────────────────
@@ -588,6 +595,12 @@ void main() {
     testWidgets('Sponsor şeridi yalnızca sabitli dükkanda', (t) async {
       size(t, 390);
       await t.pumpWidget(_host(ShopCard(shop: _shop(pinned: true))));
+      expect(find.text('Sponsor'), findsOneWidget);
+    });
+
+    testWidgets('bu listede ücretli öne çıkarılan dükkanda da Sponsor şeridi (Görev 3.2)', (t) async {
+      size(t, 390);
+      await t.pumpWidget(_host(ShopCard(shop: _shop(), sponsored: true)));
       expect(find.text('Sponsor'), findsOneWidget);
     });
 

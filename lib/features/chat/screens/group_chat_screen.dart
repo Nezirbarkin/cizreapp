@@ -9,6 +9,7 @@ import '../../../core/models/group_message_model.dart';
 import '../models/chat_presence.dart';
 import '../services/group_chat_service.dart';
 import '../services/typing_channel.dart';
+import '../widgets/chat_message_actions.dart';
 import '../widgets/presence_status_line.dart';
 import 'group_settings_screen.dart';
 import '../../profile/screens/profile_screen.dart';
@@ -661,6 +662,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
 
     return GestureDetector(
       onTap: isMe ? () => _showMessageReadReceipts(message) : null,
+      // Kopyala / Metni seç / Yanıtla. Gönderimi süren geçici mesaj
+      // yanıtlanamaz ama yazısı kopyalanabilir.
+      onLongPress: message.content.trim().isEmpty
+          ? null
+          : () => ChatMessageActions.show(
+                context,
+                text: message.content,
+                onReply: message.id.startsWith('temp_')
+                    ? null
+                    : () => _setReplyToMessage(message),
+              ),
       child: Padding(
         padding: EdgeInsets.only(
           left: isMe ? 52 : 8,

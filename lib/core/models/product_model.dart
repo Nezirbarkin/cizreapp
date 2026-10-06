@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'sponsorship_model.dart';
+
 /// Satıcının ürüne ekleyebileceği rozetler.
 ///
 /// Buradaki `key` değerleri veritabanındaki `products.badges` dizisinde saklanır
@@ -124,6 +126,11 @@ class Product {
   final bool isPinned; // Admin tarafından yapılan global sponsorlama
   final bool
   sellerPinned; // Satıcı tarafından kendi dükkanında yapılan sabitleme
+
+  /// Ücretli öne çıkarma bitişleri (Görev 3.2). Yalnız sunucu yazar; süresi
+  /// geçmişse geçersizdir. Admin sabitlemesi ([isPinned]) bunlardan ayrıdır.
+  final DateTime? sponsoredCategoryUntil;
+  final DateTime? sponsoredDiscountUntil;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -190,6 +197,8 @@ class Product {
     required this.isAvailable,
     this.isPinned = false,
     this.sellerPinned = false,
+    this.sponsoredCategoryUntil,
+    this.sponsoredDiscountUntil,
     required this.createdAt,
     required this.updatedAt,
     this.productType = 'normal',
@@ -233,6 +242,13 @@ class Product {
   }
 
   // İndirimli mi?
+  /// Bu vitrinde ücretli öne çıkarması sürüyor mu?
+  bool isSponsoredIn(SponsorPlacement placement, {DateTime? now}) => switch (placement) {
+    SponsorPlacement.productCategory => isSponsoredUntil(sponsoredCategoryUntil, now: now),
+    SponsorPlacement.productDiscount => isSponsoredUntil(sponsoredDiscountUntil, now: now),
+    SponsorPlacement.shopList || SponsorPlacement.shopCategory => false,
+  };
+
   bool get hasDiscount {
     // discount_price kolonu varsa ve 0'dan büyük ve normal fiyattan küçükse
     if (discountPrice != null && discountPrice! > 0 && discountPrice! < price) {
@@ -312,21 +328,6 @@ class Product {
   /// Gösterilebilir rozetler. DB'de tanınmayan bir key kalmışsa atlanır.
   List<ProductBadge> get badgeDetails =>
       badges.map(ProductBadge.fromKey).whereType<ProductBadge>().toList();
-
-  /// Hazırlık süresi metni. Süre girilmemişse null döner (UI hiç göstermez).
-  String? get prepTimeLabel {
-    final min = prepTimeMinDays;
-    final max = prepTimeMaxDays;
-    if (min == null && max == null) return null;
-
-    // Tek değer girilmişse onu kullan.
-    if (min == null) return _prepDayText(max!);
-    if (max == null || max == min) return _prepDayText(min);
-    return '$min-$max iş günü içinde kargoda';
-  }
-
-  String _prepDayText(int days) =>
-      days == 0 ? 'Aynı gün kargoda' : '$days iş günü içinde kargoda';
 
   /// Bu ürünün kendi kargo kuralı var mı? (bilgi rozetleri için)
   bool get hasCustomShipping => freeShipping || (shippingFee != null);
@@ -433,6 +434,8 @@ class Product {
       isAvailable: json['is_available'] as bool? ?? true,
       isPinned: json['is_pinned'] as bool? ?? false,
       sellerPinned: json['seller_pinned'] as bool? ?? false,
+      sponsoredCategoryUntil: parseSponsorTime(json['sponsored_category_until']),
+      sponsoredDiscountUntil: parseSponsorTime(json['sponsored_discount_until']),
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       productType: json['product_type'] as String? ?? 'normal',
@@ -521,6 +524,8 @@ class Product {
     bool? isAvailable,
     bool? isPinned,
     bool? sellerPinned,
+    DateTime? sponsoredCategoryUntil,
+    DateTime? sponsoredDiscountUntil,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? productType,
@@ -568,6 +573,8 @@ class Product {
       isAvailable: isAvailable ?? this.isAvailable,
       isPinned: isPinned ?? this.isPinned,
       sellerPinned: sellerPinned ?? this.sellerPinned,
+      sponsoredCategoryUntil: sponsoredCategoryUntil ?? this.sponsoredCategoryUntil,
+      sponsoredDiscountUntil: sponsoredDiscountUntil ?? this.sponsoredDiscountUntil,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       productType: productType ?? this.productType,

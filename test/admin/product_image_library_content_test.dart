@@ -11,18 +11,62 @@ import 'package:flutter_test/flutter_test.dart';
 // ignore: depend_on_referenced_packages
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
-/// Supabase'e dokunmayan sahte servis: liste sabit, eklemeler kaydedilir.
+/// Supabase'e dokunmayan sahte servis: liste sabit, yazımlar kaydedilir.
 class _FakeService extends ProductImagePresetService {
-  _FakeService(this.items, {this.failName});
+  _FakeService(this.items, {this.failName, List<ProductImageFolder>? folders})
+    : folders = folders ?? _folders();
 
   final List<ProductImagePreset> items;
+  final List<ProductImageFolder> folders;
   final String? failName;
   final List<Map<String, dynamic>> added = [];
+  final List<(List<String>, String?)> moved = [];
+  final List<String> addedFolders = [];
+  final List<Map<String, dynamic>> folderUpdates = [];
+  final List<List<String>> reordered = [];
+  int loads = 0;
 
   @override
-  Future<List<ProductImagePreset>> getAllPresetsForAdmin({
-    int limit = 1000,
-  }) async => items;
+  Future<List<ProductImagePreset>> getAllPresetsForAdmin() async {
+    loads++;
+    return items;
+  }
+
+  @override
+  Future<List<ProductImageFolder>> getFolders() async => folders;
+
+  @override
+  Future<void> moveToFolder(List<String> ids, String? folderId) async {
+    moved.add((ids, folderId));
+  }
+
+  @override
+  Future<ProductImageFolder> addFolder({
+    required String name,
+    int displayOrder = 0,
+  }) async {
+    addedFolders.add('$name#$displayOrder');
+    return ProductImageFolder(
+      id: 'nf${addedFolders.length}',
+      name: name,
+      displayOrder: displayOrder,
+    );
+  }
+
+  @override
+  Future<void> updateFolder({
+    required String id,
+    String? name,
+    int? displayOrder,
+    bool? isActive,
+  }) async {
+    folderUpdates.add({'id': id, 'name': name, 'active': isActive});
+  }
+
+  @override
+  Future<void> reorderFolders(List<String> idsInOrder) async {
+    reordered.add(idsInOrder);
+  }
 
   @override
   Future<String> uploadImage({
@@ -38,6 +82,7 @@ class _FakeService extends ProductImagePresetService {
     required String imageUrl,
     int displayOrder = 0,
     bool isActive = true,
+    String? folderId,
   }) async {
     if (name == failName) throw Exception('Sunucu reddetti');
     added.add({
@@ -45,6 +90,7 @@ class _FakeService extends ProductImagePresetService {
       'description': description,
       'order': displayOrder,
       'active': isActive,
+      'folder': folderId,
     });
     return ProductImagePreset(
       id: 'new${added.length}',
@@ -93,11 +139,23 @@ Future<Uint8List> _png() async {
   ))!.buffer.asUint8List();
 }
 
+/// Manav açık, Kozmetik kapalı.
+List<ProductImageFolder> _folders() => const [
+  ProductImageFolder(id: 'f1', name: 'Manav', displayOrder: 1),
+  ProductImageFolder(
+    id: 'f2',
+    name: 'Kozmetik',
+    displayOrder: 2,
+    isActive: false,
+  ),
+];
+
+/// Domates ve Simit Manav'da, Çiğ köfte klasörsüz; Simit pasif.
 List<ProductImagePreset> _sample() => [
   for (final (i, n) in const [
-    ('Kırmızı domates', 'sebze, salata'),
-    ('Çiğ köfte', 'yemek'),
-    ('Simit', null),
+    ('Kırmızı domates', 'sebze, salata', 'f1'),
+    ('Çiğ köfte', 'yemek', null),
+    ('Simit', null, 'f1'),
   ].indexed)
     ProductImagePreset(
       id: 'id$i',
@@ -107,6 +165,7 @@ List<ProductImagePreset> _sample() => [
       isActive: i != 2,
       displayOrder: i + 1,
       createdAt: DateTime(2026, 9, 1 + i),
+      folderId: n.$3,
     ),
 ];
 
@@ -274,5 +333,170 @@ void main() {
 
     expect(svc.added.single['name'], 'Kırmızı domates 1 kg');
     expect(svc.added.single['order'], 4);
+  });
+
+  testWidgets('klasör çipleri süzer; tüm görünümde kartta klasör adı çıkar', (
+    t,
+  ) async {
+    await open(t, _FakeService(_sample()));
+
+    // Çip şeridi yatay kayar; test fontu geniş olduğu için sondakiler görünür
+    // alanın dışında kalabilir (ekran dışı sayılır), dokunmadan önce kaydırılır.
+    Finder chip(String label) => find.text(label, skipOffstage: false);
+    Future<void> tapChip(String label) async {
+      await t.ensureVisible(chip(label));
+      await t.pump();
+      await t.tap(chip(label));
+      await t.pump();
+    }
+
+    expect(chip('Tüm klasörler · 3'), findsOneWidget);
+    expect(chip('Manav · 2'), findsOneWidget);
+    expect(chip('Kozmetik (kapalı) · 0'), findsOneWidget);
+    expect(chip('Klasörsüz · 1'), findsOneWidget);
+    // Tüm klasörler görünümünde Manav'daki iki kartta klasör etiketi var.
+    expect(find.text('Manav'), findsNWidgets(2));
+
+    await tapChip('Manav · 2');
+    expect(find.text('Kırmızı domates'), findsOneWidget);
+    expect(find.text('Simit'), findsOneWidget);
+    expect(find.text('Çiğ köfte'), findsNothing);
+    // Tek klasöre bakarken etiket tekrar etmez.
+    expect(find.text('Manav'), findsNothing);
+
+    await tapChip('Klasörsüz · 1');
+    expect(find.text('Çiğ köfte'), findsOneWidget);
+    expect(find.text('Kırmızı domates'), findsNothing);
+
+    // Boş klasör: ekleme çağrısı gösterilir.
+    await tapChip('Kozmetik (kapalı) · 0');
+    expect(find.text('Bu klasörde henüz görsel yok'), findsOneWidget);
+  });
+
+  testWidgets('seçilen görsel klasöre taşınır, sayaçlar anında güncellenir', (
+    t,
+  ) async {
+    final svc = _FakeService(_sample());
+    await open(t, svc);
+
+    await t.longPress(find.text('Çiğ köfte'));
+    await t.pump(const Duration(milliseconds: 300));
+    await t.tap(find.byTooltip('Klasöre taşı'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+
+    // Çiğ köfte klasörsüz: "Klasörsüz" satırı şu anki diye işaretli.
+    expect(find.text('Şu anki'), findsOneWidget);
+    await t.tap(find.text('Kozmetik'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+
+    expect(svc.moved.single.$1, ['id1']);
+    expect(svc.moved.single.$2, 'f2');
+    expect(find.text('Görsel "Kozmetik" klasörüne taşındı'), findsOneWidget);
+    expect(
+      find.text('Kozmetik (kapalı) · 1', skipOffstage: false),
+      findsOneWidget,
+    );
+    // Klasörsüz görsel kalmadı: çip kaybolur.
+    expect(find.textContaining('Klasörsüz', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('klasör süzülürken eklenen görseller o klasöre gider', (t) async {
+    final png = await t.runAsync(_png);
+    ImagePickerPlatform.instance = _FakePicker([
+      XFile.fromData(png!, name: 'zeytin.png', path: '/x/zeytin.png'),
+    ]);
+    final svc = _FakeService(_sample());
+    await open(t, svc);
+
+    await t.tap(find.text('Manav · 2'));
+    await t.pump();
+    await t.tap(find.text('Görsel Ekle').first);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    await t.tap(find.text('Görselleri seç'));
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await t.pump(const Duration(milliseconds: 300));
+
+    // Alt çubuktaki klasör seçimi süzülen klasörle gelir.
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate((w) => w is DropdownButtonFormField),
+        matching: find.text('Manav'),
+      ),
+      findsOneWidget,
+    );
+    await t.tap(find.text('1 görseli kütüphaneye ekle'));
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await t.pump(const Duration(milliseconds: 300));
+
+    expect(svc.added.single['name'], 'Zeytin');
+    expect(svc.added.single['folder'], 'f1');
+  });
+
+  testWidgets('Klasörler sayfası: ekler, kapatır, sürükleyerek sıralar', (
+    t,
+  ) async {
+    final svc = _FakeService(_sample());
+    await open(t, svc);
+    expect(svc.loads, 1);
+
+    await t.tap(find.text('Klasörler'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    expect(find.text('2 görsel · 1 yayında'), findsOneWidget);
+
+    // Boş ad engellenir.
+    await t.tap(find.text('Ekle'));
+    await t.pump();
+    expect(find.text('Klasör adı yaz'), findsOneWidget);
+    expect(svc.addedFolders, isEmpty);
+
+    await t.enterText(
+      find.widgetWithText(TextField, 'Yeni klasör adı'),
+      '  Hırdavat ',
+    );
+    await t.tap(find.text('Ekle'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    // Kırpılmış ad, en büyük sıranın bir fazlası.
+    expect(svc.addedFolders, ['Hırdavat#3']);
+    expect(find.text('Hırdavat'), findsOneWidget);
+
+    // Manav'ı kapat.
+    await t.tap(find.byType(Switch).first);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(svc.folderUpdates.single, {
+      'id': 'f1',
+      'name': null,
+      'active': false,
+    });
+    expect(find.text('2 görsel · kapalı, satıcılar görmez'), findsOneWidget);
+
+    // Manav'ı tutamağından en alta sürükle.
+    final g = await t.startGesture(
+      t.getCenter(find.byIcon(Icons.drag_indicator_rounded).first),
+    );
+    await t.pump(const Duration(milliseconds: 100));
+    for (var i = 0; i < 12; i++) {
+      await g.moveBy(const Offset(0, 25));
+      await t.pump(const Duration(milliseconds: 50));
+    }
+    await g.up();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    expect(svc.reordered.single, ['f2', 'nf1', 'f1']);
+
+    // Kapatınca değişiklik olduğu için liste tazelenir.
+    await t.tap(find.byTooltip('Kapat'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    expect(svc.loads, 2);
   });
 }

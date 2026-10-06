@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/mention_service.dart';
+import '../utils/image_url.dart';
 
 /// Mention desteği ile TextField
 /// @kullaniciadi yazınca otomatik tamamlama önerileri gösterir
@@ -194,7 +195,7 @@ class _MentionAutocompleteFieldState extends State<MentionAutocompleteField> {
                             CircleAvatar(
                               radius: 16,
                               backgroundImage: avatarUrl != null
-                                  ? NetworkImage(avatarUrl)
+                                  ? avatarImage(avatarUrl)
                                   : null,
                               child: avatarUrl == null
                                   ? const Icon(Icons.person, size: 16)

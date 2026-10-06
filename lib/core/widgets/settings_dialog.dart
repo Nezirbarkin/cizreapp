@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously, deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'app_version_label.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/theme_provider.dart';
@@ -392,6 +393,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       }
                     },
                   ),
+                  // Görev 3.8: sürüm, "Çıkış Yap"ın hemen altında.
+                  const SizedBox(height: 12),
+                  const AppVersionLabel(),
                 ],
               ),
             ),

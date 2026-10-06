@@ -91,6 +91,8 @@ typedef OkeyTableSnapshot = ({
   Map<int, String> barajs,
   ({int minPoints, int minPairs})? requiredOpening,
   bool canUndoSideDraw,
+  // Sunucunun okuma anındaki saati (göç 20260927000003); eski sunucuda null.
+  DateTime? serverNow,
 });
 
 /// Maç içi RPC/veri çağrıları için ince istemci katmanı. Gerçek doğrulama
@@ -310,6 +312,10 @@ class OkeyGameService {
           _ => null,
         },
         canUndoSideDraw: row['can_undo_side_draw'] == true,
+        serverNow: switch (row['server_now']) {
+          final String s => DateTime.tryParse(s),
+          _ => null,
+        },
       );
     } catch (e) {
       if (!_isMissingFunction(e)) rethrow;

@@ -54,6 +54,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     super.initState();
     _currentIndex = widget.initialIndex;
     _stories = List.from(widget.stories);
+    _fillMissingAuthors();
     _pageController = PageController(initialPage: _currentIndex);
     _animationController = AnimationController(
       vsync: this,
@@ -141,15 +142,38 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     }
   }
 
-  // Profil bilgilerini Story'den al (artık getStories ile birlikte geliyor)
-  Map<String, dynamic> get _currentUserProfile {
-    final story = _stories[_currentIndex];
-    return {
-      'id': story.userId,
-      'username': story.username,
-      'full_name': story.fullName,
-      'avatar_url': story.avatarUrl,
+  /// Yazar bilgisi olmadan gelen hikayelerin adını ve fotoğrafını TEK
+  /// sorguda tamamlar. Hikayeler normalde yazarıyla gelir
+  /// (StoryService.selectWithAuthor); bu, birleştirmeyi unutan bir ekran
+  /// yüzünden başlıkta yine "Kullanıcı" yazmasın diye güvencedir.
+  Future<void> _fillMissingAuthors() async {
+    final missing = {
+      for (final story in _stories)
+        if (story.isMissingAuthor) story.userId,
     };
+    if (missing.isEmpty) return;
+    try {
+      final authors = await _storyService.getAuthorProfiles(missing);
+      if (!mounted || authors.isEmpty) return;
+      setState(() {
+        final filled = StoryService.withAuthors(_stories, authors);
+        for (var i = 0; i < filled.length; i++) {
+          _stories[i] = filled[i];
+        }
+      });
+    } catch (e) {
+      debugPrint('Hikaye yazar bilgisi alınamadı: $e');
+    }
+  }
+
+  // Yazar bilgisi Story'den gelir (bkz. _fillMissingAuthors).
+  bool get _hasAuthorAvatar =>
+      _stories[_currentIndex].avatarUrl?.isNotEmpty ?? false;
+
+  String get _authorInitial {
+    final story = _stories[_currentIndex];
+    if (story.isMissingAuthor) return '?';
+    return story.authorDisplayName.characters.first.toUpperCase();
   }
 
   // Story görüntüleme kaydı yap (her story için sadece bir kez)
@@ -761,20 +785,20 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                     },
                     child: CircleAvatar(
                       radius: 18,
-                      backgroundImage: _currentUserProfile['avatar_url'] != null
-                          ? NetworkImage(_currentUserProfile['avatar_url'])
+                      backgroundImage: _hasAuthorAvatar
+                          ? NetworkImage(_stories[_currentIndex].avatarUrl!)
                           : null,
                       backgroundColor: Colors.white24,
-                      child: _currentUserProfile['avatar_url'] == null
-                          ? Text(
-                              (_currentUserProfile['username']?.toString() ?? '?').substring(0, 1).toUpperCase(),
+                      child: _hasAuthorAvatar
+                          ? null
+                          : Text(
+                              _authorInitial,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                               ),
-                            )
-                          : null,
+                            ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -783,7 +807,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        _currentUserProfile['full_name'] ?? _currentUserProfile['username'] ?? 'Kullanıcı',
+                        _stories[_currentIndex].authorDisplayName,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,

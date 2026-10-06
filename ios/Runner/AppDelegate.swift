@@ -37,7 +37,23 @@ import GoogleMaps
     Messaging.messaging().delegate = self
     
     GeneratedPluginRegistrant.register(with: self)
-    
+
+    // Canlı yayın sırasında ekran kararmasın (lib/core/services/screen_awake_service.dart).
+    if let registrar = self.registrar(forPlugin: "CizreScreenAwake") {
+      let screenAwake = FlutterMethodChannel(name: "cizreapp/screen_awake", binaryMessenger: registrar.messenger())
+      screenAwake.setMethodCallHandler { call, result in
+        if call.method == "setKeepOn" {
+          let on = (call.arguments as? Bool) ?? false
+          DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = on
+          }
+          result(nil)
+        } else {
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
+
     // Remote notification'a kayıt ol - APNs token almak için ZORUNLU
     // Bu çağrı olmadan iOS cihazına APNs token üretilmez ve FCM token alınamaz
     application.registerForRemoteNotifications()

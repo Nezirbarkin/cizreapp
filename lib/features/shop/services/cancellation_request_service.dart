@@ -374,6 +374,10 @@ class CancellationRequestService {
   ///   3) orders.status='cancelled', payment_status='refunded' (iade varsa)
   ///   4) restore_product_stock trigger (confirmed->cancelled)
   ///   5) müşteriye notification
+  ///
+  /// Teslim edilmiş (delivered) sipariş de iptal edilebilir: satıcı bakiyesi
+  /// update_shop_balance ile geri alınır, bekleyen seller_earnings/taslak fatura
+  /// iptal edilir, satıcıya bildirim gider. Stok ve kurye kazancı korunur.
   Future<CancellationRequest> adminCancelWithRefund({
     required String orderId,
     String reason = 'Admin tarafından iptal edildi',

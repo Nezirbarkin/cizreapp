@@ -18,7 +18,10 @@ abstract final class OkeyTeamStyle {
   /// yeşilden (hazır) bilerek ayrıdır: üçü aynı kartta yan yana durabilir.
   static const Color second = Color(0xFFC3A6F5);
 
-  static Color colorOf(int seatNo) => seatNo.isEven ? first : second;
+  /// Açık tasarımlarda pastel ton beyaz kartta okunmaz; [OkeyUI.signal]
+  /// aynı renk ailesini koyulaştırır.
+  static Color colorOf(int seatNo) =>
+      OkeyUI.signal(seatNo.isEven ? first : second);
   static String labelOf(int seatNo) => seatNo.isEven ? 'Takım 1' : 'Takım 2';
 }
 
@@ -251,7 +254,7 @@ class _SeatTile extends StatelessWidget {
     required this.onProfile,
   });
 
-  static const Color _readyGreen = Color(0xFFB9F6CA);
+  static Color get _readyGreen => OkeyUI.signal(const Color(0xFFB9F6CA));
 
   @override
   Widget build(BuildContext context) {
@@ -302,7 +305,7 @@ class _SeatTile extends StatelessWidget {
         if (empty)
           pickable
               ? const OkeyPill(text: 'OTUR', icon: Icons.event_seat)
-              : const Text('bekleniyor…', style: OkeyUI.caption)
+              : Text('bekleniyor…', style: OkeyUI.caption)
         else
           OkeyPill(
             text: ready ? 'Hazır' : 'Bekliyor',
@@ -337,7 +340,7 @@ class _SeatTile extends StatelessWidget {
 
     final card = Container(
       decoration: BoxDecoration(
-        color: empty ? const Color(0x0AFFFFFF) : OkeyUI.cardFill,
+        color: empty ? OkeyUI.wash : OkeyUI.cardFill,
         borderRadius: BorderRadius.circular(OkeyUI.radius),
         // Oturulabilir koltuğun kenarı KESİK ÇİZGİDİR (aşağıdaki painter);
         // düz kenar yalnızca oturulmuş / seçilemeyen koltukta çizilir.
@@ -401,9 +404,7 @@ class _EmptyChair extends StatelessWidget {
       height: 44,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: pickable
-            ? OkeyUI.brass.withValues(alpha: 0.12)
-            : const Color(0x0FFFFFFF),
+        color: pickable ? OkeyUI.brass.withValues(alpha: 0.12) : OkeyUI.wash,
         border: Border.all(
           color: pickable
               ? OkeyUI.brass.withValues(alpha: 0.6)
@@ -440,8 +441,11 @@ class _FeltPainter extends CustomPainter {
     canvas.drawRRect(
       felt,
       Paint()
-        ..shader = const RadialGradient(
-          colors: [Color(0xFF1E5C4F), Color(0xFF14322E)],
+        ..shader = RadialGradient(
+          colors: [
+            Color.lerp(OkeyUI.miniFelt, Colors.white, 0.08)!,
+            Color.lerp(OkeyUI.miniFelt, Colors.black, 0.45)!,
+          ],
         ).createShader(rect),
     );
     canvas.drawRRect(
@@ -466,13 +470,13 @@ class _FeltPainter extends CustomPainter {
     canvas.drawLine(
       Offset(cx, -gap),
       Offset(cx, size.height + gap),
-      line(OkeyTeamStyle.first),
+      line(OkeyTeamStyle.colorOf(0)),
     );
     // Takım 2: sol ↔ sağ.
     canvas.drawLine(
       Offset(-gap, cy),
       Offset(size.width + gap, cy),
-      line(OkeyTeamStyle.second),
+      line(OkeyTeamStyle.colorOf(1)),
     );
     // Kesişim noktası: çizgilerin "masanın ortasından geçtiği" yer.
     canvas.drawCircle(Offset(cx, cy), 4, Paint()..color = OkeyUI.brass);

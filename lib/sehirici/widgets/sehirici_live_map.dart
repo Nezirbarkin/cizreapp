@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/services/courier_stream_service.dart';
 import '../../core/services/location_disclosure_service.dart';
+import '../../core/services/user_distance_service.dart';
 import '../../core/theme/app_map_style.dart';
 import '../../core/utils/map_marker_icons.dart';
 import '../../core/widgets/map_controls.dart';
@@ -1635,12 +1636,16 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
   }
 
   /// 6 saniyelik kısa zaman limitiyle mevcut konumu almaya çalışır.
+  ///
+  /// Harita açılışında sessizce çağrılır (ana sayfadaki küçük Şehiriçi kartı
+  /// dahil): Android'de "Konum Doğruluğu" sistem penceresini açmayan ayarlar
+  /// kullanılır (bkz. [UserDistanceService.silentSettings]).
   Future<Position?> _tryGetCurrentFast() async {
     try {
       return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+        locationSettings: UserDistanceService.silentSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 6),
+          timeLimit: const Duration(seconds: 6),
         ),
       );
     } catch (_) {

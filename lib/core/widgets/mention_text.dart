@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../services/mention_service.dart';
+import '../utils/image_url.dart';
 
 /// @mention'ları highlight eden ve tıklanabilir yapan Text widget
 class MentionText extends StatelessWidget {
@@ -225,7 +226,7 @@ class _MentionAutocompleteState extends State<MentionAutocomplete> {
             onTap: () => _selectMention(username, user['id']),
             leading: CircleAvatar(
               backgroundImage: avatarUrl != null
-                  ? NetworkImage(avatarUrl)
+                  ? avatarImage(avatarUrl)
                   : const AssetImage('assets/default_avatar.png')
                       as ImageProvider,
               child: avatarUrl == null

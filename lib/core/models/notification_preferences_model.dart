@@ -11,6 +11,13 @@ class NotificationPreferences {
   final bool mentionsEnabled;
   final bool groupJoinRequestsEnabled;
   final bool groupMemberJoinedEnabled;
+
+  /// Sepetimdeki ürün indirime girince bildirim (Görev 3.3; varsayılan açık).
+  final bool cartPriceDropEnabled;
+
+  /// Takip ettiğim / abone olduğum mağaza canlı yayına başlayınca bildirim
+  /// (varsayılan açık).
+  final bool liveStreamsEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -27,6 +34,8 @@ class NotificationPreferences {
     required this.mentionsEnabled,
     this.groupJoinRequestsEnabled = true,
     this.groupMemberJoinedEnabled = true,
+    this.cartPriceDropEnabled = true,
+    this.liveStreamsEnabled = true,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -45,6 +54,8 @@ class NotificationPreferences {
       mentionsEnabled: json['mentions'] as bool? ?? true,
       groupJoinRequestsEnabled: json['group_join_requests_enabled'] as bool? ?? true,
       groupMemberJoinedEnabled: json['group_member_joined_enabled'] as bool? ?? true,
+      cartPriceDropEnabled: json['cart_price_drop_enabled'] as bool? ?? true,
+      liveStreamsEnabled: json['live_streams_enabled'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -64,6 +75,8 @@ class NotificationPreferences {
       'mentions_enabled': mentionsEnabled,
       'group_join_requests_enabled': groupJoinRequestsEnabled,
       'group_member_joined_enabled': groupMemberJoinedEnabled,
+      'cart_price_drop_enabled': cartPriceDropEnabled,
+      'live_streams_enabled': liveStreamsEnabled,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -82,6 +95,8 @@ class NotificationPreferences {
     bool? mentionsEnabled,
     bool? groupJoinRequestsEnabled,
     bool? groupMemberJoinedEnabled,
+    bool? cartPriceDropEnabled,
+    bool? liveStreamsEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -98,6 +113,8 @@ class NotificationPreferences {
       mentionsEnabled: mentionsEnabled ?? this.mentionsEnabled,
       groupJoinRequestsEnabled: groupJoinRequestsEnabled ?? this.groupJoinRequestsEnabled,
       groupMemberJoinedEnabled: groupMemberJoinedEnabled ?? this.groupMemberJoinedEnabled,
+      cartPriceDropEnabled: cartPriceDropEnabled ?? this.cartPriceDropEnabled,
+      liveStreamsEnabled: liveStreamsEnabled ?? this.liveStreamsEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

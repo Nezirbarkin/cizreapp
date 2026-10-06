@@ -13,8 +13,10 @@ import 'package:path/path.dart' as path;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../../../core/utils/app_error_handler.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../services/profile_background_service.dart';
 import '../services/profile_service.dart';
 import '../widgets/avatar_picker_sheet.dart';
+import '../widgets/profile_background_picker_sheet.dart';
 import '../widgets/immersive_crop_screen.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../../../core/services/permission_service.dart';
@@ -44,6 +46,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   /// Kullanici kendi fotografi yerine hazir avatar sectiyse asset yolu.
   String? _selectedPresetAvatar;
+
+  /// Kapak için seçilen hazır arka plan (kaydedilince uygulanır; dosya
+  /// kopyalanmaz, kapak paylaşılan görselin URL'si olur — Görev 2.7).
+  ProfileBackgroundPreset? _selectedBackground;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -292,9 +298,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
                 title: const Text('Hazır Avatar Seç'),
                 subtitle: Text(
-                  '${kCharacterAvatars.length} kız & erkek + '
-                  '${kAnimatedAvatars.length} hareketli + '
-                  '${kPresetAvatars.length} klasik avatar',
+                  '${kCharacterAvatars.length} Bitmoji karakter + '
+                  '${kAnimatedAvatars.length} hareketli avatar',
                 ),
                 onTap: () => Navigator.pop(sheetContext, 'preset'),
               ),
@@ -304,9 +309,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     backgroundColor: primaryColor.withValues(alpha: 0.12),
                     child: Icon(Icons.auto_awesome, color: primaryColor),
                   ),
-                  title: const Text('Yüzünden Avatar Oluştur'),
+                  title: const Text('Yüzünden Bitmoji Oluştur'),
                   subtitle: const Text(
-                    'Selfie çek, karikatür avatarını kendin özelleştir',
+                    'Selfie çek, sana benzeyen Bitmoji\'ni özelleştir',
                   ),
                   onTap: () => Navigator.pop(sheetContext, 'face'),
                 ),
@@ -328,7 +333,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  /// Selfie çekip yüz analiziyle karikatür avatar oluşturma akışını başlatır.
+  /// Selfie çekip yüz analiziyle kişiye benzeyen Bitmoji oluşturma akışını başlatır.
   Future<void> _startFaceAvatarFlow() async {
     try {
       final permissionService = PermissionService();
@@ -477,6 +482,83 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  /// Kapak için kaynak seçimi: galeriden yükle ya da hazır arka plan seç.
+  Future<void> _showCoverSourceSheet() async {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(sheetContext).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Kapak Fotoğrafı',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withValues(alpha: 0.12),
+                  child: Icon(Icons.photo_library, color: primaryColor),
+                ),
+                title: const Text('Galeriden Seç'),
+                subtitle: const Text('Kendi fotoğrafını yükle ve kırp'),
+                onTap: () => Navigator.pop(sheetContext, 'gallery'),
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withValues(alpha: 0.12),
+                  child: Icon(Icons.wallpaper_outlined, color: primaryColor),
+                ),
+                title: const Text('Hazır Arka Plan Seç'),
+                subtitle: const Text('50 kaliteli arka plan: gün batımı, dağlar, mermer…'),
+                onTap: () => Navigator.pop(sheetContext, 'preset'),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || choice == null) return;
+    if (choice == 'gallery') {
+      await _pickAndCropCover();
+    } else if (choice == 'preset') {
+      await _pickPresetBackground();
+    }
+  }
+
+  /// Hazır arka plan seçimi: kaydedince kapak o görselin URL'si olur.
+  Future<void> _pickPresetBackground() async {
+    final preset = await showProfileBackgroundPicker(
+      context,
+      selectedUrl: _selectedBackground?.imageUrl ?? _currentCoverUrl,
+    );
+    if (!mounted || preset == null) return;
+    setState(() {
+      _selectedBackground = preset;
+      // Galeriden seçilmiş bekleyen kapak varsa iptal edilir.
+      _coverXFile = null;
+      _coverBytes = null;
+    });
+  }
+
   Future<void> _pickAndCropCover() async {
     try {
       if (!kIsWeb) {
@@ -512,6 +594,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       setState(() {
         _coverXFile = XFile.fromData(croppedBytes, name: 'cover.jpg', mimeType: 'image/jpeg');
         _coverBytes = croppedBytes;
+        _selectedBackground = null;
       });
     } catch (e) {
       debugPrint('Kapak kırpma hatası: $e');
@@ -581,8 +664,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       }
 
+      // Hazır arka plan seçildiyse kapak doğrudan onun URL'si olur.
+      if (_selectedBackground != null) {
+        final preset = _selectedBackground!;
+        try {
+          await ProfileBackgroundService().applyAsCover(preset);
+          newCoverUrl = preset.imageUrl;
+          setState(() {
+            _currentCoverUrl = preset.imageUrl;
+            _selectedBackground = null;
+          });
+        } catch (e) {
+          debugPrint('❌ Hazır arka plan uygulanamadı: $e');
+          uploadError = uploadError == 'avatar' ? 'both' : 'cover';
+        }
+      }
       // Kapak fotoğrafı yükle (XFile ile - Web ve Mobile uyumlu)
-      if (_coverXFile != null) {
+      else if (_coverXFile != null) {
         debugPrint('📤 Kapak yükleniyor (XFile)...');
         newCoverUrl = await _profileService.uploadCoverPhotoXFile(_coverXFile!);
         debugPrint('📤 Upload result: $newCoverUrl');
@@ -855,7 +953,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           height: 180,
           decoration: BoxDecoration(
             gradient:
-                _coverBytes == null &&
+                _selectedBackground == null &&
+                    _coverBytes == null &&
                     (_coverXFile == null || kIsWeb) &&
                     (_currentCoverUrl == null || _currentCoverUrl!.isEmpty)
                 ? LinearGradient(
@@ -875,7 +974,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: _coverBytes != null
+            child: _selectedBackground != null
+                ? CachedNetworkImage(
+                    memCacheWidth: 1000,
+                    imageUrl: _selectedBackground!.imageUrl,
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                  )
+                : _coverBytes != null
                 ? Image.memory(
                     _coverBytes!,
                     width: double.infinity,
@@ -932,7 +1039,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             color: Colors.black.withValues(alpha: 0.4),
             shape: const CircleBorder(),
             child: InkWell(
-              onTap: _pickAndCropCover,
+              onTap: _showCoverSourceSheet,
               customBorder: const CircleBorder(),
               child: const Padding(
                 padding: EdgeInsets.all(9),
@@ -941,6 +1048,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ),
         ),
+
+        // Hazır arka plan göstergesi (kaydedilince uygulanır)
+        if (_selectedBackground != null)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: primaryColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wallpaper_outlined, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    _selectedBackground!.name,
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
         // Kırpma önizleme göstergesi
         if (_coverBytes != null)

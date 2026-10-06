@@ -8,6 +8,9 @@ import '../models/chat_presence.dart';
 import '../services/presence_service.dart';
 import '../services/user_presence_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../social/models/follow_suggestion.dart' show FollowStatus;
+import '../../social/services/follow_service.dart';
+import '../../../core/utils/image_url.dart';
 
 class MembersScreen extends StatefulWidget {
   const MembersScreen({super.key});
@@ -22,6 +25,9 @@ class _MembersScreenState extends State<MembersScreen> {
   bool _isLoading = true;
   String _searchQuery = '';
   Set<String> _followingIds = {};
+  // Gizli hesaplara gönderilmiş, onay bekleyen takip istekleri.
+  Set<String> _requestedIds = {};
+  final FollowService _followService = FollowService();
   Map<String, bool> _isLoadingFollow = {};
   // Canlı çevrimiçi kullanıcı id'leri (presence). chat_list_screen ile aynı desen.
   Set<String> _onlineIds = <String>{};
@@ -81,6 +87,12 @@ class _MembersScreenState extends State<MembersScreen> {
       for (var f in followingResponse) {
         followingIds.add(f['following_id'] as String);
       }
+      Set<String> requestedIds = const {};
+      try {
+        requestedIds = await _followService.pendingRequestIds();
+      } catch (e) {
+        debugPrint('Bekleyen takip istekleri alınamadı: $e');
+      }
 
       final users = (response as List).cast<Map<String, dynamic>>();
 
@@ -108,6 +120,7 @@ class _MembersScreenState extends State<MembersScreen> {
         setState(() {
           _allUsers = users;
           _followingIds = followingIds;
+          _requestedIds = requestedIds;
           _filteredUsers = users;
           _isLoading = false;
         });
@@ -147,37 +160,32 @@ class _MembersScreenState extends State<MembersScreen> {
     });
   }
 
+  /// Takip / takibi bırak. Tek RPC (social_follow): açık hesabı takip eder,
+  /// gizli hesaba istek gönderir; bırakınca bekleyen isteği de geri alır.
+  /// [isFollowing] = takip ediliyor YA DA istek bekliyor (düğme geri alır).
   Future<void> _toggleFollow(String userId, bool isFollowing) async {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null) return;
+    if (_followService.currentUserId == null) return;
 
     setState(() => _isLoadingFollow[userId] = true);
 
     try {
-      if (isFollowing) {
-        // Takipten çıkar
-        await Supabase.instance.client
-            .from('follows')
-            .delete()
-            .eq('follower_id', currentUserId)
-            .eq('following_id', userId);
-      } else {
-        // Takip et
-        await Supabase.instance.client.from('follows').insert({
-          'follower_id': currentUserId,
-          'following_id': userId,
-        });
-      }
+      final result = isFollowing
+          ? await _followService.unfollow(userId)
+          : await _followService.follow(userId);
 
       if (mounted) {
         setState(() {
-          if (isFollowing) {
-            _followingIds.remove(userId);
-          } else {
-            _followingIds.add(userId);
-          }
+          _followingIds.remove(userId);
+          _requestedIds.remove(userId);
+          if (result.status == FollowStatus.following) _followingIds.add(userId);
+          if (result.status == FollowStatus.requested) _requestedIds.add(userId);
           _isLoadingFollow[userId] = false;
         });
+        if (!isFollowing && result.status == FollowStatus.requested) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Gizli hesap: takip isteği gönderildi')),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Takip hatası: $e');
@@ -185,7 +193,9 @@ class _MembersScreenState extends State<MembersScreen> {
         setState(() => _isLoadingFollow[userId] = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isFollowing ? 'Takipten çıkarılamadı' : 'Takip edilemedi'),
+            content: Text(
+              isFollowing ? 'Takipten çıkarılamadı' : FollowService.toException(e).message,
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -336,7 +346,7 @@ class _MembersScreenState extends State<MembersScreen> {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.deepPurple[100],
-                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? avatarImage(avatarUrl) : null,
                   child: avatarUrl == null || avatarUrl.isEmpty
                       ? Text(
                           fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
@@ -420,19 +430,39 @@ class _MembersScreenState extends State<MembersScreen> {
             ),
             const SizedBox(width: 8),
             // Takip et / Takipte butonu (Instagram tarzı)
-            _buildFollowButton(userId, isFollowing, isFollowLoading),
+            _buildFollowButton(userId, isFollowing, isFollowLoading, requested: _requestedIds.contains(userId)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFollowButton(String userId, bool isFollowing, bool isLoading) {
+  Widget _buildFollowButton(String userId, bool isFollowing, bool isLoading, {bool requested = false}) {
     if (isLoading) {
       return const SizedBox(
         width: 24,
         height: 24,
         child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    if (requested && !isFollowing) {
+      // Gizli hesaba istek gönderildi — dokununca istek geri alınır
+      return OutlinedButton(
+        onPressed: () => _toggleFollow(userId, true),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.grey[700],
+          side: BorderSide(color: Colors.grey[300]!),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          minimumSize: const Size(90, 32),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: const Text(
+          'İstek Gönderildi',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
       );
     }
 

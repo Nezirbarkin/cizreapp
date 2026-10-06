@@ -540,6 +540,12 @@ def finish(a):
 
 
 def main():
+    import sys
+    # Gorev 2.6 (2026-09-28): klasik duz illustrasyon seti (avatar_01-20) uygulamadan KALDIRILDI (secicide yok,
+    # dosyalar silindi). Yanlislikla calistirilip dosyalari geri getirmesin.
+    if "--kaldirilan-seti-uret" not in sys.argv:
+        sys.exit("Bu set uygulamadan kaldirildi (Gorev 2.6); yine de uretmek icin "
+                 "--kaldirilan-seti-uret verin.")
     os.makedirs(OUT_DIR, exist_ok=True)
     total = 0
     for i, spec in enumerate(AVATARS, start=1):

@@ -299,102 +299,104 @@ class _OkeyMatchResultScreenState extends State<OkeyMatchResultScreen> {
     final ranked = _rankedSeats;
     final seats = widget.seats;
 
-    return Scaffold(
-      backgroundColor: OkeyColors.screenBackground,
-      body: Container(
-        decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(14, 18, 14, 8),
-                  children: [
-                    _Header(
-                      iWon: _iWon,
-                      title: _outcome.title,
-                      detail: _outcome.detail,
-                      tie: _outcome.tie,
-                    ),
-                    if (_isTeams) ...[
-                      const SizedBox(height: OkeyUI.gapLg),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _TeamCard(
-                              title: 'Takım 1',
-                              subtitle: '1. + 3. koltuk',
-                              score: _teamA,
-                              won: _teamA <= _teamB,
-                              mine: mySeat == 0 || mySeat == 2,
-                            ),
-                          ),
-                          const SizedBox(width: OkeyUI.gapSm),
-                          Expanded(
-                            child: _TeamCard(
-                              title: 'Takım 2',
-                              subtitle: '2. + 4. koltuk',
-                              score: _teamB,
-                              won: _teamB < _teamA,
-                              mine: mySeat == 1 || mySeat == 3,
-                            ),
-                          ),
-                        ],
+    return OkeyThemed(
+      child: Scaffold(
+        backgroundColor: OkeyUI.screenTop,
+        body: OkeyDesignBackground(
+          child: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(14, 18, 14, 8),
+                    children: [
+                      _Header(
+                        iWon: _iWon,
+                        title: _outcome.title,
+                        detail: _outcome.detail,
+                        tie: _outcome.tie,
                       ),
-                    ],
-                    const OkeySectionHeader(label: 'Sıralama'),
-                    for (var i = 0; i < ranked.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: _PlayerRow(
-                          rank: i + 1,
-                          seat: seats.length > ranked[i]
-                              ? seats[ranked[i]]
-                              : null,
-                          seatNo: ranked[i],
-                          score: scores[ranked[i]] ?? 0,
-                          isMe: ranked[i] == mySeat,
-                          payout: _payouts[ranked[i]],
+                      if (_isTeams) ...[
+                        const SizedBox(height: OkeyUI.gapLg),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _TeamCard(
+                                title: 'Takım 1',
+                                subtitle: '1. + 3. koltuk',
+                                score: _teamA,
+                                won: _teamA <= _teamB,
+                                mine: mySeat == 0 || mySeat == 2,
+                              ),
+                            ),
+                            const SizedBox(width: OkeyUI.gapSm),
+                            Expanded(
+                              child: _TeamCard(
+                                title: 'Takım 2',
+                                subtitle: '2. + 4. koltuk',
+                                score: _teamB,
+                                won: _teamB < _teamA,
+                                mine: mySeat == 1 || mySeat == 3,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                  ],
+                      ],
+                      const OkeySectionHeader(label: 'Sıralama'),
+                      for (var i = 0; i < ranked.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: _PlayerRow(
+                            rank: i + 1,
+                            seat: seats.length > ranked[i]
+                                ? seats[ranked[i]]
+                                : null,
+                            seatNo: ranked[i],
+                            score: scores[ranked[i]] ?? 0,
+                            isMe: ranked[i] == mySeat,
+                            payout: _payouts[ranked[i]],
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              // AKSİYONLAR — oyuncu nereye gideceğine KENDİSİ karar verir.
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OkeyButton(
-                        label: 'Lobiye dön',
-                        icon: Icons.list,
-                        tone: OkeyButtonTone.ghost,
-                        onPressed: widget.onLeave,
-                      ),
-                    ),
-                    if (widget.onRematch != null && widget.roomId != null) ...[
-                      const SizedBox(width: OkeyUI.gapSm),
+                // AKSİYONLAR — oyuncu nereye gideceğine KENDİSİ karar verir.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                  child: Row(
+                    children: [
                       Expanded(
-                        flex: 2,
                         child: OkeyButton(
-                          // BİRİ ZATEN KURDUYSA davet gibi okunur: "yeniden
-                          // oyna" yazsaydı ikinci oyuncu ikinci bir masa
-                          // açtığını sanırdı (oysa aynı odaya katılıyor).
-                          label: _rematch == null
-                              ? 'Aynı masayla yeniden oyna'
-                              : 'Masaya katıl (${_rematch!.seated}/4)',
-                          icon: _rematch == null ? Icons.replay : Icons.login,
-                          tone: OkeyButtonTone.primary,
-                          busy: _rematchBusy,
-                          onPressed: _rematchBusy ? null : _rematchPressed,
+                          label: 'Lobiye dön',
+                          icon: Icons.list,
+                          tone: OkeyButtonTone.ghost,
+                          onPressed: widget.onLeave,
                         ),
                       ),
+                      if (widget.onRematch != null &&
+                          widget.roomId != null) ...[
+                        const SizedBox(width: OkeyUI.gapSm),
+                        Expanded(
+                          flex: 2,
+                          child: OkeyButton(
+                            // BİRİ ZATEN KURDUYSA davet gibi okunur: "yeniden
+                            // oyna" yazsaydı ikinci oyuncu ikinci bir masa
+                            // açtığını sanırdı (oysa aynı odaya katılıyor).
+                            label: _rematch == null
+                                ? 'Aynı masayla yeniden oyna'
+                                : 'Masaya katıl (${_rematch!.seated}/4)',
+                            icon: _rematch == null ? Icons.replay : Icons.login,
+                            tone: OkeyButtonTone.primary,
+                            busy: _rematchBusy,
+                            onPressed: _rematchBusy ? null : _rematchPressed,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -428,7 +430,7 @@ class _Header extends StatelessWidget {
           ? Icons.balance
           : (iWon ? Icons.emoji_events : Icons.emoji_events_outlined),
       size: 46,
-      color: iWon ? OkeyUI.brass : OkeyUI.textFaint,
+      color: iWon ? OkeyUI.accentInk : OkeyUI.textFaint,
     );
 
     return Column(
@@ -462,7 +464,7 @@ class _Header extends StatelessWidget {
             maxLines: 1,
             style: OkeyUI.display(
               size: 28,
-              color: iWon ? OkeyUI.brass : OkeyUI.text,
+              color: iWon ? OkeyUI.accentInk : OkeyUI.text,
             ).copyWith(letterSpacing: 0.5),
           ),
         ).animate().fadeIn(delay: 200.ms, duration: 300.ms),
@@ -478,7 +480,7 @@ class _Header extends StatelessWidget {
           style: OkeyUI.caption,
         ),
         const SizedBox(height: 2),
-        const Text(
+        Text(
           'en düşük ceza kazanır',
           textAlign: TextAlign.center,
           maxLines: 1,
@@ -541,7 +543,7 @@ class _TeamCard extends StatelessWidget {
                 '$score',
                 maxLines: 1,
                 style: TextStyle(
-                  color: won ? OkeyUI.brass : OkeyUI.text,
+                  color: won ? OkeyUI.accentInk : OkeyUI.text,
                   fontSize: 26,
                   height: 1.1,
                   fontWeight: FontWeight.w900,
@@ -576,8 +578,8 @@ class _PlayerRow extends StatelessWidget {
 
   Color get _rankColor => switch (rank) {
     1 => OkeyUI.brass,
-    2 => const Color(0xFFB0BEC5),
-    3 => const Color(0xFFA1887F),
+    2 => OkeyUI.signal(const Color(0xFFB0BEC5)),
+    3 => OkeyUI.signal(const Color(0xFFA1887F)),
     _ => OkeyUI.textFaint,
   };
 
@@ -631,7 +633,7 @@ class _PlayerRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: OkeyUI.title.copyWith(
-                    color: isMe ? OkeyUI.brass : OkeyUI.text,
+                    color: isMe ? OkeyUI.accentInk : OkeyUI.text,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -664,7 +666,7 @@ class _PlayerRow extends StatelessWidget {
                 '$score',
                 maxLines: 1,
                 style: TextStyle(
-                  color: rank == 1 ? OkeyUI.brass : OkeyUI.textDim,
+                  color: rank == 1 ? OkeyUI.accentInk : OkeyUI.textDim,
                   fontWeight: FontWeight.w900,
                   fontSize: 20,
                 ),
@@ -739,7 +741,9 @@ class _PayoutLine extends StatelessWidget {
           Text(
             '+${_fmt(payout.refund)} masa iadesi',
             maxLines: 1,
-            style: OkeyUI.caption.copyWith(color: const Color(0xFFB9F6CA)),
+            style: OkeyUI.caption.copyWith(
+              color: OkeyUI.signal(const Color(0xFFB9F6CA)),
+            ),
           ),
           if (won) const SizedBox(width: 6),
         ],
@@ -747,13 +751,13 @@ class _PayoutLine extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.stars, size: 12, color: OkeyUI.brass),
+              Icon(Icons.stars, size: 12, color: OkeyUI.accentInk),
               const SizedBox(width: 3),
               Text(
                 '+${_fmt(payout.won)} kazandı',
                 maxLines: 1,
                 style: OkeyUI.caption.copyWith(
-                  color: OkeyUI.brass,
+                  color: OkeyUI.accentInk,
                   fontWeight: FontWeight.w800,
                 ),
               ),

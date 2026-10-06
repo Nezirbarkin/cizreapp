@@ -8,6 +8,7 @@ import '../utils/image_url.dart';
 import 'text_background.dart';
 import '../../features/social/services/story_service.dart';
 import '../../sehirici/widgets/sehirici_story_card.dart';
+import '../../features/market/widgets/live_home_card.dart';
 import '../services/app_customization_prefs.dart';
 
 class StoryModel {
@@ -252,6 +253,13 @@ class _StoriesSectionState extends State<StoriesSection> {
   /// Şehiriçi kartı gizliyken listedeki kaydırma miktarı (0), görünürken (1).
   int get _sehiriciOffset => _hideSehirici ? 0 : 1;
 
+  /// Şehiriçi'nin hemen sağındaki canlı yayın kartının indeksi. Kart verisi
+  /// yoksa kendini 0 genişlikte çizer; satırdaki yeri hep ayrılır.
+  int get _liveCardIndex => _sehiriciOffset;
+
+  /// Hikâyelerden önceki sabit kart sayısı (Şehiriçi + canlı yayın).
+  int get _leadingCards => _sehiriciOffset + 1;
+
   @override
   void initState() {
     super.initState();
@@ -417,15 +425,19 @@ class _StoriesSectionState extends State<StoriesSection> {
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _stories.length + _sehiriciOffset, // +1 for Şehiriçi card
+          itemCount: _stories.length + _leadingCards, // Şehiriçi + canlı yayın kartı
           itemBuilder: (context, index) {
             // İlk öğe Şehiriçi kartı (gizlenmediyse)
             if (!_hideSehirici && index == 0) {
               return const SehiriciStoryCard();
             }
+            // Hemen yanında canlı yayın kartı (yayın yoksa yer kaplamaz)
+            if (index == _liveCardIndex) {
+              return const LiveHomeStoryCard();
+            }
 
-            // Diğer öğeler story'ler (Şehiriçi kaydırmasını çıkar)
-            final storyIndex = index - _sehiriciOffset;
+            // Diğer öğeler story'ler (sabit kartların kaydırmasını çıkar)
+            final storyIndex = index - _leadingCards;
             final story = _stories[storyIndex];
             final username = _usernames[story.userId] ?? 'Bilinmiyor';
             
@@ -592,7 +604,7 @@ class _StoriesSectionState extends State<StoriesSection> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _stories.length + _sehiriciOffset, // +1 for Şehiriçi
+              itemCount: _stories.length + _leadingCards, // Şehiriçi + canlı yayın kartı
               itemBuilder: (context, index) {
                 // İlk öğe Şehiriçi kartı (gizlenmediyse, full mode özel widget)
                 if (!_hideSehirici && index == 0) {
@@ -604,9 +616,13 @@ class _StoriesSectionState extends State<StoriesSection> {
                     ),
                   );
                 }
+                // Hemen yanında canlı yayın kartı (yayın yoksa yer kaplamaz)
+                if (index == _liveCardIndex) {
+                  return LiveHomeStoryCard(compact: false, width: cardWidth);
+                }
 
-                // Diğer öğeler story'ler (Şehiriçi kaydırmasını çıkar)
-                final storyIndex = index - _sehiriciOffset;
+                // Diğer öğeler story'ler (sabit kartların kaydırmasını çıkar)
+                final storyIndex = index - _leadingCards;
                 final story = _stories[storyIndex];
                 final username = _usernames[story.userId] ?? 'Bilinmiyor';
                 final avatarUrl = _userAvatars[story.userId];

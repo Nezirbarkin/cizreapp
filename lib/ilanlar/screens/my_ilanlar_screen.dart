@@ -72,6 +72,52 @@ class _MyIlanlarScreenState extends State<MyIlanlarScreen>
     });
   }
 
+  /// Süreyi uzat / yeniden yayınla (Görev 3.9).
+  Future<void> _extend(Ilan ilan) async {
+    final expired = IlanUi.isExpired(ilan);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(expired ? 'Yeniden yayınla' : 'Süreyi uzat'),
+        content: Text(
+          expired
+              ? '"${ilan.title}" yeniden yayına alınsın mı?'
+              : '"${ilan.title}" ilanının süresi uzatılsın mı?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(expired ? 'Yayınla' : 'Uzat'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final until = await _service.extendMyIlan(ilan.id);
+      if (!mounted) return;
+      _refresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            until == null
+                ? 'İlan yeniden yayında.'
+                : 'İlan ${IlanUi.longDate(until)} tarihine kadar yayında.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(IlanUi.friendlyError(error))));
+    }
+  }
+
   Future<void> _confirmAndDelete(Ilan ilan) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -157,11 +203,14 @@ class _MyIlanlarScreenState extends State<MyIlanlarScreen>
                               ? all
                               : all
                                     .where(
-                                      (ilan) => tab.$2.contains(ilan.status),
+                                      (ilan) => tab.$2.contains(
+                                        IlanUi.effectiveStatus(ilan),
+                                      ),
                                     )
                                     .toList(),
                           onRefresh: () async => _refresh(),
                           onDelete: _confirmAndDelete,
+                          onExtend: _extend,
                         ),
                       )
                       .toList(),
@@ -190,11 +239,13 @@ class _IlanGroupList extends StatelessWidget {
     required this.ilanlar,
     required this.onRefresh,
     required this.onDelete,
+    required this.onExtend,
   });
 
   final List<Ilan> ilanlar;
   final Future<void> Function() onRefresh;
   final void Function(Ilan ilan) onDelete;
+  final void Function(Ilan ilan) onExtend;
 
   @override
   Widget build(BuildContext context) {
@@ -230,7 +281,8 @@ class _IlanGroupList extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 310,
-          mainAxisExtent: 324,
+          // Süreyi Uzat düğmesi için yer (Görev 3.9).
+          mainAxisExtent: 364,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
         ),
@@ -241,6 +293,7 @@ class _IlanGroupList extends StatelessWidget {
             ilan: ilan,
             showStatusBadge: true,
             onDelete: () => onDelete(ilan),
+            onExtend: () => onExtend(ilan),
             onTap: () async {
               final deleted = await Navigator.push<bool>(
                 context,

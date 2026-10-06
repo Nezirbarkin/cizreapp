@@ -369,6 +369,12 @@ def _save_gif(path, frames):
 
 
 def main():
+    import sys
+    # Gorev 2.6 (2026-09-28): geometrik hareketli set (avatar_anim_01-55) uygulamadan KALDIRILDI (secicide yok,
+    # dosyalar silindi). Yanlislikla calistirilip dosyalari geri getirmesin.
+    if "--kaldirilan-seti-uret" not in sys.argv:
+        sys.exit("Bu set uygulamadan kaldirildi (Gorev 2.6); yine de uretmek icin "
+                 "--kaldirilan-seti-uret verin.")
     os.makedirs(OUT_DIR, exist_ok=True)
     total = 0
     index = 0

@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/news_model.dart';
 import '../services/news_service.dart';
+import '../../../core/utils/image_url.dart';
 
 /// Haber Detay Ekranı
 class NewsDetailScreen extends StatefulWidget {
@@ -699,7 +700,7 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
                   radius: 16,
                   backgroundColor: Colors.grey[300],
                   backgroundImage: comment.userAvatarUrl != null
-                      ? NetworkImage(comment.userAvatarUrl!)
+                      ? avatarImage(comment.userAvatarUrl!)
                       : null,
                   child: comment.userAvatarUrl == null
                       ? Text(comment.userName[0].toUpperCase())

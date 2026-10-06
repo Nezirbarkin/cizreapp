@@ -184,6 +184,7 @@ class FlashSaleService {
         })
         .select('*, products!inner(id, name, image_url), shops!inner(id, name)')
         .single();
+    ActiveFlashSaleCache.instance.invalidate();
     return FlashSale.fromJson(response);
   }
 
@@ -192,10 +193,83 @@ class FlashSaleService {
     await _supabase
         .from('flash_sales')
         .update({'is_active': false}).eq('id', saleId);
+    ActiveFlashSaleCache.instance.invalidate();
   }
 
   /// Satıcı: flash sale sil.
   Future<void> deleteFlashSale(String saleId) async {
     await _supabase.from('flash_sales').delete().eq('id', saleId);
+    ActiveFlashSaleCache.instance.invalidate();
+  }
+}
+
+/// Ürün kartlarının "bu üründe aktif flaş satış var mı?" sorusu için ortak
+/// önbellek.
+///
+/// Eskiden her kart (fiyat satırı + rozet) `build` içinde ürün başına ayrı
+/// sorgu atıyordu: kart her yeniden çizildiğinde (kaydırma, favori, sepet)
+/// iki istek daha gidiyordu — canlıda en çok çağrılan sorgu buydu (~916 bin).
+/// Artık tüm aktif flaş satışlar TEK istekle çekilir ve [ttl] boyunca
+/// paylaşılır; aynı anda gelen yenileme istekleri tek isteğe iner.
+///
+/// Sepete ekleme/talep akışı bunu KULLANMAZ: orada
+/// [FlashSaleService.getActiveFlashSaleForProduct] ile taze veri okunur.
+class ActiveFlashSaleCache {
+  ActiveFlashSaleCache._();
+
+  static final ActiveFlashSaleCache instance = ActiveFlashSaleCache._();
+
+  static const Duration ttl = Duration(seconds: 60);
+
+  /// Hata sonrası yeniden denemeden önce beklenecek süre (ağ yokken her
+  /// kart çiziminde istek atılmasın).
+  static const Duration _retryAfterError = Duration(seconds: 15);
+
+  /// product_id → o ürünün en erken biten aktif flaş satışı (ürün başına
+  /// sorgunun `order(end_at).limit(1)` sonucuyla aynı seçim).
+  final ValueNotifier<Map<String, FlashSale>> byProduct =
+      ValueNotifier<Map<String, FlashSale>>(const <String, FlashSale>{});
+
+  DateTime? _nextRefreshAt;
+  Future<void>? _inFlight;
+
+  /// Önbellek bayatsa arka planda yeniler; tazeyse ya da istek sürüyorsa
+  /// hiçbir şey yapmaz. `build` içinden çağrılması güvenlidir.
+  void ensureFresh() {
+    if (_inFlight != null) return;
+    final next = _nextRefreshAt;
+    if (next != null && DateTime.now().isBefore(next)) return;
+    _inFlight = _load().whenComplete(() => _inFlight = null);
+  }
+
+  Future<void> _load() async {
+    try {
+      final sales = await FlashSaleService().getActiveFlashSales(limit: 500);
+      final map = <String, FlashSale>{};
+      for (final sale in sales) {
+        // Liste end_at'e göre artan sıralı: ilk gelen en erken biteni.
+        map.putIfAbsent(sale.productId, () => sale);
+      }
+      _nextRefreshAt = DateTime.now().add(ttl);
+      byProduct.value = map;
+    } catch (e) {
+      debugPrint('ActiveFlashSaleCache load error: $e');
+      _nextRefreshAt = DateTime.now().add(_retryAfterError);
+    }
+  }
+
+  /// Ürünün şu an geçerli flaş satışı (yoksa null). Yüklemeden sonra süresi
+  /// dolan ya da henüz başlamamış kampanya gösterilmez.
+  FlashSale? activeFor(String productId) {
+    final sale = byProduct.value[productId];
+    if (sale == null) return null;
+    final now = DateTime.now();
+    if (now.isBefore(sale.startAt) || now.isAfter(sale.endAt)) return null;
+    return sale;
+  }
+
+  /// Bir sonraki [ensureFresh] çağrısında yeniden çekilmesini sağlar.
+  void invalidate() {
+    _nextRefreshAt = null;
   }
 }

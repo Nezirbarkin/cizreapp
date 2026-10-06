@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -19,6 +21,11 @@ import '../services/story_service.dart';
 import '../services/post_report_service.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
+import '../../../core/models/live_shopping_model.dart';
+import '../../market/screens/live_host_screen.dart';
+import '../../market/screens/live_viewer_screen.dart';
+import '../../market/services/live_shopping_service.dart';
+import '../../market/widgets/live_stream_widgets.dart' show kLiveRed, LiveShopAvatar;
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 import 'story_viewers_screen.dart';
@@ -30,6 +37,7 @@ import '../widgets/instagram_story_creator.dart';
 import '../widgets/social_balance_badge.dart';
 import '../widgets/social_post_card.dart';
 import '../../music/music.dart';
+import '../../../kullaniciozellikler/services/profile_feature_service.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key});
@@ -53,6 +61,12 @@ class _SocialScreenState extends State<SocialScreen> {
   List<Post> _posts = [];
   List<Story> _stories = [];
   List<Story> _userStories = []; // Kullanıcının kendi hikayeleri
+
+  /// Hikaye şeridinin başında gösterilen şu an canlı yayınlar (kullanıcı ve
+  /// mağaza; gizlilik sunucuda süzülür). Dakikada bir tazelenir.
+  final LiveShoppingService _liveService = LiveShoppingService();
+  List<LiveSession> _liveSessions = [];
+  Timer? _liveTimer;
   Map<String, bool> _likedPosts = {};
   Map<String, Map<String, dynamic>> _userProfiles = {}; // user_id -> profile
   Map<String, dynamic>? _currentUserProfile; // Mevcut kullanıcı profili
@@ -87,6 +101,7 @@ class _SocialScreenState extends State<SocialScreen> {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _loadData();
+    _liveTimer = Timer.periodic(const Duration(minutes: 1), (_) => _loadLive());
 
     // ⚡ iOS PERFORMANCE: Bildirim sayısını paralel yükle
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -96,8 +111,39 @@ class _SocialScreenState extends State<SocialScreen> {
 
   @override
   void dispose() {
+    _liveTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Şu an canlı yayınlar (kendi yayınım hariç). Hata sessiz: şerit eski
+  /// listeyle kalır.
+  Future<void> _loadLive() async {
+    try {
+      final feed = await _liveService.fetchFeed(limit: 20);
+      if (!mounted) return;
+      final me = _liveService.currentUserId;
+      setState(() => _liveSessions = feed.live.where((s) => s.hostUserId != me).toList());
+    } catch (e) {
+      debugPrint('Sosyal canlı yayın şeridi: $e');
+    }
+  }
+
+  void _openLive(LiveSession session) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LiveViewerScreen(session: session)),
+    ).then((_) => _loadLive());
+  }
+
+  /// Hikaye oluşturucudaki "Canlı": sayfayı kapatıp yayıncı ekranını açar.
+  void _goLive(BuildContext sheetContext) {
+    Navigator.pop(sheetContext);
+    final name = _currentUserProfile?['username']?.toString() ?? '';
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LiveHostScreen(shopName: name)),
+    ).then((_) => _loadLive());
   }
 
   void _onScroll() {
@@ -117,6 +163,7 @@ class _SocialScreenState extends State<SocialScreen> {
     });
     _currentPage = 0;
     _hasMore = true;
+    unawaited(_loadLive());
 
     // Önceki cache'leri temizle - stale data sorununu önlemek için
     _posts.clear();
@@ -130,6 +177,11 @@ class _SocialScreenState extends State<SocialScreen> {
         return;
       }
       if (_isGuest && mounted) setState(() => _isGuest = false);
+
+      // Kaydedilenler akıştan bağımsız: akışla AYNI ANDA başlar (eskiden
+      // akış geldikten sonra ayrı bir ağ turu bekleniyordu). Hatayı kendi
+      // yutar; ilk çizimden önce aşağıda beklenir.
+      final savedPostsLoad = _loadSavedPosts();
 
       // ⚡ iOS PERFORMANCE: Feed, stories ve userStories'yi PARALEL yükle
       final results = await Future.wait([
@@ -157,8 +209,13 @@ class _SocialScreenState extends State<SocialScreen> {
         userIds.add(story.userId);
       }
 
-      // Kaydedilen gönderileri yükle
-      await _loadSavedPosts();
+      // Kartların avatar efekti/rozetleri için yazar başına ayrı RPC yerine
+      // tek istek. Beklenmez: kartlar sonucu kendileri bekler.
+      unawaited(
+        ProfileFeatureService().prefetchUserFeatures(
+          posts.map((p) => p.userId),
+        ),
+      );
 
       // ⚡ iOS PERFORMANCE: Profiller ve beğeni durumlarını PARALEL yükle
       final profileAndLikes = await Future.wait([
@@ -181,6 +238,7 @@ class _SocialScreenState extends State<SocialScreen> {
                   })
             : Future.value(<String>{}),
       ]);
+      await savedPostsLoad;
 
       // Profilleri işle
       final profiles = <String, Map<String, dynamic>>{};
@@ -281,6 +339,11 @@ class _SocialScreenState extends State<SocialScreen> {
       final posts = rows
           .map((e) => Post.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
+      unawaited(
+        ProfileFeatureService().prefetchUserFeatures(
+          posts.map((p) => p.userId),
+        ),
+      );
 
       // Misafirde yazar bilgisi doğrudan RPC satırından gelir; ayrı bir
       // profiles sorgusu yapılmaz (misafirin o tabloda SELECT yetkisi yok).
@@ -367,8 +430,12 @@ class _SocialScreenState extends State<SocialScreen> {
       for (var post in newPosts) {
         userIds.add(post.userId);
       }
+      unawaited(ProfileFeatureService().prefetchUserFeatures(userIds));
 
-      if (userIds.isNotEmpty) {
+      // Profiller ve beğeni durumları birbirinden bağımsız: paralel yükle
+      // (eskiden art arda iki ağ turu bekleniyordu).
+      Future<void> loadProfiles() async {
+        if (userIds.isEmpty) return;
         try {
           final profilesData = await Supabase.instance.client
               .from('profiles')
@@ -383,18 +450,24 @@ class _SocialScreenState extends State<SocialScreen> {
         }
       }
 
-      // Beğeni durumlarını yükle
-      final likedStatus = <String, bool>{};
-      if (newPosts.isNotEmpty) {
-        final postIds = newPosts.map((p) => p.id).toList();
-        final likedPostIds = await _postService.getLikedPostIds(
+      Future<Set<String>> loadLikes() async {
+        if (newPosts.isEmpty) return <String>{};
+        return _postService.getLikedPostIds(
           userId,
-          postIds,
+          newPosts.map((p) => p.id).toList(),
         );
+      }
 
-        for (var post in newPosts) {
-          likedStatus[post.id] = likedPostIds.contains(post.id);
-        }
+      // loadProfiles hatayı kendi yutar; beğeni hatası eskisi gibi aşağıdaki
+      // catch'e (sayfayı geri alma) düşer.
+      final profilesLoad = loadProfiles();
+      final likedPostIds = await loadLikes();
+      await profilesLoad;
+
+      // Beğeni durumlarını işle
+      final likedStatus = <String, bool>{};
+      for (var post in newPosts) {
+        likedStatus[post.id] = likedPostIds.contains(post.id);
       }
 
       if (!mounted) return;
@@ -1527,13 +1600,17 @@ class _SocialScreenState extends State<SocialScreen> {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            itemCount: _stories.length + 1, // +1 için "Hikayem" butonu
+            // "Hikayem" + şu an canlı yayınlar + hikayeler
+            itemCount: _stories.length + _liveSessions.length + 1,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return _buildMyStoryButtonDynamic(storyWidth);
-              } else {
-                return _buildStoryCardDynamic(_stories[index - 1], storyWidth);
               }
+              final liveIndex = index - 1;
+              if (liveIndex < _liveSessions.length) {
+                return _buildLiveStoryDynamic(_liveSessions[liveIndex], storyWidth);
+              }
+              return _buildStoryCardDynamic(_stories[liveIndex - _liveSessions.length], storyWidth);
             },
           ),
         );
@@ -1696,10 +1773,15 @@ class _SocialScreenState extends State<SocialScreen> {
                       : Container(
                           color: primaryColor.withValues(alpha: 0.1),
                           child: avatarUrl != null
-                              ? CachedNetworkImage(
-                                  memCacheWidth: 240,
-                                  imageUrl: avatarUrl,
-                                  fit: BoxFit.cover,
+                              // Hareketli (GIF) avatarın her karesi sabit
+                              // üst bölümün tamamını yeniden boyatıyordu
+                              // (Keşfet boştayken ~26 kare/sn × 2 ms).
+                              ? RepaintBoundary(
+                                  child: CachedNetworkImage(
+                                    memCacheWidth: 240,
+                                    imageUrl: avatarUrl,
+                                    fit: BoxFit.cover,
+                                  ),
                                 )
                               : Center(
                                   child: Text(
@@ -1739,6 +1821,68 @@ class _SocialScreenState extends State<SocialScreen> {
           ),
           const SizedBox(height: 5),
           _buildStoryLabel(hasStories ? 'Hikayem' : 'Ekle', size),
+        ],
+      ),
+    );
+  }
+
+  /// Canlı yayın halkası: kırmızı çerçeve, yayıncının/mağazanın görseli ve
+  /// altta "CANLI" rozeti. Dokununca yayın izleyicisi açılır.
+  Widget _buildLiveStoryDynamic(LiveSession session, double size) {
+    const ringWidth = 2.6;
+    final innerSize = size - (ringWidth + 2) * 2;
+    return Padding(
+      key: ValueKey('social-live-${session.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () => _openLive(session),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.bottomCenter,
+              children: [
+                Container(
+                  width: size,
+                  height: size,
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: kLiveRed),
+                  padding: const EdgeInsets.all(ringWidth),
+                  child: Container(
+                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                    padding: const EdgeInsets.all(2),
+                    child: LiveShopAvatar(
+                      logoUrl: session.displayAvatarUrl,
+                      name: session.displayName,
+                      size: innerSize,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: -4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: kLiveRed,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: const Text(
+                      'CANLI',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 5),
+          _buildStoryLabel(session.displayName, size),
         ],
       ),
     );
@@ -1799,8 +1943,10 @@ class _SocialScreenState extends State<SocialScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => InstagramStoryCreator(
+      builder: (sheetContext) => InstagramStoryCreator(
         imagePicker: _imagePicker,
+        onGoLive: () => _goLive(sheetContext),
+        liveAvailable: _liveService.canStartUserStream,
         onMediaSelected: (media, mediaType, music) async {
           // Seçilen medyayı yükle
           await _uploadAndCreateStory(media, mediaType, music);

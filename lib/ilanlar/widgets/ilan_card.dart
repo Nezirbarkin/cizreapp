@@ -15,6 +15,7 @@ class IlanCard extends StatelessWidget {
     this.showStats = true,
     this.showStatusBadge = false,
     this.onDelete,
+    this.onExtend,
   });
 
   final Ilan ilan;
@@ -24,6 +25,9 @@ class IlanCard extends StatelessWidget {
   final bool showStats;
   final bool showStatusBadge;
   final VoidCallback? onDelete;
+
+  /// Sahibin listesinde: süresi dolan/dolmak üzere olan ilanda düğme (Görev 3.9).
+  final VoidCallback? onExtend;
 
   bool get _isNew =>
       DateTime.now().difference(ilan.createdAt) < const Duration(hours: 48);
@@ -201,16 +205,18 @@ class IlanCard extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 color: IlanUi.statusColor(
-                                  ilan.status,
+                                  IlanUi.effectiveStatus(ilan),
                                 ).withValues(alpha: .15),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                IlanUi.status(ilan.status),
+                                IlanUi.status(IlanUi.effectiveStatus(ilan)),
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
-                                  color: IlanUi.statusColor(ilan.status),
+                                  color: IlanUi.statusColor(
+                                    IlanUi.effectiveStatus(ilan),
+                                  ),
                                 ),
                               ),
                             ),
@@ -251,6 +257,30 @@ class IlanCard extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                    ],
+                    if (onExtend != null && IlanUi.canExtend(ilan)) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 32,
+                        child: FilledButton.tonalIcon(
+                          onPressed: onExtend,
+                          style: FilledButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            textStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          icon: Icon(
+                            IlanUi.isExpired(ilan) ? Icons.replay : Icons.more_time,
+                            size: 16,
+                          ),
+                          label: Text(
+                            IlanUi.isExpired(ilan) ? 'Yeniden Yayınla' : 'Süreyi Uzat',
+                          ),
+                        ),
                       ),
                     ],
                   ],

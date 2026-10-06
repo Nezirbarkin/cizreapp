@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/utils/image_url.dart';
 import '../models/profile_feature.dart';
 import '../services/profile_feature_service.dart';
 import 'creature_painters.dart';
+import 'feature_effect_ticker.dart';
 import 'feature_icon_registry.dart';
 import 'renderer_registry.dart';
 
@@ -25,93 +27,111 @@ class AvatarEffectFrame extends StatefulWidget {
 }
 
 class _AvatarEffectFrameState extends State<AvatarEffectFrame>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with
+        SingleTickerProviderStateMixin,
+        FeatureEffectTickerMixin<AvatarEffectFrame>,
+        _AvatarEffectTicker<AvatarEffectFrame> {
   late Future<List<ProfileFeature>> _future;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 5),
-    )..repeat();
-    _future = ProfileFeatureService().getUserFeatures(widget.userId);
+    _load();
   }
 
   @override
   void didUpdateWidget(covariant AvatarEffectFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) {
-      _future = ProfileFeatureService().getUserFeatures(widget.userId);
-    }
+    if (oldWidget.userId != widget.userId) _load();
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _load() {
+    _future = loadFeaturesAndSyncTicker(widget.userId);
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ProfileFeature>>(
       future: _future,
+      initialData: ProfileFeatureService.peekUserFeatures(widget.userId),
       builder: (context, snapshot) {
-        final effect = (snapshot.data ?? const <ProfileFeature>[])
-            .where((item) => item.kind == ProfileFeatureKind.avatarEffect)
-            .firstOrNull;
-        if (effect == null) return widget.child;
+        final effect = _avatarEffectOf(snapshot.data);
+        final controller = effectController;
+        if (effect == null || controller == null) return widget.child;
 
         // "photo_" önekli efektler çerçeve değildir — doğrudan fotoğrafın
         // kendi yüzeyine (dairesel kırpılarak) biner, halka çizilmez.
+        // Avatarın kendisi her karede yeniden kurulmaz; yalnız efekt katmanı
+        // (kendi RepaintBoundary'si içinde) yeniden boyanır.
         if (isPhotoOverlayEffect(effect)) {
-          return AnimatedBuilder(
-            animation: _controller,
-            child: widget.child,
-            builder: (context, child) => ClipOval(
-              child: Stack(
-                fit: StackFit.passthrough,
-                children: [
-                  if (child != null) child,
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: CustomPaint(
-                        painter: _AvatarPhotoOverlayPainter(
-                          feature: effect,
-                          progress: _controller.value,
+          return ClipOval(
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                widget.child,
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: controller,
+                        builder: (context, _) => CustomPaint(
+                          painter: _AvatarPhotoOverlayPainter(
+                            feature: effect,
+                            progress: controller.value,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           );
         }
 
-        return AnimatedBuilder(
-          animation: _controller,
-          child: widget.child,
-          builder: (context, child) => Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _AvatarEffectPainter(
-                    feature: effect,
-                    progress: _controller.value,
+        return Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: controller,
+                  builder: (context, _) => CustomPaint(
+                    painter: _AvatarEffectPainter(
+                      feature: effect,
+                      progress: controller.value,
+                    ),
                   ),
                 ),
               ),
-              Padding(padding: const EdgeInsets.all(7), child: child),
-            ],
-          ),
+            ),
+            Padding(padding: const EdgeInsets.all(7), child: widget.child),
+          ],
         );
       },
     );
   }
+}
+
+ProfileFeature? _avatarEffectOf(List<ProfileFeature>? features) =>
+    (features ?? const <ProfileFeature>[])
+        .where((item) => item.kind == ProfileFeatureKind.avatarEffect)
+        .firstOrNull;
+
+/// Avatar efekti animasyonu yalnız avatar_effect varsa çalışır
+/// (bkz. [FeatureEffectTickerMixin]).
+mixin _AvatarEffectTicker<T extends StatefulWidget>
+    on
+        State<T>,
+        SingleTickerProviderStateMixin<T>,
+        FeatureEffectTickerMixin<T> {
+  @override
+  Duration get effectLoopDuration => const Duration(seconds: 5);
+
+  @override
+  bool needsEffectTicker(List<ProfileFeature> features) =>
+      _avatarEffectOf(features) != null;
 }
 
 /// "photo_" önekli renderer_key'ler çerçeve/yaratık değil, fotoğrafın kendi
@@ -146,32 +166,26 @@ class PrivilegedAvatar extends StatefulWidget {
 }
 
 class _PrivilegedAvatarState extends State<PrivilegedAvatar>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with
+        SingleTickerProviderStateMixin,
+        FeatureEffectTickerMixin<PrivilegedAvatar>,
+        _AvatarEffectTicker<PrivilegedAvatar> {
   late Future<List<ProfileFeature>> _future;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 5),
-    )..repeat();
-    _future = ProfileFeatureService().getUserFeatures(widget.userId);
+    _load();
   }
 
   @override
   void didUpdateWidget(covariant PrivilegedAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) {
-      _future = ProfileFeatureService().getUserFeatures(widget.userId);
-    }
+    if (oldWidget.userId != widget.userId) _load();
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _load() {
+    _future = loadFeaturesAndSyncTicker(widget.userId);
   }
 
   @override
@@ -179,11 +193,11 @@ class _PrivilegedAvatarState extends State<PrivilegedAvatar>
     final extent = widget.radius * 2 + 18;
     return FutureBuilder<List<ProfileFeature>>(
       future: _future,
+      initialData: ProfileFeatureService.peekUserFeatures(widget.userId),
       builder: (context, snapshot) {
         final all = snapshot.data ?? const <ProfileFeature>[];
-        final effect = all
-            .where((item) => item.kind == ProfileFeatureKind.avatarEffect)
-            .firstOrNull;
+        final controller = effectController;
+        final effect = controller == null ? null : _avatarEffectOf(all);
         final privileges = all
             .where(
               (item) =>
@@ -194,54 +208,73 @@ class _PrivilegedAvatarState extends State<PrivilegedAvatar>
             .toList(growable: false);
         final isPhotoOverlay = effect != null && isPhotoOverlayEffect(effect);
 
+        // Avatar bir kez kurulur; animasyonlu efekt varsa yalnız efekt
+        // katmanları (ve pulse_glow'da ölçek) her karede güncellenir.
+        final avatar = _avatar(context);
+
         return GestureDetector(
           onTap: widget.onTap,
           child: SizedBox(
             width: extent,
             height: extent,
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) => Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.center,
-                children: [
-                  if (effect != null && !isPhotoOverlay)
-                    Positioned.fill(
-                      child: RepaintBoundary(
-                        child: CustomPaint(
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                if (effect != null && controller != null && !isPhotoOverlay)
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: controller,
+                        builder: (context, _) => CustomPaint(
                           painter: _AvatarEffectPainter(
                             feature: effect,
-                            progress: _controller.value,
+                            progress: controller.value,
                           ),
                         ),
                       ),
                     ),
-                  _animatedAvatar(effect),
-                  if (isPhotoOverlay)
-                    ClipOval(
-                      child: SizedBox(
-                        width: widget.radius * 2,
-                        height: widget.radius * 2,
-                        child: IgnorePointer(
-                          child: RepaintBoundary(
-                            child: CustomPaint(
+                  ),
+                if (effect?.rendererKey == 'pulse_glow' && controller != null)
+                  AnimatedBuilder(
+                    animation: controller,
+                    // Ölçeklenen avatar her karede yeniden boyanmasın.
+                    child: RepaintBoundary(child: avatar),
+                    builder: (context, child) => Transform.scale(
+                      scale:
+                          0.94 + math.sin(controller.value * math.pi * 2) * 0.06,
+                      child: child,
+                    ),
+                  )
+                else
+                  avatar,
+                if (isPhotoOverlay && controller != null)
+                  ClipOval(
+                    child: SizedBox(
+                      width: widget.radius * 2,
+                      height: widget.radius * 2,
+                      child: IgnorePointer(
+                        child: RepaintBoundary(
+                          child: AnimatedBuilder(
+                            animation: controller,
+                            builder: (context, _) => CustomPaint(
                               painter: _AvatarPhotoOverlayPainter(
                                 feature: effect,
-                                progress: _controller.value,
+                                progress: controller.value,
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  if (widget.showSocialPrivileges && privileges.isNotEmpty)
-                    Positioned(
-                      right: -4,
-                      bottom: -7,
-                      child: _CompactPrivileges(features: privileges),
-                    ),
-                ],
-              ),
+                  ),
+                if (widget.showSocialPrivileges && privileges.isNotEmpty)
+                  Positioned(
+                    right: -4,
+                    bottom: -7,
+                    child: _CompactPrivileges(features: privileges),
+                  ),
+              ],
             ),
           ),
         );
@@ -249,33 +282,26 @@ class _PrivilegedAvatarState extends State<PrivilegedAvatar>
     );
   }
 
-  Widget _animatedAvatar(ProfileFeature? effect) {
-    final pulse = effect?.rendererKey == 'pulse_glow'
-        ? 0.94 + math.sin(_controller.value * math.pi * 2) * 0.06
-        : 1.0;
-    return Transform.scale(
-      scale: pulse,
-      child: CircleAvatar(
-        radius: widget.radius,
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        backgroundImage: widget.avatarUrl?.isNotEmpty == true
-            ? NetworkImage(widget.avatarUrl!)
-            : null,
-        child: widget.avatarUrl?.isNotEmpty == true
-            ? null
-            : Text(
-                widget.username.isEmpty
-                    ? '?'
-                    : widget.username
-                          .substring(0, math.min(2, widget.username.length))
-                          .toUpperCase(),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: widget.radius * 0.58,
-                ),
+  Widget _avatar(BuildContext context) {
+    final image = avatarImage(widget.avatarUrl);
+    return CircleAvatar(
+      radius: widget.radius,
+      backgroundColor: Theme.of(context).colorScheme.primary,
+      backgroundImage: image,
+      child: image != null
+          ? null
+          : Text(
+              widget.username.isEmpty
+                  ? '?'
+                  : widget.username
+                        .substring(0, math.min(2, widget.username.length))
+                        .toUpperCase(),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: widget.radius * 0.58,
               ),
-      ),
+            ),
     );
   }
 }

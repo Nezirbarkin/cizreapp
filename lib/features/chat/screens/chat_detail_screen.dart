@@ -1,14 +1,25 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/models/post_model.dart';
+import '../services/chat_location_service.dart';
+import '../services/chat_media_service.dart';
 import '../services/chat_service.dart';
 import '../services/typing_channel.dart';
+import '../widgets/chat_bubble.dart';
+import '../widgets/chat_media_bubbles.dart';
+import '../widgets/chat_message_actions.dart';
 import '../widgets/presence_status_line.dart';
+import 'chat_image_send_screen.dart';
+import 'chat_image_viewer_screen.dart';
+import 'chat_location_picker_screen.dart';
+import 'chat_location_viewer_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../../ilanlar/screens/ilan_detail_screen.dart';
@@ -19,12 +30,17 @@ class ChatDetailScreen extends StatefulWidget {
   final String otherUserName;
   final String? otherUserAvatar;
 
+  /// Testlerde gerçek ağ/realtime yerine sahte servis vermek için.
+  @visibleForTesting
+  final ChatService? chatService;
+
   const ChatDetailScreen({
     super.key,
     required this.conversationId,
     required this.otherUserId,
     required this.otherUserName,
     this.otherUserAvatar,
+    this.chatService,
   });
 
   @override
@@ -33,14 +49,29 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen>
     with WidgetsBindingObserver {
-  final ChatService _chatService = ChatService();
+  late final ChatService _chatService = widget.chatService ?? ChatService();
   final TextEditingController _messageController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  // Listenin altındaki boşluk (eski ListView'in alt dolgusu). Kaydırma buradan
+  // başlar ki açılışta en altta olsun (bkz. _buildOptimizedMessageList).
+  static const double _listBottomGap = 16;
+  static const ValueKey<String> _historySliverKey =
+      ValueKey<String>('chat-history');
+  final ScrollController _scrollController = ScrollController(
+    initialScrollOffset: -_listBottomGap,
+  );
 
   // Id-bazlı Map — duplicate önler, optimistic+DB merge'i yönetir
   final Map<String, Message> _messagesById = {};
-  // UI'daki gösterim sırası (insert order)
-  final List<String> _orderedIds = [];
+  // İKİ PARÇALI LİSTE, ikisi de eskiden yeniye:
+  //  * _historyIds: sunucudan gelen sayfalar (ilk sayfa + yukarı kaydırınca
+  //    eskiler); ekranın ÜSTÜNE doğru büyür.
+  //  * _newIds: bu ekran açıkken canlı gelen / gönderilen mesajlar; ekranın
+  //    ALTINA doğru büyür.
+  // Ayrı büyüdükleri için eski sayfa yüklemek de, kullanıcı yukarıdayken yeni
+  // mesaj gelmesi de görünen içeriği kaydırmaz. (Flutter liste konumlarını
+  // indeks bazlı tutar; tek listede bu iki eklemeden biri mutlaka kaydırırdı.)
+  final List<String> _historyIds = [];
+  final List<String> _newIds = [];
   // Kompozit-anahtar (sender|content|createdAt) -> gösterilen mesajın id'si.
   // Mailbox modelinde aynı mesaj iki conv'da farklı id ile durur; bu index
   // canlı akışta ikinci kopyanın tekrar eklenmesini önler.
@@ -48,7 +79,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   bool _isLoading = true;
   bool _isSending = false;
-  bool _isInitialLoad = true; // İlk yükleme flag'i - jumpTo için
+  // Sayfalama: ilk sayfa gelmeden eski sayfa istenmez (önbellekten çizilen
+  // liste ilk sayfa gelince değiştirildiği için).
+  bool _initialFetchDone = false;
+  bool _loadingOlder = false;
+  bool _hasMore = true;
+  RealtimeChannel? _messagesChannel;
   String? _currentUserId;
   bool _isAtBottom = true;
   DateTime? _lastReadTime; // Son okundu işaretleme zamanı (debounce)
@@ -62,11 +98,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   TypingChannel? _typingChannel;
   final ValueNotifier<bool> _peerTyping = ValueNotifier<bool>(false);
 
+  // Fotoğraf / konum (Görev 3.1). Gönderilen medya önce GEÇİCİ bir balonla
+  // (yerel baytlar, "gönderiliyor") hemen görünür; gerçek mesaj gelince —
+  // RPC dönüşü ya da realtime, hangisi önce gelirse — yerini alır. Başarısız
+  // olursa balon "tekrar dene" olarak kalır; yeniden denemek için veri burada.
+  final ImagePicker _imagePicker = ImagePicker();
+  final Map<String, _PendingMedia> _pendingMedia = {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Bu konuşma daha önce açıldıysa son sayfası beklemeden çizilir; sunucudan
+    // gelen ilk sayfa (tek istek) onu sessizce günceller.
+    final cached = _chatService.cachedFirstPage(widget.conversationId);
+    if (cached != null && cached.isNotEmpty) {
+      _mergeMessages(cached);
+      _isLoading = false;
+    }
     _loadMessages();
     _subscribeToMessages();
     _startTyping();
@@ -86,10 +136,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final currentScroll = _scrollController.position.pixels;
-    // En alt 50px içindeyse "en altta" say
-    _isAtBottom = (maxScroll - currentScroll) < 50;
+    final position = _scrollController.position;
+    // En alt = minScrollExtent (yeni mesajlar aşağı doğru büyür); son 50px
+    // içindeyse "en altta" say.
+    _isAtBottom = position.pixels <= position.minScrollExtent + 50;
+    // En üste yaklaşınca bir önceki sayfayı getir.
+    if (position.pixels >= position.maxScrollExtent - 400) {
+      _loadOlder();
+    }
   }
 
   void _startTyping() {
@@ -157,9 +211,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
-    _insertSub?.cancel();
-    _updateSub?.cancel();
-    _deleteSub?.cancel();
+    final channel = _messagesChannel;
+    if (channel != null) {
+      unawaited(Supabase.instance.client.removeChannel(channel));
+    }
+    // Aynı konuşma tekrar açılınca beklemeden çizilsin: en yeni mesajlar.
+    final shown = [..._historyIds, ..._newIds];
+    if (_initialFetchDone && shown.isNotEmpty) {
+      _chatService.rememberConversationPage(
+        widget.conversationId,
+        shown.reversed
+            .map((id) => _messagesById[id])
+            .whereType<Message>()
+            // Gönderimi süren/başarısız geçici balonlar önbelleğe girmez.
+            .where((m) => !m.id.startsWith('temp_'))
+            .toList(),
+      );
+    }
     super.dispose();
   }
 
@@ -178,79 +246,155 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     });
   }
 
+  /// İlk sayfa (en yeni [ChatService.messagePageSize] mesaj) — tek istek.
   Future<void> _loadMessages() async {
-    setState(() => _isLoading = true);
     try {
-      final messages = await _chatService.getMessages(widget.conversationId);
-      _messagesById.clear();
-      _orderedIds.clear();
-      _keyToId.clear();
-      for (final m in messages) {
-        _messagesById[m.id] = m;
-        _orderedIds.add(m.id);
-        _keyToId[_dupKey(m)] = m.id;
-      }
-      _isInitialLoad = true;
+      final page = await _chatService.getMessagesPage(widget.conversationId);
+      if (!mounted) return;
+      setState(() {
+        _replaceWithFirstPage(page);
+        _hasMore = page.length >= ChatService.messagePageSize;
+      });
     } catch (e) {
       debugPrint('loadMessages error: $e');
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
-        _scrollToBottom();
+        setState(() {
+          _isLoading = false;
+          _initialFetchDone = true;
+        });
       }
     }
   }
 
-  StreamSubscription<Message>? _insertSub;
-  StreamSubscription<Message>? _updateSub;
-  StreamSubscription<String>? _deleteSub;
+  /// Yukarı kaydırınca bir önceki sayfa. Hata olursa sonraki kaydırmada
+  /// yeniden denenir.
+  Future<void> _loadOlder() async {
+    if (!_initialFetchDone || _loadingOlder || !_hasMore) return;
+    final oldestId = _historyIds.isNotEmpty
+        ? _historyIds.first
+        : (_newIds.isNotEmpty ? _newIds.first : null);
+    final oldest = oldestId == null ? null : _messagesById[oldestId];
+    if (oldest == null) return;
 
-  /// Yeni olay-bazlı realtime subscription. DB'yi yeniden çekmez, sadece
-  /// değişen mesajı listeye işler.
+    setState(() => _loadingOlder = true);
+    try {
+      final page = await _chatService.getMessagesPage(
+        widget.conversationId,
+        before: oldest.createdAt,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mergeMessages(page);
+        _hasMore = page.length >= ChatService.messagePageSize;
+      });
+    } catch (e) {
+      debugPrint('loadOlder error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingOlder = false);
+    }
+  }
+
+  /// Ekrandakini (önbellekten çizilmiş olabilir) sunucunun ilk sayfasıyla
+  /// değiştirir; yalnız bu arada canlı gelmiş ve sayfada olmayan mesajlar
+  /// korunur. Böylece önbellekte kalmış, sonradan silinmiş mesaj kalmaz,
+  /// açılışta gelen yeni mesaj da kaybolmaz.
+  void _replaceWithFirstPage(List<Message> page) {
+    final pageIds = {for (final m in page) m.id};
+    final pageKeys = {for (final m in page) _dupKey(m)};
+    final live = _newIds
+        .map((id) => _messagesById[id])
+        .whereType<Message>()
+        .where((m) => !pageIds.contains(m.id) && !pageKeys.contains(_dupKey(m)))
+        .toList();
+    _messagesById.clear();
+    _historyIds.clear();
+    _newIds.clear();
+    _keyToId.clear();
+    _mergeMessages(page);
+    for (final m in live) {
+      _messagesById[m.id] = m;
+      _keyToId[_dupKey(m)] = m.id;
+      _newIds.add(m.id);
+    }
+  }
+
+  /// Sunucu sayfasını GEÇMİŞE katar: aynı kimlik yerinde güncellenir, aynı
+  /// mantıksal mesajın ikinci kopyası eklenmez (yalnız okundu bilgisi alınır),
+  /// geçmiş eskiden yeniye sıralı kalır. Listeyi SIFIRLAMAZ.
+  void _mergeMessages(Iterable<Message> messages) {
+    var added = false;
+    for (final m in messages) {
+      final key = _dupKey(m);
+      final twinId = _keyToId[key];
+      if (twinId != null && twinId != m.id) {
+        final twin = _messagesById[twinId];
+        if (twin != null) {
+          _messagesById[twinId] = twin.copyWith(isRead: m.isRead);
+          continue;
+        }
+      }
+      if (_messagesById.containsKey(m.id)) {
+        _messagesById[m.id] = m;
+        continue;
+      }
+      _messagesById[m.id] = m;
+      _keyToId[key] = m.id;
+      _historyIds.add(m.id);
+      added = true;
+    }
+    if (added) {
+      // Eşit zamanda kimliğe göre (kararlı). Eski sayfa her zaman mevcut
+      // geçmişten eskidir → listenin başına, yani ekranın üstüne gider.
+      _historyIds.sort((a, b) {
+        final ma = _messagesById[a]!, mb = _messagesById[b]!;
+        final byTime = ma.createdAt.compareTo(mb.createdAt);
+        return byTime != 0 ? byTime : a.compareTo(b);
+      });
+    }
+  }
+
+  void _removeMessage(String id) {
+    final removed = _messagesById.remove(id);
+    if (removed == null) return;
+    _historyIds.remove(id);
+    _newIds.remove(id);
+    _keyToId.remove(_dupKey(removed));
+    setState(() {});
+  }
+
+  /// Tek realtime kanalı (INSERT/UPDATE/DELETE, sunucuda bu konuşmaya
+  /// süzülür). DB'yi yeniden çekmez, yalnız değişen mesajı listeye işler.
   void _subscribeToMessages() {
-    // INSERT: yeni mesaj geldi
-    _insertSub = _chatService
-        .streamNewMessages(widget.conversationId)
-        .listen(
-          (msg) {
-            if (!mounted) return;
-            _addOrMerge(msg);
-          },
-          onError: (e, st) {
-            debugPrint('insert subscribe error: $e');
-          },
-        );
+    final userId = _currentUserId;
+    if (userId == null) return;
+    _messagesChannel = _chatService.subscribeToMessagesChannel(
+      conversationId: widget.conversationId,
+      currentUserId: userId,
+      onEvent: (event) {
+        if (!mounted) return;
+        if (event is InsertMessageEvent) {
+          _addOrMerge(event.message);
+        } else if (event is UpdateMessageEvent) {
+          _addOrMerge(event.message, allowInsert: false);
+        } else if (event is DeleteMessageEvent) {
+          _removeMessage(event.messageId);
+        } else if (event is PartnerReadEvent) {
+          _markReadByPartner(event.partnerCopy);
+        }
+      },
+    );
+  }
 
-    // UPDATE: is_read veya content güncellendi
-    _updateSub = _chatService
-        .streamMessageUpdates(widget.conversationId)
-        .listen(
-          (msg) {
-            if (!mounted) return;
-            _addOrMerge(msg);
-          },
-          onError: (e, st) {
-            debugPrint('update subscribe error: $e');
-          },
-        );
-
-    // DELETE: mesaj silindi
-    _deleteSub = _chatService
-        .streamDeletedMessages(widget.conversationId)
-        .listen(
-          (deletedId) {
-            if (!mounted) return;
-            final removed = _messagesById.remove(deletedId);
-            if (removed != null) {
-              _orderedIds.remove(deletedId);
-              _keyToId.remove(_dupKey(removed));
-              setState(() {});
-            }
-          },
-          onError: (e, st) {
-            debugPrint('delete subscribe error: $e');
-          },
-        );
+  /// Karşı taraf mesajımı okudu: ONUN kopyası is_read=true oldu. Ekrandaki
+  /// aynı mantıksal mesajım (bkz. [_dupKey]) "okundu" yapılır — mavi çift tik
+  /// artık ekran yeniden açılmadan gelir (Görev 2.3).
+  void _markReadByPartner(Message partnerCopy) {
+    final id = _keyToId[_dupKey(partnerCopy)];
+    if (id == null) return;
+    final mine = _messagesById[id];
+    if (mine == null || mine.isRead || mine.senderId != _currentUserId) return;
+    setState(() => _messagesById[id] = mine.copyWith(isRead: true));
   }
 
   /// Mailbox modelinde aynı mantıksal mesaj iki conversation'da farklı id ile
@@ -259,9 +403,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       '${m.senderId}|${m.content}|${m.createdAt.toIso8601String()}';
 
   /// Kompozit-anahtar bazlı merge — INSERT ve UPDATE için kullanılır.
-  /// Mevcut mesaj varsa günceller, yoksa ekler. İki-kopya durumunda ikinci
-  /// kopyanın tekrar eklenmesini engeller.
-  void _addOrMerge(Message m) {
+  /// Mevcut mesaj varsa günceller, yoksa ([allowInsert] ise) ekler. İki-kopya
+  /// durumunda ikinci kopyanın tekrar eklenmesini engeller.
+  void _addOrMerge(Message m, {bool allowInsert = true}) {
     // Realtime INSERT'ten gelen DB mesajı: temp ID'leri atla
     if (m.id.startsWith('temp_')) return;
 
@@ -296,9 +440,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       return; // İkinci kopyayı listeye EKLEME
     }
 
+    // Güncelleme olayı ekranda olmayan (henüz yüklenmemiş, eski) bir mesaja
+    // ait: eklenmez, sayfalama onu doğru yerde getirir. (Ör. konuşma açılınca
+    // okundu işaretlenen eski mesajların UPDATE olayları listenin dibine
+    // eklenirdi.)
+    if (!allowInsert) return;
+
+    // Bu cihazdan gönderilmekte olan fotoğraf/konumun gerçek kopyası RPC
+    // dönmeden realtime'dan geldi: geçici balonun YERİNE geçer (aynı mesaj bir
+    // an iki kez görünmesin).
+    if (isMine && incoming.messageType != MessageType.text) {
+      final tempId = _pendingTempFor(incoming);
+      if (tempId != null) {
+        _pendingMedia.remove(tempId);
+        _replaceTemp(tempId, incoming);
+        return;
+      }
+    }
+
     _messagesById[incoming.id] = incoming;
     _keyToId[key] = incoming.id;
-    _orderedIds.add(incoming.id);
+    _newIds.add(incoming.id);
 
     if (mounted) setState(() {});
 
@@ -318,24 +480,311 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   /// kaydırır (kendi gönderdiğimiz mesaj veya klavye açılışı gibi durumlar için).
   void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        if (_isInitialLoad) {
-          // İlk yüklemede anında en alta atla (animasyon yok)
-          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-          _isInitialLoad = false;
-        } else {
-          // Sonraki mesajlarda animasyonlu scroll - kullanıcı en alttaysa
-          // veya force=true ise (örn. kendi gönderdiğimiz mesaj, klavye açılışı)
-          if (_isAtBottom || force) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-            );
-          }
-        }
-      }
+      if (!_scrollController.hasClients) return;
+      // Liste açılışta zaten en alttadır (eski jumpTo(maxScrollExtent)
+      // hilesine gerek yok). En alt = minScrollExtent: yeni mesajlar aşağı
+      // doğru büyür.
+      if (!(_isAtBottom || force)) return;
+      final position = _scrollController.position;
+      if (position.pixels <= position.minScrollExtent) return;
+      _scrollController.animateTo(
+        position.minScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Fotoğraf / konum gönderimi (Görev 3.1)
+  // ------------------------------------------------------------------
+
+  Future<void> _openAttachments() async {
+    FocusScope.of(context).unfocus();
+    final action = await showChatAttachmentSheet(context, cameraAvailable: !kIsWeb);
+    if (!mounted || action == null) return;
+    switch (action) {
+      case ChatAttachmentAction.gallery:
+        await _pickImage(ImageSource.gallery);
+      case ChatAttachmentAction.camera:
+        await _pickImage(ImageSource.camera);
+      case ChatAttachmentAction.location:
+        await _pickLocation();
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    XFile? file;
+    try {
+      file = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+    } catch (e) {
+      debugPrint('Fotoğraf seçilemedi: $e');
+      _showSnack('Fotoğraf açılamadı. Uygulama izinlerini kontrol edin.');
+      return;
+    }
+    if (file == null || !mounted) return;
+    final bytes = await file.readAsBytes();
+    if (!mounted) return;
+
+    final result = await showChatImageSendScreen(
+      context,
+      bytes: bytes,
+      recipientName: widget.otherUserName,
+    );
+    if (result == null || !mounted) return;
+
+    final reply = _takeReply();
+    final prepared = await ChatMediaService.prepareImage(bytes, fileName: file.name);
+    if (!mounted) return;
+    await _sendPreparedImage(prepared, result.caption, reply);
+  }
+
+  /// Hazır fotoğrafı gönderir. Her denemede YENİ yol: önceki deneme yüklemeyi
+  /// bitirip mesajda kalmış olabilir, aynı yola ikinci yükleme reddedilir.
+  Future<void> _sendPreparedImage(
+    PreparedChatImage prepared,
+    String caption,
+    _ReplyInfo reply,
+  ) async {
+    final me = _currentUserId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (me == null) return;
+    final path = ChatMediaService.newImagePath(
+      senderId: me,
+      recipientId: widget.otherUserId,
+      extension: prepared.extension,
+    );
+    ChatMediaService.rememberLocalBytes(path, prepared.bytes);
+
+    final temp = Message.createTemp(
+      conversationId: widget.conversationId,
+      senderId: me,
+      content: ChatService.imagePreviewText(caption),
+      messageType: MessageType.image,
+      attachment: ChatService.imageAttachment(
+        path: path,
+        image: prepared,
+        caption: caption,
+      ),
+      replyToId: reply.id,
+      replyToContent: reply.content,
+      replyToSenderName: reply.senderName,
+    );
+    _pendingMedia[temp.id] = _PendingMedia.image(prepared, caption, reply);
+    _showTemp(temp);
+
+    final sent = await _chatService.sendImageMessage(
+      conversationId: widget.conversationId,
+      path: path,
+      image: prepared,
+      caption: caption,
+      replyToId: reply.id,
+      replyToContent: reply.content,
+      replyToSenderName: reply.senderName,
+    );
+    _settleTemp(temp.id, sent);
+  }
+
+  Future<void> _pickLocation() async {
+    final pick = await Navigator.push<ChatLocationPick>(
+      context,
+      MaterialPageRoute(builder: (_) => const ChatLocationPickerScreen()),
+    );
+    if (pick == null || !mounted) return;
+    await _sendLocation(pick, _takeReply());
+  }
+
+  Future<void> _sendLocation(ChatLocationPick pick, _ReplyInfo reply) async {
+    final me = _currentUserId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (me == null) return;
+    final temp = Message.createTemp(
+      conversationId: widget.conversationId,
+      senderId: me,
+      content: ChatLocationService.previewText(pick.label),
+      messageType: MessageType.location,
+      attachment: pick.toAttachment(),
+      replyToId: reply.id,
+      replyToContent: reply.content,
+      replyToSenderName: reply.senderName,
+    );
+    _pendingMedia[temp.id] = _PendingMedia.location(pick, reply);
+    _showTemp(temp);
+
+    final sent = await _chatService.sendLocationMessage(
+      conversationId: widget.conversationId,
+      location: pick,
+      replyToId: reply.id,
+      replyToContent: reply.content,
+      replyToSenderName: reply.senderName,
+    );
+    _settleTemp(temp.id, sent);
+  }
+
+  /// Yanıtlanan mesaj (varsa) alınır ve kutudan kaldırılır.
+  _ReplyInfo _takeReply() {
+    final reply = _replyToMessage;
+    if (reply == null) return (id: null, content: null, senderName: null);
+    setState(() => _replyToMessage = null);
+    return (
+      id: reply.id,
+      content: reply.content,
+      senderName: reply.senderId == _currentUserId ? 'Sen' : widget.otherUserName,
+    );
+  }
+
+  void _showTemp(Message temp) {
+    setState(() {
+      _messagesById[temp.id] = temp;
+      _newIds.add(temp.id);
+    });
+    _scrollToBottom(force: true);
+  }
+
+  /// Gönderim bitti: başarılıysa gerçek mesaj geçici balonun yerine geçer,
+  /// değilse balon "tekrar dene" olur.
+  void _settleTemp(String tempId, Message? sent) {
+    if (!mounted) return;
+    final temp = _messagesById[tempId];
+    if (sent == null) {
+      // Realtime gerçek kopyayı zaten getirdiyse geçici balon yoktur; hata
+      // yalnız dönüş yanıtındadır (mesaj gönderilmiş).
+      if (temp == null) return;
+      setState(() {
+        _messagesById[tempId] = temp.copyWith(isSending: false, isFailed: true);
+      });
+      _showSnack('Gönderilemedi. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+      return;
+    }
+    _pendingMedia.remove(tempId);
+    _replaceTemp(tempId, sent);
+  }
+
+  /// Geçici balonu, listedeki YERİNİ koruyarak gerçek mesajla değiştirir.
+  void _replaceTemp(String tempId, Message real) {
+    final index = _newIds.indexOf(tempId);
+    _messagesById.remove(tempId);
+    if (index >= 0) _newIds.removeAt(index);
+    final alreadyShown = _messagesById.containsKey(real.id) ||
+        _messagesById.containsKey(_keyToId[_dupKey(real)]);
+    if (!alreadyShown) {
+      _messagesById[real.id] = real;
+      _keyToId[_dupKey(real)] = real.id;
+      _newIds.insert(index >= 0 ? index : _newIds.length, real.id);
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _removeTemp(String tempId) {
+    _pendingMedia.remove(tempId);
+    if (_messagesById.remove(tempId) == null) return;
+    _newIds.remove(tempId);
+    if (mounted) setState(() {});
+  }
+
+  /// Gönderilmekte olan medya mesajlarından [real] ile aynı olanın geçici id'si.
+  String? _pendingTempFor(Message real) {
+    for (final tempId in _pendingMedia.keys) {
+      final temp = _messagesById[tempId];
+      if (temp == null || temp.isFailed || temp.messageType != real.messageType) continue;
+      final same = switch (real.messageType) {
+        MessageType.image => temp.imagePath != null && temp.imagePath == real.imagePath,
+        MessageType.location =>
+          temp.latitude == real.latitude && temp.longitude == real.longitude,
+        MessageType.text => false,
+      };
+      if (same) return tempId;
+    }
+    return null;
+  }
+
+  /// Gönderilemeyen medya balonuna dokunuldu: tekrar dene ya da sil.
+  Future<void> _showFailedMediaActions(Message temp) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.refresh_rounded, color: ChatPalette.accent),
+              title: const Text('Tekrar gönder'),
+              onTap: () => Navigator.pop(sheetContext, 'retry'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: ChatPalette.failed),
+              title: const Text('Sil'),
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'delete') {
+      _removeTemp(temp.id);
+      return;
+    }
+    final pending = _pendingMedia[temp.id];
+    if (pending == null) return;
+    _removeTemp(temp.id);
+    final image = pending.image;
+    final location = pending.location;
+    if (image != null) {
+      await _sendPreparedImage(image, pending.caption, pending.reply);
+    } else if (location != null) {
+      await _sendLocation(location, pending.reply);
+    }
+  }
+
+  void _openImage(Message message) {
+    final path = message.imagePath;
+    if (path == null) return;
+    final isMine = message.senderId == _currentUserId;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatImageViewerScreen(
+          path: path,
+          title: isMine ? 'Sen' : widget.otherUserName,
+          subtitle:
+              '${ChatDayLabel.format(message.createdAt)} ${ChatDayLabel.time(message.createdAt)}',
+          caption: message.imageCaption,
+        ),
+      ),
+    );
+  }
+
+  void _openLocation(Message message) {
+    final lat = message.latitude, lng = message.longitude;
+    if (lat == null || lng == null) return;
+    final isMine = message.senderId == _currentUserId;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatLocationViewerScreen(
+          latitude: lat,
+          longitude: lng,
+          label: message.locationLabel,
+          title: isMine ? 'Paylaştığın konum' : '${widget.otherUserName} konumu',
+        ),
+      ),
+    );
+  }
+
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text), duration: const Duration(seconds: 3)),
+    );
   }
 
   Future<void> _sendMessage() async {
@@ -400,7 +849,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: Colors.grey[100],
+      backgroundColor: ChatPalette.wallpaper,
       appBar: AppBar(
         backgroundColor: theme.primaryColor,
         foregroundColor: Colors.white,
@@ -468,29 +917,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
       body: Column(
         children: [
-          // Mesajlar listesi
+          // Mesajlar listesi (desenli sohbet zemini üstünde)
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _orderedIds.isEmpty
-                ? _buildEmptyState()
-                : _buildOptimizedMessageList(),
+            child: ChatWallpaper(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : (_historyIds.isEmpty && _newIds.isEmpty)
+                  ? _buildEmptyState()
+                  : _buildOptimizedMessageList(),
+            ),
           ),
 
           // Mesaj gönderme alanı - SafeArea ile cihazın alt navigasyon barı için padding ekle
           SafeArea(
             top: false,
             child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: const [
-                  BoxShadow(
-                    offset: Offset(0, -2),
-                    blurRadius: 8,
-                    color: Color(0x0D000000), // Siyah %5 opacity
-                  ),
-                ],
-              ),
+              color: ChatPalette.wallpaper,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -499,18 +941,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
                   // Mesaj gönderme alanı
                   Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+                    padding: const EdgeInsets.fromLTRB(6, 8, 16, 8),
                     child: Row(
                       children: [
+                        // Fotoğraf / kamera / konum (Görev 3.1)
+                        IconButton(
+                          tooltip: 'Fotoğraf veya konum gönder',
+                          onPressed: _openAttachments,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 42,
+                            height: 44,
+                          ),
+                          icon: const Icon(
+                            Icons.add_circle_rounded,
+                            color: ChatPalette.accent,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             decoration: BoxDecoration(
-                              color: Colors.grey[100],
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(24),
+                              boxShadow: ChatPalette.bubbleShadow,
                             ),
                             child: TextField(
                               controller: _messageController,
@@ -557,48 +1013,109 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
-  /// Optimizasyonlu mesaj listesi - id-bazlı Map'ten sıralı listeye geçer
+  /// Mesaj listesi — İKİ PARÇALI, TERS eksenli (alttan yukarı) kaydırma:
+  ///
+  ///   üst  ▲  geçmiş (merkez parça): 0. öğe en yeni geçmiş mesajı, eski
+  ///        │  sayfalar yukarı eklenir
+  ///   ─────┼─ merkez (kaydırma 0)
+  ///        │  yeni mesajlar: bu ekranda gelenler, aşağı eklenir
+  ///   alt  ▼  sabit alt boşluk
+  ///
+  /// Merkezin iki yanındaki parçalar ayrı büyüdüğü için eski sayfa yüklemek
+  /// de, kullanıcı yukarıdayken yeni mesaj gelmesi de görünen içeriği
+  /// kaydırmaz. Açılışta kaydırma alt boşluktadır, yani liste zaten en alttadır.
   Widget _buildOptimizedMessageList() {
-    // orderedIds üzerinden güvenli erişim
-    final orderedMessages = _orderedIds
+    final history = _historyIds
         .map((id) => _messagesById[id])
         .whereType<Message>()
         .toList();
+    final fresh = _newIds
+        .map((id) => _messagesById[id])
+        .whereType<Message>()
+        .toList();
+    // Tarih ayraçları iki parçayı birlikte, eskiden yeniye okur.
+    final all = [...history, ...fresh];
+    final historyCount = history.length;
 
-    return ListView.builder(
+    return CustomScrollView(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      itemCount: orderedMessages.length,
+      reverse: true,
+      center: _historySliverKey,
       cacheExtent: 300.0,
-      addRepaintBoundaries: true,
-      addAutomaticKeepAlives: false,
-      itemBuilder: (context, index) {
-        final msg = orderedMessages[index];
-        return RepaintBoundary(
-          child: Hero(
-            tag: 'msg_${msg.id}',
-            child: Material(
-              type: MaterialType.transparency,
-              child: _buildMessageItem(orderedMessages, index),
+      slivers: [
+        const SliverToBoxAdapter(child: SizedBox(height: _listBottomGap)),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _messageTile(all, historyCount + index),
+              childCount: fresh.length,
+              addAutomaticKeepAlives: false,
             ),
           ),
-        );
-      },
+        ),
+        SliverPadding(
+          key: _historySliverKey,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                if (index >= historyCount) {
+                  // En üstte: önceki sayfa yükleniyor.
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                }
+                return _messageTile(all, historyCount - 1 - index);
+              },
+              childCount: historyCount + (_loadingOlder ? 1 : 0),
+              addAutomaticKeepAlives: false,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  /// Performans için mesaj öğesi oluşturucu
+  Widget _messageTile(List<Message> all, int ascIndex) {
+    return Material(
+      key: ValueKey<String>(all[ascIndex].id),
+      type: MaterialType.transparency,
+      child: _buildMessageItem(all, ascIndex),
+    );
+  }
+
+  /// Mesaj öğesi: gerekiyorsa gün hapı + balon. Aynı kişinin art arda
+  /// mesajları tek öbek gibi durur (bkz. [ChatGrouping]); gün kararı Türkiye
+  /// saatiyle verilir (eskiden UTC günüyle verilip Türkiye saatiyle
+  /// etiketleniyordu).
   Widget _buildMessageItem(List<Message> messages, int index) {
     final message = messages[index];
     final isMe = message.senderId == _currentUserId;
+    final prev = index > 0 ? messages[index - 1] : null;
+    final next = index < messages.length - 1 ? messages[index + 1] : null;
     final showDate =
-        index == 0 ||
-        !_isSameDay(messages[index - 1].createdAt, message.createdAt);
+        prev == null || !ChatDayLabel.sameDay(prev.createdAt, message.createdAt);
+    // showDate yanlışsa prev kesin var (Dart bunu bilir).
+    final joinsAbove = !showDate && ChatGrouping.joins(prev, message);
+    final joinsBelow = next != null && ChatGrouping.joins(message, next);
 
     return Column(
       children: [
-        if (showDate) _buildDateDivider(message.createdAt),
-        _buildMessageBubble(message, isMe),
+        if (showDate) ChatDayPill(label: ChatDayLabel.format(message.createdAt)),
+        _buildMessageBubble(
+          message,
+          isMe,
+          joinsAbove: joinsAbove,
+          joinsBelow: joinsBelow,
+        ),
       ],
     );
   }
@@ -629,58 +1146,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     );
   }
 
-  Widget _buildDateDivider(DateTime date) {
-    // Türkiye saati (UTC+3)
-    const turkeyOffset = Duration(hours: 3);
-    final turkeyDate = date.toUtc().add(turkeyOffset);
-    final now = DateTime.now().toUtc().add(turkeyOffset);
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(
-      turkeyDate.year,
-      turkeyDate.month,
-      turkeyDate.day,
-    );
+  Widget _buildMessageBubble(
+    Message message,
+    bool isMe, {
+    bool joinsAbove = false,
+    bool joinsBelow = false,
+  }) {
+    final timeString = ChatDayLabel.time(message.createdAt);
 
-    String dateText;
-    if (messageDate == today) {
-      dateText = 'Bugün';
-    } else if (messageDate == today.subtract(const Duration(days: 1))) {
-      dateText = 'Dün';
-    } else {
-      final day = turkeyDate.day.toString().padLeft(2, '0');
-      final month = turkeyDate.month.toString().padLeft(2, '0');
-      dateText = '$day.$month.${turkeyDate.year}';
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        children: [
-          Expanded(child: Divider(color: Colors.grey[300])),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              dateText,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          Expanded(child: Divider(color: Colors.grey[300])),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(Message message, bool isMe) {
-    // PERFORMANCE: TimeOfDay yerine direkt hesaplama (daha hafif)
-    final turkeyTime = message.createdAt.toUtc().add(const Duration(hours: 3));
-    final timeString =
-        '${turkeyTime.hour.toString().padLeft(2, '0')}:${turkeyTime.minute.toString().padLeft(2, '0')}';
-
-    // Paylaşılan gönderi mi kontrol et
+    // Paylaşılan gönderi / ilan kartları kendi düzenlerini korur.
     if (message.isSharedPost) {
       return _buildSharedPostBubble(message, isMe, timeString);
     }
@@ -688,124 +1162,98 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       return _buildSharedIlanBubble(message, isMe, timeString);
     }
 
-    // PERFORMANCE: MediaQuery'i bir kez al
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    // PERFORMANCE: Renk ve stil değerlerini önceden hesapla (withOpacity tekrarlarını önle)
-    final bubbleColor = isMe ? Colors.deepPurple : Colors.white;
-    final textColor = isMe ? Colors.white : Colors.grey[900]!;
-    final timeColor = isMe ? Colors.white70 : Colors.grey[600]!;
-
     // Yanıt gösterimi için.
     // NOT: Hikaye yanıtlarında alıntılanacak bir mesaj yoktur (reply_to_id
     // null'dır), yalnızca reply_to_content doldurulur. Sadece id'ye bakmak
     // bu balonlardaki "Hikayene yanıt verdi" başlığını gizliyordu.
     final hasReply = message.replyToId != null ||
         (message.replyToContent?.isNotEmpty ?? false);
+    final replySenderName =
+        hasReply ? (message.replyToSenderName ?? 'Yanıt') : null;
+    final replyContent = hasReply ? message.replyToContent : null;
+    final status = isMe ? message.messageStatus : null;
 
-    // Sağa kaydırarak yanıtla - Dismissible yerine GestureDetector ile swipe
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onHorizontalDragEnd: (details) {
-          // Sola doğru hızlı kaydırma = yanıtla
-          if (details.primaryVelocity != null &&
-              details.primaryVelocity! > 300) {
-            _setReply(message);
-          }
-        },
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          constraints: BoxConstraints(maxWidth: screenWidth * 0.75),
-          decoration: BoxDecoration(
-            color: bubbleColor,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: isMe
-                  ? const Radius.circular(16)
-                  : const Radius.circular(4),
-              bottomRight: isMe
-                  ? const Radius.circular(4)
-                  : const Radius.circular(16),
-            ),
-            boxShadow: const [
-              BoxShadow(
-                offset: Offset(0, 1),
-                blurRadius: 2,
-                color: Color(
-                  0x1A000000,
-                ), // Siyah %10 opacity (withOpacity yerine)
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Yanıt gösterimi (varsa)
-              if (hasReply) ...[
-                Container(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      left: BorderSide(
-                        color: isMe
-                            ? Colors.white54
-                            : Colors.deepPurple.shade300,
-                        width: 3,
-                      ),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          message.replyToSenderName ?? 'Yanıt',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: isMe ? Colors.white70 : Colors.deepPurple,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          message.replyToContent ?? '',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isMe ? Colors.white60 : Colors.grey[700],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-              Text(
-                message.content,
-                style: TextStyle(fontSize: 15, color: textColor),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    timeString,
-                    style: TextStyle(fontSize: 11, color: timeColor),
-                  ),
-                  if (isMe) ...[
-                    const SizedBox(width: 4),
-                    _buildMessageStatusIcon(message.messageStatus, isMe: isMe),
-                  ],
-                ],
-              ),
-            ],
-          ),
+    // Fotoğraf / konum (Görev 3.1)
+    if (message.isImage) {
+      return _swipeToReply(
+        message,
+        ChatImageBubble(
+          path: message.imagePath!,
+          aspectRatio: message.imageAspectRatio,
+          caption: message.imageCaption,
+          time: timeString,
+          isMine: isMe,
+          status: status,
+          joinsAbove: joinsAbove,
+          joinsBelow: joinsBelow,
+          replySenderName: replySenderName,
+          replyContent: replyContent,
+          onTap: () => _openImage(message),
+          onRetry: () => _showFailedMediaActions(message),
         ),
+        copyText: message.imageCaption,
+      );
+    }
+    if (message.isLocation) {
+      return _swipeToReply(
+        message,
+        ChatLocationBubble(
+          latitude: message.latitude!,
+          longitude: message.longitude!,
+          label: message.locationLabel,
+          time: timeString,
+          isMine: isMe,
+          status: status,
+          joinsAbove: joinsAbove,
+          joinsBelow: joinsBelow,
+          replySenderName: replySenderName,
+          replyContent: replyContent,
+          onTap: () => _openLocation(message),
+          onRetry: () => _showFailedMediaActions(message),
+        ),
+      );
+    }
+
+    return _swipeToReply(
+      message,
+      ChatBubble(
+        text: message.content,
+        time: timeString,
+        isMine: isMe,
+        status: status,
+        joinsAbove: joinsAbove,
+        joinsBelow: joinsBelow,
+        replySenderName: replySenderName,
+        replyContent: replyContent,
       ),
+      copyText: message.content,
+    );
+  }
+
+  /// Sağa kaydırarak yanıtla; [copyText] varsa uzun basınca Kopyala / Metni
+  /// seç / Yanıtla menüsü. Gönderimi süren geçici balon yanıtlanamaz (henüz
+  /// sunucuda kimliği yok) ama yazısı kopyalanabilir.
+  Widget _swipeToReply(Message message, Widget bubble, {String? copyText}) {
+    final canReply = !message.id.startsWith('temp_');
+    final canCopy = copyText != null && copyText.trim().isNotEmpty;
+    if (!canReply && !canCopy) return bubble;
+    return GestureDetector(
+      onHorizontalDragEnd: canReply
+          ? (details) {
+              if (details.primaryVelocity != null &&
+                  details.primaryVelocity! > 300) {
+                _setReply(message);
+              }
+            }
+          : null,
+      onLongPress: canCopy
+          ? () => ChatMessageActions.show(
+                context,
+                text: copyText,
+                onReply: canReply ? () => _setReply(message) : null,
+              )
+          : null,
+      child: bubble,
     );
   }
 
@@ -904,8 +1352,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                         ),
                         if (isMe) ...[
                           const SizedBox(width: 4),
-                          _buildMessageStatusIconForSharedPost(
-                            message.messageStatus,
+                          ChatStatusTicks(
+                            status: message.messageStatus,
+                            color: ChatPalette.theirsMeta,
+                            size: 14,
                           ),
                         ],
                       ],
@@ -925,7 +1375,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: Colors.white,
         border: Border(
           left: BorderSide(color: Colors.deepPurple.shade300, width: 3),
         ),
@@ -965,33 +1415,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         ],
       ),
     );
-  }
-
-  /// WhatsApp benzeri mesaj durumu ikonu
-  Widget _buildMessageStatusIcon(String status, {required bool isMe}) {
-    switch (status) {
-      case 'failed':
-        return const Icon(Icons.error_outline, size: 16, color: Colors.red);
-      case 'sending':
-        return const SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
-          ),
-        );
-      case 'sent':
-        return const Icon(Icons.done_all, size: 16, color: Colors.white70);
-      case 'read':
-        return const Icon(
-          Icons.done_all,
-          size: 16,
-          color: Color(0xFF4FC3F7), // Açık mavi (görüldü)
-        );
-      default:
-        return const SizedBox.shrink();
-    }
   }
 
   /// Paylaşılan gönderi için özel bubble
@@ -1135,9 +1558,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 4),
-                      _buildMessageStatusIconForSharedPost(
-                        message.messageStatus,
-                      ),
+                      ChatStatusTicks(
+                            status: message.messageStatus,
+                            color: ChatPalette.theirsMeta,
+                            size: 14,
+                          ),
                     ],
                   ],
                 ),
@@ -1148,37 +1573,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       ),
     );
   }
+}
 
-  /// Paylaşılan gönderi için mesaj durumu ikonu (arka plan beyaz olduğu için farklı renkler)
-  Widget _buildMessageStatusIconForSharedPost(String status) {
-    switch (status) {
-      case 'failed':
-        return const Icon(Icons.error_outline, size: 14, color: Colors.red);
-      case 'sending':
-        return const SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-          ),
-        );
-      case 'sent':
-        return const Icon(Icons.done_all, size: 14, color: Colors.grey);
-      case 'read':
-        return const Icon(
-          Icons.done_all,
-          size: 14,
-          color: Color(0xFF4FC3F7), // Açık mavi (görüldü)
-        );
-      default:
-        return const SizedBox.shrink();
-    }
-  }
+/// Yanıtlanan mesajın bilgisi (medya gönderiminde yeniden denemek için saklanır).
+typedef _ReplyInfo = ({String? id, String? content, String? senderName});
 
-  bool _isSameDay(DateTime date1, DateTime date2) {
-    return date1.year == date2.year &&
-        date1.month == date2.month &&
-        date1.day == date2.day;
-  }
+/// Gönderimi süren ya da başarısız olan medya mesajının yeniden gönderim verisi.
+class _PendingMedia {
+  _PendingMedia.image(PreparedChatImage this.image, this.caption, this.reply)
+    : location = null;
+
+  _PendingMedia.location(ChatLocationPick this.location, this.reply)
+    : image = null,
+      caption = '';
+
+  final PreparedChatImage? image;
+  final String caption;
+  final ChatLocationPick? location;
+  final _ReplyInfo reply;
 }

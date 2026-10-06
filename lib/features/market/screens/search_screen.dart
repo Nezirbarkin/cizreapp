@@ -23,6 +23,7 @@ import '../../profile/screens/user_profile_screen.dart';
 import '../widgets/shop_card.dart';
 import 'category_shops_screen.dart';
 import 'product_detail_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -1005,7 +1006,7 @@ class _SearchScreenState extends State<SearchScreen> {
         leading: CircleAvatar(
           radius: 25,
           backgroundColor: Theme.of(context).colorScheme.primary,
-          backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+          backgroundImage: avatarUrl != null ? avatarImage(avatarUrl) : null,
           child: avatarUrl == null
               ? Text(
                   fullName.length >= 2

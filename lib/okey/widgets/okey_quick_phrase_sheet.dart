@@ -66,7 +66,7 @@ class OkeyQuickPhraseSheet extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
+              colors: [OkeyUI.cardFillRaised, OkeyUI.cardFill],
             ),
             borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
             border: Border.all(color: OkeyUI.cardBorder),
@@ -78,23 +78,26 @@ class OkeyQuickPhraseSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.record_voice_over,
                       size: 18,
-                      color: Color(0xFFFFD54F),
+                      color: OkeyUI.brass,
                     ),
                     const SizedBox(width: 7),
-                    const Expanded(
-                      child: Text('HIZLI MESAJ', style: OkeyUI.title),
+                    Expanded(
+                      child: Text(
+                        OkeyUI.heading('Hızlı mesaj'),
+                        style: OkeyUI.title,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: OkeyUI.textFaint),
+                      icon: Icon(Icons.close, color: OkeyUI.textFaint),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
                 ),
               ),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Text(
                   'Masadaki herkes görür ve duyar.',
@@ -159,8 +162,8 @@ class _PhraseChip extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               text,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: OkeyUI.text,
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
               ),

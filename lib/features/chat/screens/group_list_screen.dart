@@ -11,6 +11,7 @@ import 'group_chat_screen.dart';
 import 'group_detail_screen.dart';
 import 'group_search_screen.dart';
 import '../../../core/widgets/group_avatar_viewer.dart';
+import '../../../core/utils/image_url.dart';
 
 class GroupListScreen extends StatefulWidget {
   final bool embedded; // TabBarView içinde gömülü mü?
@@ -398,7 +399,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
                           : hasUnread
                               ? Colors.deepPurple[100]
                               : Colors.green[100],
-                      backgroundImage: group.avatarUrl != null && group.avatarUrl!.isNotEmpty ? NetworkImage(group.avatarUrl!) : null,
+                      backgroundImage: group.avatarUrl != null && group.avatarUrl!.isNotEmpty ? avatarImage(group.avatarUrl!) : null,
                       child: group.avatarUrl == null || group.avatarUrl!.isEmpty
                           ? Icon(
                               group.isPrivate ? Icons.lock : Icons.groups,

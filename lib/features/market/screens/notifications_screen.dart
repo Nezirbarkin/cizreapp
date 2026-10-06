@@ -11,14 +11,20 @@ import '../../profile/screens/user_profile_screen.dart';
 import '../../profile/services/follow_request_service.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../social/screens/story_viewer_screen.dart';
+import '../../social/services/story_service.dart';
 import '../widgets/pending_review_dialog.dart';
+import 'product_detail_screen.dart';
+import 'live_session_route_screen.dart';
+import '../../../ilanlar/screens/ilan_detail_screen.dart';
 import '../services/shop_review_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/screens/orders_screen.dart';
 import '../../seller/screens/seller_orders_screen.dart';
 import '../../../okey/screens/okey_lobby_screen.dart';
 import '../../../okey/screens/okey_room_screen.dart';
+import '../../../okey/widgets/okey_module_gate.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/image_url.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -357,16 +363,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         // Beğeni bildirimi - hikaye mi gönderi mi kontrol et
         if (notification.entityId != null) {
           try {
-            // Önce story olup olmadığını kontrol et
-            final storyData = await Supabase.instance.client
-                .from('stories')
-                .select()
-                .eq('id', notification.entityId!)
-                .maybeSingle();
+            // Önce story olup olmadığını kontrol et (yazarının adıyla;
+            // aksi halde görüntüleyicide "Kullanıcı" yazıyordu)
+            final story = await StoryService().getStoryById(
+              notification.entityId!,
+            );
 
-            if (storyData != null) {
+            if (story != null) {
               // Story beğenisi - story viewer'a git
-              final story = Story.fromJson(storyData);
               if (mounted) {
                 Navigator.push(
                   context,
@@ -544,6 +548,41 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
+      // Sepetteki ürün indirime girdi (Görev 3.3) / fiyat alarmı: ürünü aç.
+      case 'cart_price_drop':
+      case 'price_drop':
+        final productId = notification.entityId;
+        if (productId != null && productId.isNotEmpty && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ProductDetailScreen(productId: productId)),
+          );
+        }
+        break;
+
+      // İlan süresi doluyor / doldu (Görev 3.9): ilanı aç — sahibi orada uzatır.
+      case 'ilan_expiring':
+      case 'ilan_expired':
+        final ilanId = notification.entityId;
+        if (ilanId != null && ilanId.isNotEmpty && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => IlanDetailScreen(ilanId: ilanId)),
+          );
+        }
+        break;
+
+      // Mağaza canlı yayına başladı: yayını aç (bittiyse özet görünür).
+      case 'live_started':
+        final sessionId = notification.entityId;
+        if (sessionId != null && sessionId.isNotEmpty && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LiveSessionRouteScreen(sessionId: sessionId)),
+          );
+        }
+        break;
+
       case 'okey_invite':
         // Masaya çağrıldım. Doğrudan bekleme odasına GÖTÜRMEK yanlış olur:
         // henüz oturmuş değilim, masayı RLS gereği göremem ve masa puanı
@@ -552,7 +591,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (mounted) {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const OkeyLobbyScreen()),
+            MaterialPageRoute(
+              builder: (_) => const OkeyModuleGate(child: OkeyLobbyScreen()),
+            ),
           );
         }
         break;
@@ -567,9 +608,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => okeyRoomId == null
-                  ? const OkeyLobbyScreen()
-                  : OkeyRoomScreen(roomId: okeyRoomId),
+              builder: (_) => OkeyModuleGate(
+                child: okeyRoomId == null
+                    ? const OkeyLobbyScreen()
+                    : OkeyRoomScreen(roomId: okeyRoomId),
+              ),
             ),
           );
         }
@@ -793,6 +836,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.star_rate;
       case 'admin_notification':
         return Icons.campaign_rounded;
+      case 'cart_price_drop':
+        return Icons.local_offer;
+      case 'price_drop':
+        return Icons.trending_down;
+      case 'ilan_expiring':
+        return Icons.hourglass_bottom;
+      case 'ilan_expired':
+        return Icons.timer_off;
+      case 'live_started':
+        return Icons.sensors;
       case 'okey_invite':
         return Icons.casino;
       case 'okey_invite_accepted':
@@ -845,6 +898,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'okey_invite':
       case 'okey_invite_accepted':
         return Colors.amber;
+      case 'cart_price_drop':
+        return Colors.deepOrange;
+      case 'price_drop':
+        return Colors.green;
+      case 'ilan_expiring':
+        return Colors.orange;
+      case 'ilan_expired':
+        return Colors.red;
+      case 'live_started':
+        return const Color(0xFFE53935);
       default:
         return Colors.grey;
     }
@@ -1388,7 +1451,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           child: actorAvatar != null && actorAvatar.isNotEmpty
                               ? CircleAvatar(
                                   radius: 26,
-                                  backgroundImage: NetworkImage(actorAvatar),
+                                  backgroundImage:
+                                      avatarImage(actorAvatar) ??
+                                      NetworkImage(actorAvatar),
                                   onBackgroundImageError: (error, stackTrace) {
                                     debugPrint('❌ Profil resmi yüklenemedi: $error');
                                   },

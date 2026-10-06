@@ -50,6 +50,10 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
   String _selectedAddress = '';
   bool _isSearching = false;
   bool _isLoadingLocation = false;
+  // Haritanın mavi "konumum" katmanı yalnız konum izni ZATEN verilmişse açılır.
+  // İzin yokken açmak, bazı platformlarda haritanın kendi izin diyaloğunu
+  // uygulamanın açıklama ekranından önce tetikleyebilir.
+  bool _myLocationLayerEnabled = false;
   bool _isApiKeyLoaded = false;
   bool _isGeocoding = false;
   // Reverse geocode (tap/arama sonrası) mahalle/sokak alanlarını otomatik
@@ -84,10 +88,21 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
     // API Key'i yükle
     _loadApiKey();
 
+    // Mavi "konumum" katmanı için izin durumunu SORMADAN oku
+    _syncMyLocationLayer();
+
     // Başlangıçta marker ayarla
     _updateMarker();
   }
-  
+
+  Future<void> _syncMyLocationLayer() async {
+    final ready = await LocationDisclosureService.isReady(
+      LocationPurpose.nearby,
+    );
+    if (!mounted || !ready) return;
+    setState(() => _myLocationLayerEnabled = true);
+  }
+
   Future<void> _loadApiKey() async {
     // Önce .env dosyasından API key'i kontrol et
     String? apiKey;
@@ -116,13 +131,15 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         _isApiKeyLoaded = true;
       });
       
-      // Sadece başlangıç konumu verilmediyse otomatik olarak mevcut konumu al
+      // Başlangıç konumu verilmediyse ve konum izni ZATEN verilmişse haritayı
+      // sessizce mevcut konuma taşı. İzin yoksa burada hiçbir şey sorulmaz:
+      // kullanıcı "Mevcut konumum" düğmesine dokunduğunda sorulur.
       final hasInitialLocation = widget.initialLatitude != null && widget.initialLongitude != null;
       if (!hasInitialLocation && apiKey != null && MapsApiKeyService.isValidApiKey(apiKey)) {
         // Kısa bir gecikme ile konum al (harita yüklenmesini bekle)
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) {
-            _getCurrentLocation();
+            _getCurrentLocation(interactive: false);
           }
         });
       }
@@ -222,28 +239,40 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
     _fetchAddressFromCoordinates(position.latitude, position.longitude);
   }
 
-  Future<void> _getCurrentLocation() async {
+  /// Haritayı kullanıcının mevcut konumuna taşır.
+  ///
+  /// [interactive] true ise kullanıcı "Mevcut konumum"a dokunmuştur: gerekirse
+  /// açıklama ekranı + sistem izni istenir. false ise çağrı ekran açılışından
+  /// gelir: izin ZATEN verilmişse konuma gidilir, verilmemişse hiçbir şey
+  /// sorulmaz ve harita olduğu gibi kalır.
+  Future<void> _getCurrentLocation({bool interactive = true}) async {
+    if (!interactive &&
+        !await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _isLoadingLocation = true);
-    
+
     try {
       // Prominent Disclosure + sistem izni. Kullanıcı reddederse konum
       // alınmaz; haritada adresi elle seçmeye devam edebilir.
-      if (!mounted) return;
-      final allowed = await LocationDisclosureService.ensure(
-        context,
-        LocationPurpose.nearby,
-      );
-      if (!allowed) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Konum izni verilmedi — adresi haritadan elle seçebilirsiniz.',
+      if (interactive) {
+        final allowed = await LocationDisclosureService.ensure(
+          context,
+          LocationPurpose.nearby,
+        );
+        if (!allowed) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Konum izni verilmedi — adresi haritadan elle seçebilirsiniz.',
+                ),
               ),
-            ),
-          );
+            );
+          }
+          return;
         }
-        return;
       }
 
       // Mevcut konumu al
@@ -252,12 +281,14 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
           accuracy: LocationAccuracy.high,
         ),
       );
+      if (!mounted) return;
 
       setState(() {
         _selectedLatitude = position.latitude;
         _selectedLongitude = position.longitude;
+        _myLocationLayerEnabled = true;
       });
-      
+
       _updateMarker();
       
       // Haritayı yeni konuma taşı
@@ -284,7 +315,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         );
       }
     } finally {
-      setState(() => _isLoadingLocation = false);
+      if (mounted) setState(() => _isLoadingLocation = false);
     }
   }
 
@@ -651,7 +682,7 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
                   },
                   onTap: _onMapTap,
                   markers: _markers,
-                  myLocationEnabled: true,
+                  myLocationEnabled: _myLocationLayerEnabled,
                   myLocationButtonEnabled: false,
                   // Gömülü gri zoom kutuları yerine cam kontroller.
                   zoomControlsEnabled: false,

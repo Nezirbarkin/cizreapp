@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -22,17 +25,28 @@ class ProfileFeatureService {
 
   static final Map<String, _FeatureCache> _cache = {};
   static final Map<String, Future<List<ProfileFeature>>> _pending = {};
+
+  /// [prefetchUserFeatures] sürerken kapsadığı kullanıcılar. Bu Future hiç
+  /// hata vermez (toplu istek başarısız olursa da tamamlanır).
+  static final Map<String, Future<void>> _prefetching = {};
   static const _cacheDuration = Duration(minutes: 3);
 
   Future<List<ProfileFeature>> getUserFeatures(
     String userId, {
     bool forceRefresh = false,
   }) async {
-    final cached = _cache[userId];
-    if (!forceRefresh &&
-        cached != null &&
-        DateTime.now().difference(cached.createdAt) < _cacheDuration) {
-      return cached.features;
+    if (!forceRefresh) {
+      final cached = peekUserFeatures(userId);
+      if (cached != null) return cached;
+
+      // Toplu ön-yükleme bu kullanıcıyı zaten istiyorsa ayrı RPC atma.
+      final batch = _prefetching[userId];
+      if (batch != null) {
+        await batch;
+        final prefetched = peekUserFeatures(userId);
+        if (prefetched != null) return prefetched;
+        // Toplu istek başarısız oldu — aşağıda tekil isteğe düş.
+      }
     }
 
     final pending = _pending[userId];
@@ -44,6 +58,74 @@ class ProfileFeatureService {
       return await request;
     } finally {
       _pending.remove(userId);
+    }
+  }
+
+  /// Önbellekte taze kayıt varsa onu EŞZAMANLI döner, yoksa `null`.
+  ///
+  /// Liste kartları bunu `FutureBuilder.initialData` olarak verir: önbellek
+  /// doluysa ilk karede doğru görünür, boş bir kare çizilip ardından yeniden
+  /// kurulmaz.
+  static List<ProfileFeature>? peekUserFeatures(String userId) {
+    final cached = _cache[userId];
+    if (cached == null ||
+        DateTime.now().difference(cached.createdAt) >= _cacheDuration) {
+      return null;
+    }
+    return cached.features;
+  }
+
+  /// Bir sayfadaki tüm yazarların özelliklerini TEK istekle önbelleğe alır.
+  ///
+  /// Akışta her kart kendi [getUserFeatures] çağrısını yapıyordu (yazar başına
+  /// bir RPC). Kartlar çizilmeden önce bu çağrılırsa kartlar önbellekten okur.
+  /// Satırı dönmeyen kullanıcılar "özelliği yok" olarak önbelleğe alınır.
+  /// Hata olursa sessizce geçilir — kartlar tek tek yüklemeye geri döner.
+  Future<void> prefetchUserFeatures(Iterable<String> userIds) async {
+    final ids = userIds
+        .where((id) => id.isNotEmpty)
+        .where((id) => peekUserFeatures(id) == null)
+        .where((id) => !_pending.containsKey(id))
+        .where((id) => !_prefetching.containsKey(id))
+        .toSet()
+        .take(200)
+        .toList(growable: false);
+    if (ids.isEmpty) return;
+
+    // Ön-yükleme sürerken kartların açtığı getUserFeatures çağrıları ayrı RPC
+    // atmasın, bu isteğin bitmesini beklesin (bkz. getUserFeatures).
+    final completer = Completer<void>();
+    for (final id in ids) {
+      _prefetching[id] = completer.future;
+    }
+    try {
+      final response = await client.rpc(
+        'get_users_profile_features',
+        params: {'p_user_ids': ids},
+      );
+      final byUser = <String, List<ProfileFeature>>{};
+      for (final item in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(item as Map);
+        final userId = row['user_id']?.toString();
+        if (userId == null) continue;
+        (byUser[userId] ??= <ProfileFeature>[]).add(
+          ProfileFeature.fromMap(row),
+        );
+      }
+      final now = DateTime.now();
+      for (final id in ids) {
+        _cache[id] = _FeatureCache(
+          byUser[id] ?? const <ProfileFeature>[],
+          now,
+        );
+      }
+    } catch (e) {
+      debugPrint('prefetchUserFeatures hata: $e');
+    } finally {
+      for (final id in ids) {
+        _prefetching.remove(id);
+      }
+      completer.complete();
     }
   }
 

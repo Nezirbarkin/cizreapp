@@ -8,17 +8,41 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// üretmek. Hata durumunda varsayılan `true` döner; böylece arıza halinde
 /// dükkanlar yanlışlıkla kapatılmaz (müşteri deneyimi için daha güvenli).
 class OrderAvailabilityService {
+  static bool? _cached;
+  static DateTime? _cachedAt;
+  static Future<bool>? _inFlight;
+  static const _cacheTtl = Duration(seconds: 30);
+
   /// `app_about_settings` tablosundan global sipariş alma bayrağını okur.
   /// Tablo/sütun yoksa veya sorgu hata verirse `true` döner (güvenli varsayılan).
-  static Future<bool> fetchGlobalOrdersEnabled() async {
+  ///
+  /// Ürünler sekmesi, arama, ürün detayı… her ekran açılışta bu bayrağı ayrı
+  /// istekle okuyordu (cihaz ölçümü 2026-10-06). Son 30 sn'lik değer
+  /// paylaşılır, eşzamanlı çağrılar tek isteği bekler. Sipariş sunucuda da
+  /// ayrıca denetlenir; kısa gecikme yalnız rozet/uyarı görünümünü etkiler.
+  static Future<bool> fetchGlobalOrdersEnabled() {
+    final cachedAt = _cachedAt;
+    if (_cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _cacheTtl) {
+      return Future.value(_cached);
+    }
+    return _inFlight ??= _fetch().whenComplete(() => _inFlight = null);
+  }
+
+  static Future<bool> _fetch() async {
     try {
       final response = await Supabase.instance.client
           .from('app_about_settings')
           .select('global_orders_enabled')
           .maybeSingle();
 
-      if (response == null) return true;
-      return response['global_orders_enabled'] as bool? ?? true;
+      final enabled = response == null
+          ? true
+          : response['global_orders_enabled'] as bool? ?? true;
+      _cached = enabled;
+      _cachedAt = DateTime.now();
+      return enabled;
     } catch (e) {
       debugPrint('⚠️ OrderAvailabilityService: global_orders_enabled okunamadı: $e');
       return true;

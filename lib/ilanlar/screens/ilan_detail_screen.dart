@@ -11,6 +11,7 @@ import '../../features/chat/services/chat_service.dart';
 import '../models/ilan_models.dart';
 import '../services/ilan_service.dart';
 import '../utils/ilan_ui.dart';
+import '../widgets/ilan_expiry_panel.dart';
 
 class IlanDetailScreen extends StatefulWidget {
   const IlanDetailScreen({super.key, required this.ilanId});
@@ -25,6 +26,8 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
   final _chatService = ChatService();
   late Future<Ilan> _future;
   bool _favorite = false;
+  bool _extending = false;
+  int? _expiryDays;
   int _currentImage = 0;
 
   @override
@@ -35,6 +38,9 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
     _service.isFavorite(widget.ilanId).then((value) {
       if (mounted) setState(() => _favorite = value);
     });
+    _service.getSettings().then((settings) {
+      if (mounted) setState(() => _expiryDays = settings.defaultExpiryDays);
+    }, onError: (_) {});
   }
 
   @override
@@ -351,19 +357,56 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
     ),
   );
 
-  Widget _ownerActions(Ilan ilan) => SizedBox(
-    width: double.infinity,
-    child: OutlinedButton.icon(
-      onPressed: () => _deleteIlan(ilan),
-      icon: const Icon(Icons.delete_outline),
-      label: const Text('İlanı Sil'),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.red,
-        side: const BorderSide(color: Colors.red),
-        padding: const EdgeInsets.symmetric(vertical: 15),
+  Widget _ownerActions(Ilan ilan) => Column(
+    children: [
+      // Görev 3.9: yayın bitişi + süreyi uzat / yeniden yayınla.
+      IlanExpiryPanel(
+        ilan: ilan,
+        busy: _extending,
+        extensionDays: _expiryDays,
+        onExtend: () => _extendIlan(ilan),
       ),
-    ),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () => _deleteIlan(ilan),
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('İlanı Sil'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red,
+            side: const BorderSide(color: Colors.red),
+            padding: const EdgeInsets.symmetric(vertical: 15),
+          ),
+        ),
+      ),
+    ],
   );
+
+  Future<void> _extendIlan(Ilan ilan) async {
+    setState(() => _extending = true);
+    try {
+      final until = await _service.extendMyIlan(ilan.id);
+      if (!mounted) return;
+      setState(() => _future = _service.getById(widget.ilanId));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            until == null
+                ? 'İlan yeniden yayında.'
+                : 'İlan ${IlanUi.longDate(until)} tarihine kadar yayında.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(IlanUi.friendlyError(error))));
+    } finally {
+      if (mounted) setState(() => _extending = false);
+    }
+  }
 
   Future<void> _deleteIlan(Ilan ilan) async {
     final confirmed = await showDialog<bool>(

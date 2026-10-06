@@ -175,6 +175,9 @@ class LeaderboardService {
   static Future<void> setStatEnabled(LeaderboardStat stat, bool value) =>
       _write(stat.settingKey, value ? 'true' : 'false');
 
+  static Future<void> setRecordEnabled(LeaderboardRecord record, bool value) =>
+      _write(record.settingKey, value ? 'true' : 'false');
+
   static Future<void> setPeriod(LeaderboardPeriod period) =>
       _write('leaderboard_period', period.key);
 

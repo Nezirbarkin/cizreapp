@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_review_model.dart';
+import '../../../core/services/order_availability_service.dart';
 import '../../../core/services/user_distance_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/skeleton_loader.dart';
@@ -18,10 +19,13 @@ import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../widgets/flash_aware_price_row.dart';
 import '../services/product_service.dart';
 import '../services/shop_review_service.dart';
+import '../services/live_shopping_service.dart';
+import '../widgets/live_stream_widgets.dart' show LiveSubscribeButton, kLiveRed;
 import '../providers/cart_provider.dart';
 import '../../seller/services/shop_analytics_service.dart';
 import 'product_detail_screen.dart';
 import '../../shop/screens/cart_screen.dart' as shop_cart;
+import '../../../core/utils/image_url.dart';
 
 class ShopDetailScreen extends StatefulWidget {
   final String shopId;
@@ -36,6 +40,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   final ProductService _productService = ProductService();
   final ShopReviewService _reviewService = ShopReviewService();
   final ShopAnalyticsService _analyticsService = ShopAnalyticsService();
+  final LiveShoppingService _liveService = LiveShoppingService();
 
   Shop? _shop;
   List<Product> _products = [];
@@ -157,13 +162,13 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     setState(() => _isLoadingReviews = true);
 
     try {
-      final reviews = await _reviewService.getShopReviews(widget.shopId);
       final userId = Supabase.instance.client.auth.currentUser?.id;
-
-      ShopReview? userReview;
-      if (userId != null) {
-        userReview = await _reviewService.getUserReview(widget.shopId, userId);
-      }
+      // Tüm yorumlar ve kullanıcının kendi yorumu bağımsız: aynı anda iste.
+      final userReviewFuture = userId == null
+          ? Future<ShopReview?>.value(null)
+          : _reviewService.getUserReview(widget.shopId, userId);
+      final reviews = await _reviewService.getShopReviews(widget.shopId);
+      final userReview = await userReviewFuture;
 
       if (mounted) {
         setState(() {
@@ -481,32 +486,27 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Shop verisini fresh olarak çek (cache bypass)
-      final shopResponse = await Supabase.instance.client
-          .from('shops')
-          .select()
-          .eq('id', widget.shopId)
-          .maybeSingle();
+      // Dükkan (fresh, cache bypass), ürünler ve global sipariş durumu
+      // birbirinden bağımsız: AYNI ANDA istenir. Eskiden art arda üç ağ turu
+      // bekleniyordu (cihaz ölçümü 2026-10-06: sayfa ~1,3 sn'de doluyordu).
+      final results = await Future.wait<Object?>([
+        Supabase.instance.client
+            .from('shops')
+            .select()
+            .eq('id', widget.shopId)
+            .maybeSingle(),
+        _productService.getShopProducts(widget.shopId),
+        OrderAvailabilityService.fetchGlobalOrdersEnabled(),
+      ]);
+      final shopResponse = results[0] as Map<String, dynamic>?;
 
       if (shopResponse == null) {
         throw Exception('Dükkan bulunamadı');
       }
 
       final shop = Shop.fromJson(shopResponse);
-      final products = await _productService.getShopProducts(widget.shopId);
-
-      // Global sipariş durumunu kontrol et
-      try {
-        final appSettings = await Supabase.instance.client
-            .from('app_about_settings')
-            .select('global_orders_enabled')
-            .limit(1)
-            .maybeSingle();
-        if (appSettings != null) {
-          _globalOrdersEnabled =
-              appSettings['global_orders_enabled'] as bool? ?? true;
-        }
-      } catch (_) {}
+      final products = results[1] as List<Product>;
+      _globalOrdersEnabled = results[2] as bool;
 
       // DEBUG: Teslimat ayarlarını kontrol et
       debugPrint('🏪 SHOP DETAIL: Shop loaded - ID: ${shop.id}');
@@ -1199,6 +1199,31 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                       ],
                     ),
 
+                    // Canlı yayın bildirimi: mağaza yayına başlayınca haber ver.
+                    const SizedBox(height: 12),
+                    Row(
+                      key: const ValueKey('shop-live-subscribe-row'),
+                      children: [
+                        const Icon(Icons.sensors, size: 18, color: kLiveRed),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Canlı yayına başlayınca bildirim al',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        LiveSubscribeButton(
+                          shopId: _shop!.id,
+                          shopName: _shop!.name,
+                          service: _liveService,
+                          dark: false,
+                        ),
+                      ],
+                    ),
+
                     if (_shop!.description != null &&
                         _shop!.description!.trim().isNotEmpty) ...[
                       const SizedBox(height: 14),
@@ -1656,7 +1681,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
             CircleAvatar(
               radius: 20,
               backgroundImage: review.userAvatar != null
-                  ? NetworkImage(review.userAvatar!)
+                  ? avatarImage(review.userAvatar!)
                   : null,
               child: review.userAvatar != null
                   ? null

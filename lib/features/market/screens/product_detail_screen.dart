@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,6 +14,7 @@ import '../../../core/models/flash_sale_model.dart';
 import '../../../core/providers/favorites_provider.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/utils/digital_order_pricing.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../core/widgets/skeleton_loader.dart';
@@ -24,10 +26,12 @@ import '../services/flash_sale_service.dart';
 import '../providers/cart_provider.dart';
 import '../../seller/services/shop_analytics_service.dart';
 import '../../../core/services/smm_service.dart';
+import '../widgets/digital_order_total_card.dart';
 import '../widgets/price_alert_dialog.dart';
 import 'flash_sales_screen.dart' show FlashSaleMiniBanner;
 import 'cart_screen.dart';
 import 'shop_detail_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final String productId;
@@ -337,25 +341,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     setState(() => _isLoadingReviews = true);
 
     try {
-      final reviews = await _reviewService.getProductReviews(widget.productId);
-      final stats = await _reviewService.getProductRatingStats(
-        widget.productId,
-      );
-
+      // Dört istek birbirinden bağımsız: AYNI ANDA iste. Eskiden art arda
+      // dört ağ turu bekleniyordu (cihaz ölçümü 2026-10-06).
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      ProductReview? userReview;
-      bool canReview = false;
-
-      if (userId != null) {
-        userReview = await _reviewService.getUserProductReview(
-          widget.productId,
-          userId,
-        );
-        canReview = await _reviewService.hasPurchasedProduct(
-          widget.productId,
-          userId,
-        );
-      }
+      final results = await Future.wait<Object?>([
+        _reviewService.getProductReviews(widget.productId),
+        _reviewService.getProductRatingStats(widget.productId),
+        if (userId != null) ...[
+          _reviewService.getUserProductReview(widget.productId, userId),
+          _reviewService.hasPurchasedProduct(widget.productId, userId),
+        ],
+      ]);
+      final reviews = results[0] as List<ProductReview>;
+      final stats = results[1] as Map<String, dynamic>;
+      final userReview = userId == null ? null : results[2] as ProductReview?;
+      final canReview = userId != null && results[3] as bool;
 
       if (mounted) {
         setState(() {
@@ -912,9 +912,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           backgroundColor: Colors.red,
                         ),
 
-                      // Kargo / hazırlık süresi / adet limiti bilgileri
-                      if (product.hasCustomShipping ||
-                          product.prepTimeLabel != null) ...[
+                      // Kargo bilgileri (teslimat süresi satıcı profilinde)
+                      if (product.hasCustomShipping) ...[
                         const SizedBox(height: 12),
                         ProductLogisticsWrap(
                           product: product,
@@ -1061,9 +1060,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               ? 'Link girin'
                               : !isQuantityValid
                               ? 'Miktar $minQ - $maxQ arasında olmalı'
-                              : product?.isPointsEligible == true
-                              ? 'Önce puan, sonra TL ile satın al'
-                              : 'TL bakiye ile satın al',
+                              : _digitalBuyLabel(product),
                         ),
                       );
                     },
@@ -1112,6 +1109,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// Dijital sipariş düğmesi: ödeme şekli + anlık toplam (Görev 3.6).
+  String _digitalBuyLabel(Product? product) {
+    final base = product?.isPointsEligible == true
+        ? 'Önce puan, sonra TL ile satın al'
+        : 'TL bakiye ile satın al';
+    final quote = DigitalOrderPricing.quote(
+      pricePer1000: product?.pricePer1000,
+      quantity: _digitalQuantity,
+    );
+    return quote == null ? base : '$base · ${DigitalOrderPricing.formatTry(quote.totalCents)}';
   }
 
   Widget _buildDigitalOrderForm(Product product) {
@@ -1177,6 +1186,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             TextField(
               controller: _digitalQuantityController,
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: InputDecoration(
                 labelText: 'Miktar',
                 border: const OutlineInputBorder(),
@@ -1191,8 +1201,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 final newQty = int.tryParse(value) ?? 0;
                 // Max aşılırsa otomatik max'e düzelt (max bilinmiyorsa düzeltme yapılmaz)
                 if (maxQ > 0 && newQty > maxQ) {
-                  _digitalQuantityController.text = maxQ.toString();
-                  _digitalQuantity = maxQ;
+                  // Üst sınıra çekilen değer de anlık toplama yansısın (setState);
+                  // imleç sona alınır.
+                  _digitalQuantityController.value = TextEditingValue(
+                    text: maxQ.toString(),
+                    selection: TextSelection.collapsed(offset: maxQ.toString().length),
+                  );
+                  setState(() => _digitalQuantity = maxQ);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Maksimum sipariş miktarı $maxQ adettir'),
@@ -1205,16 +1220,19 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               },
             ),
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Nihai fiyat ve puan/TL ödeme dağılımı sunucuda hesaplanır ve sipariş yanıtında gösterilir.',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-              ),
+            // Görev 3.6: miktar yazıldıkça toplam anında (sunucu formülüyle).
+            DigitalOrderTotalCard(
+              pricePer1000: product.pricePer1000,
+              quantity: _digitalQuantity,
+              minQuantity: minQ,
+              maxQuantity: maxQ,
+              pointsEligible: product.isPointsEligible,
+              maxPointsCoveragePercent: product.maxPointsCoveragePercent,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tutar sunucuyla aynı formülle hesaplanır; puan/TL dağılımı sipariş onayında kesinleşir.',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
             ),
             if (product.isPointsEligible) ...[
               const SizedBox(height: 10),
@@ -2143,7 +2161,7 @@ class _ReviewCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 24,
                   backgroundImage: review.userAvatar != null
-                      ? NetworkImage(review.userAvatar!)
+                      ? avatarImage(review.userAvatar!)
                       : null,
                   child: review.userName != null
                       ? Text(

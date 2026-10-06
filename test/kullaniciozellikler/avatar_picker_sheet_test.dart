@@ -6,14 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cizreapp/features/profile/models/character_avatar_recipes.dart';
 import 'package:cizreapp/features/profile/widgets/avatar_picker_sheet.dart';
 
-/// Hazır avatar seçici: üç sekme (Kız & Erkek / Hareketli / Klasik) listelenmeli,
-/// her sekmeden seçim asset yolunu döndürmeli ve listelenen her dosya diskte
-/// gerçekten bulunmalı.
-///
-/// NOT: Bu test daha önce tek listeli seçici için yazılmıştı; "Hareketli" sekmesi
-/// öne alındığında güncellenmediği için kırık kalmıştı (TabBarView yalnız aktif
-/// sekmeyi kurar, dolayısıyla klasik listenin ilk avatarı ağaçta olmuyordu).
-/// Artık hangi sekmenin açık olduğu testin parçası.
+/// Hazır avatar seçici (Görev 2.6 sonrası): iki sekme (Kız & Erkek /
+/// Hareketli). Klasik düz illüstrasyonlar ve eski geometrik GIF'ler kaldırıldı;
+/// gerçekçi karakter seti 140'a çıktı ve yeni 40'lık set "Hepsi"nde öne alınır.
+/// Listelenen her dosya diskte gerçekten bulunmalı, kaldırılanlar paketten
+/// çıkmış olmalı.
 void main() {
   Finder assetImage(String path) => find.byWidgetPredicate(
     (w) =>
@@ -22,38 +19,42 @@ void main() {
         (w.image as AssetImage).assetName == path,
   );
 
-  Future<String?> openPicker(WidgetTester tester, {String? selected}) async {
+  Future<String?> Function() openPicker(
+    WidgetTester tester, {
+    String? selected,
+  }) {
     String? picked;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () async {
-                picked = await showPresetAvatarPicker(
-                  context,
-                  selected: selected,
-                );
-              },
-              child: const Text('aç'),
+    return () async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  picked = await showPresetAvatarPicker(
+                    context,
+                    selected: selected,
+                  );
+                },
+                child: const Text('aç'),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('aç'));
-    await tester.pumpAndSettle();
-    return picked;
+      );
+      await tester.tap(find.text('aç'));
+      await tester.pumpAndSettle();
+      return picked;
+    };
   }
 
   test('avatar listeleri: beklenen sayı, benzersiz yol, doğru klasör', () {
-    expect(kCharacterAvatars.length, 100);
-    expect(kAnimatedAvatars.length, 79);
-    expect(kPresetAvatars.length, 20);
-
+    expect(kCharacterAvatars.length, 140);
+    expect(kAnimatedAvatars.length, kAnimatedAvatarLast - kAnimatedAvatarFirst + 1);
+    expect(kAnimatedAvatars.first, 'assets/avatars_animated/avatar_anim_56.gif');
     expect(
       kAllPresetAvatars.length,
-      kCharacterAvatars.length + kAnimatedAvatars.length + kPresetAvatars.length,
+      kCharacterAvatars.length + kAnimatedAvatars.length,
     );
     expect(
       kAllPresetAvatars.toSet().length,
@@ -70,55 +71,57 @@ void main() {
       expect(p, startsWith('assets/avatars_animated/'));
       expect(isAnimatedAvatarAsset(p), isTrue);
     }
-    for (final p in kPresetAvatars) {
-      expect(p, startsWith('assets/avatars/'));
-      expect(isAnimatedAvatarAsset(p), isFalse);
-    }
   });
 
-  test('listelenen her avatar dosyası diskte var ve pubspec\'te tanımlı', () {
+  test('listelenen her avatar diskte var; kaldırılan setler paketten çıktı', () {
     for (final p in kAllPresetAvatars) {
       expect(File(p).existsSync(), isTrue, reason: '$p diskte yok');
     }
 
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    for (final dir in <String>{
-      'assets/avatars/',
-      'assets/avatars_animated/',
-      'assets/avatars_characters/',
-    }) {
-      expect(
-        pubspec,
-        contains('- $dir'),
-        reason: '$dir pubspec.yaml assets listesinde yok',
-      );
+    for (final dir in const ['assets/avatars_animated/', 'assets/avatars_characters/']) {
+      expect(pubspec, contains('- $dir'), reason: '$dir pubspec.yaml assets listesinde yok');
+    }
+    // Klasik düz illüstrasyonlar ve geometrik GIF'ler artık uygulamada yok.
+    expect(pubspec, isNot(contains('- assets/avatars/\n')));
+    expect(pubspec, isNot(contains('- assets/avatars/\r\n')));
+    expect(Directory('assets/avatars').existsSync(), isFalse);
+    for (var i = 1; i < kAnimatedAvatarFirst; i++) {
+      final old = 'assets/avatars_animated/avatar_anim_${i.toString().padLeft(2, '0')}.gif';
+      expect(File(old).existsSync(), isFalse, reason: '$old kaldırılmalıydı');
     }
   });
 
-  testWidgets('seçici üç sekme gösterir ve kız/erkek sekmesiyle açılır', (
-    tester,
-  ) async {
-    await openPicker(tester);
+  test('tarifler: 70 erkek + 70 kadın, yeni set dengeli', () {
+    expect(kCharacterRecipes.length, kCharacterAvatarCount);
+    expect(kCharacterRecipes.where((r) => r.female).length, 70);
+    final fresh = kCharacterRecipes.sublist(kNewCharacterFirst - 1);
+    expect(fresh.length, 40);
+    expect(fresh.where((r) => r.female).length, 20);
+    // Yeni sette tarifler birbirinden farklı (aynı karakter iki kez yok).
+    expect(fresh.map((r) => r.config).toSet().length, fresh.length);
+  });
+
+  testWidgets('seçici iki sekme gösterir; yeni gerçekçi set önde açılır', (tester) async {
+    await openPicker(tester)();
 
     expect(find.text('Hazır Avatar Seç'), findsOneWidget);
     expect(find.text('Kız & Erkek (${kCharacterAvatars.length})'), findsOneWidget);
     expect(find.text('Hareketli (${kAnimatedAvatars.length})'), findsOneWidget);
-    expect(find.text('Klasik (${kPresetAvatars.length})'), findsOneWidget);
+    expect(find.textContaining('Klasik'), findsNothing);
 
-    // Seçim yoksa yeni karakter seti önde açılır.
-    expect(assetImage(kCharacterAvatars.first), findsOneWidget);
+    expect(assetImage(kCharacterAvatars[kNewCharacterFirst - 1]), findsOneWidget);
+    expect(find.text('Yeni (40)'), findsOneWidget);
   });
 
-  testWidgets('kız/erkek avatarı seçimi asset yolunu döndürür', (tester) async {
+  testWidgets('karakter seçimi asset yolunu döndürür', (tester) async {
     String? picked;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Builder(
             builder: (context) => ElevatedButton(
-              onPressed: () async {
-                picked = await showPresetAvatarPicker(context);
-              },
+              onPressed: () async => picked = await showPresetAvatarPicker(context),
               child: const Text('aç'),
             ),
           ),
@@ -128,26 +131,22 @@ void main() {
     await tester.tap(find.text('aç'));
     await tester.pumpAndSettle();
 
-    final first = assetImage(kCharacterAvatars.first);
-    expect(first, findsOneWidget);
-
+    final first = assetImage(kCharacterAvatars[kNewCharacterFirst - 1]);
     await tester.tap(find.ancestor(of: first, matching: find.byType(InkWell)));
     await tester.pumpAndSettle();
 
-    expect(picked, kCharacterAvatars.first);
+    expect(picked, kCharacterAvatars[kNewCharacterFirst - 1]);
     expect(find.text('Hazır Avatar Seç'), findsNothing);
   });
 
-  testWidgets('klasik sekmesine geçilip seçim yapılabilir', (tester) async {
+  testWidgets('hareketli sekmesine geçilip seçim yapılabilir', (tester) async {
     String? picked;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Builder(
             builder: (context) => ElevatedButton(
-              onPressed: () async {
-                picked = await showPresetAvatarPicker(context);
-              },
+              onPressed: () async => picked = await showPresetAvatarPicker(context),
               child: const Text('aç'),
             ),
           ),
@@ -157,61 +156,43 @@ void main() {
     await tester.tap(find.text('aç'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Klasik (${kPresetAvatars.length})'));
+    await tester.tap(find.text('Hareketli (${kAnimatedAvatars.length})'));
     await tester.pumpAndSettle();
 
-    final firstClassic = assetImage(kPresetAvatars.first);
-    expect(firstClassic, findsOneWidget);
-
-    await tester.tap(
-      find.ancestor(of: firstClassic, matching: find.byType(InkWell)),
-    );
+    final firstAnimated = assetImage(kAnimatedAvatars.first);
+    expect(firstAnimated, findsOneWidget);
+    await tester.tap(find.ancestor(of: firstAnimated, matching: find.byType(InkWell)));
     await tester.pumpAndSettle();
 
-    expect(picked, kPresetAvatars.first);
+    expect(picked, kAnimatedAvatars.first);
   });
 
-  testWidgets('seçili avatar hangi sekmedeyse o sekmeyle açılır', (
-    tester,
-  ) async {
-    // Klasik listeden seçiliyken klasik sekmesi açık gelir. (Grid tembel
-    // kurulur; ekranda olmayan alt satırlar ağaçta bulunmaz, bu yüzden
-    // görünür olduğu kesin olan ilk avatar üzerinden doğrulanır.)
-    await openPicker(tester, selected: kPresetAvatars.first);
-    expect(assetImage(kPresetAvatars.first), findsOneWidget);
-    expect(assetImage(kCharacterAvatars.first), findsNothing);
+  testWidgets('hareketli avatar seçiliyken hareketli sekmesi açık gelir', (tester) async {
+    await openPicker(tester, selected: kAnimatedAvatars.first)();
+    expect(assetImage(kAnimatedAvatars.first), findsOneWidget);
+    expect(assetImage(kCharacterAvatars[kNewCharacterFirst - 1]), findsNothing);
   });
 
-  testWidgets('hareketli avatar seçiliyken hareketli sekmesi açık gelir', (
-    tester,
-  ) async {
-    await openPicker(tester, selected: kAnimatedAvatars.first);
-    // "Şık" avatarlar sekmede öne alınır; ilk görünen onlardan biridir.
-    expect(assetImage(kAnimatedAvatars[kElegantAnimatedFirst - 1]), findsOneWidget);
-    expect(assetImage(kPresetAvatars.first), findsNothing);
-    expect(assetImage(kCharacterAvatars.first), findsNothing);
-  });
-
-  testWidgets('kız & erkek sekmesi cinsiyete göre süzülür', (tester) async {
-    await openPicker(tester);
+  testWidgets('kız & erkek sekmesi yeni sete ve cinsiyete göre süzülür', (tester) async {
+    await openPicker(tester)();
 
     // İlk karakter erkek, 13. karakter kadın (bkz. character_avatar_recipes).
     expect(isFemaleCharacter(0), isFalse);
     expect(isFemaleCharacter(12), isTrue);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Kadın'));
+    await tester.tap(find.text('Kadın'));
     await tester.pumpAndSettle();
-    expect(assetImage(kCharacterAvatars[0]), findsNothing, reason: 'erkek gizlenmeli');
     expect(assetImage(kCharacterAvatars[12]), findsOneWidget);
+    expect(assetImage(kCharacterAvatars[0]), findsNothing);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Erkek'));
+    await tester.tap(find.text('Erkek'));
     await tester.pumpAndSettle();
     expect(assetImage(kCharacterAvatars[0]), findsOneWidget);
     expect(assetImage(kCharacterAvatars[12]), findsNothing);
 
-    // Süzülen listelerin toplamı tüm listeyi verir (50 + 50).
-    final females = [for (var i = 0; i < kCharacterAvatars.length; i++) isFemaleCharacter(i)];
-    expect(females.where((f) => f).length, 50);
-    expect(females.where((f) => !f).length, 50);
+    await tester.tap(find.text('Yeni (40)'));
+    await tester.pumpAndSettle();
+    expect(assetImage(kCharacterAvatars[kNewCharacterFirst - 1]), findsOneWidget);
+    expect(assetImage(kCharacterAvatars[0]), findsNothing);
   });
 }

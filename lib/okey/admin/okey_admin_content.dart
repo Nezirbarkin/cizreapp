@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/okey_sound_service.dart';
 import 'okey_admin_bots_tab.dart';
+import 'okey_admin_design_tab.dart';
 import 'okey_admin_gifts_tab.dart';
 import 'okey_admin_points_tab.dart';
 import 'okey_admin_settings_tab.dart';
@@ -15,15 +16,15 @@ import 'okey_admin_service.dart';
 import 'okey_admin_widgets.dart';
 
 /// Admin panelindeki "101 Okey Yönetimi" bölümü.
-/// Altı sekme: Masalar (izleme/moderasyon) · Puanlar · Hediyeler · Botlar ·
-/// Ayarlar · Sesler.
+/// Yedi sekme: Masalar (izleme/moderasyon) · Puanlar · Hediyeler · Botlar ·
+/// Ayarlar · Tasarım (görünüm paketleri, bkz. OkeyAdminDesignTab) · Sesler.
 class OkeyAdminContent extends StatelessWidget {
   const OkeyAdminContent({super.key});
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Column(
         children: [
           Container(
@@ -48,6 +49,7 @@ class OkeyAdminContent extends StatelessWidget {
                   Tab(text: 'Hediyeler', icon: Icon(Icons.card_giftcard)),
                   Tab(text: 'Botlar', icon: Icon(Icons.smart_toy)),
                   Tab(text: 'Ayarlar', icon: Icon(Icons.settings)),
+                  Tab(text: 'Tasarım', icon: Icon(Icons.palette)),
                   Tab(text: 'Sesler', icon: Icon(Icons.volume_up)),
                 ],
               ),
@@ -61,6 +63,7 @@ class OkeyAdminContent extends StatelessWidget {
                 OkeyAdminGiftsTab(),
                 OkeyAdminBotsTab(),
                 OkeyAdminSettingsTab(),
+                OkeyAdminDesignTab(),
                 _OkeySoundsTab(),
               ],
             ),

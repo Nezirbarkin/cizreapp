@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/models/seller_announcement_model.dart';
 import '../common/seller_stat_card.dart';
+import '../../utils/shop_contact_requirements.dart';
 import '../seller_announcements_section.dart';
+import '../shop_missing_info_banner.dart';
 
 /// Satıcı panelinin "Genel Bakış" sekmesi (sunum katmanı).
 ///
@@ -30,6 +32,7 @@ class SellerOverviewTab extends StatelessWidget {
     required this.onAnnouncementAction,
     required this.onOpenProducts,
     required this.onRefresh,
+    this.onCompleteShopInfo,
   });
 
   final Map<String, dynamic>? shopInfo;
@@ -50,6 +53,9 @@ class SellerOverviewTab extends StatelessWidget {
   final VoidCallback onOpenProducts;
   final Future<void> Function() onRefresh;
 
+  /// Eksik telefon/konum şeridine dokununca (mağaza ayarlarını açar).
+  final VoidCallback? onCompleteShopInfo;
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -62,6 +68,12 @@ class SellerOverviewTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Görev 3.7: telefon / haritadan konum eksikse KALICI şerit (kapatılamaz).
+            ShopMissingInfoBanner(
+              missing: ShopContactRequirements.missingFromShop(shopInfo),
+              onTap: onCompleteShopInfo ?? () {},
+            ),
+
             // Yönetimden duyurular: giriş yapar yapmaz en üstte görünür
             SellerAnnouncementsSection(onAction: onAnnouncementAction),
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -25,6 +26,32 @@ class UserDistanceService {
       _cachedAt != null &&
       DateTime.now().difference(_cachedAt!) < _cacheTtl;
 
+  /// Kullanıcı hiçbir şeye dokunmadan (açılışta, liste çizilirken) yapılan
+  /// konum okumaları için ayarlar.
+  ///
+  /// Android'de varsayılan Google Play birleşik (fused) sağlayıcısı, cihazda
+  /// "Konum Doğruluğu" kapalıysa `getCurrentPosition` sırasında kendiliğinden
+  /// "Daha iyi bir deneyim için… Konum Doğruluğu'nu kullanması gerekiyor"
+  /// sistem penceresini açıyor (geolocator_android
+  /// `startResolutionForResult`). Uygulama her açıldığında ana sayfa bu
+  /// pencereyle kesiliyordu (cihaz ölçümü 2026-10-06). `forceLocationManager`
+  /// doğrudan Android LocationManager'ı kullanır; pencere açılmaz, konum
+  /// yoksa sessizce `null`/zaman aşımı olur. Kullanıcının açıkça başlattığı
+  /// konum isteklerinde varsayılan ayarlar kalır (orada pencere yerindedir).
+  static LocationSettings silentSettings({
+    required LocationAccuracy accuracy,
+    Duration? timeLimit,
+  }) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: accuracy,
+        timeLimit: timeLimit,
+        forceLocationManager: true,
+      );
+    }
+    return LocationSettings(accuracy: accuracy, timeLimit: timeLimit);
+  }
+
   /// İzin ZATEN verilmişse konumu döndürür; verilmemişse kullanıcıya hiçbir
   /// şey sormadan `null` döner.
   static Future<Position?> positionIfAllowed() async {
@@ -33,7 +60,7 @@ class UserDistanceService {
       if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
         return null;
       }
-      return await _read();
+      return await _read(silent: true);
     } catch (e) {
       debugPrint('Mesafe için konum alınamadı: $e');
       return null;
@@ -49,7 +76,7 @@ class UserDistanceService {
         LocationPurpose.nearby,
       );
       if (!granted) return null;
-      return await _read();
+      return await _read(silent: false);
     } catch (e) {
       debugPrint('Konum isteği başarısız: $e');
       return null;
@@ -58,20 +85,27 @@ class UserDistanceService {
 
   /// Soğuk GPS'te `getCurrentPosition` uzun süre askıda kalabildiği için önce
   /// son bilinen konum denenir; yoksa zaman sınırlı gerçek ölçüm yapılır.
-  static Future<Position?> _read() async {
+  /// [silent]: kullanıcı dokunmadan yapılan okuma (bkz. [silentSettings]).
+  static Future<Position?> _read({required bool silent}) async {
     Position? position;
     try {
+      // Son bilinen konum ayar denetimi yapmaz, pencere açmaz.
       position = await Geolocator.getLastKnownPosition();
     } catch (_) {
       position = null;
     }
 
     position ??= await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.medium,
-        distanceFilter: 0,
-        timeLimit: Duration(seconds: 10),
-      ),
+      locationSettings: silent
+          ? silentSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: const Duration(seconds: 10),
+            )
+          : const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              distanceFilter: 0,
+              timeLimit: Duration(seconds: 10),
+            ),
     );
 
     _cached = position;

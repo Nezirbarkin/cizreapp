@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -76,16 +78,19 @@ class PostService {
         AppLogger.info('📦 ${posts.length} posts cached successfully');
       }
 
-      // Analytics tracking
-      await _analyticsService.trackEvent(
+      // Analytics tracking — beklenmez: kayıt ağa gider ve akışı bir tur
+      // geciktiriyordu (trackEvent hatayı kendi yutar).
+      unawaited(_analyticsService.trackEvent(
         eventType: 'feed_load',
         metadata: {'count': posts.length, 'offset': offset},
-      );
+      ));
 
       return posts;
     } catch (e) {
       AppLogger.error('❌ Feed loading error: $e');
-      await _analyticsService.trackError('feed_load_error', details: e.toString());
+      unawaited(
+        _analyticsService.trackError('feed_load_error', details: e.toString()),
+      );
       // Hataları merkezi işleyiciden geçir: ağ hatası ("Failed host lookup" /
       // SocketException) → "İnternet bağlantınızı kontrol edin", izin hatası →
       // "yetkiniz bulunmuyor" gibi kullanıcı dostu mesaj. FriendlyException'ın
@@ -137,6 +142,7 @@ class PostService {
     double? longitude,
     String? background,
     AttachedMusic? music,
+    double? imageAspectRatio,
   }) async {
     // Görsel listesini temizle - boş string'leri çıkar
     final cleanImages = images
@@ -148,6 +154,10 @@ class PostService {
         'user_id': userId,
         'content': content,
         'images': cleanImages,
+        // Fotoğrafların çerçeve oranı (Görev 2.8): akış kartı fotoğrafı bu
+        // oranda çizer. Yalnızca fotoğraflı gönderide anlamlı.
+        if (cleanImages.isNotEmpty && imageAspectRatio != null)
+          'image_aspect_ratio': imageAspectRatio,
         // Arka plan yalnızca görselsiz metin gönderilerinde anlamlı; görsel
         // varsa DB'ye yazılmaz (feed/ızgara tutarlılığı model tarafında da
         // aynı kuralla korunuyor).
@@ -206,7 +216,7 @@ class PostService {
       // NOT: Beğeni bildirimi SQL trigger tarafından otomatik gönderiliyor
       // notify_post_like_trigger - duplicatesiz single notification
 
-      await _analyticsService.trackPostLike(postId);
+      unawaited(_analyticsService.trackPostLike(postId));
     } catch (e) {
       throw Exception('Beğeni eklenirken hata: $e');
     }
@@ -344,7 +354,7 @@ class PostService {
       // NOT: Yorum bildirimi SQL trigger tarafından otomatik gönderiliyor
       // notify_post_comment_trigger - duplicatesiz single notification
 
-      await _analyticsService.trackComment(postId);
+      unawaited(_analyticsService.trackComment(postId));
 
       return PostComment.fromJson(response);
     } catch (e) {
@@ -403,42 +413,22 @@ class PostService {
     return userId == commentUserId || userId == postOwnerId;
   }
 
-  // Takip et
+  // Takip et. Tek RPC (social_follow — Görev 3.5): herkese açık hesabı takip
+  // eder, gizli hesaba istek gönderir (onaylanınca takip olur), engelli hesabı
+  // reddeder. [followerId] her zaman oturumdaki kullanıcıdır (sunucu auth.uid()).
   Future<void> followUser(String followerId, String followingId) async {
     try {
-      // Önce zaten takip ediliyor mu kontrol et
-      final existing = await _supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', followerId)
-          .eq('following_id', followingId)
-          .maybeSingle();
-
-      if (existing != null) {
-        // Zaten takip ediliyor, hiçbir şey yapma
-        return;
-      }
-
-      await _supabase.from('follows').insert({
-        'follower_id': followerId,
-        'following_id': followingId,
-      });
-
-      // NOT: Takip bildirimi SQL trigger tarafından otomatik gönderiliyor
-      // notify_new_follower_trigger - duplicatesiz single notification
+      await _supabase.rpc('social_follow', params: {'p_user_id': followingId, 'p_follow': true});
+      // NOT: Takip / istek bildirimi SQL tetikleyicileri tarafından gönderiliyor.
     } catch (e) {
       throw Exception('Takip eklenirken hata: $e');
     }
   }
 
-  // Takipten çık
+  // Takipten çık (bekleyen takip isteğini de geri alır).
   Future<void> unfollowUser(String followerId, String followingId) async {
     try {
-      await _supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', followerId)
-          .eq('following_id', followingId);
+      await _supabase.rpc('social_follow', params: {'p_user_id': followingId, 'p_follow': false});
     } catch (e) {
       throw Exception('Takip kaldırılırken hata: $e');
     }

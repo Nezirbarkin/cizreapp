@@ -42,6 +42,10 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
   bool _loading = true;
   bool _busy = false;
 
+  /// "Otomatik Sefer" açık ama konum izni yok. Panel açılışı ve uygulamaya
+  /// dönüş izin İSTEMEZ; bu bayrak uyarı bandında "İzin Ver" düğmesi gösterir.
+  bool _automationNeedsPermission = false;
+
   // Timer ve çalışma saatleri
   Timer? _tripTimer;
   Timer? _autoRouteTimer;
@@ -135,7 +139,10 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     }
   }
 
-  Future<void> _load() async {
+  /// [interactiveAutomation]: yükleme, kullanıcının "Otomatik Sefer"i az önce
+  /// açıp kaydetmesinden geliyorsa true — otomasyon için konum izni bu durumda
+  /// istenir. Açılış/yenileme/uygulamaya dönüşte false: izin sorulmaz.
+  Future<void> _load({bool interactiveAutomation = false}) async {
     setState(() => _loading = true);
     try {
       _driverProfile = await _driverService.getMyDriverProfile();
@@ -184,7 +191,7 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
         setState(() => _loading = false);
         // Auto açıkse controller'ı senkronla (aktif sefer varsa driving,
         // yoksa watching). Auto kapalıysa durdurur.
-        _applyAutomation();
+        _applyAutomation(interactive: interactiveAutomation);
       }
     }
   }
@@ -249,10 +256,22 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     }
   }
 
+  void _setAutomationNeedsPermission(bool value) {
+    if (!mounted || _automationNeedsPermission == value) return;
+    setState(() => _automationNeedsPermission = value);
+  }
+
   /// Otomatik sefer açıksa [SehiriciAutoTripController]'ı (yeni) konfigürasyonla
   /// senkronlar; kapalıysa durdurur. Auto açıkken sefer yaşam döngüsü
   /// (başlat/bitir + tracker) controller'a aittir — panel ile çakışmaz.
-  Future<void> _applyAutomation() async {
+  ///
+  /// [interactive]: kullanıcı konum iznini vermek üzere bir eylem yaptı
+  /// (ayarda "Otomatik Sefer"i açıp kaydetti ya da banttaki "İzin Ver"e
+  /// dokundu). Yalnız bu durumda açıklama ekranı + sistem diyaloğu açılır.
+  /// Panel açılışı, yenileme, uygulamaya dönüş ve sefer başlat/bitir sonrası
+  /// çağrılar izin SORMAZ; izin yoksa otomasyonu başlatmaz ve bantta
+  /// "İzin Ver" düğmesi gösterir.
+  Future<void> _applyAutomation({bool interactive = false}) async {
     final profile = _driverProfile;
     if (profile == null) return;
     final controller = SehiriciAutoTripController.instance;
@@ -260,19 +279,28 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
       controller.onTripAutoStarted = null;
       controller.onTripAutoEnded = null;
       await controller.stop();
+      _setAutomationNeedsPermission(false);
       return;
     }
     final line = await _resolveDriverLine();
     if (line == null) return;
 
     // Otomasyon GPS'i sürekli dinler; başlatmadan önce Prominent Disclosure
-    // ekranı + sistem izni. Onay ve izin zaten varsa hiçbir şey gösterilmez,
-    // bu yüzden lifecycle resume'dan gelen çağrılarda da güvenle çalışır.
+    // ekranı + sistem izni gerekir — ama yalnız kullanıcı eyleminde istenir.
+    // Otomatik çağrılarda (resume dahil) yalnız durum okunur.
     if (!mounted) return;
-    final allowed = await LocationDisclosureService.ensure(
-      context,
-      LocationPurpose.driverTrip,
-    );
+    final bool allowed;
+    if (interactive) {
+      allowed = await LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.driverTrip,
+      );
+    } else {
+      allowed = await LocationDisclosureService.isReady(
+        LocationPurpose.driverTrip,
+      );
+    }
+    _setAutomationNeedsPermission(!allowed);
     if (!allowed) {
       await controller.stop();
       return;
@@ -704,6 +732,7 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
         _driverProfile?['auto_route_from_traveled_path'] as bool? ?? false;
     bool autoTrip =
         _driverProfile?['auto_trip_enabled'] as bool? ?? false;
+    final autoTripWasOn = autoTrip;
 
     final result = await showDialog<bool>(
       context: context,
@@ -888,7 +917,9 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     );
 
     if (result == true && mounted) {
-      await _load();
+      // "Otomatik Sefer" bu kayıtla yeni açıldıysa konum izni de şimdi,
+      // kullanıcının eyleminin hemen ardından istenir.
+      await _load(interactiveAutomation: autoTrip && !autoTripWasOn);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1027,7 +1058,51 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
     );
   }
 
+  /// "Otomatik Sefer" açık ama konum izni yok: izin yalnız bu bandın
+  /// "İzin Ver" düğmesine dokunulunca istenir.
+  Widget _buildAutomationPermissionBanner() {
+    return Material(
+      elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      color: Colors.amber.shade50,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.location_off, color: Colors.amber.shade800, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Otomatik sefer için konum izni gerekli',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                  Text(
+                    'İzin verilene kadar seferler kendiliğinden başlamaz.',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () => _applyAutomation(interactive: true),
+              child: const Text('İzin Ver'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAutomationBanner() {
+    if (_automationNeedsPermission) return _buildAutomationPermissionBanner();
     final watching = SehiriciAutoTripController.instance.isWatching;
     final wh = _driverProfile?['working_hours_start'] as String?;
     return Material(
@@ -1195,6 +1270,11 @@ class _SehiriciDriverPanelScreenState extends State<SehiriciDriverPanelScreen>
 
     return Column(
       children: [
+        if (_autoEnabled && _automationNeedsPermission)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: _buildAutomationBanner(),
+          ),
         Container(
           padding: const EdgeInsets.all(16),
           color: trip.status == SehiriciTripStatus.active

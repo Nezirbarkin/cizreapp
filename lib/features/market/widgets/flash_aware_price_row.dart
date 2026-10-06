@@ -14,10 +14,8 @@ import '../../../shared/widgets/flash_discount_badge.dart';
 ///   (Product.effectivePrice) + normal indirim rozeti.
 /// - Hiç indirim yoksa sadece normal fiyat gösterilir.
 ///
-/// `FutureBuilder` kullanır çünkü aktif flaş sale'i ürün kartı render
-/// anında çekmek (veritabanı indeksli sorgu, tek satır, gecikme tolere
-/// edilebilir) en sade yoldur; ürün kartları zaten birçok asenkron
-/// yükleme (kapak görseli, favori) ile geliyor.
+/// Aktif flaş satış [ActiveFlashSaleCache]'ten okunur: tüm kartlar tek
+/// isteği paylaşır, kart yeniden çizildiğinde ağa gidilmez.
 class FlashAwarePriceRow extends StatelessWidget {
   final Product product;
   final TextStyle? priceStyle;
@@ -38,11 +36,11 @@ class FlashAwarePriceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = FlashSaleService();
-    return FutureBuilder<FlashSale?>(
-      future: service.getActiveFlashSaleForProduct(product.id),
-      builder: (context, snap) {
-        final flashSale = snap.data;
+    final cache = ActiveFlashSaleCache.instance..ensureFresh();
+    return ValueListenableBuilder<Map<String, FlashSale>>(
+      valueListenable: cache.byProduct,
+      builder: (context, _, __) {
+        final flashSale = cache.activeFor(product.id);
         if (flashSale != null) {
           return _flashRow(context, flashSale);
         }
@@ -163,11 +161,11 @@ class FlashAwareDiscountBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = FlashSaleService();
-    return FutureBuilder<FlashSale?>(
-      future: service.getActiveFlashSaleForProduct(product.id),
-      builder: (context, snap) {
-        final flash = snap.data;
+    final cache = ActiveFlashSaleCache.instance..ensureFresh();
+    return ValueListenableBuilder<Map<String, FlashSale>>(
+      valueListenable: cache.byProduct,
+      builder: (context, _, __) {
+        final flash = cache.activeFor(product.id);
         if (flash != null) {
           return FlashDiscountBadge(
             percentage: flash.discountPercent.round(),

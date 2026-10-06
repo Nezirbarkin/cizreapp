@@ -366,6 +366,26 @@ class SehiriciLineService {
     }
   }
 
+  /// Birden çok durağı TEK işlemde siler (Görev 3.10;
+  /// `admin_delete_sehirici_stops`). Etkilenen hatların durak sırası sunucuda
+  /// boşluksuz yeniden numaralanır; hangi hatların etkilendiği döner.
+  Future<SehiriciStopDeleteResult> deleteStopsOrThrow(List<String> stopIds) async {
+    if (stopIds.isEmpty) return const SehiriciStopDeleteResult(deleted: 0);
+    try {
+      final data = await _client.rpc(
+        'admin_delete_sehirici_stops',
+        params: {'p_ids': stopIds},
+      );
+      clearCache();
+      return SehiriciStopDeleteResult.fromJson(
+        data is Map ? Map<String, dynamic>.from(data) : const {},
+      );
+    } catch (e) {
+      debugPrint('deleteStops hata: $e');
+      throw SehiriciAdminException(sehiriciErrorMessage(e));
+    }
+  }
+
   // ─────────────────────────────────────────────
   // Hat-Durak sıralaması
   // ─────────────────────────────────────────────
@@ -657,4 +677,31 @@ class _CacheEntry<T> {
   final T data;
   final DateTime timestamp;
   _CacheEntry(this.data, this.timestamp);
+}
+
+/// Toplu durak silmenin sonucu (Görev 3.10).
+class SehiriciStopDeleteResult {
+  const SehiriciStopDeleteResult({required this.deleted, this.affectedLines = const []});
+
+  final int deleted;
+
+  /// Silinen duraklardan en az birini kullanan hatlar (kod, kalan durak sayısı).
+  final List<({String id, String code, String name, int remainingStops})> affectedLines;
+
+  factory SehiriciStopDeleteResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['affected_lines'];
+    return SehiriciStopDeleteResult(
+      deleted: (json['deleted'] as num?)?.toInt() ?? 0,
+      affectedLines: [
+        if (raw is List)
+          for (final item in raw.whereType<Map>())
+            (
+              id: item['id']?.toString() ?? '',
+              code: item['code']?.toString() ?? '',
+              name: item['name']?.toString() ?? '',
+              remainingStops: (item['remaining_stops'] as num?)?.toInt() ?? 0,
+            ),
+      ],
+    );
+  }
 }

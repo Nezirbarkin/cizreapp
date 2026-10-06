@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/profile_service.dart';
 import '../../../core/providers/theme_provider.dart';
 import 'user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class BlockedUsersScreen extends StatefulWidget {
   const BlockedUsersScreen({super.key});
@@ -130,7 +131,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                           contentPadding: const EdgeInsets.all(12),
                           leading: CircleAvatar(
                             radius: 24,
-                            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                            backgroundImage: avatarUrl != null ? avatarImage(avatarUrl) : null,
                             backgroundColor: Colors.grey.shade300,
                             child: avatarUrl == null
                                 ? Text(

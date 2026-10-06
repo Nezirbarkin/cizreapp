@@ -1,52 +1,57 @@
 part of '../face_avatar_painter.dart';
 
 // ============================================================================
-// GÖZLÜK / BAŞLIK / TAKI
+// GÖZLÜK / BAŞLIK / TAKI (Bitmoji tarzı: düz renk + cel gölge + kontur)
 // ============================================================================
 
-/// Kumaş/şapka yüzeyini boyar: ışık soldan, gölge sağdan.
-void _shadeSolid(Canvas canvas, _Rig r, Path path, Color color, {double gloss = 0.14}) {
+/// Düz yüzey: dolgu → sağ altta cel gölge → üstte parlama → kontur.
+void _solid(Canvas canvas, _Rig r, Path path, Color color, {double gloss = 0.16, Offset light = const Offset(-6, -5)}) {
   canvas.drawPath(path, r.fill(color));
-  final b = path.getBounds();
-  canvas.save();
-  canvas.clipPath(path);
-  canvas.drawRect(
-    b,
-    Paint()
-      ..shader = ui.Gradient.linear(
-        Offset(b.left, b.top),
-        Offset(b.right, b.bottom),
-        [_alpha(Colors.white, gloss + 0.06), _alpha(Colors.black, 0.0), _alpha(Colors.black, 0.24)],
-        const [0.0, 0.5, 1.0],
-      ),
-  );
-  if (r.detailed) {
-    canvas.drawPath(path, r.stroke(_alpha(Colors.black, 0.32), 4, blur: 2.2));
+  r.celShade(canvas, path, _alpha(_tone(color, -0.30), 0.95), base: color, offset: light, blur: r.detailed ? 1.0 : 0);
+  if (gloss > 0 && r.detailed) {
+    final b = path.getBounds();
+    canvas.save();
+    canvas.clipPath(path);
+    canvas.drawOval(
+      Rect.fromLTWH(b.left + b.width * 0.12, b.top + b.height * 0.10, b.width * 0.42, b.height * 0.32),
+      r.soft(_alpha(Colors.white, gloss), 2.5),
+    );
+    canvas.restore();
   }
-  canvas.restore();
+  canvas.drawPath(path, r.stroke(_tone(color, -0.55), r.lineW));
 }
 
-/// Şapkanın alnına düşürdüğü gölge (kenarın hemen altında).
-void _castHatShadow(Canvas canvas, _Rig r, Path edge, {double strength = 0.42}) {
-  if (!r.detailed) return;
+/// Şapkanın alnına düşürdüğü gölge.
+void _castHatShadow(Canvas canvas, _Rig r, Path shape, {double dy = 3.5}) {
   canvas.save();
   canvas.clipPath(r.head);
-  canvas.drawPath(edge.shift(const Offset(0, 3.2)), r.stroke(_alpha(r.skinDeep, strength), 6, blur: 3.4));
+  canvas.drawPath(shape.shift(Offset(1, dy)), r.soft(_alpha(r.skinShadow, 0.95), r.detailed ? 1.4 : 0));
   canvas.restore();
 }
 
 Path _dome(double cx, double topY, double baseY, double hw, {double curve = 3}) {
   return Path()
     ..moveTo(cx - hw, baseY)
-    ..cubicTo(cx - hw * 1.02, topY + (baseY - topY) * 0.30, cx - hw * 0.62, topY, cx, topY)
-    ..cubicTo(cx + hw * 0.62, topY, cx + hw * 1.02, topY + (baseY - topY) * 0.30, cx + hw, baseY)
+    ..cubicTo(cx - hw * 1.02, topY + (baseY - topY) * 0.25, cx - hw * 0.62, topY, cx, topY)
+    ..cubicTo(cx + hw * 0.62, topY, cx + hw * 1.02, topY + (baseY - topY) * 0.25, cx + hw, baseY)
     ..quadraticBezierTo(cx, baseY + curve, cx - hw, baseY)
     ..close();
 }
 
 // ============================================================ BAŞLIK (ARKA)
 void _paintHeadwearBack(Canvas canvas, _Rig r) {
-  // Başlıkların tamamı ön katmanda çizilir.
+  // Kapüşonun başın arkasında kalan iç kısmı.
+  if (r.headwear.kind == Headwear.hood) {
+    final cw = r.cheekHalf;
+    final inner = _symmetric([
+      const Offset(0, 14),
+      Offset(cw + 12, 60),
+      Offset(cw + 16, 130),
+      Offset(cw + 20, 172),
+      const Offset(0, 176),
+    ]);
+    canvas.drawPath(inner, r.fill(_tone(r.headwear.color, -0.45)));
+  }
 }
 
 // =============================================================== BAŞLIK (ÖN)
@@ -55,6 +60,9 @@ void _paintHeadwearFront(Canvas canvas, _Rig r) {
   if (spec.kind == Headwear.none) return;
   final col = spec.color;
   final fh = r.foreheadHalf;
+  final g = _HairGeo(r);
+  final band = fh + 9.5;
+  final bandY = g.hl + 5;
 
   switch (spec.kind) {
     case Headwear.none:
@@ -63,311 +71,262 @@ void _paintHeadwearFront(Canvas canvas, _Rig r) {
     case Headwear.cap:
     case Headwear.capBack:
       final forward = spec.kind == Headwear.cap;
-      final dome = _dome(_cx, 17, 62, fh + 8.5, curve: forward ? 3 : 1.5);
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh - 6, 64)..quadraticBezierTo(_cx, 70, _cx + fh + 6, 64), strength: 0.34);
-      _shadeSolid(canvas, r, dome, col);
+      final dome = _dome(_cx, _Rig.skullTop - 13, bandY, band, curve: 3);
+      _castHatShadow(canvas, r, dome);
+      _solid(canvas, r, dome, col);
       if (r.detailed) {
         canvas.save();
         canvas.clipPath(dome);
-        // Panel dikişleri.
-        final seam = r.stroke(_alpha(Colors.black, 0.28), 0.8);
-        canvas.drawPath(Path()..moveTo(_cx, 17)..quadraticBezierTo(_cx - 1, 40, _cx, 62), seam);
-        canvas.drawPath(Path()..moveTo(_cx - fh * 0.5, 22)..quadraticBezierTo(_cx - fh * 0.9, 44, _cx - fh * 0.8, 62), seam);
-        canvas.drawPath(Path()..moveTo(_cx + fh * 0.5, 22)..quadraticBezierTo(_cx + fh * 0.9, 44, _cx + fh * 0.8, 62), seam);
+        final seam = r.stroke(_alpha(_tone(col, -0.5), 0.6), 0.8);
+        canvas.drawPath(Path()..moveTo(_cx, _Rig.skullTop - 13)..quadraticBezierTo(_cx - 1, 34, _cx, bandY), seam);
+        canvas.drawPath(Path()..moveTo(_cx - band * 0.4, _Rig.skullTop - 9)..quadraticBezierTo(_cx - band * 0.85, 36, _cx - band * 0.8, bandY), seam);
+        canvas.drawPath(Path()..moveTo(_cx + band * 0.4, _Rig.skullTop - 9)..quadraticBezierTo(_cx + band * 0.85, 36, _cx + band * 0.8, bandY), seam);
         canvas.restore();
-        canvas.drawCircle(const Offset(_cx, 18), 2.2, r.fill(_tone(col, -0.2)));
       }
-      // Alt bant (ter bandı).
-      final band = Path()
-        ..moveTo(_cx - fh - 8.5, 58)
-        ..quadraticBezierTo(_cx, 64, _cx + fh + 8.5, 58)
-        ..lineTo(_cx + fh + 8.5, 63)
-        ..quadraticBezierTo(_cx, 69, _cx - fh - 8.5, 63)
-        ..close();
-      _shadeSolid(canvas, r, band, _tone(col, -0.10));
+      canvas.drawCircle(Offset(_cx, _Rig.skullTop - 12.5), 2.4, r.fill(_tone(col, -0.2)));
       if (forward) {
-        // Siperlik: yüze doğru uzanan elips.
         final bill = Path()
-          ..moveTo(_cx - fh - 6, 61)
-          ..cubicTo(_cx - fh * 0.8, 78, _cx + fh * 0.8, 78, _cx + fh + 6, 61)
-          ..quadraticBezierTo(_cx, 66, _cx - fh - 6, 61)
+          ..moveTo(_cx - band + 2, bandY - 1)
+          ..cubicTo(_cx - band * 0.8, bandY + 16, _cx + band * 0.8, bandY + 16, _cx + band - 2, bandY - 1)
+          ..quadraticBezierTo(_cx, bandY + 4, _cx - band + 2, bandY - 1)
           ..close();
-        _castHatShadow(canvas, r, Path()..moveTo(_cx - fh, 74)..quadraticBezierTo(_cx, 80, _cx + fh, 74), strength: 0.5);
-        _shadeSolid(canvas, r, bill, _tone(col, -0.14));
-        if (r.detailed) {
-          canvas.drawPath(bill, r.stroke(_alpha(Colors.black, 0.35), 0.8));
-          canvas.drawOval(Rect.fromCenter(center: const Offset(_cx - 8, 68), width: 14, height: 2.6), r.soft(_alpha(Colors.white, 0.28), 1.4));
-        }
+        _castHatShadow(canvas, r, bill, dy: 4);
+        _solid(canvas, r, bill, _tone(col, -0.12), gloss: 0.2);
       } else {
-        // Ters şapka: alında arka ayar kayışı.
-        canvas.drawRect(Rect.fromCenter(center: const Offset(_cx, 61), width: 16, height: 5.4), r.fill(_tone(col, -0.22)));
-        for (var i = -2; i <= 2; i++) {
-          canvas.drawCircle(Offset(_cx + i * 3, 61), 0.6, r.fill(_alpha(Colors.black, 0.5)));
-        }
+        // Ters şapka: alında ayar kayışı boşluğu.
+        final strap = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(_cx, bandY - 4), width: 18, height: 7), const Radius.circular(3));
+        canvas.drawRRect(strap, r.fill(r.hairColor));
+        canvas.drawRRect(strap, r.stroke(_tone(col, -0.55), r.lineW));
+        canvas.drawLine(Offset(_cx - 9, bandY - 1), Offset(_cx + 9, bandY - 1), r.stroke(_tone(col, -0.3), 2));
       }
       return;
 
     case Headwear.beanie:
     case Headwear.beaniePom:
-      final dome = _dome(_cx, 15, 56, fh + 7.5, curve: 1);
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh - 4, 64)..quadraticBezierTo(_cx, 66, _cx + fh + 4, 64), strength: 0.36);
-      _shadeSolid(canvas, r, dome, col);
+      final dome = _dome(_cx, _Rig.skullTop - 12, bandY + 2, band - 1, curve: 1);
+      _solid(canvas, r, dome, col, gloss: 0.1);
       if (r.detailed) {
         canvas.save();
         canvas.clipPath(dome);
-        for (var i = -8; i <= 8; i++) {
-          final x = _cx + i * (fh * 0.13);
+        for (var i = -7; i <= 7; i++) {
+          final x = _cx + i * (band * 0.14);
           canvas.drawPath(
             Path()
-              ..moveTo(_cx + (x - _cx) * 0.2, 16)
-              ..quadraticBezierTo(x + (x - _cx) * 0.1, 38, x * 1.0 + (x - _cx) * 0.06, 58),
-            r.stroke(_alpha(Colors.black, 0.13), 0.9),
+              ..moveTo(_cx + (x - _cx) * 0.25, _Rig.skullTop - 10)
+              ..quadraticBezierTo(x + (x - _cx) * 0.1, 34, x, bandY),
+            r.stroke(_alpha(_tone(col, -0.3), 0.6), 0.9),
           );
         }
         canvas.restore();
       }
-      // Kıvrık manşet.
-      final cuff = RRect.fromRectAndRadius(Rect.fromLTRB(_cx - fh - 9, 50, _cx + fh + 9, 65), const Radius.circular(4.5));
-      _shadeSolid(canvas, r, Path()..addRRect(cuff), _tone(col, -0.06), gloss: 0.10);
-      if (r.detailed) {
-        canvas.save();
-        canvas.clipRRect(cuff);
-        for (var i = -12; i <= 12; i++) {
-          canvas.drawLine(Offset(_cx + i * 3.5, 50), Offset(_cx + i * 3.5, 65), r.stroke(_alpha(Colors.black, 0.20), 1.0));
-        }
-        canvas.restore();
+      final cuff = Path()..addRRect(RRect.fromRectAndRadius(Rect.fromLTRB(_cx - band - 1.5, bandY - 9, _cx + band + 1.5, bandY + 6), const Radius.circular(5)));
+      _castHatShadow(canvas, r, cuff, dy: 3);
+      _solid(canvas, r, cuff, _tone(col, -0.06), gloss: 0.08);
+      canvas.save();
+      canvas.clipPath(cuff);
+      for (var i = -14; i <= 14; i++) {
+        canvas.drawLine(Offset(_cx + i * 3.6, bandY - 9), Offset(_cx + i * 3.6, bandY + 6), r.stroke(_alpha(_tone(col, -0.35), 0.7), 1.0));
       }
+      canvas.restore();
       if (spec.kind == Headwear.beaniePom) {
-        final pom = Offset(_cx, 12);
-        canvas.drawCircle(pom, 8.5, r.fill(_tone(col, 0.06)));
-        if (r.detailed) {
-          final rng = r.rngFor(701);
-          for (var i = 0; i < 40; i++) {
-            final a = rng.nextDouble() * math.pi * 2;
-            final d = 4 + rng.nextDouble() * 5;
-            canvas.drawCircle(pom + Offset(math.cos(a), math.sin(a)) * d, 1.6, r.fill(_alpha(i.isEven ? Colors.white : Colors.black, 0.10)));
-          }
-          canvas.drawCircle(pom.translate(-2.4, -2.4), 3.6, r.soft(_alpha(Colors.white, 0.35), 2));
-        }
+        final pom = Path()..addOval(Rect.fromCircle(center: Offset(_cx, _Rig.skullTop - 15), radius: 9));
+        _solid(canvas, r, _scallop(pom, 1.0, 4, seed: 701), _tone(col, 0.08));
       }
       return;
 
     case Headwear.fedora:
       final crown = Path()
-        ..moveTo(_cx - fh - 3, 56)
-        ..cubicTo(_cx - fh - 4, 34, _cx - fh * 0.7, 22, _cx - 6, 21)
-        ..quadraticBezierTo(_cx, 26, _cx + 6, 21)
-        ..cubicTo(_cx + fh * 0.7, 22, _cx + fh + 4, 34, _cx + fh + 3, 56)
+        ..moveTo(_cx - fh - 2, bandY - 2)
+        ..cubicTo(_cx - fh - 4, 28, _cx - fh * 0.7, 12, _cx - 7, 12)
+        ..quadraticBezierTo(_cx, 18, _cx + 7, 12)
+        ..cubicTo(_cx + fh * 0.7, 12, _cx + fh + 4, 28, _cx + fh + 2, bandY - 2)
         ..close();
-      _shadeSolid(canvas, r, crown, col);
-      // Kurdele.
+      final brim = Path()..addOval(Rect.fromCenter(center: Offset(_cx, bandY), width: (fh + 30) * 2, height: 20));
+      _castHatShadow(canvas, r, brim, dy: 5);
+      _solid(canvas, r, brim, _tone(col, -0.06), gloss: 0.12);
+      _solid(canvas, r, crown, col);
       final ribbon = Path()
-        ..moveTo(_cx - fh - 3.6, 44)
-        ..quadraticBezierTo(_cx, 48, _cx + fh + 3.6, 44)
-        ..lineTo(_cx + fh + 3.2, 54)
-        ..quadraticBezierTo(_cx, 58, _cx - fh - 3.2, 54)
+        ..moveTo(_cx - fh - 2.6, bandY - 12)
+        ..quadraticBezierTo(_cx, bandY - 8, _cx + fh + 2.6, bandY - 12)
+        ..lineTo(_cx + fh + 2.2, bandY - 3)
+        ..quadraticBezierTo(_cx, bandY + 1, _cx - fh - 2.2, bandY - 3)
         ..close();
-      _shadeSolid(canvas, r, ribbon, _tone(col, -0.42), gloss: 0.08);
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh - 10, 66)..quadraticBezierTo(_cx, 72, _cx + fh + 10, 66), strength: 0.5);
-      final brim = Path()
-        ..addOval(Rect.fromCenter(center: const Offset(_cx, 58), width: (fh + 27) * 2, height: 22));
-      _shadeSolid(canvas, r, brim, _tone(col, -0.04), gloss: 0.10);
-      if (r.detailed) {
-        canvas.drawPath(brim, r.stroke(_alpha(Colors.black, 0.32), 0.9));
-        canvas.drawOval(Rect.fromCenter(center: const Offset(_cx - 10, 62), width: 40, height: 5), r.soft(_alpha(Colors.white, 0.22), 2.2));
-      }
+      _solid(canvas, r, ribbon, _tone(col, -0.45), gloss: 0.06);
       return;
 
     case Headwear.flatCap:
       final dome = Path()
-        ..moveTo(_cx - fh - 9, 62)
-        ..cubicTo(_cx - fh - 13, 40, _cx - fh * 0.5, 26, _cx + fh * 0.2, 30)
-        ..cubicTo(_cx + fh + 8, 32, _cx + fh + 14, 46, _cx + fh + 9, 62)
-        ..quadraticBezierTo(_cx, 68, _cx - fh - 9, 62)
+        ..moveTo(_cx - band, bandY)
+        ..cubicTo(_cx - band - 4, 28, _cx - fh * 0.5, 14, _cx + fh * 0.2, 18)
+        ..cubicTo(_cx + band, 20, _cx + band + 5, 36, _cx + band, bandY)
+        ..quadraticBezierTo(_cx, bandY + 5, _cx - band, bandY)
         ..close();
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh - 4, 66)..quadraticBezierTo(_cx, 72, _cx + fh + 4, 66), strength: 0.36);
-      _shadeSolid(canvas, r, dome, col);
+      _castHatShadow(canvas, r, dome);
+      _solid(canvas, r, dome, col, gloss: 0.08);
       if (r.detailed) {
         canvas.save();
         canvas.clipPath(dome);
         final rng = r.rngFor(702);
-        for (var i = 0; i < 90; i++) {
-          final p = Offset(_cx - fh - 12 + rng.nextDouble() * (fh * 2 + 24), 28 + rng.nextDouble() * 40);
-          canvas.drawLine(p, p.translate(2.2, 1.0), r.stroke(_alpha(rng.nextBool() ? Colors.white : Colors.black, 0.12), 0.6));
+        for (var i = 0; i < 70; i++) {
+          final p = Offset(_cx - band + rng.nextDouble() * band * 2, 16 + rng.nextDouble() * 44);
+          canvas.drawLine(p, p.translate(2.2, 1.0), r.stroke(_alpha(rng.nextBool() ? Colors.white : Colors.black, 0.14), 0.7));
         }
         canvas.restore();
       }
       final bill = Path()
-        ..moveTo(_cx - fh - 6, 62)
-        ..quadraticBezierTo(_cx, 76, _cx + fh + 6, 62)
-        ..quadraticBezierTo(_cx, 66, _cx - fh - 6, 62)
+        ..moveTo(_cx - band + 3, bandY)
+        ..quadraticBezierTo(_cx, bandY + 14, _cx + band - 3, bandY)
+        ..quadraticBezierTo(_cx, bandY + 4, _cx - band + 3, bandY)
         ..close();
-      _shadeSolid(canvas, r, bill, _tone(col, -0.18));
-      canvas.drawCircle(Offset(_cx, 30), 2, r.fill(_tone(col, -0.2)));
+      _solid(canvas, r, bill, _tone(col, -0.16), gloss: 0.1);
       return;
 
     case Headwear.sunHat:
-      final crown = _dome(_cx, 14, 54, fh + 4, curve: 0);
-      _shadeSolid(canvas, r, crown, col, gloss: 0.16);
-      final ribbon = Path()
-        ..moveTo(_cx - fh - 4, 44)
-        ..quadraticBezierTo(_cx, 50, _cx + fh + 4, 44)
-        ..lineTo(_cx + fh + 4, 52)
-        ..quadraticBezierTo(_cx, 58, _cx - fh - 4, 52)
-        ..close();
-      _shadeSolid(canvas, r, ribbon, const Color(0xFFB5443A), gloss: 0.10);
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh - 14, 68)..quadraticBezierTo(_cx, 76, _cx + fh + 14, 68), strength: 0.5);
-      final brim = Path()..addOval(Rect.fromCenter(center: const Offset(_cx, 60), width: (fh + 46) * 2, height: 32));
-      _shadeSolid(canvas, r, brim, _tone(col, 0.02), gloss: 0.16);
+      final crown = _dome(_cx, _Rig.skullTop - 14, bandY - 2, fh + 5, curve: 0);
+      final brim = Path()..addOval(Rect.fromCenter(center: Offset(_cx, bandY + 1), width: (fh + 50) * 2, height: 30));
+      _castHatShadow(canvas, r, brim, dy: 5);
+      _solid(canvas, r, brim, _tone(col, 0.02), gloss: 0.14);
       if (r.detailed) {
         canvas.save();
         canvas.clipPath(brim);
-        for (var i = 1; i < 8; i++) {
+        for (var i = 1; i < 7; i++) {
           canvas.drawOval(
-            Rect.fromCenter(center: const Offset(_cx, 60), width: (fh + 46) * 2 * (i / 8), height: 32 * (i / 8)),
-            r.stroke(_alpha(Colors.black, 0.14), 0.7),
+            Rect.fromCenter(center: Offset(_cx, bandY + 1), width: (fh + 50) * 2 * (i / 7), height: 30 * (i / 7)),
+            r.stroke(_alpha(_tone(col, -0.3), 0.5), 0.7),
           );
         }
         canvas.restore();
-        canvas.drawPath(brim, r.stroke(_alpha(Colors.black, 0.28), 0.9));
-        // Ön kenarın koyu gölgesi (elips önden bakışta üst yarım kenar).
-        canvas.drawOval(Rect.fromCenter(center: const Offset(_cx, 56), width: (fh + 40) * 2, height: 18), r.soft(_alpha(Colors.black, 0.12), 3));
       }
+      _solid(canvas, r, crown, col, gloss: 0.14);
+      final ribbon = Path()
+        ..moveTo(_cx - fh - 5, bandY - 12)
+        ..quadraticBezierTo(_cx, bandY - 7, _cx + fh + 5, bandY - 12)
+        ..lineTo(_cx + fh + 5, bandY - 4)
+        ..quadraticBezierTo(_cx, bandY + 1, _cx - fh - 5, bandY - 4)
+        ..close();
+      _solid(canvas, r, ribbon, const Color(0xFFB5443A), gloss: 0.08);
       return;
 
     case Headwear.headband:
       final pts = <Offset>[];
       for (var i = 0; i <= 18; i++) {
         final a = math.pi * (1 - i / 18);
-        pts.add(Offset(_cx + math.cos(a) * (fh + 3.5), 66 - math.sin(a) * 27));
+        pts.add(Offset(_cx + math.cos(a) * (fh + 4), g.hl + 14 - math.sin(a) * (g.hl + 14 - g.topY - 6)));
       }
-      final band = _ribbon(pts, 6.8, 7.4, 6.8);
-      _shadeSolid(canvas, r, band, col, gloss: 0.12);
-      if (r.detailed) {
-        canvas.save();
-        canvas.clipPath(band);
-        for (var i = 0; i < 18; i++) {
-          final p = pts[i];
-          canvas.drawLine(p.translate(-1.5, 3), p.translate(1.5, -3), r.stroke(_alpha(Colors.white, 0.18), 0.6));
-        }
-        canvas.restore();
-      }
+      _solid(canvas, r, _taperPath(pts, 6.5, 6.5, wMid: 7.4), col, gloss: 0.15);
       return;
 
     case Headwear.bandana:
-      _paintBandanaBand(canvas, r, col);
+      _paintBandana(canvas, r, col);
       return;
 
     case Headwear.headphones:
+      final hw = r.cheekHalf + 9;
+      final cy = (r.earTop + r.earBottom) / 2;
       final arcPts = <Offset>[];
-      final hw = r.cheekHalf + 8;
       for (var i = 0; i <= 20; i++) {
         final a = math.pi * (1 - i / 20);
-        arcPts.add(Offset(_cx + math.cos(a) * hw, 92 - math.sin(a) * 66));
+        arcPts.add(Offset(_cx + math.cos(a) * hw, cy - math.sin(a) * (cy - g.topY + 6)));
       }
-      final band = _ribbon(arcPts, 4.6, 4.2, 4.6);
-      _shadeSolid(canvas, r, band, _tone(col, -0.05), gloss: 0.16);
+      _solid(canvas, r, _taperPath(arcPts, 5, 5, wMid: 5.6), _tone(col, -0.05), gloss: 0.2);
       r.mirrored(canvas, (c, mir) {
-        final cup = Rect.fromCenter(center: Offset(_cx - hw + 0.5, 92), width: 13, height: 24);
-        c.drawRRect(RRect.fromRectAndRadius(cup, const Radius.circular(6)), r.fill(_tone(col, mir ? -0.18 : -0.04)));
-        c.drawRRect(RRect.fromRectAndRadius(cup.deflate(2.2), const Radius.circular(4)), r.fill(_tone(col, mir ? -0.28 : -0.14)));
-        if (r.detailed) {
-          c.drawOval(Rect.fromCenter(center: Offset(_cx - hw - 1.2, 84), width: 3.4, height: 9), r.soft(_alpha(Colors.white, mir ? 0.12 : 0.30), 1.2));
-          c.drawRRect(RRect.fromRectAndRadius(cup, const Radius.circular(6)), r.stroke(_alpha(Colors.black, 0.4), 0.8));
-        }
+        final cup = Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(_cx - hw + 0.5, cy), width: 15, height: 27), const Radius.circular(7)));
+        _solid(c, r, cup, _tone(col, mir ? -0.1 : 0.0), gloss: 0.2);
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(_cx - hw + 4.5, cy), width: 6, height: 20), const Radius.circular(3)),
+            r.fill(_tone(col, -0.3)));
       });
       return;
 
     case Headwear.flowerCrown:
       final rng = r.rngFor(703);
       final colors = <Color>[col, const Color(0xFFF6E7A8), const Color(0xFFFFFFFF), const Color(0xFFD9578A), const Color(0xFFB08AD8)];
-      // Yapraklar
-      for (var i = 0; i < 18; i++) {
-        final a = math.pi * (1 - i / 17);
-        final p = Offset(_cx + math.cos(a) * (fh + 4), 64 - math.sin(a) * 30);
-        canvas.drawOval(Rect.fromCenter(center: p, width: 9, height: 4), r.fill(const Color(0xFF4F8A55)));
+      final ry = g.hl + 10 - (g.topY + 8);
+      Offset at(double t) {
+        final a = math.pi * (1 - t);
+        return Offset(_cx + math.cos(a) * (fh + 5), g.hl + 10 - math.sin(a) * ry);
       }
-      for (var i = 0; i < 9; i++) {
-        final a = math.pi * (1 - (i + 0.5) / 9);
-        final p = Offset(_cx + math.cos(a) * (fh + 4), 64 - math.sin(a) * 30);
+      for (var i = 0; i <= 16; i++) {
+        final p = at(i / 16);
+        final leaf = Path()..addOval(Rect.fromCenter(center: p, width: 9, height: 4.5));
+        canvas.drawPath(leaf, r.fill(const Color(0xFF5E9A5E)));
+        canvas.drawPath(leaf, r.stroke(const Color(0xFF2F5A33), r.lineW * 0.7));
+      }
+      for (var i = 0; i < 8; i++) {
+        final p = at((i + 0.5) / 8);
         final fc = colors[i % colors.length];
-        final rad = 4.6 + rng.nextDouble() * 1.6;
+        final rad = 4.6 + rng.nextDouble() * 1.4;
+        final flower = Path();
         for (var k = 0; k < 5; k++) {
-          final pa = k * math.pi * 2 / 5 + rng.nextDouble() * 0.3;
-          canvas.drawCircle(p + Offset(math.cos(pa), math.sin(pa)) * rad * 0.62, rad * 0.55, r.fill(fc));
-          if (r.detailed) canvas.drawCircle(p + Offset(math.cos(pa), math.sin(pa)) * rad * 0.62, rad * 0.55, r.stroke(_alpha(Colors.black, 0.14), 0.4));
+          final pa = k * math.pi * 2 / 5;
+          flower.addOval(Rect.fromCircle(center: p + Offset(math.cos(pa), math.sin(pa)) * rad * 0.6, radius: rad * 0.55));
         }
-        canvas.drawCircle(p, rad * 0.36, r.fill(const Color(0xFFE8B23C)));
+        canvas.drawPath(flower, r.fill(fc));
+        canvas.drawPath(flower, r.stroke(_tone(fc, -0.45), r.lineW * 0.7));
+        canvas.drawCircle(p, rad * 0.34, r.fill(const Color(0xFFE8B23C)));
       }
       return;
 
     case Headwear.tiara:
+      final ry = g.hl + 6 - (g.topY + 10);
       final pts = <Offset>[];
       for (var i = 0; i <= 18; i++) {
         final a = math.pi * (1 - i / 18);
-        pts.add(Offset(_cx + math.cos(a) * (fh + 2), 60 - math.sin(a) * 28));
+        pts.add(Offset(_cx + math.cos(a) * (fh + 2), g.hl + 6 - math.sin(a) * ry));
       }
-      final band = _ribbon(pts, 2.4, 2.4, 2.4);
-      _shadeSolid(canvas, r, band, col, gloss: 0.3);
-      // Ortada sivri parça ve taşlar.
+      _solid(canvas, r, _taperPath(pts, 2.6, 2.6, wMid: 2.8), col, gloss: 0.3);
+      final peakY = g.hl + 6 - ry;
       final peak = Path()
-        ..moveTo(_cx - 9, 34)
-        ..lineTo(_cx - 3, 22)
-        ..lineTo(_cx, 30)
-        ..lineTo(_cx + 3, 22)
-        ..lineTo(_cx + 9, 34)
+        ..moveTo(_cx - 10, peakY + 2)
+        ..lineTo(_cx - 4, peakY - 11)
+        ..lineTo(_cx, peakY - 4)
+        ..lineTo(_cx + 4, peakY - 11)
+        ..lineTo(_cx + 10, peakY + 2)
         ..close();
-      _shadeSolid(canvas, r, peak, col, gloss: 0.3);
-      canvas.drawCircle(const Offset(_cx, 31), 2.2, r.fill(const Color(0xFF6FB8E8)));
-      canvas.drawCircle(const Offset(_cx - 3, 25), 1.2, r.fill(const Color(0xFFFFFFFF)));
-      canvas.drawCircle(const Offset(_cx + 3, 25), 1.2, r.fill(const Color(0xFFFFFFFF)));
+      _solid(canvas, r, peak, col, gloss: 0.3);
+      canvas.drawCircle(Offset(_cx, peakY - 1), 2.3, r.fill(const Color(0xFF6FB8E8)));
+      canvas.drawCircle(Offset(_cx, peakY - 1), 2.3, r.stroke(const Color(0xFF2F5F88), r.lineW * 0.7));
       return;
 
     case Headwear.bow:
-      final c0 = Offset(_cx + 24, 32);
+      final c0 = Offset(_cx + g.fh * 0.62, g.topY + 12);
       for (final s in [-1.0, 1.0]) {
         final loop = Path()
           ..moveTo(c0.dx, c0.dy)
-          ..cubicTo(c0.dx + s * 8, c0.dy - 12, c0.dx + s * 20, c0.dy - 9, c0.dx + s * 18, c0.dy + 1)
-          ..cubicTo(c0.dx + s * 20, c0.dy + 10, c0.dx + s * 8, c0.dy + 13, c0.dx, c0.dy)
+          ..cubicTo(c0.dx + s * 8, c0.dy - 13, c0.dx + s * 21, c0.dy - 10, c0.dx + s * 19, c0.dy + 1)
+          ..cubicTo(c0.dx + s * 21, c0.dy + 11, c0.dx + s * 8, c0.dy + 13, c0.dx, c0.dy)
           ..close();
-        _shadeSolid(canvas, r, loop, col, gloss: 0.18);
-        if (r.detailed) canvas.drawPath(loop, r.stroke(_alpha(Colors.black, 0.24), 0.7));
+        _solid(canvas, r, loop, col, gloss: 0.2);
       }
-      canvas.drawOval(Rect.fromCenter(center: c0, width: 8, height: 10), r.fill(_tone(col, -0.14)));
-      if (r.detailed) canvas.drawOval(Rect.fromCenter(center: c0.translate(-1, -1.4), width: 3, height: 3.6), r.soft(_alpha(Colors.white, 0.4), 0.8));
+      _solid(canvas, r, Path()..addOval(Rect.fromCenter(center: c0, width: 8.5, height: 10.5)), _tone(col, -0.12), gloss: 0.2);
       return;
 
     case Headwear.clips:
-      r.mirrored(canvas, (c, mir) {
-        if (mir) return;
-        for (var i = 0; i < 3; i++) {
-          final p = Offset(_cx - 30 + i * 2, 56 + i * 7.5);
-          c.save();
-          c.translate(p.dx, p.dy);
-          c.rotate(-0.5);
-          c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: 11, height: 3.2), const Radius.circular(1.6)), r.fill(col));
-          if (r.detailed) c.drawLine(const Offset(-4, -0.4), const Offset(3, -0.4), r.stroke(_alpha(Colors.white, 0.5), 0.6));
-          c.restore();
-        }
-      });
+      for (var i = 0; i < 3; i++) {
+        final p = Offset(_cx - g.fh * 0.78 + i * 2.2, g.hl + 2 + i * 7.5);
+        canvas.save();
+        canvas.translate(p.dx, p.dy);
+        canvas.rotate(-0.55);
+        final clip = Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: 12, height: 3.6), const Radius.circular(1.8)));
+        _solid(canvas, r, clip, col, gloss: 0.3);
+        canvas.restore();
+      }
       return;
 
     case Headwear.visor:
-      final band = Path()
-        ..moveTo(_cx - fh - 6, 60)
-        ..quadraticBezierTo(_cx, 66, _cx + fh + 6, 60)
-        ..lineTo(_cx + fh + 6, 65)
-        ..quadraticBezierTo(_cx, 71, _cx - fh - 6, 65)
+      final strap = Path()
+        ..moveTo(_cx - band + 1, bandY - 4)
+        ..quadraticBezierTo(_cx, bandY + 1, _cx + band - 1, bandY - 4)
+        ..lineTo(_cx + band - 1, bandY + 2)
+        ..quadraticBezierTo(_cx, bandY + 7, _cx - band + 1, bandY + 2)
         ..close();
-      _shadeSolid(canvas, r, band, _tone(col, -0.08));
+      _solid(canvas, r, strap, _tone(col, -0.08));
       final bill = Path()
-        ..moveTo(_cx - fh - 5, 63)
-        ..cubicTo(_cx - fh * 0.8, 80, _cx + fh * 0.8, 80, _cx + fh + 5, 63)
-        ..quadraticBezierTo(_cx, 68, _cx - fh - 5, 63)
+        ..moveTo(_cx - band + 2, bandY + 1)
+        ..cubicTo(_cx - band * 0.8, bandY + 17, _cx + band * 0.8, bandY + 17, _cx + band - 2, bandY + 1)
+        ..quadraticBezierTo(_cx, bandY + 6, _cx - band + 2, bandY + 1)
         ..close();
-      _castHatShadow(canvas, r, Path()..moveTo(_cx - fh, 76)..quadraticBezierTo(_cx, 82, _cx + fh, 76), strength: 0.45);
-      _shadeSolid(canvas, r, bill, col);
+      _castHatShadow(canvas, r, bill, dy: 4);
+      _solid(canvas, r, bill, col, gloss: 0.2);
       return;
 
     case Headwear.turbanWrap:
@@ -376,70 +335,27 @@ void _paintHeadwearFront(Canvas canvas, _Rig r) {
 
     case Headwear.hood:
       final cw = r.cheekHalf;
-      final outer = _spline([
-        Offset(_cx, 18),
-        Offset(_cx + fh * 0.62, 21),
-        Offset(_cx + fh + 12, 44),
-        Offset(_cx + cw + 14, 80),
-        Offset(_cx + cw + 15, 112),
-        Offset(_cx + cw + 17, 140),
-        Offset(_cx + cw + 20, 160),
-        Offset(_cx, 170),
-        Offset(_cx - cw - 20, 160),
-        Offset(_cx - cw - 17, 140),
-        Offset(_cx - cw - 15, 112),
-        Offset(_cx - cw - 14, 80),
-        Offset(_cx - fh - 12, 44),
-        Offset(_cx - fh * 0.62, 21),
-      ], closed: true);
-      final opening = _faceOpening(r, top: 55, side: 1.05, chinExtra: 4);
+      final outer = _symmetric([
+        const Offset(0, 8),
+        Offset(fh * 0.65, 11),
+        Offset(fh + 14, 36),
+        Offset(cw + 15, 80),
+        Offset(cw + 16, 124),
+        Offset(cw + 19, 160),
+        Offset(cw + 26, 186),
+        const Offset(0, 192),
+      ]);
+      final opening = _faceOpening(r, top: g.hl - 2, side: 1.08, chinExtra: 6);
       final fabric = Path.combine(PathOperation.difference, outer, opening);
-      if (r.detailed) {
-        canvas.save();
-        canvas.clipPath(r.head);
-        canvas.drawPath(opening, r.stroke(_alpha(r.skinDeep, 0.6), 6, blur: 3.4));
-        canvas.restore();
-      }
-      _shadeSolid(canvas, r, fabric, col);
-      // İç astar: açıklık kenarında açık şerit.
-      canvas.drawPath(opening, r.stroke(_tone(col, 0.22), 3.0));
-      canvas.drawPath(opening, r.stroke(_alpha(Colors.black, 0.30), 0.9));
+      canvas.save();
+      canvas.clipPath(opening);
+      canvas.drawPath(opening, r.stroke(_alpha(r.skinShadow, 0.95), 6, blur: r.detailed ? 1.4 : 0));
+      canvas.restore();
+      _solid(canvas, r, fabric, col, gloss: 0.08);
+      canvas.drawPath(opening, r.stroke(_tone(col, 0.2), 2.4));
+      canvas.drawPath(opening, r.stroke(_tone(col, -0.55), r.lineW));
       return;
   }
-}
-
-/// Alından geçen bandana bandı + yandan düğüm (başlık olarak).
-void _paintBandanaBand(Canvas canvas, _Rig r, Color cloth) {
-  final fh = r.foreheadHalf;
-  final band = Path()
-    ..moveTo(_cx - fh - 4, 68)
-    ..quadraticBezierTo(_cx, 38, _cx + fh + 4, 68)
-    ..lineTo(_cx + fh + 3, 59)
-    ..quadraticBezierTo(_cx, 26, _cx - fh - 3, 59)
-    ..close();
-  _shadeSolid(canvas, r, band, cloth);
-  if (r.detailed) {
-    canvas.save();
-    canvas.clipPath(band);
-    final rng = r.rngFor(704);
-    for (var i = 0; i < 26; i++) {
-      canvas.drawCircle(
-        Offset(_cx - fh + rng.nextDouble() * fh * 2, 34 + rng.nextDouble() * 34),
-        0.9,
-        r.fill(_alpha(Colors.white, 0.6)),
-      );
-    }
-    canvas.restore();
-  }
-  final knot = Offset(_cx + fh + 2, 63);
-  canvas.drawCircle(knot, 4.6, r.fill(_tone(cloth, -0.08)));
-  final tail = Path()
-    ..moveTo(knot.dx, knot.dy)
-    ..quadraticBezierTo(knot.dx + 10, knot.dy + 4, knot.dx + 14, knot.dy + 16)
-    ..lineTo(knot.dx + 6, knot.dy + 12)
-    ..quadraticBezierTo(knot.dx + 4, knot.dy + 6, knot.dx - 1, knot.dy + 3)
-    ..close();
-  canvas.drawPath(tail, r.fill(_tone(cloth, -0.14)));
 }
 
 // ================================================================== GÖZLÜK
@@ -449,43 +365,48 @@ Path _lensPath(GlassesShape shape, Offset c, double a, double b) {
     case GlassesShape.none:
       return Path();
     case GlassesShape.rect:
-      return Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: a * 2, height: b * 2 * 0.86), const Radius.circular(3.4)));
+      return Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: a * 2, height: b * 2 * 0.84), const Radius.circular(4.2)));
     case GlassesShape.square:
-      return Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: a * 2 * 0.95, height: b * 2 * 1.02), const Radius.circular(2.6)));
+      return Path()..addRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: a * 2 * 0.96, height: b * 2 * 1.0), const Radius.circular(3.0)));
     case GlassesShape.round:
-      return Path()..addOval(Rect.fromCenter(center: c, width: b * 2.4, height: b * 2.4));
+      return Path()..addOval(Rect.fromCenter(center: c, width: b * 2.25, height: b * 2.25));
     case GlassesShape.oval:
-      return Path()..addOval(Rect.fromCenter(center: c, width: a * 2, height: b * 2 * 0.86));
+      return Path()..addOval(Rect.fromCenter(center: c, width: a * 2, height: b * 2 * 0.84));
     case GlassesShape.cat:
       return _spline([
-        Offset(c.dx - a * 1.08, c.dy - b * 1.02),
-        Offset(c.dx - a * 0.2, c.dy - b * 0.72),
-        Offset(c.dx + a * 0.75, c.dy - b * 0.5),
-        Offset(c.dx + a * 0.72, c.dy + b * 0.55),
-        Offset(c.dx - a * 0.1, c.dy + b * 0.92),
-        Offset(c.dx - a * 0.92, c.dy + b * 0.28),
+        Offset(c.dx - a * 1.10, c.dy - b * 1.02),
+        Offset(c.dx - a * 0.2, c.dy - b * 0.74),
+        Offset(c.dx + a * 0.78, c.dy - b * 0.56),
+        Offset(c.dx + a * 0.74, c.dy + b * 0.55),
+        Offset(c.dx - a * 0.1, c.dy + b * 0.90),
+        Offset(c.dx - a * 0.94, c.dy + b * 0.30),
       ], closed: true);
     case GlassesShape.aviator:
       return _spline([
-        Offset(c.dx - a * 0.98, c.dy - b * 0.82),
-        Offset(c.dx, c.dy - b * 0.9),
-        Offset(c.dx + a * 0.98, c.dy - b * 0.78),
+        Offset(c.dx - a * 0.98, c.dy - b * 0.80),
+        Offset(c.dx, c.dy - b * 0.88),
+        Offset(c.dx + a * 0.98, c.dy - b * 0.76),
         Offset(c.dx + a * 0.86, c.dy + b * 0.32),
-        Offset(c.dx + a * 0.15, c.dy + b * 1.1),
+        Offset(c.dx + a * 0.15, c.dy + b * 1.08),
         Offset(c.dx - a * 0.7, c.dy + b * 0.85),
         Offset(c.dx - a * 1.0, c.dy + b * 0.05),
       ], closed: true);
     case GlassesShape.wayfarer:
       return _spline([
-        Offset(c.dx - a * 1.04, c.dy - b * 0.86),
+        Offset(c.dx - a * 1.06, c.dy - b * 0.88),
         Offset(c.dx, c.dy - b * 0.94),
-        Offset(c.dx + a * 1.0, c.dy - b * 0.96),
-        Offset(c.dx + a * 0.86, c.dy + b * 0.5),
-        Offset(c.dx + a * 0.1, c.dy + b * 0.86),
-        Offset(c.dx - a * 0.86, c.dy + b * 0.66),
+        Offset(c.dx + a * 1.0, c.dy - b * 0.94),
+        Offset(c.dx + a * 0.86, c.dy + b * 0.52),
+        Offset(c.dx + a * 0.1, c.dy + b * 0.84),
+        Offset(c.dx - a * 0.88, c.dy + b * 0.64),
       ], closed: true, tension: 0.7);
     case GlassesShape.browline:
-      return Path()..addRRect(RRect.fromLTRBAndCorners(c.dx - a, c.dy - b * 0.8, c.dx + a, c.dy + b * 0.85, topLeft: const Radius.circular(1.6), topRight: const Radius.circular(1.6), bottomLeft: Radius.circular(b * 0.9), bottomRight: Radius.circular(b * 0.9)));
+      return Path()
+        ..addRRect(RRect.fromLTRBAndCorners(c.dx - a, c.dy - b * 0.8, c.dx + a, c.dy + b * 0.85,
+            topLeft: const Radius.circular(1.6),
+            topRight: const Radius.circular(1.6),
+            bottomLeft: Radius.circular(b * 0.9),
+            bottomRight: Radius.circular(b * 0.9)));
     case GlassesShape.hexagon:
       final pts = <Offset>[];
       for (var i = 0; i < 6; i++) {
@@ -495,19 +416,19 @@ Path _lensPath(GlassesShape shape, Offset c, double a, double b) {
       return Path()..addPolygon(pts, true);
     case GlassesShape.wrap:
       return _spline([
-        Offset(c.dx - a * 1.12, c.dy - b * 0.55),
+        Offset(c.dx - a * 1.14, c.dy - b * 0.55),
         Offset(c.dx, c.dy - b * 0.92),
         Offset(c.dx + a * 1.02, c.dy - b * 0.7),
         Offset(c.dx + a * 0.95, c.dy + b * 0.5),
-        Offset(c.dx, c.dy + b * 0.82),
+        Offset(c.dx, c.dy + b * 0.8),
         Offset(c.dx - a * 1.1, c.dy + b * 0.3),
       ], closed: true);
     case GlassesShape.halfMoon:
       return Path()
-        ..moveTo(c.dx - a * 0.95, c.dy - b * 0.35)
-        ..lineTo(c.dx + a * 0.95, c.dy - b * 0.35)
+        ..moveTo(c.dx - a * 0.95, c.dy - b * 0.25)
+        ..lineTo(c.dx + a * 0.95, c.dy - b * 0.25)
         ..quadraticBezierTo(c.dx + a * 0.9, c.dy + b * 1.0, c.dx, c.dy + b * 0.95)
-        ..quadraticBezierTo(c.dx - a * 0.9, c.dy + b * 1.0, c.dx - a * 0.95, c.dy - b * 0.35)
+        ..quadraticBezierTo(c.dx - a * 0.9, c.dy + b * 1.0, c.dx - a * 0.95, c.dy - b * 0.25)
         ..close();
   }
 }
@@ -516,19 +437,22 @@ void _paintGlasses(Canvas canvas, _Rig r) {
   final spec = r.glasses;
   if (spec.shape == GlassesShape.none) return;
 
-  final a = r.eyeW * 1.5; // yarı genişlik
-  final b = r.eyeH * 2.15; // yarı yükseklik
-  final centerDx = r.eyeDx * 1.0;
-  final cy = _Rig.eyeY + 0.6;
-  final frameW = 1.15 * spec.thickness + (spec.rimless ? -0.4 : 0);
+  final a = math.max(r.eyeW * 1.48, 12.5); // yarı genişlik
+  final b = math.max(r.eyeH * 1.75, 9.8); // yarı yükseklik
+  final centerDx = r.eyeDx;
+  final cy = _Rig.eyeY + 0.8;
+  final frameW = (1.5 * spec.thickness + (spec.rimless ? -0.6 : 0)).clamp(0.7, 3.4);
+  final frame = spec.frame;
+  final frameLine = _tone(frame, -0.5);
 
-  // Camın yüze düşürdüğü ince gölge.
-  if (r.detailed) {
-    r.mirrored(canvas, (c, mir) {
-      final lens = _lensPath(spec.shape, Offset(_cx - centerDx, cy), a, b);
-      c.drawPath(lens.shift(const Offset(0.8, 2.4)), r.soft(_alpha(r.skinDeep, 0.26), 1.7));
-    });
-  }
+  // Camın yüze düşürdüğü gölge.
+  canvas.save();
+  canvas.clipPath(r.head);
+  r.mirrored(canvas, (c, mir) {
+    final lens = _lensPath(spec.shape, Offset(_cx - centerDx, cy), a, b);
+    c.drawPath(lens.shift(const Offset(1, 3)), r.stroke(_alpha(r.skinShadow, 0.9), frameW, blur: r.detailed ? 1.0 : 0));
+  });
+  canvas.restore();
 
   r.mirrored(canvas, (c, mir) {
     final center = Offset(_cx - centerDx, cy);
@@ -540,73 +464,61 @@ void _paintGlasses(Canvas canvas, _Rig r) {
       c.drawPath(
         lens,
         Paint()
-          ..shader = ui.Gradient.linear(
-            bounds.topCenter,
-            bounds.bottomCenter,
-            [const Color(0xF0101418), const Color(0xC81E242C)],
-          ),
+          ..shader = ui.Gradient.linear(bounds.topCenter, bounds.bottomCenter, [const Color(0xF2141A22), const Color(0xD9303A48)]),
       );
     } else {
       c.drawPath(lens, r.fill(spec.tint));
     }
-    if (r.detailed) {
-      c.save();
-      c.clipPath(lens);
-      // Çapraz yansıma parlaması (ışık soldan: aynada sağa kayar).
-      final glare = Path()
-        ..moveTo(bounds.left + bounds.width * (mir ? 0.42 : 0.18), bounds.bottom)
-        ..lineTo(bounds.left + bounds.width * (mir ? 0.58 : 0.34), bounds.bottom)
-        ..lineTo(bounds.left + bounds.width * (mir ? 0.86 : 0.62), bounds.top)
-        ..lineTo(bounds.left + bounds.width * (mir ? 0.72 : 0.48), bounds.top)
-        ..close();
-      c.drawPath(glare, r.fill(_alpha(Colors.white, spec.sun ? 0.18 : 0.13)));
-      c.drawRect(
-        bounds,
-        Paint()
-          ..shader = ui.Gradient.linear(
-            bounds.topLeft,
-            bounds.bottomRight,
-            [_alpha(Colors.white, spec.sun ? 0.14 : 0.08), _alpha(Colors.white, 0.0)],
-          ),
-      );
-      c.restore();
-    }
+    // Çapraz yansıma şeridi (ışık soldan: aynada sağa kayar).
+    c.save();
+    c.clipPath(lens);
+    final x0 = bounds.left + bounds.width * (mir ? 0.50 : 0.16);
+    final glare = Path()
+      ..moveTo(x0, bounds.bottom)
+      ..lineTo(x0 + bounds.width * 0.14, bounds.bottom)
+      ..lineTo(x0 + bounds.width * 0.42, bounds.top)
+      ..lineTo(x0 + bounds.width * 0.28, bounds.top)
+      ..close();
+    c.drawPath(glare, r.fill(_alpha(Colors.white, spec.sun ? 0.28 : 0.30)));
+    c.restore();
 
     // Çerçeve.
     if (spec.shape == GlassesShape.browline) {
-      // Üst kalın çubuk + alt ince tel.
       final top = Path()
         ..addRRect(RRect.fromRectAndRadius(
-          Rect.fromLTRB(bounds.left - 0.4, bounds.top, bounds.right + 0.4, bounds.top + 3.6 * spec.thickness),
-          const Radius.circular(1.4),
+          Rect.fromLTRB(bounds.left - 0.5, bounds.top - 0.5, bounds.right + 0.5, bounds.top + 3.8 * spec.thickness),
+          const Radius.circular(1.6),
         ));
-      c.drawPath(top, r.fill(spec.frame));
-      c.drawPath(lens, r.stroke(_alpha(spec.frame, 0.85), 0.7));
+      c.drawPath(lens, r.stroke(_alpha(frame, 0.9), 0.8));
+      c.drawPath(top, r.fill(frame));
+      c.drawPath(top, r.stroke(frameLine, r.lineW * 0.8));
     } else if (spec.rimless) {
-      c.drawPath(lens, r.stroke(_alpha(spec.frame, 0.55), 0.6));
+      c.drawPath(lens, r.stroke(_alpha(frame, 0.65), 0.7));
     } else {
-      c.drawPath(lens, r.stroke(spec.frame, frameW, cap: StrokeCap.round));
-      if (r.detailed && spec.thickness > 1.3) {
-        c.drawPath(lens, r.stroke(_alpha(Colors.white, 0.20), 0.5));
+      c.drawPath(lens, r.stroke(frameLine, frameW + 1.0));
+      c.drawPath(lens, r.stroke(frame, frameW));
+      if (r.detailed) {
+        c.save();
+        c.clipRect(Rect.fromLTRB(bounds.left - 4, bounds.top - 4, bounds.right + 4, bounds.center.dy));
+        c.drawPath(lens.shift(const Offset(0, -0.3)), r.stroke(_alpha(Colors.white, 0.28), frameW * 0.35));
+        c.restore();
       }
     }
 
     // Sap (kulağa giden çubuk).
+    final templeY = bounds.top + bounds.height * 0.24;
     final temple = Path()
-      ..moveTo(bounds.left + 0.5, bounds.top + bounds.height * 0.28)
-      ..lineTo(_cx - r.cheekHalf - 0.4, _Rig.eyeY - 2.6);
-    c.drawPath(temple, r.stroke(spec.rimless ? _alpha(spec.frame, 0.6) : spec.frame, math.max(0.9, frameW * 0.8)));
+      ..moveTo(bounds.left + 0.6, templeY)
+      ..lineTo(_cx - r.headX(templeY + 2) - 0.5, templeY + 2.5);
+    c.drawPath(temple, r.stroke(spec.rimless ? _alpha(frame, 0.7) : frame, math.max(1.1, frameW * 0.85)));
   });
 
   // Köprü.
   final bridge = Path()
-    ..moveTo(_cx - centerDx + a * 0.98, cy - b * 0.2)
-    ..quadraticBezierTo(_cx, cy - b * 0.5, _cx + centerDx - a * 0.98, cy - b * 0.2);
-  canvas.drawPath(bridge, r.stroke(spec.rimless ? _alpha(spec.frame, 0.7) : spec.frame, math.max(1.0, frameW)));
-  // Burun pedleri.
-  r.mirrored(canvas, (c, mir) {
-    c.drawCircle(Offset(_cx - 4.4, cy + b * 0.42), 0.9, r.fill(_alpha(Colors.white, 0.5)));
-  });
+    ..moveTo(_cx - centerDx + a * 0.96, cy - b * 0.18)
+    ..quadraticBezierTo(_cx, cy - b * 0.48, _cx + centerDx - a * 0.96, cy - b * 0.18);
+  if (!spec.rimless) canvas.drawPath(bridge, r.stroke(frameLine, math.max(1.0, frameW) + 1.0));
+  canvas.drawPath(bridge, r.stroke(spec.rimless ? _alpha(frame, 0.8) : frame, math.max(1.0, frameW)));
 }
 
 // ===================================================================== TAKI
@@ -614,17 +526,15 @@ void _paintJewelry(Canvas canvas, _Rig r) {
   final spec = r.jewelry;
   if (spec.kind == Jewelry.none) return;
   final col = spec.color;
-  final cw = r.cheekHalf;
-  final metal = _tone(col, 0.0);
+  final metalLine = _tone(col, -0.5);
 
-  Offset lobe(bool left) => Offset(_cx + (left ? -1 : 1) * (cw - 0.9), 109.0);
+  final lobeY = r.earBottom - 1.5;
+  final lobe = Offset(_cx - r.headX(lobeY) - 2.5, lobeY);
 
   void stud(Canvas c, Offset p, double rad, Color color) {
     c.drawCircle(p, rad, r.fill(color));
-    if (r.detailed) {
-      c.drawCircle(p.translate(-rad * 0.3, -rad * 0.3), rad * 0.45, r.fill(_alpha(Colors.white, 0.75)));
-      c.drawCircle(p, rad, r.stroke(_alpha(Colors.black, 0.25), 0.4));
-    }
+    c.drawCircle(p, rad, r.stroke(_tone(color, -0.5), r.lineW * 0.7));
+    c.drawCircle(p.translate(-rad * 0.3, -rad * 0.3), rad * 0.35, r.fill(_alpha(Colors.white, 0.85)));
   }
 
   void gem(Canvas c, Offset p, double rad, Color color) {
@@ -635,50 +545,48 @@ void _paintJewelry(Canvas canvas, _Rig r) {
       ..lineTo(p.dx - rad, p.dy - rad * 0.1)
       ..close();
     c.drawPath(path, r.fill(color));
-    if (r.detailed) {
-      c.drawLine(p.translate(-rad, -rad * 0.1), p.translate(rad, -rad * 0.1), r.stroke(_alpha(Colors.white, 0.6), 0.4));
-      c.drawLine(p.translate(0, -rad * 1.1), p.translate(0, rad * 1.2), r.stroke(_alpha(Colors.white, 0.35), 0.4));
-      c.drawPath(path, r.stroke(_alpha(Colors.black, 0.3), 0.4));
-    }
+    c.drawLine(p.translate(-rad, -rad * 0.1), p.translate(rad, -rad * 0.1), r.stroke(_alpha(Colors.white, 0.6), 0.5));
+    c.drawPath(path, r.stroke(_tone(color, -0.5), r.lineW * 0.7));
+  }
+
+  void ring(Canvas c, Offset center, double rad, double w) {
+    c.drawCircle(center, rad, r.stroke(metalLine, w + 1.0));
+    c.drawCircle(center, rad, r.stroke(col, w));
+    c.drawArc(Rect.fromCircle(center: center, radius: rad), math.pi * 1.0, math.pi * 0.45, false, r.stroke(_alpha(Colors.white, 0.7), w * 0.4));
   }
 
   if (spec.kind != Jewelry.noseStud && spec.kind != Jewelry.cuffs) {
     r.mirrored(canvas, (c, mir) {
-      final p = lobe(true);
+      final p = lobe;
       switch (spec.kind) {
         case Jewelry.studs:
         case Jewelry.studsChain:
-          stud(c, p, 1.7, metal);
+          stud(c, p, 1.9, col);
           break;
         case Jewelry.pearls:
-          c.drawCircle(p.translate(0, 0.6), 2.3, r.fill(col));
-          if (r.detailed) {
-            c.drawCircle(p.translate(-0.7, -0.2), 0.9, r.fill(_alpha(Colors.white, 0.85)));
-            c.drawCircle(p.translate(0, 0.6), 2.3, r.stroke(_alpha(Colors.black, 0.18), 0.4));
-          }
+          stud(c, p.translate(0, 0.8), 2.5, col);
           break;
         case Jewelry.hoops:
         case Jewelry.hoopsChain:
-          c.drawCircle(p.translate(-0.4, 5.2), 5.6, r.stroke(metal, 1.3));
-          if (r.detailed) c.drawArc(Rect.fromCircle(center: p.translate(-0.4, 5.2), radius: 5.6), math.pi * 1.05, math.pi * 0.5, false, r.stroke(_alpha(Colors.white, 0.6), 0.6));
+          ring(c, p.translate(-0.4, 5.4), 5.4, 1.3);
           break;
         case Jewelry.bigHoops:
-          c.drawCircle(p.translate(-1.2, 9.4), 9.6, r.stroke(metal, 1.5));
-          if (r.detailed) c.drawArc(Rect.fromCircle(center: p.translate(-1.2, 9.4), radius: 9.6), math.pi * 1.0, math.pi * 0.5, false, r.stroke(_alpha(Colors.white, 0.6), 0.7));
+          ring(c, p.translate(-1.2, 9.6), 9.4, 1.5);
           break;
         case Jewelry.drops:
-          stud(c, p, 1.4, metal);
-          c.drawLine(p.translate(0, 1.4), p.translate(-0.2, 7), r.stroke(metal, 0.6));
+          stud(c, p, 1.5, col);
+          c.drawLine(p.translate(0, 1.5), p.translate(-0.2, 6.6), r.stroke(col, 0.8));
           final drop = Path()
-            ..moveTo(p.dx - 0.2, p.dy + 6.4)
-            ..quadraticBezierTo(p.dx + 3.4, p.dy + 10.4, p.dx - 0.2, p.dy + 14.4)
-            ..quadraticBezierTo(p.dx - 3.8, p.dy + 10.4, p.dx - 0.2, p.dy + 6.4)
+            ..moveTo(p.dx - 0.2, p.dy + 6.2)
+            ..quadraticBezierTo(p.dx + 3.6, p.dy + 10.4, p.dx - 0.2, p.dy + 14.4)
+            ..quadraticBezierTo(p.dx - 4.0, p.dy + 10.4, p.dx - 0.2, p.dy + 6.2)
             ..close();
-          c.drawPath(drop, r.fill(metal));
-          if (r.detailed) c.drawCircle(p.translate(-1.2, 10.6), 0.9, r.fill(_alpha(Colors.white, 0.7)));
+          c.drawPath(drop, r.fill(col));
+          c.drawPath(drop, r.stroke(metalLine, r.lineW * 0.7));
+          c.drawCircle(p.translate(-1.2, 10.4), 0.9, r.fill(_alpha(Colors.white, 0.8)));
           break;
         case Jewelry.gems:
-          gem(c, p.translate(0, 1.4), 2.6, col);
+          gem(c, p.translate(0, 1.6), 2.8, col);
           break;
         default:
           break;
@@ -688,23 +596,24 @@ void _paintJewelry(Canvas canvas, _Rig r) {
 
   if (spec.kind == Jewelry.cuffs) {
     r.mirrored(canvas, (c, mir) {
-      c.drawArc(Rect.fromCenter(center: Offset(_cx - cw - 1.6, 92), width: 7, height: 12), math.pi * 0.7, math.pi * 1.5, false, r.stroke(metal, 1.4));
+      final x = _cx - r.headX(r.earTop + 6) - 7.5;
+      c.drawArc(Rect.fromCenter(center: Offset(x, r.earTop + 7), width: 7, height: 11), math.pi * 0.6, math.pi * 1.4, false, r.stroke(metalLine, 2.4));
+      c.drawArc(Rect.fromCenter(center: Offset(x, r.earTop + 7), width: 7, height: 11), math.pi * 0.6, math.pi * 1.4, false, r.stroke(col, 1.4));
     });
   }
 
   if (spec.kind == Jewelry.noseStud) {
-    final p = Offset(_cx + r.noseHalf * 1.02, r.noseBaseY - 2.6);
-    stud(canvas, p, 1.0, col);
-    if (r.detailed) canvas.drawCircle(p, 2.6, r.soft(_alpha(Colors.white, 0.25), 1.2));
+    stud(canvas, Offset(_cx + r.noseHalf * 0.95, r.noseBaseY - 2.4), 1.1, col);
   }
 
   if (spec.kind == Jewelry.studsChain || spec.kind == Jewelry.hoopsChain) {
     // İnce zincir kolye ve küçük kolye ucu.
+    final by = _neckBaseY(r);
     final chain = Path()
-      ..moveTo(_cx - 15, 146 + _bodyDrop)
-      ..quadraticBezierTo(_cx, 176 + _bodyDrop, _cx + 15, 146 + _bodyDrop);
-    canvas.drawPath(chain, r.stroke(metal, 1.0));
-    if (r.detailed) canvas.drawPath(chain.shift(const Offset(0, -0.6)), r.stroke(_alpha(Colors.white, 0.4), 0.4));
-    gem(canvas, Offset(_cx, 164 + _bodyDrop), 2.4, spec.kind == Jewelry.studsChain ? const Color(0xFFE8455F) : const Color(0xFFF6E9C5));
+      ..moveTo(_cx - r.neckHalf - 1, by - 4)
+      ..quadraticBezierTo(_cx, by + 22, _cx + r.neckHalf + 1, by - 4);
+    canvas.drawPath(chain, r.stroke(metalLine, 2.0));
+    canvas.drawPath(chain, r.stroke(col, 1.1));
+    gem(canvas, Offset(_cx, by + 11.5), 2.6, spec.kind == Jewelry.studsChain ? const Color(0xFFE8455F) : const Color(0xFFF6E9C5));
   }
 }

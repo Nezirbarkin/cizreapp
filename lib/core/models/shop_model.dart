@@ -1,3 +1,5 @@
+import 'sponsorship_model.dart';
+
 class Shop {
   final String id;
   final String ownerId;
@@ -52,6 +54,12 @@ class Shop {
   // "Gel Al" (mağazadan teslim) satıcı tarafından aktif mi
   final bool pickupEnabled;
 
+  /// Ücretli öne çıkarma bitişleri (Görev 3.2). Yalnız sunucu yazar; listeler
+  /// satırla birlikte okur, süresi geçmişse geçersizdir. Admin sabitlemesi
+  /// ([isPinned]) bunlardan ayrıdır.
+  final DateTime? sponsoredListUntil;
+  final DateTime? sponsoredCategoryUntil;
+
   Shop({
     required this.id,
     required this.ownerId,
@@ -92,7 +100,16 @@ class Shop {
     this.sellerCategories = const [],
     this.isPinned = false,
     this.pickupEnabled = false,
+    this.sponsoredListUntil,
+    this.sponsoredCategoryUntil,
   }) : _isOpenManual = isOpen;
+
+  /// Bu vitrinde ücretli öne çıkarması sürüyor mu?
+  bool isSponsoredIn(SponsorPlacement placement, {DateTime? now}) => switch (placement) {
+    SponsorPlacement.shopList => isSponsoredUntil(sponsoredListUntil, now: now),
+    SponsorPlacement.shopCategory => isSponsoredUntil(sponsoredCategoryUntil, now: now),
+    SponsorPlacement.productCategory || SponsorPlacement.productDiscount => false,
+  };
 
   /// Satıcı dükkanı ayarlardan elle kapattıysa true. Çalışma saatlerinden
   /// bağımsızdır; "şu saatte açılır" gibi bir vaat bu durumda verilmemeli.
@@ -268,6 +285,8 @@ class Shop {
     List<String>? sellerCategories,
     bool? isPinned,
     bool? pickupEnabled,
+    DateTime? sponsoredListUntil,
+    DateTime? sponsoredCategoryUntil,
   }) {
     return Shop(
       id: id ?? this.id,
@@ -309,6 +328,8 @@ class Shop {
       sellerCategories: sellerCategories ?? this.sellerCategories,
       isPinned: isPinned ?? this.isPinned,
       pickupEnabled: pickupEnabled ?? this.pickupEnabled,
+      sponsoredListUntil: sponsoredListUntil ?? this.sponsoredListUntil,
+      sponsoredCategoryUntil: sponsoredCategoryUntil ?? this.sponsoredCategoryUntil,
     );
   }
 
@@ -427,6 +448,8 @@ class Shop {
           : const [],
       isPinned: json['is_pinned'] as bool? ?? false,
       pickupEnabled: json['pickup_enabled'] as bool? ?? false,
+      sponsoredListUntil: parseSponsorTime(json['sponsored_list_until']),
+      sponsoredCategoryUntil: parseSponsorTime(json['sponsored_category_until']),
     );
   }
 }

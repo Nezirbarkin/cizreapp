@@ -24,6 +24,12 @@ class StoryService {
     '\u{1F525}',
   ];
 
+  /// Hikayeyi yazarının adı ve fotoğrafıyla birlikte çeken seçim. Hikaye
+  /// gösterecek HER sorgu bunu kullanmalı: birleştirme olmadan görüntüleyici
+  /// başlıkta gerçek ad yerine "Kullanıcı" yazıyordu (Görev 1.4).
+  static const String selectWithAuthor =
+      '*, profiles!stories_user_id_fkey(username, full_name, avatar_url)';
+
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get _supabase {
     try {
@@ -96,7 +102,7 @@ class StoryService {
             debugPrint('📱 Sorgulanıyor: admin_pinned desc, is_pinned desc, created_at desc, expires_at > ${now.toIso8601String()}');
             return await _supabase
                 .from('stories')
-                .select('*, profiles!stories_user_id_fkey(username, full_name, avatar_url)')
+                .select(selectWithAuthor)
                 .gt('expires_at', now.toIso8601String())
                 .order('admin_pinned', ascending: false, nullsFirst: false)
                 .order('is_pinned', ascending: false, nullsFirst: false)
@@ -195,15 +201,15 @@ class StoryService {
     }
   }
 
-  // Kullanıcının hikayelerini getir
+  // Kullanıcının hikayelerini getir (yazarın adı/fotoğrafıyla)
   Future<List<Story>> getUserStories(String userId) async {
     try {
       final now = DateTime.now().toUtc();
       debugPrint('📱 getUserStories($userId) çağrıldı');
-      
+
       final response = await _supabase
           .from('stories')
-          .select()
+          .select(selectWithAuthor)
           .eq('user_id', userId)
           .gt('expires_at', now.toIso8601String())
           .order('created_at', ascending: false);
@@ -215,6 +221,59 @@ class StoryService {
       debugPrint('❌ getUserStories() HATA: $e');
       throw FriendlyException.from(e);
     }
+  }
+
+  /// Tek hikaye (ör. "hikayeni beğendi" bildiriminden açılan), yazarıyla.
+  /// Yoksa ya da görme yetkisi yoksa null.
+  Future<Story?> getStoryById(String storyId) async {
+    try {
+      final row = await _supabase
+          .from('stories')
+          .select(selectWithAuthor)
+          .eq('id', storyId)
+          .maybeSingle();
+      return row == null ? null : Story.fromJson(row);
+    } catch (e) {
+      debugPrint('❌ getStoryById($storyId) HATA: $e');
+      throw FriendlyException.from(e);
+    }
+  }
+
+  /// Yazar bilgisi olmadan gelen hikayeler için eksik profilleri TEK
+  /// sorguda getirir: kullanıcı id → {username, full_name, avatar_url}.
+  Future<Map<String, Map<String, dynamic>>> getAuthorProfiles(
+    Iterable<String> userIds,
+  ) async {
+    final ids = userIds.toSet().toList();
+    if (ids.isEmpty) return {};
+    final rows = await _supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .inFilter('id', ids);
+    return {
+      for (final row in (rows as List))
+        row['id'] as String: Map<String, dynamic>.from(row as Map),
+    };
+  }
+
+  /// [stories] içinde yazarı eksik olanları [authors] ile doldurur; diğerleri
+  /// ve profili bulunamayanlar olduğu gibi kalır.
+  static List<Story> withAuthors(
+    List<Story> stories,
+    Map<String, Map<String, dynamic>> authors,
+  ) {
+    return [
+      for (final story in stories)
+        if (story.isMissingAuthor && authors[story.userId] != null)
+          story.copyWith(
+            username: authors[story.userId]!['username'] as String?,
+            fullName: authors[story.userId]!['full_name'] as String?,
+            avatarUrl: story.avatarUrl ??
+                authors[story.userId]!['avatar_url'] as String?,
+          )
+        else
+          story,
+    ];
   }
 
   // Story image yükle (ORİJİNAL ASPECT RATIO KORUNARAK YÜKSEK KALİTE)

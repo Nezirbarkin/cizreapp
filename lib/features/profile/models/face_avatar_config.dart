@@ -187,24 +187,24 @@ class FaceShapeSpec {
 
 /// Çizim motorunun taban ölçüleri (yarım genişlikler, 200 birimlik tuvalde).
 /// Fotoğraf analizi de yüz şeklini seçerken bunlara bakar.
-const double kFaceBaseForeheadHalf = 35.0;
-const double kFaceBaseCheekHalf = 39.0;
-const double kFaceBaseJawHalf = 31.0;
-const double kFaceBaseChinLength = 54.0; // göz hattı → çene
+const double kFaceBaseForeheadHalf = 47.5;
+const double kFaceBaseCheekHalf = 50.5;
+const double kFaceBaseJawHalf = 41.0;
+const double kFaceBaseChinLength = 50.0; // göz hattı → çene
 
 const List<FaceShapeSpec> kFaceShapes = [
   FaceShapeSpec('Oval', forehead: 1.00, cheek: 1.00, jaw: 0.95, chin: 1.00, corner: 0.15),
-  FaceShapeSpec('Yuvarlak', forehead: 1.02, cheek: 1.14, jaw: 1.04, chin: 0.85, corner: 0.05, chinWidth: 1.15),
+  FaceShapeSpec('Yuvarlak', forehead: 1.02, cheek: 1.10, jaw: 1.04, chin: 0.85, corner: 0.05, chinWidth: 1.15),
   FaceShapeSpec('Kare', forehead: 1.05, cheek: 1.04, jaw: 1.11, chin: 0.94, corner: 0.72, chinWidth: 1.22),
   FaceShapeSpec('Kalp', forehead: 1.10, cheek: 1.03, jaw: 0.82, chin: 1.0, corner: 0.20, chinWidth: 0.92),
   FaceShapeSpec('Uzun', forehead: 0.94, cheek: 0.90, jaw: 0.88, chin: 1.26, corner: 0.25),
-  FaceShapeSpec('Elmas', forehead: 0.86, cheek: 1.12, jaw: 0.84, chin: 1.06, corner: 0.18, chinWidth: 0.88),
+  FaceShapeSpec('Elmas', forehead: 0.86, cheek: 1.08, jaw: 0.84, chin: 1.06, corner: 0.18, chinWidth: 0.88),
   FaceShapeSpec('Üçgen', forehead: 0.84, cheek: 0.96, jaw: 1.18, chin: 0.96, corner: 0.60, chinWidth: 1.12),
   FaceShapeSpec('Armut', forehead: 0.87, cheek: 1.02, jaw: 1.15, chin: 1.00, corner: 0.35),
   FaceShapeSpec('Dikdörtgen', forehead: 1.02, cheek: 1.00, jaw: 1.06, chin: 1.20, corner: 0.60, chinWidth: 1.15),
   FaceShapeSpec('İnce Oval', forehead: 0.93, cheek: 0.91, jaw: 0.86, chin: 1.08, corner: 0.10, chinWidth: 0.92),
   FaceShapeSpec('Yumuşak Kare', forehead: 1.04, cheek: 1.05, jaw: 1.08, chin: 0.96, corner: 0.50, chinWidth: 1.18),
-  FaceShapeSpec('Tombul', forehead: 1.04, cheek: 1.20, jaw: 1.10, chin: 0.80, corner: 0.02, chinWidth: 1.20),
+  FaceShapeSpec('Tombul', forehead: 1.04, cheek: 1.14, jaw: 1.08, chin: 0.80, corner: 0.02, chinWidth: 1.20),
 ];
 
 // ------------------------------------------------------------------- saç
@@ -1050,6 +1050,9 @@ class FaceMetrics {
   final double mouthWidth;
   final double smile;
 
+  /// Göz hattından burun tabanına uzaklık (1.0 = ortalama).
+  final double noseLength;
+
   const FaceMetrics({
     this.faceWidth = 1.0,
     this.jawWidth = 1.0,
@@ -1062,9 +1065,26 @@ class FaceMetrics {
     this.lipFullness = 1.0,
     this.mouthWidth = 1.0,
     this.smile = 0.35,
+    this.noseLength = 1.0,
   });
 
   static const FaceMetrics average = FaceMetrics();
+
+  /// Yalnız ifadesi (gülümseme) değişmiş kopya.
+  FaceMetrics withSmile(double value) => FaceMetrics(
+        faceWidth: faceWidth,
+        jawWidth: jawWidth,
+        chinLength: chinLength,
+        eyeSize: eyeSize,
+        eyeSpacing: eyeSpacing,
+        browHeight: browHeight,
+        browThickness: browThickness,
+        noseWidth: noseWidth,
+        lipFullness: lipFullness,
+        mouthWidth: mouthWidth,
+        smile: value,
+        noseLength: noseLength,
+      );
 
   @override
   bool operator ==(Object other) =>
@@ -1079,11 +1099,12 @@ class FaceMetrics {
       other.noseWidth == noseWidth &&
       other.lipFullness == lipFullness &&
       other.mouthWidth == mouthWidth &&
-      other.smile == smile;
+      other.smile == smile &&
+      other.noseLength == noseLength;
 
   @override
   int get hashCode => Object.hash(faceWidth, jawWidth, chinLength, eyeSize, eyeSpacing,
-      browHeight, browThickness, noseWidth, lipFullness, mouthWidth, smile);
+      browHeight, browThickness, noseWidth, lipFullness, mouthWidth, smile, noseLength);
 }
 
 // ------------------------------------------------------------------ tarif

@@ -13,6 +13,7 @@ import '../../../core/utils/app_logger.dart';
 import '../../../core/widgets/group_avatar_viewer.dart';
 import '../services/group_chat_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
   final ChatGroup group;
@@ -970,7 +971,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       leading: CircleAvatar(
         backgroundColor: Colors.grey[200],
         backgroundImage: request.userAvatarUrl != null && request.userAvatarUrl!.isNotEmpty
-            ? NetworkImage(request.userAvatarUrl!)
+            ? avatarImage(request.userAvatarUrl!)
             : null,
         child: request.userAvatarUrl == null || request.userAvatarUrl!.isEmpty
             ? Text(
@@ -1058,7 +1059,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           CircleAvatar(
             backgroundColor: Colors.deepPurple[100],
             backgroundImage: member.avatarUrl != null && member.avatarUrl!.isNotEmpty
-                ? NetworkImage(member.avatarUrl!)
+                ? avatarImage(member.avatarUrl!)
                 : null,
             child: member.avatarUrl == null || member.avatarUrl!.isEmpty
                 ? Text(

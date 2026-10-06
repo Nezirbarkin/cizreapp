@@ -43,7 +43,8 @@ class SocialBalanceBadgeState extends State<SocialBalanceBadge> {
 
   Future<void> _loadBalance() async {
     try {
-      final balance = await _balanceService.getBalance();
+      // Sekme rozetleri bakiyeyi paylaşır (bkz. getBalanceForDisplay).
+      final balance = await _balanceService.getBalanceForDisplay();
       if (mounted) {
         setState(() {
           _balance = balance?.availableBalance ?? 0;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class PostLikesScreen extends StatefulWidget {
   final String postId;
@@ -89,7 +90,7 @@ class _PostLikesScreenState extends State<PostLikesScreen> {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundImage: avatarUrl != null
-                            ? NetworkImage(avatarUrl)
+                            ? avatarImage(avatarUrl)
                             : null,
                         backgroundColor: Theme.of(context).colorScheme.primary,
                         child: avatarUrl == null

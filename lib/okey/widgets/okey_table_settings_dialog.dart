@@ -215,23 +215,25 @@ class _OkeyTableSettingsDialogState extends State<OkeyTableSettingsDialog> {
 /// TAŞARDI. Kaydırma, ayarların geri kalanı dikey kayarken de doğru çalışır
 /// — iki eksen birbirine karışmaz.
 class OkeyRackStylePicker extends StatelessWidget {
-  const OkeyRackStylePicker({super.key});
+  /// Seçicinin üstünde durduğu zemine göre renkler (masa diyaloğu koyu,
+  /// lobideki Görünüm sayfası tasarımın kendi rengi).
+  final OkeyPickerColors colors;
+
+  const OkeyRackStylePicker({super.key, this.colors = OkeyPickerColors.onDark});
 
   @override
   Widget build(BuildContext context) {
+    final prefs = OkeyRackStylePrefs.instance;
     return ValueListenableBuilder<OkeyRackStyle>(
-      valueListenable: OkeyRackStylePrefs.instance.current,
+      valueListenable: prefs.current,
       builder: (context, selected, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.view_agenda, color: Colors.white70, size: 20),
+              Icon(Icons.view_agenda, color: colors.dim, size: 20),
               const SizedBox(width: 12),
-              const Text(
-                'Takoz',
-                style: TextStyle(color: Colors.white, fontSize: 14),
-              ),
+              Text('Takoz', style: TextStyle(color: colors.text, fontSize: 14)),
               const Spacer(),
               // Seçili ıstakanın adı: uzun bir ad Row'u taşırmasın diye
               // esnetilir ve kırpılır.
@@ -241,8 +243,8 @@ class OkeyRackStylePicker extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: Color(0xFFE8C069),
+                  style: TextStyle(
+                    color: colors.accent,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -251,20 +253,88 @@ class OkeyRackStylePicker extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 62,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: OkeyRackStyle.all.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 8),
-              itemBuilder: (context, i) {
-                final style = OkeyRackStyle.all[i];
-                return _RackStyleChip(
-                  style: style,
-                  selected: style.key == selected.key,
-                  onTap: () => OkeyRackStylePrefs.instance.select(style),
-                );
-              },
+          if (!prefs.userChoiceAllowed)
+            OkeyLockedChoiceNote(colors: colors)
+          else
+            SizedBox(
+              height: 62,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: OkeyRackStyle.all.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final style = OkeyRackStyle.all[i];
+                  return _RackStyleChip(
+                    style: style,
+                    colors: colors,
+                    selected: style.key == selected.key,
+                    onTap: () => prefs.select(style),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Seçicilerin renkleri — seçici iki farklı zeminde durur: masadaki ayarlar
+/// diyaloğu (her zaman koyu) ve lobideki Görünüm sayfası (aktif tasarımın
+/// rengi; İznik Çini/Ege'de AÇIK). Sabit beyaz yazı açık zeminde kaybolurdu.
+@immutable
+class OkeyPickerColors {
+  final Color text;
+  final Color dim;
+  final Color faint;
+  final Color accent;
+  final Color border;
+
+  const OkeyPickerColors({
+    required this.text,
+    required this.dim,
+    required this.faint,
+    required this.accent,
+    required this.border,
+  });
+
+  /// Masa diyaloğu — bugüne kadarki tek görünüm.
+  static const onDark = OkeyPickerColors(
+    text: Colors.white,
+    dim: Colors.white70,
+    faint: Colors.white38,
+    accent: Color(0xFFE8C069),
+    border: Color(0x33FFFFFF),
+  );
+}
+
+/// Yönetici oyuncu seçimini kapattığında seçicinin yerine çizilen not.
+class OkeyLockedChoiceNote extends StatelessWidget {
+  final OkeyPickerColors colors;
+
+  const OkeyLockedChoiceNote({
+    super.key,
+    this.colors = OkeyPickerColors.onDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline, size: 16, color: colors.dim),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Görünüm yönetici tarafından belirlendi',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: colors.dim, fontSize: 12),
             ),
           ),
         ],
@@ -275,11 +345,13 @@ class OkeyRackStylePicker extends StatelessWidget {
 
 class _RackStyleChip extends StatelessWidget {
   final OkeyRackStyle style;
+  final OkeyPickerColors colors;
   final bool selected;
   final VoidCallback onTap;
 
   const _RackStyleChip({
     required this.style,
+    required this.colors,
     required this.selected,
     required this.onTap,
   });
@@ -295,7 +367,7 @@ class _RackStyleChip extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected ? const Color(0xFFE8C069) : const Color(0x33FFFFFF),
+            color: selected ? colors.accent : colors.border,
             width: selected ? 2 : 1,
           ),
         ),
@@ -345,7 +417,7 @@ class _RackStyleChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                  color: selected ? const Color(0xFFE8C069) : Colors.white70,
+                  color: selected ? colors.accent : colors.dim,
                 ),
               ),
             ),
@@ -368,22 +440,28 @@ class _RackStyleChip extends StatelessWidget {
 /// durur: kullanıcı üstteki temayı değiştirince alttaki takozun da
 /// değiştiğini görür.
 class OkeyTableThemePicker extends StatelessWidget {
-  const OkeyTableThemePicker({super.key});
+  final OkeyPickerColors colors;
+
+  const OkeyTableThemePicker({
+    super.key,
+    this.colors = OkeyPickerColors.onDark,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final prefs = OkeyTableThemePrefs.instance;
     return ValueListenableBuilder<OkeyTableTheme>(
-      valueListenable: OkeyTableThemePrefs.instance.current,
+      valueListenable: prefs.current,
       builder: (context, selected, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.palette, color: Colors.white70, size: 20),
+              Icon(Icons.palette, color: colors.dim, size: 20),
               const SizedBox(width: 12),
-              const Text(
+              Text(
                 'Masa teması',
-                style: TextStyle(color: Colors.white, fontSize: 14),
+                style: TextStyle(color: colors.text, fontSize: 14),
               ),
               const Spacer(),
               Flexible(
@@ -392,8 +470,8 @@ class OkeyTableThemePicker extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: Color(0xFFE8C069),
+                  style: TextStyle(
+                    color: colors.accent,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -402,22 +480,26 @@ class OkeyTableThemePicker extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 84,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: OkeyTableTheme.all.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 8),
-              itemBuilder: (context, i) {
-                final theme = OkeyTableTheme.all[i];
-                return _TableThemeChip(
-                  theme: theme,
-                  selected: theme.key == selected.key,
-                  onTap: () => OkeyTableThemePrefs.instance.select(theme),
-                );
-              },
+          if (!prefs.userChoiceAllowed)
+            OkeyLockedChoiceNote(colors: colors)
+          else
+            SizedBox(
+              height: 84,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: OkeyTableTheme.all.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final theme = OkeyTableTheme.all[i];
+                  return _TableThemeChip(
+                    theme: theme,
+                    colors: colors,
+                    selected: theme.key == selected.key,
+                    onTap: () => prefs.select(theme),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -426,11 +508,13 @@ class OkeyTableThemePicker extends StatelessWidget {
 
 class _TableThemeChip extends StatelessWidget {
   final OkeyTableTheme theme;
+  final OkeyPickerColors colors;
   final bool selected;
   final VoidCallback onTap;
 
   const _TableThemeChip({
     required this.theme,
+    required this.colors,
     required this.selected,
     required this.onTap,
   });
@@ -446,7 +530,7 @@ class _TableThemeChip extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected ? const Color(0xFFE8C069) : const Color(0x33FFFFFF),
+            color: selected ? colors.accent : colors.border,
             width: selected ? 2 : 1,
           ),
         ),
@@ -499,7 +583,7 @@ class _TableThemeChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                  color: selected ? const Color(0xFFE8C069) : Colors.white70,
+                  color: selected ? colors.accent : colors.dim,
                 ),
               ),
             ),
@@ -508,7 +592,7 @@ class _TableThemeChip extends StatelessWidget {
                 theme.description,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 9, color: Colors.white38),
+                style: TextStyle(fontSize: 9, color: colors.faint),
               ),
             ),
           ],

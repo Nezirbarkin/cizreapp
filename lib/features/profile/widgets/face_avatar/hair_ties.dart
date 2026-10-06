@@ -1,812 +1,651 @@
 part of '../face_avatar_painter.dart';
 
 // ============================================================================
-// TOPUZ / KUYRUK / ÖRGÜ / RASTA / KAPALI SAÇ
+// TOPUZ / KUYRUK / ÖRGÜ / KAPALI SAÇ
 // ============================================================================
 
-/// Noktalar boyunca genişliği kökten uca değişen kapalı şerit.
-Path _ribbon(List<Offset> pts, double w0, double wMid, double w1) {
-  if (pts.length < 2) return Path();
-  final left = <Offset>[];
-  final right = <Offset>[];
-  for (var i = 0; i < pts.length; i++) {
-    final prev = pts[math.max(0, i - 1)];
-    final next = pts[math.min(pts.length - 1, i + 1)];
-    final d = _norm(next - prev);
-    final nrm = Offset(-d.dy, d.dx);
-    final t = i / (pts.length - 1);
-    final w = t < 0.5 ? _lerpD(w0, wMid, t * 2) : _lerpD(wMid, w1, (t - 0.5) * 2);
-    left.add(pts[i] + nrm * (w / 2));
-    right.add(pts[i] - nrm * (w / 2));
-  }
-  final path = _spline([...left, ...right.reversed], closed: true, tension: 0.9);
-  return path;
+/// Lastik toka.
+void _hairTie(Canvas c, _Rig r, Offset at, double w, {double angle = 0}) {
+  final col = r.hairLum > 0.25 ? const Color(0xFF3B3346) : const Color(0xFFD9578A);
+  c.save();
+  c.translate(at.dx, at.dy);
+  c.rotate(angle);
+  final rect = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: w, height: 3.4), const Radius.circular(1.7));
+  c.drawRRect(rect, r.fill(col));
+  c.drawRRect(rect, r.stroke(_tone(col, -0.45), r.lineW * 0.8));
+  c.restore();
 }
 
-/// Nokta dizisi boyunca teğet yönünde akış.
-_Flow _flowAlong(List<Offset> pts) {
-  return (p) {
-    var best = 0;
-    var bd = double.infinity;
-    for (var i = 0; i < pts.length; i++) {
-      final d = (pts[i] - p).distanceSquared;
-      if (d < bd) {
-        bd = d;
-        best = i;
-      }
+/// Kuyruk/tutam: yaprak biçimli, sivri uçlu, akış çizgili.
+void _tail(Canvas c, _Rig r, _HairGeo g, List<Offset> spine, double width, {int seed = 1, double tipW = 0.6, bool dark = false}) {
+  final path0 = _taperPath(_sampleSpline(spine, 18), width * 0.6, tipW, wMid: width);
+  final path = g.curly ? _scallop(path0, 1.4 + 1.2 * g.s.curl, 6, seed: seed) : path0;
+  _hairFill(c, r, path, base: dark ? _mix(r.hairColor, r.hairShadow, 0.45) : null);
+  if (g.curly) {
+    _curlTexture(c, r, path, seed: seed + 1, radius: 2.8);
+    return;
+  }
+  final pts = _sampleSpline(spine, 18);
+  // Akış: omurga boyunca, birkaç paralel çizgi.
+  c.save();
+  c.clipPath(path);
+  for (final off in [-0.25, 0.05, 0.3]) {
+    final line = <Offset>[];
+    for (var i = 1; i < pts.length - 2; i++) {
+      final d = _norm(pts[i + 1] - pts[i - 1]);
+      final nrm = Offset(-d.dy, d.dx);
+      final t = i / (pts.length - 1);
+      final wv = g.wavy ? math.sin(t * 9 + off * 4) * 1.4 : 0.0;
+      line.add(pts[i] + nrm * (off * width * (1 - t * 0.7) + wv));
     }
-    final a = pts[math.max(0, best - 1)];
-    final b = pts[math.min(pts.length - 1, best + 1)];
-    return _norm(b - a);
-  };
-}
-
-/// Eğri (kuadratik/kübik) boyunca örnek noktalar.
-List<Offset> _curve(Offset a, Offset b, Offset c, [Offset? d, int n = 14]) {
-  final out = <Offset>[];
-  for (var i = 0; i < n; i++) {
-    final t = i / (n - 1);
-    final u = 1 - t;
-    if (d == null) {
-      out.add(a * (u * u) + b * (2 * u * t) + c * (t * t));
-    } else {
-      out.add(a * (u * u * u) + b * (3 * u * u * t) + c * (3 * u * t * t) + d * (t * t * t));
-    }
+    c.drawPath(_taperPath(line, 0.4, 0.1, wMid: 1.2), r.fill(_alpha(r.hairShadow, 0.85)));
   }
-  return out;
+  final sheen = <Offset>[for (var i = 2; i < pts.length ~/ 2; i++) pts[i] + const Offset(-1.5, 0)];
+  if (sheen.length > 1) c.drawPath(_taperPath(sheen, 0.6, 0.2, wMid: 1.8), r.fill(_alpha(r.hairLight, 0.75)));
+  c.restore();
 }
 
-/// Bukle/örgü bağlama lastiği.
-void _hairTie(Canvas c, _Rig r, Offset at, double w, {Color? color}) {
-  final col = color ?? _mix(r.cfg.clothingColor, const Color(0xFFD9578A), 0.5);
-  c.drawOval(Rect.fromCenter(center: at, width: w, height: w * 0.55), r.fill(col));
-  if (r.detailed) {
-    c.drawOval(
-      Rect.fromCenter(center: at.translate(-w * 0.12, -w * 0.08), width: w * 0.5, height: w * 0.2),
-      r.fill(_alpha(Colors.white, 0.35)),
-    );
-  }
-}
-
-/// Örgü: birbirine geçen oval halkalar. [pts] merkez hattı.
-void _braid(Canvas c, _Rig r, _HairGeo g, List<Offset> pts, double width, {int seed = 1, bool fish = false, Color? baseColor}) {
-  final n = pts.length;
-  final col = baseColor ?? r.hairColor;
-  // Zemin şerit
-  final ribbon = _ribbon(pts, width * 0.9, width, width * 0.55);
-  c.drawPath(ribbon, r.fill(_mix(col, r.hairDark, 0.45)));
-  for (var i = 0; i < n - 1; i++) {
-    final a = pts[i], b = pts[i + 1];
-    final mid = _lerpO(a, b, 0.5);
+/// Örgü: omurga boyunca sağ-sol dönüşümlü yaprak dilimleri.
+void _braid(Canvas c, _Rig r, _HairGeo g, List<Offset> spine, double width, {bool fish = false, int seed = 1}) {
+  final pts = _sampleSpline(spine, 40);
+  final n = fish ? 16 : 9;
+  final segLen = (pts.length - 1) / n;
+  for (var k = 0; k < n; k++) {
+    final i0 = (k * segLen).round();
+    final i1 = math.min(pts.length - 1, ((k + 1.25) * segLen).round());
+    final a = pts[i0];
+    final b = pts[i1];
     final d = _norm(b - a);
-    final ang = math.atan2(d.dy, d.dx);
-    final t = i / (n - 1);
-    final w = _lerpD(width, width * 0.6, t);
-    final segLen = (b - a).distance * 1.7;
-    final side = i.isEven ? -1.0 : 1.0;
     final nrm = Offset(-d.dy, d.dx);
-    c.save();
-    c.translate(mid.dx + nrm.dx * side * w * 0.16, mid.dy + nrm.dy * side * w * 0.16);
-    c.rotate(ang + side * (fish ? 0.9 : 0.6));
-    final rect = Rect.fromCenter(center: Offset.zero, width: segLen * (fish ? 1.0 : 1.25), height: w * (fish ? 0.55 : 0.75));
-    c.drawOval(rect, r.fill(i.isEven ? _mix(col, r.hairLight, 0.10) : _mix(col, r.hairDark, 0.18)));
-    if (r.detailed) {
-      c.drawOval(rect, r.stroke(_alpha(r.hairDark, 0.55), 0.6));
-      // Segmentin içinde tel çizgileri.
-      for (var k = -1; k <= 1; k++) {
-        c.drawLine(
-          Offset(-segLen * 0.42, k * w * 0.16),
-          Offset(segLen * 0.42, k * w * 0.16 + side * 0.4),
-          r.stroke(_alpha(k == 0 ? r.hairShine : r.hairDark, k == 0 ? 0.30 : 0.25), 0.5),
-        );
-      }
+    final t = k / n;
+    final w = width * (1 - 0.45 * t);
+    final sgn = k.isEven ? 1.0 : -1.0;
+    final from = a + nrm * (sgn * w * 0.45);
+    final to = b - nrm * (sgn * w * 0.15);
+    final leaf = _taperPath(_quadPts(from, (from + to) / 2 + nrm * (-sgn * w * 0.15), to, 6), w * 0.45, w * 0.2, wMid: w * (fish ? 0.55 : 0.75));
+    c.drawPath(leaf, r.fill(k.isEven ? r.hairColor : _mix(r.hairColor, r.hairShadow, 0.25)));
+    if (!fish) {
+      r.celShade(c, leaf, _alpha(r.hairShadow, 0.7), base: k.isEven ? r.hairColor : _mix(r.hairColor, r.hairShadow, 0.25), offset: const Offset(-2, -2), blur: 0);
     }
+    c.drawPath(leaf, r.stroke(r.hairLine, r.lineW * 0.85));
+  }
+  final end = pts.last;
+  _hairTie(c, r, end, width * 0.55, angle: math.atan2(pts.last.dy - pts[pts.length - 3].dy, pts.last.dx - pts[pts.length - 3].dx) + math.pi / 2);
+  // Uçtaki püskül.
+  final d = _norm(pts.last - pts[pts.length - 4]);
+  _tail(c, r, g, [end, end + d * 5, end + d * 9], width * 0.55, seed: seed + 9);
+}
+
+/// Topuz: yuvarlak kütle + sarmal çizgiler.
+void _bun(Canvas c, _Rig r, _HairGeo g, Offset center, double rad, {bool messy = false, bool ballet = false, int seed = 1}) {
+  var path = Path()..addOval(Rect.fromCircle(center: center, radius: rad));
+  if (messy || g.curly) path = _scallop(path, messy ? 1.8 : 1.4, messy ? 7 : 5, seed: seed);
+  _hairFill(c, r, path);
+  if (g.curly) {
+    _curlTexture(c, r, path, seed: seed + 1, radius: 2.6);
+  } else {
+    c.save();
+    c.clipPath(path);
+    for (var i = 0; i < 3; i++) {
+      final rr = rad * (0.35 + i * 0.22);
+      c.drawArc(Rect.fromCircle(center: center.translate(rad * 0.1, rad * 0.05), radius: rr), -0.4 + i * 0.6, 2.4, false,
+          r.stroke(_alpha(r.hairShadow, 0.9), 1.1));
+    }
+    c.drawArc(Rect.fromCircle(center: center, radius: rad * 0.62), math.pi * 1.05, 1.1, false, r.stroke(_alpha(r.hairLight, 0.85), 1.8));
     c.restore();
   }
-  // Uçta tutam.
-  final endP = pts.last;
-  final prev = pts[pts.length - 2];
-  final d = _norm(endP - prev);
-  final tuft = Path()
-    ..moveTo(endP.dx - width * 0.28, endP.dy)
-    ..quadraticBezierTo(endP.dx + d.dx * 5, endP.dy + d.dy * 6 + 3, endP.dx + width * 0.28, endP.dy)
-    ..close();
-  c.drawPath(tuft, r.fill(_mix(col, r.hairDark, 0.2)));
-  _hairTie(c, r, endP.translate(0, -0.5), width * 0.9);
-}
-
-/// Yuvarlak topuz: tangent akışlı tel ve bant.
-void _bun(Canvas c, _Rig r, _HairGeo g, Offset center, double rad, {bool messy = false, bool ballet = false, int seed = 1}) {
-  final path = messy
-      ? _spline([
-          for (var i = 0; i < 12; i++)
-            center +
-                Offset(math.cos(i / 12 * math.pi * 2), math.sin(i / 12 * math.pi * 2)) *
-                    (rad * (0.88 + 0.18 * math.sin(i * 2.3 + seed))),
-        ], closed: true)
-      : (Path()..addOval(Rect.fromCircle(center: center, radius: rad)));
-  Offset flow(Offset p) {
-    final v = p - center;
-    return _norm(Offset(-v.dy, v.dx));
+  if (ballet) {
+    c.drawOval(Rect.fromCenter(center: center.translate(0, rad * 0.86), width: rad * 1.3, height: 3.2), r.fill(_tone(r.hairColor, -0.4)));
   }
-
-  _paintMass(c, r, g, path, flow: flow, strands: 150, len: rad * 1.1, width: 0.9, seed: 400 + seed, edge: 0.6, sheen: 0.30, curl: 0);
-  if (r.detailed) {
-    // Sarmal çizgiler.
-    for (var i = 0; i < 3; i++) {
-      c.drawArc(
-        Rect.fromCircle(center: center, radius: rad * (0.35 + i * 0.22)),
-        0.6 + i * 1.1,
-        math.pi * 1.2,
-        false,
-        r.stroke(_alpha(i.isEven ? r.hairDark : r.hairShine, 0.28), 0.8),
-      );
+  if (messy && r.detailed) {
+    final rng = r.rngFor(seed + 5);
+    for (var i = 0; i < 4; i++) {
+      final a = -math.pi * (0.15 + 0.7 * rng.nextDouble());
+      final p0 = center + Offset(math.cos(a), math.sin(a)) * rad * 0.9;
+      final p1 = center + Offset(math.cos(a), math.sin(a)) * (rad + 5 + rng.nextDouble() * 4) + Offset((rng.nextDouble() - 0.5) * 5, 0);
+      _taper(c, [p0, (p0 + p1) / 2 + const Offset(1.5, 0), p1], 1.4, 0.2, r.fill(r.hairColor));
+      c.drawPath(_taperPath([p0, (p0 + p1) / 2 + const Offset(1.5, 0), p1], 1.4, 0.2), r.stroke(r.hairLine, 0.5));
     }
   }
 }
 
-// ===================================================================== ARKA
+// ======================================================================= ARKA
 void _paintTieBack(Canvas canvas, _Rig r, _HairGeo g) {
   final tie = r.tie;
-  final W = g.W;
-  switch (tie) {
-    case HairTie.ponyHigh:
-      // Tepeden çıkıp sağ arkaya savrulan kuyruk.
-      final pts = _curve(Offset(_cx + 6, g.topY + 6), Offset(_cx + 46, g.topY - 6), Offset(_cx + 66, 84), Offset(_cx + 54, 150), 16);
-      final path = _ribbon(pts, 12, 22, 7);
-      _paintMass(canvas, r, g, path, flow: _flowAlong(pts), strands: 220, len: 16, seed: 410, base: r.hairMid, edge: 0.6, sheen: 0.22);
-      break;
-
-    case HairTie.ponyLow:
-      final pts = _curve(Offset(_cx + 26, 96), Offset(_cx + 50, 118), Offset(_cx + 48, 158), Offset(_cx + 40, 184), 16);
-      final path = _ribbon(pts, 12, 20, 8);
-      _paintMass(canvas, r, g, path, flow: _flowAlong(pts), strands: 200, len: 14, seed: 411, base: r.hairMid, edge: 0.6, sheen: 0.2);
-      break;
-
-    case HairTie.pigtails:
-      r.mirrored(canvas, (c, mir) {
-        final pts = _curve(Offset(_cx - 34, 58), Offset(_cx - 58, 70), Offset(_cx - 66, 112), Offset(_cx - 56, 152), 16);
-        final path = _ribbon(pts, 11, 19, 6);
-        _paintMass(c, r, g, path, flow: _flowAlong(pts), strands: 150, len: 14, seed: 412 + (mir ? 1 : 0), base: r.hairMid, edge: 0.6, sheen: 0.22);
-      });
-      break;
-
-    case HairTie.boxBraids:
-      _boxBraids(canvas, r, g, back: true);
-      break;
-
-    case HairTie.dreads:
-      _dreads(canvas, r, g, back: true);
-      break;
-
-    case HairTie.braid:
-    case HairTie.fishtail:
-      // Sırt örgüsü: kafanın arkasından omuz üstüne görünür.
-      break;
-
-    default:
-      break;
-  }
-  if (tie == HairTie.boxBraids || tie == HairTie.dreads) return;
-  // W kullanılmıyor uyarısını sustur.
-  W.toString();
-}
-
-// ===================================================== KAPAĞIN ALTINDAKİLER
-/// Kepin altında kalan (üstünden kapatılan) parçalar: topuzlar, mohawk, düz tepe…
-void _paintTieUnder(Canvas canvas, _Rig r, _HairGeo g) {
-  final tie = r.tie;
   final topY = g.topY;
+  final W = g.W;
+  final side = g.side.toDouble();
   switch (tie) {
     case HairTie.bunHigh:
-      _bun(canvas, r, g, Offset(_cx, topY - 4), 12.5, seed: 1);
-      break;
-    case HairTie.bunLow:
-      _bun(canvas, r, g, Offset(_cx, topY + 1), 14, seed: 2);
+      _bun(canvas, r, g, Offset(_cx, math.max(topY - 7, 12.5)), 12.5, seed: 150);
       break;
     case HairTie.bunTop:
-      _bun(canvas, r, g, Offset(_cx, topY - 3), 8.5, seed: 3);
-      break;
-    case HairTie.bunBallet:
-      _bun(canvas, r, g, Offset(_cx, topY - 5), 11.5, ballet: true, seed: 4);
+      _bun(canvas, r, g, Offset(_cx, math.max(topY - 4, 11.0)), 10.0, seed: 151);
       break;
     case HairTie.bunMessy:
-      _bun(canvas, r, g, Offset(_cx + 2, topY - 5), 15, messy: true, seed: 5);
+      _bun(canvas, r, g, Offset(_cx + 3, math.max(topY - 7, 13.0)), 13.5, messy: true, seed: 152);
+      break;
+    case HairTie.bunBallet:
+      _bun(canvas, r, g, Offset(_cx, math.max(topY - 6, 11.5)), 11.5, ballet: true, seed: 153);
+      break;
+    case HairTie.bunLow:
+      _bun(canvas, r, g, Offset(_cx + side * (r.jawHalf + 4), r.gonionY + 2), 12.5, seed: 154);
       break;
     case HairTie.halfBun:
-      _bun(canvas, r, g, Offset(_cx, topY - 2), 9.5, messy: true, seed: 6);
+      _bun(canvas, r, g, Offset(_cx, math.max(topY - 3, 10.0)), 8.5, seed: 155);
       break;
-    case HairTie.spaceBuns:
-      r.mirrored(canvas, (c, mir) {
-        _bun(c, r, g, Offset(_cx - 31, topY + 4), 11.5, seed: 7 + (mir ? 1 : 0));
-      });
+    case HairTie.halfUp:
+      _tail(canvas, r, g, [Offset(_cx, topY + 6), Offset(_cx + side * 6, topY - 2), Offset(_cx + side * 12, topY + 2)], 7, seed: 156);
+      break;
+    case HairTie.ponyHigh:
+      _tail(canvas, r, g, [
+        Offset(_cx + side * 6, topY + 10),
+        Offset(_cx + side * (W * 0.62), topY - 3),
+        Offset(_cx + side * (W + 10), _HairGeo.yc - 6),
+        Offset(_cx + side * (W + 13), 118),
+        Offset(_cx + side * (W + 7), 154),
+      ], 26, seed: 157, dark: true, tipW: 1.0);
+      break;
+    case HairTie.ponyLow:
+      _tail(canvas, r, g, [
+        Offset(_cx + side * (r.jawHalf * 0.5), r.chinY - 18),
+        Offset(_cx + side * (r.cheekHalf + 7), r.chinY - 2),
+        Offset(_cx + side * (r.cheekHalf + 13), 166),
+        Offset(_cx + side * (r.cheekHalf + 10), 194),
+      ], 22, seed: 158, dark: true, tipW: 1.0);
       break;
     case HairTie.afroPuffs:
-      r.mirrored(canvas, (c, mir) {
-        final center = Offset(_cx - 33, topY + 3);
-        final puff = Path()..addOval(Rect.fromCircle(center: center, radius: 17));
-        _paintMass(c, r, g, puff, flow: (p) => _norm(p - center), strands: 40, len: 6, seed: 420 + (mir ? 1 : 0), texture: HairTexture.coily, edge: 0.55, sheen: 0.32);
-      });
-      break;
-    case HairTie.mohawk:
-      final path = Path()
-        ..moveTo(_cx - 9, 70)
-        ..cubicTo(_cx - 11, 40, _cx - 9, 14, _cx - 5, 8)
-        ..cubicTo(_cx - 2, 4, _cx + 2, 4, _cx + 5, 8)
-        ..cubicTo(_cx + 9, 14, _cx + 11, 40, _cx + 9, 70)
-        ..close();
-      _paintMass(canvas, r, g, path, flow: _flowUp(g), strands: 200, len: 12, seed: 430, edge: 0.5, sheen: 0.35);
-      break;
-    case HairTie.flatTop:
-      final box = RRect.fromRectAndRadius(
-        Rect.fromLTRB(_cx - g.fh - 1, 19, _cx + g.fh + 1, 68),
-        const Radius.circular(13),
-      );
-      _paintMass(canvas, r, g, Path()..addRRect(box), flow: _flowUp(g), strands: 60, len: 6, seed: 431, texture: HairTexture.coily, edge: 0.5, sheen: 0.3);
-      break;
-    case HairTie.twists:
-      final dome = _spline([
-        Offset(_cx - g.fh - 3, 62),
-        Offset(_cx - g.fh - 1, 40),
-        Offset(_cx - g.fh * 0.5, 22),
-        Offset(_cx, 17),
-        Offset(_cx + g.fh * 0.5, 22),
-        Offset(_cx + g.fh + 1, 40),
-        Offset(_cx + g.fh + 3, 62),
-        Offset(_cx, 70),
-      ], closed: true);
-      _paintMass(canvas, r, g, dome, flow: _flowUp(g), strands: 40, len: 6, seed: 432, texture: HairTexture.coily, edge: 0.5, sheen: 0.3);
-      if (r.detailed) {
-        canvas.save();
-        canvas.clipPath(dome);
-        for (var i = -5; i <= 5; i++) {
-          final x = _cx + i * (g.fh * 0.17);
-          canvas.drawPath(
-            Path()
-              ..moveTo(x, 66)
-              ..quadraticBezierTo(x + (x - _cx) * 0.2, 40, _cx + (x - _cx) * 1.25, 20),
-            r.stroke(_alpha(r.hairDark, 0.45), 1.1),
-          );
-        }
-        canvas.restore();
+      for (final sgn in [-1.0, 1.0]) {
+        _bun(canvas, r, g, Offset(_cx + sgn * g.fh * 0.78, topY + 7), 17, seed: 159 + (sgn > 0 ? 1 : 0));
       }
+      break;
+    case HairTie.boxBraids:
+    case HairTie.dreads:
+      _locsBack(canvas, r, g, braided: tie == HairTie.boxBraids);
       break;
     default:
       break;
   }
 }
 
-// ===================================================================== ÖN
+/// Tepe kütlesinin ALTINDA kalan parçalar (kubbe bunları örter).
+void _paintTieUnder(Canvas canvas, _Rig r, _HairGeo g) {
+  switch (r.tie) {
+    case HairTie.mohawk:
+      final hl = g.hl;
+      final top = math.max(g.topY - 8, 4.0);
+      final p = Path()..moveTo(_cx - 10, hl + 3);
+      p.cubicTo(_cx - 14, _lerpD(hl, top, 0.45), _cx - 19, top + 14, _cx - 16, top + 8);
+      final rng = r.rngFor(170);
+      final crest = [for (var i = 0; i <= 6; i++) Offset(_cx - 16 + i * 5.33, top + 8 - math.sin(i / 6 * math.pi) * 6)];
+      final tips = _tipsAlong(crest, (i, mid) => _norm(Offset((mid.dx - _cx) * 0.04 + 0.3, -1)), 7.0, rng, jitter: 0.4);
+      _appendTips(p, crest, tips);
+      p.cubicTo(_cx + 19, top + 14, _cx + 14, _lerpD(hl, top, 0.45), _cx + 10, hl + 3);
+      p.quadraticBezierTo(_cx, hl + 6, _cx - 10, hl + 3);
+      p.close();
+      _hairFill(canvas, r, p);
+      _hairLines(canvas, r, p, _flowUp(g, lean: 0.15), [for (var i = 0; i < 5; i++) Offset(_cx - 8 + i * 4, hl - 1)],
+          len: hl - top, color: r.hairLine, width: 1.1, alpha: 0.6, seed: 171);
+      _sheen(canvas, r, p, Rect.fromLTRB(_cx - 13, top + 6, _cx + 16, hl + 30), math.pi * 1.05, math.pi * 0.3, width: 4.5);
+      break;
+    default:
+      break;
+  }
+}
+
+// ========================================================================= ÖN
 void _paintTieFront(Canvas canvas, _Rig r, _HairGeo g) {
   final tie = r.tie;
-  final topY = g.topY;
+  final side = g.side.toDouble();
+  final hl = g.hl;
   switch (tie) {
-    case HairTie.bunHigh:
-    case HairTie.bunTop:
-    case HairTie.bunBallet:
-    case HairTie.bunMessy:
-    case HairTie.bunLow:
-      // Bant: bunun tabanında.
-      final baseY = topY + (tie == HairTie.bunTop ? 4 : 5);
-      _hairTie(canvas, r, Offset(_cx, baseY), 12);
-      break;
-
-    case HairTie.ponyHigh:
-      _hairTie(canvas, r, Offset(_cx + 6, topY + 6), 11);
+    case HairTie.spaceBuns:
+      for (final sgn in [-1.0, 1.0]) {
+        _bun(canvas, r, g, Offset(_cx + sgn * g.fh * 0.66, g.topY + 9), 11.5, seed: 180 + (sgn > 0 ? 1 : 0));
+      }
       break;
 
     case HairTie.ponySide:
-      // Sağ omuz üstüne düşen yan kuyruk (önde).
-      final pts = _curve(Offset(_cx + 40, 86), Offset(_cx + 58, 110), Offset(_cx + 56, 150), Offset(_cx + 46, 184), 18);
-      final path = _ribbon(pts, 12, 22, 8);
-      _paintMass(canvas, r, g, path, flow: _flowAlong(pts), strands: 240, len: 14, seed: 440, edge: 0.55, sheen: 0.28);
-      _hairTie(canvas, r, Offset(_cx + 41, 87), 11);
+      final at = Offset(_cx + side * (r.cheekHalf + 3), r.chinY - 10);
+      _tail(canvas, r, g, [at, at + Offset(side * 7, 12), at + Offset(side * 8, 30), at + Offset(side * 2, 50)], 21, seed: 182);
+      _hairTie(canvas, r, at.translate(side * 0.5, 2), 10, angle: side * 0.3);
       break;
 
     case HairTie.pigtails:
-      r.mirrored(canvas, (c, mir) {
-        _hairTie(c, r, Offset(_cx - 35, 59), 10);
-      });
-      break;
-
-    case HairTie.halfUp:
-      // Tepede küçük bağ + arkadan sarkan kuyruk (üstte).
-      final base = Offset(_cx, topY + 6);
-      final pts = _curve(base, Offset(_cx + 8, topY - 8), Offset(_cx + 22, topY - 1), null, 8);
-      final path = _ribbon(pts, 9, 12, 6);
-      _paintMass(canvas, r, g, path, flow: _flowAlong(pts), strands: 60, len: 8, seed: 441, edge: 0.5, sheen: 0.3);
-      _hairTie(canvas, r, base, 9);
-      break;
-
-    case HairTie.halfBun:
-      _hairTie(canvas, r, Offset(_cx, topY + 4), 10);
+      for (final sgn in [-1.0, 1.0]) {
+        final at = Offset(_cx + sgn * (r.cheekHalf + 5), 104);
+        _tail(canvas, r, g, [at, at + Offset(sgn * 8, 18), at + Offset(sgn * 10, 44), at + Offset(sgn * 5, 70)], 19, seed: 183 + (sgn > 0 ? 1 : 0));
+        _hairTie(canvas, r, at.translate(sgn * 0.5, 1), 10, angle: sgn * 0.5);
+      }
       break;
 
     case HairTie.braid:
-      // Tek örgü: sağ omuzdan önde.
-      final pts = _curve(Offset(_cx + 38, 84), Offset(_cx + 52, 120), Offset(_cx + 50, 160), Offset(_cx + 44, 194), 12);
-      _braid(canvas, r, g, pts, 11);
+    case HairTie.fishtail:
+      _braid(canvas, r, g, [
+        Offset(_cx + side * (r.cheekHalf + 1), r.noseBaseY),
+        Offset(_cx + side * (r.cheekHalf + 7), r.chinY + 4),
+        Offset(_cx + side * (r.cheekHalf + 8), 178),
+        Offset(_cx + side * (r.cheekHalf + 5), 196),
+      ], 13, fish: tie == HairTie.fishtail, seed: 185);
       break;
 
     case HairTie.braidSide:
-      final pts = _curve(Offset(_cx + 36, 92), Offset(_cx + 60, 126), Offset(_cx + 54, 168), Offset(_cx + 46, 198), 12);
-      _braid(canvas, r, g, pts, 12);
+      _braid(canvas, r, g, [
+        Offset(_cx + side * (r.cheekHalf - 2), _Rig.eyeY + 6),
+        Offset(_cx + side * (r.cheekHalf + 5), r.chinY),
+        Offset(_cx + side * (r.cheekHalf + 4), 176),
+        Offset(_cx + side * (r.cheekHalf - 2), 198),
+      ], 16, seed: 186);
       break;
 
     case HairTie.braidsTwo:
-      r.mirrored(canvas, (c, mir) {
-        final pts = _curve(Offset(_cx - 38, 84), Offset(_cx - 54, 122), Offset(_cx - 52, 164), Offset(_cx - 46, 196), 12);
-        _braid(c, r, g, pts, 10.5);
-      });
-      break;
-
-    case HairTie.fishtail:
-      final pts = _curve(Offset(_cx + 36, 88), Offset(_cx + 54, 124), Offset(_cx + 50, 164), Offset(_cx + 44, 198), 16);
-      _braid(canvas, r, g, pts, 10.5, fish: true);
+      for (final sgn in [-1.0, 1.0]) {
+        _braid(canvas, r, g, [
+          Offset(_cx + sgn * (r.cheekHalf + 1), _Rig.eyeY + 4),
+          Offset(_cx + sgn * (r.cheekHalf + 6), r.chinY),
+          Offset(_cx + sgn * (r.cheekHalf + 7), 176),
+          Offset(_cx + sgn * (r.cheekHalf + 4), 196),
+        ], 12, seed: 187 + (sgn > 0 ? 1 : 0));
+      }
       break;
 
     case HairTie.crownBraid:
-      // Saç çizgisi boyunca tepeye sarılan örgü bandı.
       final pts = <Offset>[];
-      for (var i = 0; i <= 16; i++) {
-        final t = i / 16;
-        final a = math.pi * (1 - t);
-        pts.add(Offset(_cx + math.cos(a) * (g.fh + 1), 64 - math.sin(a) * (34 - 4 * math.sin(a))));
+      for (var i = 0; i <= 12; i++) {
+        final a = math.pi * (1 - i / 12);
+        pts.add(Offset(_cx + math.cos(a) * (g.fh + 2), hl - 4 - math.sin(a) * 18));
       }
-      _braid(canvas, r, g, pts, 7.2, fish: false);
+      _braid(canvas, r, g, pts, 10, seed: 189);
       break;
 
     case HairTie.cornrows:
-      _cornrows(canvas, r, g);
+      final hlPts = g.hairlineFull(7);
+      for (var i = 1; i < hlPts.length - 1; i++) {
+        final start = hlPts[i].translate(0, -1);
+        final end = Offset(_cx + (start.dx - _cx) * 0.55, g.topY + 6);
+        _braid(canvas, r, g, [start, Offset.lerp(start, end, 0.5)!.translate((start.dx - _cx) * 0.08, 0), end], 6, seed: 190 + i);
+      }
       break;
 
     case HairTie.boxBraids:
-      _boxBraids(canvas, r, g, back: false);
+    case HairTie.dreads:
+      _locsFront(canvas, r, g, braided: tie == HairTie.boxBraids);
       break;
 
-    case HairTie.dreads:
-      _dreads(canvas, r, g, back: false);
+    case HairTie.twists:
+      final rng = r.rngFor(195);
+      final rows = [
+        [for (var i = 0; i < 5; i++) -0.56 + i * 0.28],
+        [for (var i = 0; i < 6; i++) -0.70 + i * 0.28],
+      ];
+      for (var row = 0; row < rows.length; row++) {
+        for (final fx in rows[row]) {
+          final x = fx * g.fh;
+          final baseY = row == 0 ? g.topY + 10 : g.hairlineY(x.abs()) - 4;
+          final base = Offset(_cx + x, baseY);
+          final tip = base + Offset(x * 0.14, -9 - rng.nextDouble() * 4);
+          final p = _taperPath([base, (base + tip) / 2, tip], 6.0, 3.2, wMid: 5.6);
+          _hairFill(canvas, r, p, shade: 0.5);
+          for (var k = 1; k < 4; k++) {
+            final q = Offset.lerp(base, tip, k / 4)!;
+            canvas.drawLine(q.translate(-2.4, 0.9), q.translate(2.4, -0.9), r.stroke(r.hairLine, 0.7));
+          }
+        }
+      }
+      break;
+
+    case HairTie.flatTop:
+      final top = math.max(g.topY - 2, 7.0);
+      final p = Path()
+        ..moveTo(_cx - g.fh - 3, hl + 14)
+        ..lineTo(_cx - g.fh - 4, top + 3)
+        ..quadraticBezierTo(_cx - g.fh - 4, top, _cx - g.fh, top)
+        ..lineTo(_cx + g.fh, top)
+        ..quadraticBezierTo(_cx + g.fh + 4, top, _cx + g.fh + 4, top + 3)
+        ..lineTo(_cx + g.fh + 3, hl + 14)
+        ..quadraticBezierTo(_cx + g.fh * 0.5, hl - 1, _cx, hl)
+        ..quadraticBezierTo(_cx - g.fh * 0.5, hl - 1, _cx - g.fh - 3, hl + 14)
+        ..close();
+      final shaped = _scallop(p, 0.9, 4.5, seed: 196);
+      _hairFill(canvas, r, shaped);
+      _curlTexture(canvas, r, shaped, seed: 197, radius: 2.2);
+      break;
+
+    case HairTie.halfUp:
+    case HairTie.halfBun:
+      // Yanlardan arkaya toplanan tutamlar: şakakta küçük kıvrım çizgisi.
+      r.mirrored(canvas, (c, mir) {
+        c.drawPath(
+          Path()
+            ..moveTo(_cx - g.fh * 0.95, g.hairlineY(g.fh) - 2)
+            ..quadraticBezierTo(_cx - g.fh * 0.7, g.topY + 22, _cx - 6, g.topY + 12),
+          r.stroke(_alpha(r.hairLine, 0.8), r.lineW),
+        );
+      });
       break;
 
     default:
       break;
   }
+  if (tie == HairTie.ponyHigh || tie == HairTie.ponyLow || tie == HairTie.bunLow || tie == HairTie.bunHigh || tie == HairTie.bunBallet) {
+    // Toplu saç: yanlardan geriye taranma çizgileri.
+    canvas.save();
+    canvas.clipPath(_capPath(g, r));
+    r.mirrored(canvas, (c, mir) {
+      for (var i = 0; i < 2; i++) {
+        c.drawPath(
+          Path()
+            ..moveTo(_cx - g.fh * (0.92 - i * 0.2), g.hairlineY(g.fh * (0.92 - i * 0.2)) + 1)
+            ..quadraticBezierTo(_cx - g.fh * (0.75 - i * 0.2), g.topY + 26, _cx - 4 - i * 6, g.topY + 8),
+          r.stroke(_alpha(r.hairShadow, 0.9), 1.0),
+        );
+      }
+    });
+    canvas.restore();
+  }
 }
 
-void _cornrows(Canvas canvas, _Rig r, _HairGeo g) {
-  // Alından tepeye giden paralel örgü sırtları.
-  final fh = g.fh;
-  canvas.save();
-  canvas.clipPath(_capPath(g, r));
-  const n = 8;
+/// Kutu örgü / rasta: arkada omuzlara dökülen çok sayıda ince tel.
+void _locsBack(Canvas canvas, _Rig r, _HairGeo g, {required bool braided}) {
+  final W = g.W + 4;
+  final end = g.lockEndY;
+  final n = 12;
   for (var i = 0; i < n; i++) {
-    final t = (i + 0.5) / n;
-    final x = -fh * 0.9 + t * fh * 1.8;
-    final start = Offset(_cx + x, g.hairlineY(x.abs()) + 1);
-    final end = Offset(_cx + x * 0.62, g.topY + 2);
-    final pts = _curve(start, Offset(_cx + x * 0.98, (start.dy + end.dy) / 2), end, null, 12);
-    final ribbon = _ribbon(pts, 3.4, 3.4, 2.6);
-    canvas.drawPath(ribbon, r.fill(_mix(r.hairColor, r.hairDark, 0.15)));
-    if (r.detailed) {
-      canvas.drawPath(ribbon, r.stroke(_alpha(r.hairDark, 0.6), 0.5));
-      for (var k = 1; k < pts.length - 1; k++) {
-        final a = pts[k];
-        canvas.drawLine(a.translate(-1.4, -0.6), a.translate(1.4, 0.6), r.stroke(_alpha(r.hairShine, 0.35), 0.5));
-      }
+    final t = i / (n - 1);
+    final x = _lerpD(-W, W, t);
+    final start = Offset(_cx + x * 0.8, _HairGeo.yc - 6);
+    final mid = Offset(_cx + x * 1.04, 120);
+    final stop = Offset(_cx + x * 1.0, end - (i % 3) * 5);
+    _rope(canvas, r, [start, mid, stop], braided ? 5.0 : 6.0, braided: braided, dark: true);
+  }
+}
+
+void _locsFront(Canvas canvas, _Rig r, _HairGeo g, {required bool braided}) {
+  final end = g.lockEndY;
+  for (final sgn in [-1.0, 1.0]) {
+    for (var k = 0; k < 3; k++) {
+      final x0 = g.fh * (0.95 - k * 0.12);
+      final start = Offset(_cx + sgn * x0, g.hairlineY(x0) - 2);
+      final mid = Offset(_cx + sgn * (r.cheekHalf + 2 + k * 4), r.noseBaseY + 4);
+      final stop = Offset(_cx + sgn * (r.cheekHalf + 6 + k * 5), end - k * 6);
+      _rope(canvas, r, [start, mid, stop], braided ? 5.2 : 6.2, braided: braided);
     }
   }
-  canvas.restore();
 }
 
-void _boxBraids(Canvas canvas, _Rig r, _HairGeo g, {required bool back}) {
-  final n = back ? 5 : 6;
-  final rng = r.rngFor(450 + (back ? 1 : 0));
-  r.mirrored(canvas, (c, mir) {
-    for (var i = 0; i < n; i++) {
-      final t = (i + 0.5) / n;
-      final spread = _lerpD(g.fh * 0.35, g.W + 6, t);
-      final startY = _lerpD(58, 92, t);
-      final startX = _cx - _lerpD(g.fh * 0.4, r.headX(88) + 2, t);
-      final endX = _cx - spread - (back ? 8 : 4) - rng.nextDouble() * 3;
-      final endY = (back ? 160 : 150) + rng.nextDouble() * 34 - t * 6;
-      final pts = _curve(
-        Offset(startX, startY),
-        Offset((startX + endX) / 2 - 3, (startY + endY) / 2 - 12),
-        Offset(endX + 2, (startY + endY) / 2 + 20),
-        Offset(endX, endY),
-        14,
-      );
-      if (back) {
-        final path = _ribbon(pts, 5, 5.5, 4);
-        c.drawPath(path, r.fill(_mix(r.hairColor, r.hairDark, 0.4)));
-      } else {
-        _braid(c, r, g, pts, 5.2, seed: i);
-      }
+/// Tek ince örgü ya da rasta teli.
+void _rope(Canvas c, _Rig r, List<Offset> spine, double w, {required bool braided, bool dark = false}) {
+  final pts = _sampleSpline(spine, 22);
+  final path = _taperPath(pts, w, w * 0.75);
+  c.drawPath(path, r.fill(dark ? _mix(r.hairColor, r.hairShadow, 0.45) : r.hairColor));
+  c.save();
+  c.clipPath(path);
+  for (var i = 1; i < pts.length - 1; i += 2) {
+    final d = _norm(pts[i + 1] - pts[i - 1]);
+    final nrm = Offset(-d.dy, d.dx);
+    if (braided) {
+      c.drawLine(pts[i] - nrm * w, pts[i] + nrm * w + d * 2.2, r.stroke(_alpha(r.hairLine, 0.8), 0.7));
+    } else {
+      c.drawLine(pts[i] - nrm * w, pts[i] + nrm * w, r.stroke(_alpha(r.hairShadow, 0.8), 0.8));
     }
-  });
+  }
+  c.restore();
+  c.drawPath(path, r.stroke(r.hairLine, r.lineW * 0.8));
 }
 
-void _dreads(Canvas canvas, _Rig r, _HairGeo g, {required bool back}) {
-  final n = back ? 6 : 7;
-  final rng = r.rngFor(460 + (back ? 1 : 0));
-  r.mirrored(canvas, (c, mir) {
-    for (var i = 0; i < n; i++) {
-      final t = (i + 0.5) / n;
-      final startY = _lerpD(48, 96, t);
-      final startX = _cx - _lerpD(g.fh * 0.3, r.headX(90) + 3, t);
-      final endX = _cx - (g.W + 4 + rng.nextDouble() * 10) * (0.7 + 0.5 * t);
-      final endY = (back ? 150 : 138) + rng.nextDouble() * 40;
-      final pts = _curve(
-        Offset(startX, startY),
-        Offset(startX - 5, (startY + endY) / 2 - 12),
-        Offset(endX - 3, (startY + endY) / 2 + 14),
-        Offset(endX, endY),
-        16,
-      );
-      final path = _ribbon(pts, 6.6, 7.2, 5.4);
-      c.drawPath(path, r.fill(_mix(r.hairColor, back ? r.hairDark : r.hairMid, back ? 0.5 : 0.05)));
-      if (r.detailed) {
-        c.drawPath(path, r.stroke(_alpha(r.hairDark, 0.55), 0.6));
-        for (var k = 1; k < pts.length - 1; k += 1) {
-          final a = pts[k];
-          final d = _norm(pts[k + 1] - pts[k - 1]);
-          final nrm = Offset(-d.dy, d.dx);
-          c.drawLine(a + nrm * 3 - d, a - nrm * 3 + d, r.stroke(_alpha(r.hairDark, 0.45), 0.6));
-          c.drawLine(a + nrm * 2.4 + d, a - nrm * 2.4 - d * 0.2, r.stroke(_alpha(r.hairShine, 0.22), 0.5));
-        }
-      }
+// ================================================================ KAPALI SAÇ
+/// Yüz açıklığı (başörtüsü/kapüşon içinden görünen yüz).
+Path _faceOpening(_Rig r, {double top = 52, double side = 1.0, double chinExtra = 3}) {
+  final fh = r.foreheadHalf;
+  final cw = r.cheekHalf * side;
+  return _symmetric([
+    Offset(0, top),
+    Offset(fh * 0.62, top + 1.6),
+    Offset(fh * 0.94, top + 11),
+    Offset(cw + 0.6, _Rig.eyeY - 4),
+    Offset(cw - 0.5, _Rig.eyeY + 14),
+    Offset(r.jawHalf + 2.5, r.gonionY + 4),
+    Offset(r.chinHalf + 6, r.chinY + 0.5),
+    Offset(0, r.chinY + chinExtra),
+  ]);
+}
+
+/// Kumaş yüzeyi: dolgu → cel gölge → kıvrımlar → kontur.
+void _fabric(Canvas c, _Rig r, Path p, Color col, {List<List<Offset>> folds = const [], Offset light = const Offset(-7, -5)}) {
+  c.drawPath(p, r.fill(col));
+  r.celShade(c, p, _alpha(_tone(col, -0.28), 0.95), base: col, offset: light, blur: r.detailed ? 1.2 : 0);
+  if (folds.isNotEmpty) {
+    c.save();
+    c.clipPath(p);
+    for (final f in folds) {
+      c.drawPath(_taperPath(_sampleSpline(f, 12), 0.4, 0.3, wMid: 1.6), r.fill(_alpha(_tone(col, -0.38), 0.75)));
     }
-  });
+    c.restore();
+  }
+  c.drawPath(p, r.stroke(_tone(col, -0.52), r.lineW));
 }
 
-// =================================================================== KAPALI
 Color _coverColor(_Rig r) => r.cfg.clothingColor;
 
-/// Yüz açıklığı: başörtünün yüzü çerçeveleyen oval boşluğu.
-Path _faceOpening(_Rig r, {double top = 56, double side = 1.0, double chinExtra = 2}) {
-  final cw = r.cheekHalf * side;
-  final pts = <Offset>[
-    Offset(_cx, top),
-    Offset(_cx + cw * 0.62, top + 2.6),
-    Offset(_cx + cw * 0.94, 76),
-    Offset(_cx + cw * 1.0, 94),
-    Offset(_cx + r.jawHalf * 0.96, 122),
-    Offset(_cx + r.chinHalf * 1.35, r.chinY - 3),
-    Offset(_cx, r.chinY + chinExtra),
-    Offset(_cx - r.chinHalf * 1.35, r.chinY - 3),
-    Offset(_cx - r.jawHalf * 0.96, 122),
-    Offset(_cx - cw * 1.0, 94),
-    Offset(_cx - cw * 0.94, 76),
-    Offset(_cx - cw * 0.62, top + 2.6),
-  ];
-  return _spline(pts, closed: true);
-}
-
 void _paintCoverBack(Canvas canvas, _Rig r) {
-  // Başörtüsünün arkası tamamen ön katmanda çizilir.
+  final cover = r.hair.cover;
+  final col = _coverColor(r);
+  final cw = r.cheekHalf;
+  switch (cover) {
+    case HairCover.hijab:
+    case HairCover.hijabWrap:
+    case HairCover.shawl:
+      // Omuzlara dökülen kumaşın arka katmanı (boynun arkası).
+      final back = _symmetric([
+        const Offset(0, 40),
+        Offset(cw + 14, 92),
+        Offset(cw + 18, 140),
+        Offset(cw + 30, 186),
+        const Offset(90, 214),
+        const Offset(0, 214),
+      ]);
+      _fabric(canvas, r, back, _tone(col, -0.22));
+      break;
+    default:
+      break;
+  }
 }
 
 void _paintCoverFront(Canvas canvas, _Rig r) {
   final cover = r.hair.cover;
-  final cloth = _coverColor(r);
-  final cw = r.cheekHalf;
+  final col = _coverColor(r);
   final fh = r.foreheadHalf;
-  final chin = r.chinY;
-
-  Path outer;
-  Path opening;
-  const foldStart = 30.0;
+  final cw = r.cheekHalf;
+  const top = _Rig.skullTop - 6;
 
   switch (cover) {
+    case HairCover.none:
+      return;
+
     case HairCover.hijab:
-      outer = _spline([
-        Offset(_cx, 19),
-        Offset(_cx + fh * 0.62, 23),
-        Offset(_cx + fh + 12, 44),
-        Offset(_cx + cw + 15, 78),
-        Offset(_cx + cw + 16, 112),
-        Offset(_cx + cw + 15, 140),
-        Offset(_cx + cw + 24, 170),
-        Offset(_cx + cw + 32, 204),
-        Offset(_cx - cw - 32, 204),
-        Offset(_cx - cw - 24, 170),
-        Offset(_cx - cw - 15, 140),
-        Offset(_cx - cw - 16, 112),
-        Offset(_cx - cw - 15, 78),
-        Offset(_cx - fh - 12, 44),
-        Offset(_cx - fh * 0.62, 23),
-      ], closed: true);
-      opening = _faceOpening(r, top: 57);
-      break;
-
     case HairCover.hijabWrap:
-      outer = _spline([
-        Offset(_cx, 20),
-        Offset(_cx + fh * 0.62, 24),
-        Offset(_cx + fh + 11, 45),
-        Offset(_cx + cw + 13, 78),
-        Offset(_cx + cw + 14, 112),
-        Offset(_cx + cw + 16, 142),
-        Offset(_cx + cw + 22, 170),
-        Offset(_cx + 30, 186),
-        Offset(_cx, 190),
-        Offset(_cx - 30, 186),
-        Offset(_cx - cw - 22, 170),
-        Offset(_cx - cw - 16, 142),
-        Offset(_cx - cw - 14, 112),
-        Offset(_cx - cw - 13, 78),
-        Offset(_cx - fh - 11, 45),
-        Offset(_cx - fh * 0.62, 24),
-      ], closed: true);
-      opening = _faceOpening(r, top: 57);
-      break;
-
-    case HairCover.babushka:
-      outer = _spline([
-        Offset(_cx, 21),
-        Offset(_cx + fh * 0.62, 25),
-        Offset(_cx + fh + 10, 46),
-        Offset(_cx + cw + 11, 80),
-        Offset(_cx + cw + 10, 108),
-        Offset(_cx + cw + 6, 130),
-        Offset(_cx + r.jawHalf * 0.9, chin + 2),
-        Offset(_cx + 12, chin + 12),
-        Offset(_cx - 12, chin + 12),
-        Offset(_cx - r.jawHalf * 0.9, chin + 2),
-        Offset(_cx - cw - 6, 130),
-        Offset(_cx - cw - 10, 108),
-        Offset(_cx - cw - 11, 80),
-        Offset(_cx - fh - 10, 46),
-        Offset(_cx - fh * 0.62, 25),
-      ], closed: true);
-      opening = _faceOpening(r, top: 56);
-      break;
+      final outer = _symmetric([
+        const Offset(0, top),
+        Offset(fh * 0.62, top + 3),
+        Offset(fh + 9, top + 22),
+        Offset(cw + 10, _Rig.eyeY - 6),
+        Offset(cw + 9, r.chinY - 8),
+        Offset(r.jawHalf + 22, r.chinY + 18),
+        const Offset(70, 200),
+        const Offset(76, 214),
+        const Offset(0, 214),
+      ]);
+      final opening = _faceOpening(r);
+      final cloth = Path.combine(PathOperation.difference, outer, opening);
+      // Kumaşın yüze düşürdüğü gölge.
+      canvas.save();
+      canvas.clipPath(opening);
+      canvas.drawPath(opening, r.stroke(_alpha(r.skinShadow, 0.95), 5.5, blur: r.detailed ? 1.2 : 0));
+      canvas.restore();
+      _fabric(canvas, r, cloth, col, folds: [
+        [Offset(_cx - cw - 4, r.chinY + 6), Offset(_cx - cw + 2, r.chinY + 22), Offset(_cx - 30, 196)],
+        [Offset(_cx + cw + 2, r.chinY), Offset(_cx + cw - 2, r.chinY + 22), Offset(_cx + 34, 198)],
+        [Offset(_cx - 6, r.chinY + 14), Offset(_cx - 2, r.chinY + 30), Offset(_cx - 8, 204)],
+        [Offset(_cx - fh - 4, 48), Offset(_cx - cw - 6, 80), Offset(_cx - cw - 7, 110)],
+      ]);
+      // Alın bandı (bone) — açıklığın üstünde ince şerit.
+      final band = Path.combine(PathOperation.difference, _faceOpening(r, top: 48.5, side: 1.06, chinExtra: 5), opening);
+      canvas.save();
+      canvas.clipRect(Rect.fromLTRB(0, 0, 200, _Rig.eyeY - 6));
+      canvas.drawPath(band, r.fill(_tone(col, -0.12)));
+      canvas.restore();
+      canvas.drawPath(opening, r.stroke(_tone(col, -0.52), r.lineW));
+      if (cover == HairCover.hijabWrap) {
+        // Çenenin altından karşı omuza sarılan kat.
+        final wrap = Path()
+          ..moveTo(_cx - cw - 2, r.chinY - 6)
+          ..quadraticBezierTo(_cx - 8, r.chinY + 16, _cx + cw + 8, r.chinY - 4)
+          ..lineTo(_cx + cw + 12, r.chinY + 10)
+          ..quadraticBezierTo(_cx - 2, r.chinY + 34, _cx - cw - 10, r.chinY + 14)
+          ..close();
+        _fabric(canvas, r, wrap, _tone(col, 0.06), folds: [
+          [Offset(_cx - cw + 4, r.chinY + 6), Offset(_cx, r.chinY + 20), Offset(_cx + cw, r.chinY + 6)],
+        ]);
+        canvas.drawCircle(Offset(_cx + cw + 8, r.chinY + 2), 1.6, r.fill(const Color(0xFFD9B44A)));
+      }
+      return;
 
     case HairCover.shawl:
-      final base = _spline([
-        Offset(_cx, 20),
-        Offset(_cx + fh * 0.62, 24),
-        Offset(_cx + fh + 13, 44),
-        Offset(_cx + cw + 18, 80),
-        Offset(_cx + cw + 20, 114),
-        Offset(_cx + cw + 22, 146),
-        Offset(_cx + cw + 30, 176),
-        Offset(_cx + cw + 36, 204),
-        Offset(_cx - cw - 36, 204),
-        Offset(_cx - cw - 30, 176),
-        Offset(_cx - cw - 22, 146),
-        Offset(_cx - cw - 20, 114),
-        Offset(_cx - cw - 18, 80),
-        Offset(_cx - fh - 13, 44),
-        Offset(_cx - fh * 0.62, 24),
-      ], closed: true);
-      // Önde V açıklık: boyun ve kıyafet görünsün.
-      final vOpen = Path()
-        ..moveTo(_cx - 20, chin - 4)
-        ..lineTo(_cx + 20, chin - 4)
-        ..lineTo(_cx + 16, 204)
-        ..lineTo(_cx - 16, 204)
-        ..close();
-      outer = Path.combine(PathOperation.difference, base, vOpen);
-      opening = _faceOpening(r, top: 52, side: 1.06);
-      break;
+      // Önden saç çizgisi görünür, şal başın üstünden omuzlara.
+      final g = _HairGeo(r);
+      final hl = g.hairlineFull(14);
+      final hair = Path()..moveTo(hl.first.dx, hl.first.dy);
+      for (final p in hl.skip(1)) {
+        hair.lineTo(p.dx, p.dy);
+      }
+      hair.lineTo(_cx + fh * 0.6, g.hl - 8);
+      hair.quadraticBezierTo(_cx, g.hl - 12, _cx - fh * 0.6, g.hl - 8);
+      hair.close();
+      _hairFill(canvas, r, hair, shade: 0.4);
+      final outer = _symmetric([
+        const Offset(0, top + 2),
+        Offset(fh * 0.66, top + 5),
+        Offset(fh + 10, top + 26),
+        Offset(cw + 11, _Rig.eyeY),
+        Offset(cw + 14, r.chinY),
+        Offset(cw + 26, 186),
+        const Offset(80, 214),
+        const Offset(0, 214),
+      ]);
+      final opening = _symmetric([
+        Offset(0, g.hl - 9),
+        Offset(fh * 0.7, g.hl - 6),
+        Offset(fh + 2, g.hl + 12),
+        Offset(cw + 2, _Rig.eyeY + 4),
+        Offset(cw + 4, r.chinY),
+        Offset(r.neckHalf + 16, 172),
+        const Offset(0, 182),
+      ]);
+      _fabric(canvas, r, Path.combine(PathOperation.difference, outer, opening), col, folds: [
+        [Offset(_cx - cw - 6, 120), Offset(_cx - cw - 10, 160), Offset(_cx - cw - 16, 200)],
+        [Offset(_cx + cw + 6, 120), Offset(_cx + cw + 10, 160), Offset(_cx + cw + 16, 200)],
+      ]);
+      return;
+
+    case HairCover.babushka:
+      final outer = _symmetric([
+        const Offset(0, top + 1),
+        Offset(fh * 0.62, top + 4),
+        Offset(fh + 8, top + 24),
+        Offset(cw + 7, _Rig.eyeY + 2),
+        Offset(r.jawHalf + 8, r.gonionY + 8),
+        Offset(r.chinHalf + 6, r.chinY + 6),
+        Offset(0, r.chinY + 7),
+      ]);
+      final opening = _faceOpening(r, top: 54, chinExtra: 2);
+      _fabric(canvas, r, Path.combine(PathOperation.difference, outer, opening), col, folds: [
+        [Offset(_cx - fh * 0.5, top + 8), Offset(_cx - fh * 0.7, 46), Offset(_cx - fh * 0.9, 58)],
+        [Offset(_cx + fh * 0.4, top + 8), Offset(_cx + fh * 0.65, 44), Offset(_cx + fh * 0.88, 58)],
+      ]);
+      // Çene altında düğüm ve iki uç.
+      final knot = Offset(_cx + 6, r.chinY + 6);
+      for (final a in [0.5, 1.1]) {
+        final tip = knot + Offset(math.cos(a), math.sin(a)) * 16;
+        _fabric(canvas, r, _taperPath([knot, (knot + tip) / 2 + const Offset(2, 0), tip], 5, 3, wMid: 7), _tone(col, -0.06));
+      }
+      canvas.drawCircle(knot, 4, r.fill(_tone(col, -0.1)));
+      canvas.drawCircle(knot, 4, r.stroke(_tone(col, -0.52), r.lineW));
+      return;
 
     case HairCover.turban:
-      _paintTurban(canvas, r, cloth);
+      _paintTurban(canvas, r, col);
       return;
 
     case HairCover.bandana:
-      _paintBandana(canvas, r, cloth);
+      // Kısa saç yanlardan görünür, bandana başı örter.
+      final g = _HairGeo(r);
+      final cap = _capPath(g, r);
+      _hairFill(canvas, r, cap, shade: 0.6);
+      _paintBandana(canvas, r, col);
       return;
-
-    case HairCover.none:
-      return;
-  }
-
-  final fabric = Path.combine(PathOperation.difference, outer, opening);
-
-  // Örtünün yüze düşürdüğü gölge.
-  if (r.detailed) {
-    canvas.save();
-    canvas.clipPath(r.head);
-    canvas.drawPath(opening, r.stroke(_alpha(r.skinDeep, 0.55), 5, blur: 3));
-    canvas.restore();
-  }
-
-  canvas.drawPath(fabric, r.fill(cloth));
-  canvas.save();
-  canvas.clipPath(fabric);
-
-  // Kumaş hacmi ve kıvrımlar.
-  canvas.drawRect(
-    const Rect.fromLTWH(0, 0, 200, 210),
-    Paint()
-      ..shader = ui.Gradient.linear(
-        const Offset(0, 0),
-        const Offset(200, 0),
-        [_alpha(Colors.white, 0.16), _alpha(Colors.black, 0.0), _alpha(Colors.black, 0.24)],
-        const [0.0, 0.42, 1.0],
-      ),
-  );
-  canvas.drawRect(
-    const Rect.fromLTWH(0, 0, 200, 210),
-    Paint()
-      ..shader = ui.Gradient.linear(
-        const Offset(0, foldStart),
-        const Offset(0, 204),
-        [_alpha(Colors.white, 0.10), _alpha(Colors.black, 0.20)],
-      ),
-  );
-  if (r.detailed) {
-    final rng = r.rngFor(470 + cover.index);
-    // Yumuşak dikey kıvrım gölgeleri.
-    for (var i = 0; i < 9; i++) {
-      final side = i.isEven ? -1.0 : 1.0;
-      final x0 = _cx + side * (cw + 4 + rng.nextDouble() * 22);
-      canvas.drawPath(
-        Path()
-          ..moveTo(x0, 100 + rng.nextDouble() * 14)
-          ..quadraticBezierTo(x0 + side * (3 + rng.nextDouble() * 5), 150, x0 + side * (8 + rng.nextDouble() * 10), 204),
-        r.stroke(_alpha(Colors.black, 0.16 + 0.1 * rng.nextDouble()), 3 + rng.nextDouble() * 2, blur: 2.6),
-      );
-      canvas.drawPath(
-        Path()
-          ..moveTo(x0 - side * 3, 104)
-          ..quadraticBezierTo(x0 + side * 2, 150, x0 + side * 6, 200),
-        r.stroke(_alpha(Colors.white, 0.10), 2, blur: 1.8),
-      );
-    }
-    // Alın kenarı boyunca kumaş kıvrımı.
-    canvas.drawPath(
-      Path()
-        ..moveTo(_cx - cw * 0.9, 68)
-        ..quadraticBezierTo(_cx, 46, _cx + cw * 0.9, 68),
-      r.stroke(_alpha(Colors.black, 0.18), 2.4, blur: 2),
-    );
-    // Çene altı gölgesi.
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(_cx, chin + 8), width: 56, height: 22),
-      r.soft(_alpha(Colors.black, 0.32), 5),
-    );
-    if (cover == HairCover.hijabWrap) {
-      // Boyunda sarılı rulo.
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(_cx, chin + 14), width: cw * 2.6, height: 20),
-        r.soft(_alpha(Colors.white, 0.18), 3),
-      );
-      canvas.drawPath(
-        Path()
-          ..moveTo(_cx - cw * 1.2, chin + 10)
-          ..quadraticBezierTo(_cx, chin + 26, _cx + cw * 1.2, chin + 10),
-        r.stroke(_alpha(Colors.black, 0.30), 2.4, blur: 1.6),
-      );
-    }
-  }
-  canvas.restore();
-
-  // Açıklık kenarına ince dikiş/vurgu.
-  canvas.drawPath(opening, r.stroke(_alpha(Colors.black, 0.34), 1.0, blur: r.detailed ? 0.5 : 0));
-
-  if (cover == HairCover.babushka) {
-    // Çene altında düğüm ve iki uç.
-    final knot = Offset(_cx, chin + 10);
-    r.mirrored(canvas, (c, mir) {
-      final tail = Path()
-        ..moveTo(knot.dx - 2, knot.dy)
-        ..quadraticBezierTo(knot.dx - 14, knot.dy + 10, knot.dx - 16, knot.dy + 22)
-        ..lineTo(knot.dx - 7, knot.dy + 20)
-        ..quadraticBezierTo(knot.dx - 6, knot.dy + 10, knot.dx + 1, knot.dy + 3)
-        ..close();
-      c.drawPath(tail, r.fill(_tone(cloth, mir ? -0.14 : 0.04)));
-      c.drawPath(tail, r.stroke(_alpha(Colors.black, 0.25), 0.7));
-    });
-    canvas.drawCircle(knot, 5.2, r.fill(_tone(cloth, -0.06)));
-    if (r.detailed) {
-      canvas.drawCircle(knot.translate(-1.2, -1.2), 2.2, r.soft(_alpha(Colors.white, 0.3), 1.2));
-      canvas.drawCircle(knot, 5.2, r.stroke(_alpha(Colors.black, 0.28), 0.7));
-    }
   }
 }
 
+/// Türban: başın üstünde sarılı katlar, önde çapraz büküm.
 void _paintTurban(Canvas canvas, _Rig r, Color cloth) {
   final fh = r.foreheadHalf;
-  final cw = r.cheekHalf;
-  final dome = _spline([
-    Offset(_cx, 12),
-    Offset(_cx + fh * 0.7, 16),
-    Offset(_cx + fh + 8, 34),
-    Offset(_cx + fh + 10, 54),
-    Offset(_cx + fh + 6, 70),
-    Offset(_cx + fh * 0.5, 66),
-    Offset(_cx, 60),
-    Offset(_cx - fh * 0.5, 66),
-    Offset(_cx - fh - 6, 70),
-    Offset(_cx - fh - 10, 54),
-    Offset(_cx - fh - 8, 34),
-    Offset(_cx - fh * 0.7, 16),
-  ], closed: true);
-  canvas.drawPath(dome, r.fill(cloth));
-  canvas.save();
-  canvas.clipPath(dome);
-  canvas.drawRect(
-    dome.getBounds(),
-    Paint()
-      ..shader = ui.Gradient.linear(
-        Offset(dome.getBounds().left, 0),
-        Offset(dome.getBounds().right, 0),
-        [_alpha(Colors.white, 0.20), _alpha(Colors.black, 0.0), _alpha(Colors.black, 0.28)],
-        const [0.0, 0.45, 1.0],
-      ),
-  );
-  if (r.detailed) {
-    // Çapraz sarım kıvrımları.
-    for (var i = 0; i < 6; i++) {
-      final y = 20 + i * 8.0;
-      final band = Path()
-        ..moveTo(_cx - fh - 12, y + 10)
-        ..quadraticBezierTo(_cx, y - 8 + (i.isEven ? 2 : -2), _cx + fh + 12, y + 14);
-      canvas.drawPath(band, r.stroke(_alpha(Colors.black, 0.24), 2.4, blur: 1.4));
-      canvas.drawPath(band.shift(const Offset(0, -2.4)), r.stroke(_alpha(Colors.white, 0.16), 1.6, blur: 1.0));
-    }
-  }
-  canvas.restore();
-  // Ön düğüm.
-  final knot = Offset(_cx + fh * 0.32, 56);
-  canvas.drawOval(Rect.fromCenter(center: knot, width: 18, height: 12), r.fill(_tone(cloth, -0.08)));
-  if (r.detailed) {
-    canvas.drawOval(Rect.fromCenter(center: knot.translate(-2, -1.5), width: 8, height: 4), r.soft(_alpha(Colors.white, 0.28), 1.4));
-    canvas.drawPath(
-      Path()
-        ..moveTo(knot.dx - 8, knot.dy)
-        ..quadraticBezierTo(knot.dx, knot.dy + 6, knot.dx + 8, knot.dy),
-      r.stroke(_alpha(Colors.black, 0.3), 0.8),
-    );
-  }
-  canvas.drawPath(dome, r.stroke(_alpha(Colors.black, 0.30), 0.9));
-  cw.toString();
+  const top = _Rig.skullTop - 10;
+  final base = _Rig.eyeY - 30;
+  final dome = Path()
+    ..moveTo(_cx - fh - 7, base + 6)
+    ..cubicTo(_cx - fh - 12, base - 26, _cx - fh * 0.6, top, _cx, top)
+    ..cubicTo(_cx + fh * 0.6, top, _cx + fh + 12, base - 26, _cx + fh + 7, base + 6)
+    ..quadraticBezierTo(_cx, base + 14, _cx - fh - 7, base + 6)
+    ..close();
+  _castOnSkin(canvas, r, [dome]);
+  _fabric(canvas, r, dome, cloth, folds: [
+    [Offset(_cx - fh - 6, base - 2), Offset(_cx - 6, top + 14), Offset(_cx + fh * 0.6, top + 6)],
+    [Offset(_cx - fh - 4, base + 4), Offset(_cx, top + 26), Offset(_cx + fh + 4, base - 14)],
+    [Offset(_cx + fh + 6, base - 2), Offset(_cx + 6, top + 16), Offset(_cx - fh * 0.6, top + 8)],
+  ]);
+  // Önde çapraz büküm.
+  final twist = Path()
+    ..moveTo(_cx - 9, base + 9)
+    ..quadraticBezierTo(_cx - 2, base - 6, _cx + 6, top + 12)
+    ..lineTo(_cx + 12, top + 16)
+    ..quadraticBezierTo(_cx + 4, base - 4, _cx + 2, base + 10)
+    ..close();
+  _fabric(canvas, r, twist, _tone(cloth, 0.08));
 }
 
+/// Alından geçen bandana: üst kısım başı örter, yanda düğüm.
 void _paintBandana(Canvas canvas, _Rig r, Color cloth) {
-  // Saçın üstüne bağlanmış bandana: alın bandı + yandan düğüm.
-  final g = _HairGeo(r);
-  _paintHairlineShadow(canvas, r, g);
-  _paintFade(canvas, r, g);
-  _paintCap(canvas, r, g);
-  _paintFringe(canvas, r, g);
-  _paintSideLocks(canvas, r, g);
   final fh = r.foreheadHalf;
-  final band = Path()
-    ..moveTo(_cx - fh - 4, 66)
-    ..quadraticBezierTo(_cx, 36, _cx + fh + 4, 66)
-    ..lineTo(_cx + fh + 3, 58)
-    ..quadraticBezierTo(_cx, 26, _cx - fh - 3, 58)
+  final g = _HairGeo(r);
+  final low = g.hl + 4;
+  final p = Path()
+    ..moveTo(_cx - fh - 6, low + 10)
+    ..cubicTo(_cx - fh - 10, 20, _cx - fh * 0.5, _Rig.skullTop - 6, _cx, _Rig.skullTop - 6)
+    ..cubicTo(_cx + fh * 0.5, _Rig.skullTop - 6, _cx + fh + 10, 20, _cx + fh + 6, low + 10)
+    ..quadraticBezierTo(_cx, low - 4, _cx - fh - 6, low + 10)
     ..close();
-  canvas.drawPath(band, r.fill(cloth));
+  _castOnSkin(canvas, r, [p]);
+  _fabric(canvas, r, p, cloth, folds: [
+    [Offset(_cx - fh * 0.6, 30), Offset(_cx - fh * 0.5, 44), Offset(_cx - fh * 0.7, low)],
+    [Offset(_cx + fh * 0.4, 28), Offset(_cx + fh * 0.55, 42), Offset(_cx + fh * 0.75, low)],
+  ]);
   if (r.detailed) {
+    // Bandana deseni: küçük beyaz noktalar.
     canvas.save();
-    canvas.clipPath(band);
-    final rng = r.rngFor(480);
+    canvas.clipPath(p);
+    final rng = r.rngFor(780);
     for (var i = 0; i < 26; i++) {
-      canvas.drawCircle(
-        Offset(_cx - fh + rng.nextDouble() * fh * 2, 34 + rng.nextDouble() * 32),
-        0.9,
-        r.fill(_alpha(Colors.white, 0.55)),
-      );
+      final q = Offset(_cx - fh - 6 + rng.nextDouble() * (fh * 2 + 12), 16 + rng.nextDouble() * (low - 10));
+      canvas.drawCircle(q, 0.9, r.fill(_alpha(Colors.white, 0.75)));
     }
-    canvas.drawRect(band.getBounds(), r.fill(_alpha(Colors.black, 0.10)));
     canvas.restore();
-    canvas.drawPath(band, r.stroke(_alpha(Colors.black, 0.32), 0.8));
   }
-  // Sağ şakakta düğüm.
-  final knot = Offset(_cx + fh + 2, 62);
-  canvas.drawCircle(knot, 4.6, r.fill(_tone(cloth, -0.08)));
-  final tail = Path()
-    ..moveTo(knot.dx, knot.dy)
-    ..quadraticBezierTo(knot.dx + 10, knot.dy + 4, knot.dx + 14, knot.dy + 16)
-    ..lineTo(knot.dx + 6, knot.dy + 12)
-    ..quadraticBezierTo(knot.dx + 4, knot.dy + 6, knot.dx - 1, knot.dy + 3)
-    ..close();
-  canvas.drawPath(tail, r.fill(_tone(cloth, -0.14)));
-  _paintTieFront(canvas, r, g);
-  _paintSoftEdge(canvas, r, g);
+  // Yanda düğüm ve uçlar.
+  final knot = Offset(_cx + fh + 6, low + 4);
+  for (final a in [0.3, 0.95]) {
+    final tip = knot + Offset(math.cos(a), math.sin(a)) * 13;
+    _fabric(canvas, r, _taperPath([knot, (knot + tip) / 2, tip], 4, 2.4, wMid: 5.5), _tone(cloth, -0.06));
+  }
+  canvas.drawCircle(knot, 3.4, r.fill(_tone(cloth, -0.1)));
+  canvas.drawCircle(knot, 3.4, r.stroke(_tone(cloth, -0.52), r.lineW));
 }

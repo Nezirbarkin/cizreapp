@@ -167,8 +167,9 @@ class _CardTagData {
   const _CardTagData(this.icon, this.label, this.color);
 }
 
-/// Kargo, hazırlık süresi ve sipariş adedi bilgileri. Satıcı hiçbirini
-/// tanımlamadıysa hiç yer kaplamaz — mevcut ürünlerin görünümü değişmez.
+/// Kargo ve sipariş adedi bilgileri. Satıcı hiçbirini tanımlamadıysa hiç yer
+/// kaplamaz. Ürün başı hazırlık (kargoya verilme) süresi GÖSTERİLMEZ: teslimat
+/// süresinin tek kaynağı satıcı profili (Görev 2.2).
 class ProductLogisticsWrap extends StatelessWidget {
   final Product product;
   final bool large;
@@ -198,13 +199,6 @@ class ProductLogisticsWrap extends StatelessWidget {
           icon: Icons.local_shipping_outlined,
           label: 'Kargo ₺${product.shippingFee!.toStringAsFixed(2)}',
           color: Colors.blueGrey.shade700,
-          large: large,
-        ),
-      if (product.prepTimeLabel != null)
-        ProductMiniChip(
-          icon: Icons.schedule,
-          label: product.prepTimeLabel!,
-          color: Colors.indigo.shade600,
           large: large,
         ),
       if (product.orderQuantityLabel != null)

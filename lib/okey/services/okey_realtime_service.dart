@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Bir maçın tüm realtime kanallarını tek bir yerden yönetir. chat_service.dart
@@ -29,8 +31,23 @@ class OkeyRealtimeService {
     // ÜSTÜNDE taşınır — hediyeler gibi ayrı bir tablo/kanal gerekmez, çünkü
     // burada saklanacak bir kayıt (bakiye, geçmiş) yok.
     void Function(Map<String, dynamic> payload)? onQuickPhrase,
+    // SENKRON (Görev 1.6): kanal HER (yeniden) katıldığında çağrılır — ilk
+    // abonelik, bağlantı kopup gelince otomatik yeniden katılma ve uygulama
+    // öne gelince supabase_flutter'ın forceRejoin'i dahil. Katılmadan önceki
+    // okuma ile katılma arasında olan hamleler ancak katıldıktan SONRA
+    // yapılan bir okumayla yakalanır.
+    void Function()? onSubscribed,
+    // Kanal hata verdi ya da katılma zaman aşımına uğradı. postgres_changes
+    // kurulumu sunucuda başarısız olursa kanal "bağlı" görünüp HİÇ olay
+    // getirmez; realtime_client bunu yalnızca bu yoldan haber verir.
+    void Function(Object? error)? onChannelError,
   }) {
     final channelName = 'okey_match:$matchId';
+    // Önceki maç kanalı hâlâ duruyorsa (ör. yeniden kurma ile sıradaki ele
+    // geçiş aynı anda olduysa) SIZMASIN: yenisi onun yerini alır.
+    final previous = _channel;
+    _channel = null;
+    if (previous != null) unawaited(_client.removeChannel(previous));
     final existing = _client.channel(channelName);
     _client.removeChannel(existing);
 
@@ -90,8 +107,22 @@ class OkeyRealtimeService {
       callback: (_) => onMovesChanged(),
     );
 
-    channel.subscribe();
     _channel = channel;
+    channel.subscribe((status, error) {
+      // Kaldırılmış eski kanalın geç gelen durumları yok sayılır.
+      if (!identical(_channel, channel)) return;
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          onSubscribed?.call();
+        case RealtimeSubscribeStatus.channelError:
+        case RealtimeSubscribeStatus.timedOut:
+          onChannelError?.call(error);
+        case RealtimeSubscribeStatus.closed:
+          // Kanalı biz kapattık (ya da sunucu kapattı; realtime_client
+          // yeniden katılmayı kendisi dener).
+          break;
+      }
+    });
   }
 
   /// HIZLI MESAJI masadaki DİĞER oyunculara yayınlar.

@@ -19,6 +19,9 @@ class PrivacyService {
   /// Heartbeat timer - periyodik olarak last_seen günceller
   Timer? _heartbeatTimer;
 
+  /// Son ön plana dönüşten beri çevrimdışı yazımı yapıldı mı ([onAppPaused]).
+  bool _offlineHandled = false;
+
   /// Heartbeat aralığı (2 dakika)
   static const _heartbeatInterval = Duration(minutes: 2);
 
@@ -234,23 +237,17 @@ class PrivacyService {
 
   /// Heartbeat gönder - last_seen ve is_online günceller
   /// RPC: set_my_presence (server timestamp).
+  ///
+  /// Tercih (is_online_enabled) ve hayalet mod burada OKUNMAZ: RPC ikisini de
+  /// sunucuda uygular (kapalıysa is_online=false yazar). Eskiden her atımda
+  /// önce tüm profil satırı (get_my_profile) çekiliyordu — sonucu aynı olan
+  /// fazladan bir istek.
   Future<void> _sendHeartbeat() async {
     try {
       final supabase = _supabase;
       if (supabase == null) return;
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) return;
-
-      // Önce tercihleri kontrol et
-      final enabled = await getOnlineEnabled();
-      if (!enabled) {
-        // Tercih kapalı: RPC yine çağrılır ama RPC is_online=false yazar.
-        await supabase.rpc(
-          'set_my_presence',
-          params: {'p_is_online': false, 'p_platform': _currentPlatform()},
-        );
-        return;
-      }
 
       await supabase.rpc(
         'set_my_presence',
@@ -297,6 +294,12 @@ class PrivacyService {
   /// Uygulama arka plana geçtiğinde çağrılır
   Future<void> onAppPaused() async {
     stopHeartbeat();
+    // Bir arka plana geçiş inactive → hidden → paused sırasıyla birden çok
+    // olay üretir (dönüşte yine inactive). Çevrimdışı yazımı bir sonraki
+    // onAppResumed'a kadar YALNIZ BİR KEZ yapılır; eskiden her olay profil
+    // okuma + yazma (2 istek) tekrarlıyordu.
+    if (_offlineHandled) return;
+    _offlineHandled = true;
     // Çevrimiçi durumunu kapat (hayalet mod aktif değilse)
     // Not: burada tercihe (is_online_enabled) bakmıyoruz çünkü app arka
     // plandayken herkes çevrimdışı görünmelidir; tercih ön plana dönüldüğünde
@@ -309,12 +312,24 @@ class PrivacyService {
 
   /// Uygulama ön plana geçtiğinde çağrılır
   Future<void> onAppResumed() async {
+    _offlineHandled = false;
     // Çevrimiçi durumunu SADECE kullanıcı tercihi açık ise aç.
     // Bu sayede manuel olarak çevrimdışı yapan kullanıcı app ön plana
     // gelince otomatik online yapılmaz (kalıcı çevrimdışı).
-    final isGhostMode = await getGhostMode();
+    //
+    // Hayalet mod ve tercih TEK profil okumasından alınır (eskiden aynı
+    // satır iki kez çekiliyordu). Okuma düşerse varsayılanlar eskisiyle
+    // aynı: hayalet kapalı, tercih açık.
+    var isGhostMode = false;
+    var enabled = true;
+    try {
+      final profile = await _fetchMyProfile();
+      isGhostMode = (profile?['is_ghost_mode'] as bool?) ?? false;
+      enabled = (profile?['is_online_enabled'] as bool?) ?? true;
+    } catch (e, stackTrace) {
+      _logFailure('Error getting presence preferences', e, stackTrace);
+    }
     if (!isGhostMode) {
-      final enabled = await getOnlineEnabled();
       if (enabled) {
         await updateOnlineStatus(true);
         startHeartbeat();

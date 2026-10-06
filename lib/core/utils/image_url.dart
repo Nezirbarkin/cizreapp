@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/widgets.dart';
 
 /// Boş ya da HTTP olmayan bir görsel URL'i için `null` döner.
@@ -19,10 +20,36 @@ import 'package:flutter/widgets.dart';
 /// );
 /// ```
 ImageProvider? safeNetworkImage(String? url) {
+  final trimmed = _validHttpUrl(url);
+  if (trimmed == null) return null;
+  return NetworkImage(trimmed);
+}
+
+/// Küçük yuvarlak avatarlar (liste satırı, yorum, gönderi başlığı) için görsel.
+///
+/// `NetworkImage(url)` iki yüzden listelerde ağırdı: (1) yüklenen avatarlar
+/// 1600 px'e kadar çıkıyor ve 44 px'lik bir daire için tam çözünürlükte
+/// (~10 MB bitmap) decode ediliyordu — birkaç satırda görsel önbelleği (100 MB)
+/// dolup kaydırırken sürekli yeniden decode ediliyordu; (2) diske önbellek
+/// yoktu, her açılışta yeniden indiriliyordu. Bu sağlayıcı diske önbellekler
+/// ve bitmap'i [decodeWidth] piksele indirir (en-boy oranı korunur).
+///
+/// [safeNetworkImage] gibi boş/geçersiz URL'de `null` döner.
+ImageProvider? avatarImage(String? url, {int decodeWidth = 256}) {
+  final trimmed = _validHttpUrl(url);
+  if (trimmed == null) return null;
+  return ResizeImage.resizeIfNeeded(
+    decodeWidth,
+    null,
+    CachedNetworkImageProvider(trimmed),
+  );
+}
+
+String? _validHttpUrl(String? url) {
   final trimmed = url?.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
   final uri = Uri.tryParse(trimmed);
   if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
   if (uri.scheme != 'http' && uri.scheme != 'https') return null;
-  return NetworkImage(trimmed);
+  return trimmed;
 }

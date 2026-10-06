@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart' show Position;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/models/sponsorship_model.dart';
+import '../../../core/utils/sponsor_ordering.dart';
 import '../../../core/services/user_distance_service.dart';
 import '../services/shop_service.dart';
 import '../widgets/shop_card.dart';
@@ -82,12 +84,14 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
     return meters == null ? null : UserDistanceService.format(meters);
   }
 
+  /// Sponsorlar en üstte (admin sabitlemesi, sonra dükkanlar listesinde
+  /// ücretli öne çıkanlar — Görev 3.2), kalanlar en yeni önce.
   void _sortShops() {
-    _shops.sort((a, b) {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return b.createdAt.compareTo(a.createdAt);
-    });
+    _shops = SponsorOrdering.shops(
+      _shops,
+      SponsorPlacement.shopList,
+      restOrder: (a, b) => b.createdAt.compareTo(a.createdAt),
+    );
   }
 
   Future<void> _loadData() async {
@@ -304,6 +308,7 @@ class _AllShopsScreenState extends State<AllShopsScreen> {
           shop: shop,
           globalOrdersEnabled: _globalOrdersEnabled,
           hasCoupon: _couponShopIds.contains(shop.id),
+          sponsored: shop.isSponsoredIn(SponsorPlacement.shopList),
           distanceLabel: _distanceLabel(shop),
         );
       },

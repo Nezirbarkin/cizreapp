@@ -69,47 +69,48 @@ class _OkeyPointsViewState extends State<_OkeyPointsView> {
     }
 
     return OkeyCoinRain(
-      child: DefaultTabController(
-        length: 2,
-        child: Scaffold(
-          backgroundColor: OkeyColors.screenBackground,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            elevation: 0,
-            foregroundColor: OkeyUI.text,
-            title: const Text(
-              'Çiplerim',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-            bottom: TabBar(
-              labelColor: OkeyUI.brass,
-              unselectedLabelColor: OkeyUI.textDim,
-              indicatorColor: OkeyUI.brass,
-              tabs: const [
-                Tab(text: 'Çiplerim', icon: Icon(Icons.stars, size: 18)),
-                Tab(
-                  text: 'Skor tablosu',
-                  icon: Icon(Icons.leaderboard, size: 18),
-                ),
-              ],
-            ),
-          ),
-          body: Container(
-            decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
-            child: SafeArea(
-              top: false,
-              child: TabBarView(
-                children: [
-                  _WalletTab(
-                    provider: provider,
-                    adBusy: _adBusy,
-                    onWatchAd: () => _watchAd(context),
+      child: OkeyThemed(
+        child: DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            backgroundColor: OkeyUI.screenTop,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: OkeyUI.text,
+              title: const Text(
+                'Çiplerim',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              bottom: TabBar(
+                labelColor: OkeyUI.accentInk,
+                unselectedLabelColor: OkeyUI.textDim,
+                indicatorColor: OkeyUI.brass,
+                tabs: const [
+                  Tab(text: 'Çiplerim', icon: Icon(Icons.stars, size: 18)),
+                  Tab(
+                    text: 'Skor tablosu',
+                    icon: Icon(Icons.leaderboard, size: 18),
                   ),
-                  const OkeyLeaderboardView(),
                 ],
+              ),
+            ),
+            body: OkeyDesignBackground(
+              child: SafeArea(
+                top: false,
+                child: TabBarView(
+                  children: [
+                    _WalletTab(
+                      provider: provider,
+                      adBusy: _adBusy,
+                      onWatchAd: () => _watchAd(context),
+                    ),
+                    const OkeyLeaderboardView(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -144,7 +145,7 @@ class _WalletTab extends StatelessWidget {
           const OkeySectionHeader(label: 'Çip kazan'),
           _ActionCard(
             icon: Icons.card_giftcard,
-            color: const Color(0xFFB9F6CA),
+            color: OkeyUI.giftColor,
             title: 'Saatlik hediye',
             description: provider.canClaimGift
                 ? '${provider.wallet.hourlyGiftPoints} çip seni bekliyor!'
@@ -156,7 +157,7 @@ class _WalletTab extends StatelessWidget {
           const SizedBox(height: OkeyUI.gapSm),
           _ActionCard(
             icon: Icons.ondemand_video,
-            color: const Color(0xFF80D8FF),
+            color: OkeyUI.adColor,
             title: 'Reklam izle',
             description:
                 'Kısa bir reklam izleyerek '
@@ -201,24 +202,24 @@ class _BalanceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: OkeyUI.goldGradient,
         ),
         borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Color(0x4D000000),
+            color: OkeyUI.shadow,
             blurRadius: 14,
-            offset: Offset(0, 6),
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         children: [
-          const Text(
-            'OKEY ÇİPİM',
+          Text(
+            OkeyUI.heading('Okey çipim'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -237,22 +238,24 @@ class _BalanceCard extends StatelessWidget {
               child: Text(
                 '$points',
                 maxLines: 1,
-                style: const TextStyle(
-                  color: Color(0xFF1B1204),
-                  fontSize: 42,
+                style: OkeyUI.display(
+                  size: 42,
                   height: 1.05,
-                  fontWeight: FontWeight.w900,
+                  color: OkeyUI.onGold,
                 ),
               ),
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Bu çipler yalnızca Okey masalarında kullanılır',
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: Color(0x99000000), fontSize: 11),
+            style: TextStyle(
+              color: OkeyUI.onGold.withValues(alpha: 0.7),
+              fontSize: 11,
+            ),
           ),
         ],
       ),
@@ -343,7 +346,7 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: OkeyUI.brass),
+          Icon(icon, size: 16, color: OkeyUI.accentInk),
           const SizedBox(width: OkeyUI.gap),
           Expanded(
             child: Text(

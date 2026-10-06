@@ -211,6 +211,16 @@ class IlanService {
         .eq('id', id);
   }
 
+  /// Süreyi uzat / yeniden yayınla (Görev 3.9; sunucu: extend_my_ilan).
+  /// Yeni bitiş zamanını döner.
+  Future<DateTime?> extendMyIlan(String id) async {
+    final data = await _client.rpc('extend_my_ilan', params: {'p_ilan_id': id});
+    if (data is Map && data['expires_at'] != null) {
+      return DateTime.tryParse(data['expires_at'].toString());
+    }
+    return null;
+  }
+
   Future<void> deleteIlan(String id) async {
     final images = await _client
         .from('ilan_images')

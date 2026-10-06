@@ -80,6 +80,7 @@ class ShopCardInfo {
     Shop shop, {
     required bool globalOrdersEnabled,
     bool hasCoupon = false,
+    bool paidSponsored = false,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -135,7 +136,8 @@ class ShopCardInfo {
           : null,
       pickup: shop.pickupEnabled,
       coupon: hasCoupon,
-      sponsored: shop.isPinned,
+      // Admin sabitlemesi ya da bu listede ücretli öne çıkarma (Görev 3.2).
+      sponsored: shop.isPinned || paidSponsored,
       notice: notice,
     );
   }
@@ -259,6 +261,7 @@ class ShopCard extends StatelessWidget {
     required this.shop,
     this.globalOrdersEnabled = true,
     this.hasCoupon = false,
+    this.sponsored = false,
     this.distanceLabel,
     this.margin = const EdgeInsets.only(bottom: 12),
     this.onTap,
@@ -272,6 +275,11 @@ class ShopCard extends StatelessWidget {
 
   /// Dükkanın şu an geçerli kuponu var mı ([ShopService.getShopIdsWithActiveCoupons]).
   final bool hasCoupon;
+
+  /// Kartın gösterildiği listede ücretli öne çıkarması sürüyor mu (Görev 3.2;
+  /// ör. `shop.isSponsoredIn(SponsorPlacement.shopList)`). Admin sabitlemesi
+  /// ([Shop.isPinned]) her listede zaten "Sponsor" gösterilir.
+  final bool sponsored;
 
   /// "850 m" / "1,2 km"; konum bilinmiyorsa null.
   final String? distanceLabel;
@@ -329,6 +337,7 @@ class ShopCard extends StatelessWidget {
       shop,
       globalOrdersEnabled: globalOrdersEnabled,
       hasCoupon: hasCoupon,
+      paidSponsored: sponsored,
     );
     final muted = !info.isOpen;
     final radius = BorderRadius.circular(_kCardRadius);
@@ -790,6 +799,8 @@ class _CouponChipState extends State<_CouponChip>
     end: 1,
   ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
 
+  bool _pulsed = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -797,8 +808,13 @@ class _CouponChipState extends State<_CouponChip>
       _controller
         ..stop()
         ..value = 1;
-    } else if (!_controller.isAnimating) {
-      _controller.repeat(reverse: true);
+    } else if (!_pulsed) {
+      // Birkaç nabızdan sonra tam opaklıkta durur: sonsuz animasyon
+      // uygulamayı hiç boşta bırakmıyordu (bkz. FlashDiscountBadge).
+      _pulsed = true;
+      _controller.repeat(reverse: true, count: 6).whenCompleteOrCancel(() {
+        if (mounted && !_controller.isAnimating) _controller.value = 1;
+      });
     }
   }
 

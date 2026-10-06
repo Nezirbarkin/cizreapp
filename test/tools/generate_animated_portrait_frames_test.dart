@@ -18,6 +18,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// Sıra = çıktı sırası; BU LİSTEYE YALNIZCA SONA EKLENİR.
 const List<int> kPortraitRecipes = [
   51, 52, 53, 56, 75, 80, 81, 85, 86, 91, 92, 95,
+  // Görev 2.6: gerçekçi modern setten (101-140) → avatar_anim_80-91.
+  101, 104, 106, 110, 113, 120, 121, 123, 124, 127, 128, 133,
 ];
 
 const int kFrames = 20;

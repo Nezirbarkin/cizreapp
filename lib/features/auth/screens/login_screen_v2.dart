@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/navigation/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../widgets/auth_shell.dart';
 import 'choose_username_screen.dart';
@@ -388,8 +389,30 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
 
   void _showSuccess(String message) => showAuthSuccess(context, message);
 
+  /// Giriş yapmadan uygulamaya döner. Çıkıştan sonra bu ekran yığının TEK
+  /// sayfasıdır; orada `pop()` Navigator'ı boşaltıp ekranı siyah bırakırdı,
+  /// bu yüzden geri gidilecek sayfa yoksa misafir ana sayfa açılır.
+  void _continueAsGuest() {
+    if (_busy) return;
+    AppNavigator.popOrGo(context, '/');
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Yığının tek sayfasıyken Android geri tuşu uygulamayı kapatmak yerine
+    // misafir ana sayfaya götürür.
+    final isRoot = !(ModalRoute.of(context)?.canPop ?? false);
+
+    return PopScope(
+      canPop: !isRoot,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _continueAsGuest();
+      },
+      child: _buildForm(context),
+    );
+  }
+
+  Widget _buildForm(BuildContext context) {
     final p = AuthPalette.of(context);
 
     return AuthScaffold(
@@ -540,6 +563,25 @@ class _LoginScreenV2State extends State<LoginScreenV2> {
                   ),
                 ),
               ],
+
+              // Uygulama misafir gezinmeyi destekliyor: çıkış yapan ya da
+              // giriş yapmak istemeyen kullanıcı burada sıkışıp kalmasın.
+              const SizedBox(height: 14),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _busy ? null : _continueAsGuest,
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text(
+                    'Misafir olarak devam et',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(foregroundColor: p.textSoft),
+                ),
+              ),
             ],
           ),
         ),

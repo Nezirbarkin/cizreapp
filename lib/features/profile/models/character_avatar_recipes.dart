@@ -2,7 +2,7 @@
 //
 // Her satır, `assets/avatars_characters/avatar_char_NN.png` dosyasının NN'inci
 // karakterini üreten [FaceAvatarConfig]'tir. PNG'ler bu tariflerden, yüzünden
-// avatar üreten aynı gerçekçi çizim motoruyla üretilir:
+// Bitmoji üreten aynı çizim motoruyla üretilir (motor değişince yeniden üret):
 //
 //   $env:GEN_CHARACTER_AVATARS='1'; flutter test test/tools/generate_character_avatars_test.dart
 //   python scripts/finalize_character_avatars.py
@@ -96,7 +96,7 @@ CharacterRecipe _m(String hair, int hc, int oldSkin, int oldBg, {int face = 0, i
 CharacterRecipe _f(String hair, int hc, int oldSkin, int oldBg, {int face = 3, int eye = 2, int eyeColor = 2, int brow = 5, int lash = 2, int nose = 7, int lips = 2, int lipColor = 0, String glasses = 'Yok', String headwear = 'Yok', String jewelry = 'Yok', String detail = 'Yok', int age = 0, int cloth = 9, int clothColor = 13, double smile = 0.55}) =>
     _c(true, hair, hc, _oldSkin[oldSkin], face: face, eye: eye, eyeColor: eyeColor, brow: brow, lash: lash, nose: nose, lips: lips, lipColor: lipColor, glasses: glasses, headwear: headwear, jewelry: jewelry, detail: detail, age: age, cloth: cloth, clothColor: clothColor, bg: _oldBg[oldBg], smile: smile);
 
-/// 100 karakter: 50 erkek + 50 kadın. Sıra = dosya numarası (1'den başlar).
+/// 140 karakter: 70 erkek + 70 kadın. Sıra = dosya numarası (1'den başlar).
 final List<CharacterRecipe> kCharacterRecipes = [
   // ------------------------------------------------ 1-12: erkek (orijinal set)
   _m('Kısa', 2, 0, 0, face: 10, eye: 0, brow: 1, nose: 0, cloth: 0, clothColor: 1, eyeColor: 2),
@@ -210,6 +210,54 @@ final List<CharacterRecipe> kCharacterRecipes = [
   _c(true, 'Sarma Başörtü', 4, 1, face: 3, eye: 2, eyeColor: 2, brow: 11, lash: 2, nose: 7, lips: 8, detail: 'Yumuşak Allık', cloth: 0, clothColor: 14, bg: 8, smile: 0.7),
   _c(true, 'Türban', 0, 6, face: 5, eye: 13, eyeColor: 0, brow: 7, lash: 4, nose: 9, lips: 2, lipColor: 3, jewelry: 'Büyük Halka', cloth: 9, clothColor: 8, bg: 9, smile: 0.55),
   _c(true, 'Fularlı', 13, 3, face: 0, eye: 0, eyeColor: 10, brow: 11, lash: 1, nose: 0, lips: 0, glasses: 'Okuma', age: 3, cloth: 10, clothColor: 5, bg: 5, smile: 0.5),
+
+  // ============================ 101-140: gerçekçi modern set (Görev 2.6, 2026-09-28)
+  // Klasik düz illüstrasyonlar ve eski geometrik GIF'ler seçiciden kaldırıldı;
+  // yerine aynı gerçekçi motorla günlük hayattan, çeşitli ten/yaş/tarzda 40
+  // karakter eklendi (20 erkek + 20 kadın).
+  // ---- erkek (20)
+  _c(false, 'Yandan Taraklı', 2, 3, face: 8, eye: 0, eyeColor: 2, brow: 2, nose: 1, lips: 0, beard: 'Kısa Sakal', cloth: 7, clothColor: 3, bg: 11, smile: 0.42),
+  _c(false, 'Dağınık Kısa', 4, 1, face: 0, eye: 1, eyeColor: 8, brow: 1, nose: 0, lips: 8, glasses: 'Kare', cloth: 4, clothColor: 5, bg: 12, smile: 0.66),
+  _c(false, 'Yüksek Fade', 0, 11, face: 2, eye: 10, eyeColor: 0, brow: 3, nose: 3, lips: 2, beard: 'Çene Hattı', cloth: 0, clothColor: 6, bg: 1, smile: 0.7),
+  _c(false, 'Undercut Uzun Tepe', 3, 4, face: 10, eye: 0, eyeColor: 3, brow: 2, nose: 6, lips: 0, beard: 'Tam Sakal', glasses: 'Yuvarlak', cloth: 3, clothColor: 12, bg: 5, smile: 0.5),
+  _c(false, 'Geri Çekilmiş', 14, 2, face: 8, eye: 17, eyeColor: 10, brow: 12, nose: 8, lips: 9, beard: 'Kalın Bıyık', glasses: 'Okuma', age: 3, cloth: 10, clothColor: 8, bg: 7, smile: 0.55),
+  _c(false, 'Uzun Dağınık Erkek', 1, 5, face: 4, eye: 16, eyeColor: 1, brow: 1, nose: 1, lips: 8, beard: 'Üç Günlük', jewelry: 'Gümüş Halka', cloth: 11, clothColor: 0, bg: 6, smile: 0.45),
+  _c(false, 'Quiff', 2, 6, face: 0, eye: 1, eyeColor: 1, brow: 2, nose: 0, lips: 0, glasses: 'Çerçevesiz', cloth: 1, clothColor: 2, bg: 2, smile: 0.6),
+  _c(false, 'Kısa Dalgalı', 5, 7, face: 11, eye: 0, eyeColor: 4, brow: 2, nose: 5, lips: 2, beard: 'Kutu Sakal', cloth: 2, clothColor: 9, bg: 9, smile: 0.75),
+  _c(false, 'Kıvırcık Orta', 2, 9, face: 1, eye: 4, eyeColor: 1, brow: 2, nose: 3, lips: 2, cloth: 5, clothColor: 11, bg: 13, smile: 0.6),
+  _c(false, 'Küçük Afro', 0, 12, face: 10, eye: 7, eyeColor: 0, brow: 3, nose: 9, lips: 2, beard: 'Kısa Sakal', jewelry: 'Altın Küpe', cloth: 6, clothColor: 4, bg: 4, smile: 0.55),
+  _c(false, 'Kısa', 0, 5, face: 8, eye: 10, eyeColor: 1, brow: 3, nose: 8, lips: 9, beard: 'Uzun Sakal', headwear: 'Kasket', age: 2, cloth: 6, clothColor: 13, bg: 3, smile: 0.4),
+  _c(false, 'Faux Hawk', 16, 1, face: 0, eye: 1, eyeColor: 9, brow: 1, nose: 2, lips: 8, headwear: 'Kulaklık', cloth: 4, clothColor: 14, bg: 6, smile: 0.7),
+  _c(false, 'Uzun Erkek', 8, 3, face: 4, eye: 8, eyeColor: 7, brow: 1, nose: 1, lips: 0, beard: 'Hafif', detail: 'Güneş Yanığı', cloth: 0, clothColor: 2, bg: 2, smile: 0.72),
+  _c(false, 'Undercut', 17, 0, face: 2, eye: 0, eyeColor: 11, brow: 2, nose: 6, lips: 0, jewelry: 'Burun Piercing', cloth: 11, clothColor: 0, bg: 11, smile: 0.5),
+  _c(false, 'Öne Taralı', 3, 8, face: 11, eye: 3, eyeColor: 2, brow: 2, nose: 3, lips: 9, beard: 'Yumuşak Sakal', age: 1, cloth: 10, clothColor: 6, bg: 8, smile: 0.8),
+  _c(false, 'Kısa', 12, 2, face: 0, eye: 0, eyeColor: 6, brow: 1, nose: 0, lips: 8, headwear: 'Ponponlu Bere', detail: 'Az Çil', cloth: 10, clothColor: 10, bg: 12, smile: 0.7),
+  _c(false, 'Yana Ayrık', 13, 4, face: 8, eye: 17, eyeColor: 2, brow: 12, nose: 1, lips: 9, beard: 'Çene Ucu', glasses: 'Yarım Çerçeve', age: 2, cloth: 7, clothColor: 1, bg: 0, smile: 0.5),
+  _c(false, 'Kıvırcık Fade', 0, 10, face: 1, eye: 1, eyeColor: 1, brow: 3, nose: 9, lips: 2, headwear: 'Hasır Şapka', glasses: 'Havacı Güneş', cloth: 3, clothColor: 7, bg: 9, smile: 0.75),
+  _c(false, 'Erkek Topuz', 11, 1, face: 2, eye: 12, eyeColor: 8, brow: 6, nose: 8, lips: 0, beard: 'Viking', cloth: 10, clothColor: 11, bg: 3, smile: 0.5),
+  _c(false, 'Perde Saç', 6, 3, face: 9, eye: 15, eyeColor: 3, brow: 16, nose: 0, lips: 8, detail: 'Gamze', cloth: 0, clothColor: 13, bg: 10, smile: 0.8),
+
+  // ---- kadın (20)
+  _c(true, 'Uzun Bob', 2, 3, face: 0, eye: 13, eyeColor: 2, brow: 7, lash: 4, nose: 7, lips: 3, lipColor: 7, jewelry: 'İnci Küpe', cloth: 6, clothColor: 3, bg: 11, smile: 0.5),
+  _c(true, 'At Kuyruğu', 4, 1, face: 3, eye: 2, eyeColor: 6, brow: 5, lash: 2, nose: 7, lips: 8, glasses: 'Kedi Gözü', cloth: 4, clothColor: 9, bg: 12, smile: 0.7),
+  _c(true, 'Kıvırcık Uzun', 5, 8, face: 1, eye: 4, eyeColor: 3, brow: 11, lash: 3, nose: 9, lips: 2, lipColor: 2, jewelry: 'Büyük Halka', cloth: 9, clothColor: 15, bg: 7, smile: 0.72),
+  _c(true, 'Şal', 2, 4, face: 9, eye: 13, eyeColor: 1, brow: 7, lash: 4, nose: 4, lips: 3, lipColor: 1, cloth: 10, clothColor: 12, bg: 4, smile: 0.6),
+  _c(true, 'Kısa Bob', 14, 2, face: 3, eye: 0, eyeColor: 9, brow: 11, lash: 1, nose: 2, lips: 0, lipColor: 6, glasses: 'Oval', jewelry: 'İnci Küpe', age: 3, cloth: 5, clothColor: 8, bg: 7, smile: 0.6),
+  _c(true, 'Yüksek Topuz', 0, 11, face: 5, eye: 2, eyeColor: 0, brow: 7, lash: 2, nose: 9, lips: 2, cloth: 0, clothColor: 6, bg: 1, smile: 0.75),
+  _c(true, 'Pixie Kâküllü', 15, 0, face: 3, eye: 1, eyeColor: 8, brow: 5, lash: 3, nose: 7, lips: 8, jewelry: 'Burun Piercing', detail: 'Az Çil', cloth: 11, clothColor: 0, bg: 10, smile: 0.6),
+  _c(true, 'Uzun Kâküllü Dalga', 8, 2, face: 0, eye: 13, eyeColor: 9, brow: 19, lash: 8, nose: 4, lips: 3, lipColor: 3, jewelry: 'Sarkık Küpe', cloth: 8, clothColor: 15, bg: 13, smile: 0.45),
+  _c(true, 'Kutu Örgü', 1, 12, face: 9, eye: 2, eyeColor: 0, brow: 19, lash: 4, nose: 9, lips: 3, lipColor: 5, jewelry: 'Altın Küpe', cloth: 1, clothColor: 9, bg: 9, smile: 0.66),
+  _c(true, 'Katlı Uzun', 11, 0, face: 1, eye: 0, eyeColor: 6, brow: 5, lash: 2, nose: 2, lips: 8, detail: 'Çok Çil', cloth: 10, clothColor: 4, bg: 3, smile: 0.7),
+  _c(true, 'Omuz Katlı', 3, 6, face: 0, eye: 1, eyeColor: 2, brow: 11, lash: 2, nose: 7, lips: 2, lipColor: 7, glasses: 'İnce Çerçeve', cloth: 3, clothColor: 1, bg: 0, smile: 0.55),
+  _c(true, 'Plaj Dalgası', 9, 5, face: 3, eye: 2, eyeColor: 7, brow: 5, lash: 2, nose: 2, lips: 8, lipColor: 2, headwear: 'Hasır Şapka', detail: 'Güneş Yanığı', cloth: 8, clothColor: 14, bg: 2, smile: 0.8),
+  _c(true, 'Uzun Düz', 2, 1, face: 9, eye: 13, eyeColor: 10, brow: 7, lash: 4, nose: 7, lips: 3, lipColor: 9, headwear: 'Kırmızı Bere', detail: 'Allık', cloth: 10, clothColor: 11, bg: 12, smile: 0.62),
+  _c(true, 'Türban', 0, 9, face: 5, eye: 4, eyeColor: 1, brow: 7, lash: 3, nose: 9, lips: 2, lipColor: 4, jewelry: 'Halka Küpe', cloth: 9, clothColor: 13, bg: 8, smile: 0.55),
+  _c(true, 'İki Kuyruk', 12, 3, face: 1, eye: 4, eyeColor: 3, brow: 5, lash: 2, nose: 7, lips: 8, headwear: 'Tokalar', detail: 'Çil + Allık', cloth: 0, clothColor: 10, bg: 10, smile: 0.8),
+  _c(true, 'A Bob', 0, 7, face: 5, eye: 13, eyeColor: 2, brow: 19, lash: 8, nose: 4, lips: 3, lipColor: 8, jewelry: 'Gümüş Halka', cloth: 5, clothColor: 0, bg: 11, smile: 0.4),
+  _c(true, 'Alçak Kuyruk', 4, 5, face: 3, eye: 2, eyeColor: 3, brow: 11, lash: 2, nose: 7, lips: 8, lipColor: 1, detail: 'Gamze', age: 1, cloth: 10, clothColor: 7, bg: 5, smile: 0.78),
+  _c(true, 'Kıvırcık Orta', 0, 13, face: 3, eye: 2, eyeColor: 0, brow: 7, lash: 4, nose: 9, lips: 2, lipColor: 5, jewelry: 'Büyük Halka', cloth: 9, clothColor: 6, bg: 1, smile: 0.7),
+  _c(true, 'Yarım Kuyruk', 18, 2, face: 9, eye: 1, eyeColor: 8, brow: 5, lash: 3, nose: 2, lips: 8, headwear: 'Kulaklık', cloth: 4, clothColor: 14, bg: 6, smile: 0.7),
+  _c(true, 'Topuz', 13, 3, face: 1, eye: 17, eyeColor: 2, brow: 12, lash: 1, nose: 3, lips: 0, lipColor: 6, glasses: 'Yuvarlak', age: 3, cloth: 10, clothColor: 12, bg: 9, smile: 0.7),
 ];
 
 /// Karakter avatarının kız mı olduğu (seçicideki filtre için).

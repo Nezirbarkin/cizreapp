@@ -17,10 +17,47 @@ class BalanceService {
     }
   }
 
-  /// Kullanıcının bakiyesini getir
+  // Üst çubuk rozetleri için paylaşılan kısa ömürlü önbellek
+  // (bkz. [getBalanceForDisplay]).
+  static UserBalance? _displayCache;
+  static String? _displayCacheUserId;
+  static DateTime? _displayCacheAt;
+  static Future<UserBalance?>? _inFlight;
+
+  String? get _currentUserId {
+    try {
+      return Supabase.instance.client.auth.currentUser?.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Üst çubuktaki bakiye rozetleri (Ana Sayfa / Ürünler / Keşfet) için.
+  ///
+  /// Her sekmenin rozeti açılışta ayrı ayrı `get-balance` Edge Function'ını
+  /// çağırıyordu (cihazda her biri ~850 ms; cihaz ölçümü 2026-10-06). Son
+  /// [maxAge] içinde alınmış bakiye varsa onu döner, eşzamanlı çağrılar tek
+  /// isteği paylaşır. Ödeme/cüzdan gibi kesin bakiye gereken yerler
+  /// [getBalance]'ı kullanmaya devam eder (o da bu önbelleği tazeler).
+  Future<UserBalance?> getBalanceForDisplay({
+    Duration maxAge = const Duration(seconds: 60),
+  }) {
+    final userId = _currentUserId;
+    final cachedAt = _displayCacheAt;
+    if (userId != null &&
+        userId == _displayCacheUserId &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < maxAge) {
+      return Future.value(_displayCache);
+    }
+    return _inFlight ??= getBalance().whenComplete(() => _inFlight = null);
+  }
+
+  /// Kullanıcının bakiyesini getir (her zaman sunucudan, taze).
   Future<UserBalance?> getBalance() async {
     try {
       debugPrint('💰 BALANCE: Bakiye getiriliyor...');
+      final userId = _currentUserId;
 
       final response = await _supabase.functions.invoke('get-balance');
 
@@ -29,11 +66,12 @@ class BalanceService {
         throw Exception(error);
       }
 
-      if (response.data['balance'] == null) {
-        return null;
-      }
-
-      return UserBalance.fromJson(response.data['balance']);
+      final raw = response.data['balance'];
+      final balance = raw == null ? null : UserBalance.fromJson(raw);
+      _displayCache = balance;
+      _displayCacheUserId = userId;
+      _displayCacheAt = DateTime.now();
+      return balance;
     } catch (e) {
       debugPrint('❌ BALANCE: Bakiye getirme hatası - $e');
       throw FriendlyException.from(e);

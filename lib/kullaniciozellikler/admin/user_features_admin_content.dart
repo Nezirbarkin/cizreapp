@@ -7,23 +7,55 @@ import '../services/profile_feature_service.dart';
 import '../widgets/profile_privileges.dart';
 import '../widgets/profile_feature_preview.dart';
 
+/// Admin > Kullanıcı Özellikleri (Görev 2.5 — yeniden tasarım).
+///
+/// İki AYRI iş, iki mod:
+///  * **Kullanıcıya Ver** — kullanıcı seç → kimlik kartı + profildeki
+///    özellikler (aç/kapa, kaldır) → katalogdan "Ver".
+///  * **Katalog Yönetimi** — özelliklerin kendisi: kullanıcılara açık mı
+///    (ücretsiz), puan fiyatı, sipariş kilidi. Kullanıcı seçmeden çalışır.
+///
+/// Eskiden ikisi aynı kartta, yalnız ikonlu düğmelerle karışıktı; mobilde
+/// kullanıcı seçmek ayrı bir sekmedeydi ve seçimden sonra özellikler
+/// sekmesine elle geçmek gerekiyordu.
 class UserFeaturesAdminContent extends StatefulWidget {
-  const UserFeaturesAdminContent({super.key});
+  const UserFeaturesAdminContent({super.key, this.service});
+
+  /// Yalnızca testler için (sahte servis); uygulama varsayılanı kullanır.
+  final ProfileFeatureService? service;
 
   @override
   State<UserFeaturesAdminContent> createState() =>
       _UserFeaturesAdminContentState();
 }
 
+enum _Mode { grant, catalog }
+
+/// Tür süzgeci: null = tümü.
+const List<({String? value, String label})> _kindFilters = [
+  (value: null, label: 'Tümü'),
+  (value: 'effect', label: 'Efekt'),
+  (value: 'avatar_effect', label: 'Profil Resmi Efekti'),
+  (value: 'cover_effect', label: 'Kapak Efekti'),
+  (value: 'icon', label: 'İkon'),
+  (value: 'badge', label: 'Tik/Rozet'),
+];
+
+/// Katalogda en fazla bu kadar özellik kullanıcılara ücretsiz açılabilir.
+const int _maxFreeFeatures = 2;
+
 class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
-  final _service = ProfileFeatureService();
+  late final ProfileFeatureService _service =
+      widget.service ?? ProfileFeatureService();
   final _userSearchController = TextEditingController();
   final _catalogSearchController = TextEditingController();
-  Timer? _debounce;
+  Timer? _userDebounce;
+  Timer? _catalogDebounce;
   List<ProfileFeatureUser> _users = const [];
   List<ProfileFeature> _catalog = const [];
   List<ProfileFeature> _assignments = const [];
   ProfileFeatureUser? _selectedUser;
+  _Mode _mode = _Mode.grant;
   String? _kind;
   bool _loadingUsers = true;
   bool _loadingCatalog = true;
@@ -34,6 +66,15 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
   List<ProfileFeature> get _visibleCatalog =>
       _onlyFree ? _catalog.where((f) => f.isUserClaimable).toList() : _catalog;
 
+  /// Ücretsiz açık özellik sayısı — TÜM katalog üzerinden (süzgeçsiz son
+  /// okumadan). Sunucu sınırı da tür ayırt etmeden sayar.
+  int? _globalFreeCount;
+  int get _freeCount =>
+      _globalFreeCount ?? _catalog.where((f) => f.isUserClaimable).length;
+
+  bool _isAssigned(ProfileFeature feature) =>
+      _assignments.any((item) => item.id == feature.id && item.isEnabled);
+
   @override
   void initState() {
     super.initState();
@@ -43,11 +84,16 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _userDebounce?.cancel();
+    _catalogDebounce?.cancel();
     _userSearchController.dispose();
     _catalogSearchController.dispose();
     super.dispose();
   }
+
+  // ---------------------------------------------------------------------------
+  // Veri
+  // ---------------------------------------------------------------------------
 
   Future<void> _loadUsers() async {
     setState(() => _loadingUsers = true);
@@ -76,8 +122,13 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
         search: _catalogSearchController.text,
       );
       if (!mounted) return;
+      final unfiltered =
+          _kind == null && _catalogSearchController.text.trim().isEmpty;
       setState(() {
         _catalog = catalog;
+        if (unfiltered) {
+          _globalFreeCount = catalog.where((f) => f.isUserClaimable).length;
+        }
         _loadingCatalog = false;
         _error = null;
       });
@@ -112,10 +163,34 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
     }
   }
 
-  void _searchUsers(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 450), _loadUsers);
+  void _clearUser() {
+    setState(() {
+      _selectedUser = null;
+      _assignments = const [];
+    });
   }
+
+  void _searchUsers(String _) {
+    _userDebounce?.cancel();
+    _userDebounce = Timer(const Duration(milliseconds: 450), _loadUsers);
+  }
+
+  /// Katalog araması yazarken (gecikmeli) çalışır; eskiden yalnızca
+  /// Enter'a ya da ok düğmesine basınca arıyordu.
+  void _searchCatalog(String _) {
+    _catalogDebounce?.cancel();
+    _catalogDebounce = Timer(const Duration(milliseconds: 450), _loadCatalog);
+  }
+
+  void _setKind(String? kind) {
+    if (_kind == kind) return;
+    setState(() => _kind = kind);
+    _loadCatalog();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kullanıcıya ver
+  // ---------------------------------------------------------------------------
 
   Future<void> _assign(ProfileFeature feature) async {
     final user = _selectedUser;
@@ -192,8 +267,20 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Katalog yönetimi
+  // ---------------------------------------------------------------------------
+
   Future<void> _toggleClaimable(ProfileFeature feature) async {
     if (feature.kind == ProfileFeatureKind.badge) return;
+    if (!feature.isUserClaimable && _freeCount >= _maxFreeFeatures) {
+      _message(
+        'En fazla $_maxFreeFeatures özellik ücretsiz açılabilir. '
+        'Önce başka birini kapatın.',
+        isError: true,
+      );
+      return;
+    }
     try {
       await _service.setCatalogClaimable(
         featureId: feature.id,
@@ -233,11 +320,12 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
     }
   }
 
+  static bool _supportsOrderUnlock(ProfileFeature feature) =>
+      feature.kind == ProfileFeatureKind.avatarEffect ||
+      feature.kind == ProfileFeatureKind.coverEffect;
+
   Future<void> _editOrderUnlock(ProfileFeature feature) async {
-    if (feature.kind != ProfileFeatureKind.avatarEffect &&
-        feature.kind != ProfileFeatureKind.coverEffect) {
-      return;
-    }
+    if (!_supportsOrderUnlock(feature)) return;
     final result = await showModalBottomSheet<_OrderUnlockResult>(
       context: context,
       showDragHandle: true,
@@ -271,478 +359,342 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Görünüm
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
-        return Column(
-          children: [
-            _buildSummary(),
-            if (_error != null)
-              MaterialBanner(
-                content: Text(_error!),
-                leading: const Icon(Icons.error_outline, color: Colors.red),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      _loadUsers();
-                      _loadCatalog();
-                    },
-                    child: const Text('YENİDEN DENE'),
-                  ),
-                ],
+        return ColoredBox(
+          color: const Color(0xFFF6F5FA),
+          child: Column(
+            children: [
+              _buildHeader(),
+              if (_error != null)
+                MaterialBanner(
+                  content: Text(_error!),
+                  leading: const Icon(Icons.error_outline, color: Colors.red),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        _loadUsers();
+                        _loadCatalog();
+                      },
+                      child: const Text('YENİDEN DENE'),
+                    ),
+                  ],
+                ),
+              Expanded(
+                child: _mode == _Mode.catalog
+                    ? _buildCatalogPane(manage: true)
+                    : wide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 320,
+                            child: _buildUserPicker(),
+                          ),
+                          const VerticalDivider(width: 1),
+                          Expanded(child: _buildGrantPane(showPicker: false)),
+                        ],
+                      )
+                    : _buildGrantPane(showPicker: true),
               ),
-            Expanded(
-              child: wide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(width: 300, child: _buildUsers()),
-                        const VerticalDivider(width: 1),
-                        Expanded(child: _buildFeatureArea()),
-                      ],
-                    )
-                  : _buildMobileTabs(),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildSummary() {
+  /// Başlık: özet sayılar + mod seçici.
+  Widget _buildHeader() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.deepPurple.shade700, Colors.purple.shade500],
         ),
       ),
-      child: Wrap(
-        spacing: 24,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          const Icon(Icons.auto_awesome, color: Colors.white, size: 32),
-          const Text(
-            'Kullanıcı Profil Ayrıcalıkları',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          _SummaryChip(label: 'Katalog', value: '${_catalog.length}'),
-          _SummaryChip(
-            label: 'Ücretsiz',
-            value:
-                '${_catalog.where((f) => f.isUserClaimable).length}/2',
-            highlight: true,
-          ),
-          _SummaryChip(label: 'Atanmış', value: '${_assignments.length}'),
-          if (_selectedUser != null)
-            _SummaryChip(
-              label: 'Kullanıcı',
-              value: '@${_selectedUser!.username}',
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMobileTabs() {
-    return DefaultTabController(
-      length: 2,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TabBar(
-            tabs: [
-              Tab(text: 'Kullanıcı Seç'),
-              Tab(text: 'Özellikler'),
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: Colors.white, size: 26),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Kullanıcı Profil Ayrıcalıkları',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             ],
           ),
-          Expanded(
-            child: TabBarView(children: [_buildUsers(), _buildFeatureArea()]),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _StatPill(label: 'Katalog', value: '${_catalog.length}'),
+              _StatPill(
+                label: 'Ücretsiz',
+                value: '$_freeCount/$_maxFreeFeatures',
+                highlight: true,
+              ),
+              if (_selectedUser != null)
+                _StatPill(
+                  label: '@${_selectedUser!.username}',
+                  value: '${_assignments.length} özellik',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<_Mode>(
+              style: SegmentedButton.styleFrom(
+                backgroundColor: Colors.white.withValues(alpha: 0.12),
+                foregroundColor: Colors.white,
+                selectedBackgroundColor: Colors.white,
+                selectedForegroundColor: Colors.deepPurple.shade700,
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+              ),
+              segments: const [
+                ButtonSegment(
+                  value: _Mode.grant,
+                  icon: Icon(Icons.person_add_alt_1_outlined),
+                  label: Text('Kullanıcıya Ver'),
+                ),
+                ButtonSegment(
+                  value: _Mode.catalog,
+                  icon: Icon(Icons.tune),
+                  label: Text('Katalog Yönetimi'),
+                ),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (selection) =>
+                  setState(() => _mode = selection.first),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildUsers() {
+  // ---- Kullanıcı seçimi ------------------------------------------------------
+
+  Widget _userSearchField() {
+    return TextField(
+      controller: _userSearchController,
+      onChanged: _searchUsers,
+      decoration: InputDecoration(
+        hintText: 'Kullanıcı adı veya ad ile ara',
+        prefixIcon: const Icon(Icons.search),
+        filled: true,
+        fillColor: Colors.white,
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+      ),
+    );
+  }
+
+  Widget _userTile(ProfileFeatureUser user) {
+    final selected = user.id == _selectedUser?.id;
+    return ListTile(
+      selected: selected,
+      selectedTileColor: Colors.purple.withValues(alpha: 0.09),
+      leading: _UserAvatar(user: user, radius: 20),
+      title: Text(user.fullName, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text('@${user.username}'),
+      trailing: selected
+          ? const Icon(Icons.check_circle, color: Colors.purple)
+          : const Icon(Icons.chevron_right),
+      onTap: () => _selectUser(user),
+    );
+  }
+
+  /// Geniş ekranda sol sütun: arama + kaydırılabilir liste.
+  Widget _buildUserPicker() {
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: TextField(
-            controller: _userSearchController,
-            onChanged: _searchUsers,
-            decoration: const InputDecoration(
-              labelText: 'Kullanıcı ara',
-              hintText: 'Kullanıcı adı veya ad',
-              prefixIcon: Icon(Icons.search),
-              border: OutlineInputBorder(),
-            ),
-          ),
+          child: _userSearchField(),
         ),
         Expanded(
           child: _loadingUsers
               ? const Center(child: CircularProgressIndicator())
+              : _users.isEmpty
+              ? const _EmptyNote(text: 'Kullanıcı bulunamadı.')
               : ListView.builder(
                   itemCount: _users.length,
-                  itemBuilder: (context, index) {
-                    final user = _users[index];
-                    final selected = user.id == _selectedUser?.id;
-                    return ListTile(
-                      selected: selected,
-                      selectedTileColor: Colors.purple.withValues(alpha: 0.09),
-                      leading: CircleAvatar(
-                        backgroundImage: user.avatarUrl?.isNotEmpty == true
-                            ? NetworkImage(user.avatarUrl!)
-                            : null,
-                        child: user.avatarUrl?.isNotEmpty == true
-                            ? null
-                            : Text(
-                                user.username.isEmpty
-                                    ? '?'
-                                    : user.username[0].toUpperCase(),
-                              ),
-                      ),
-                      title: Text(user.fullName),
-                      subtitle: Text('@${user.username}'),
-                      trailing: selected
-                          ? const Icon(Icons.check_circle, color: Colors.purple)
-                          : null,
-                      onTap: () => _selectUser(user),
-                    );
-                  },
+                  itemBuilder: (context, index) => _userTile(_users[index]),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildFeatureArea() {
-    return Column(
-      children: [
-        if (_selectedUser != null) _buildAssignedSection(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+  // ---- Kullanıcıya ver ------------------------------------------------------
+
+  Widget _buildGrantPane({required bool showPicker}) {
+    final user = _selectedUser;
+    return CustomScrollView(
+      slivers: [
+        if (user == null && showPicker) ...[
+          SliverToBoxAdapter(
+            child: _SectionTitle(
+              step: 1,
+              title: 'Kullanıcı seçin',
+              child: _userSearchField(),
+            ),
+          ),
+          if (_loadingUsers)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            )
+          else if (_users.isEmpty)
+            const SliverToBoxAdapter(
+              child: _EmptyNote(text: 'Kullanıcı bulunamadı.'),
+            )
+          else
+            SliverList.builder(
+              itemCount: _users.length,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: _Panel(child: _userTile(_users[index])),
+              ),
+            ),
+        ] else if (user == null) ...[
+          const SliverToBoxAdapter(
+            child: _EmptyNote(
+              icon: Icons.person_search_outlined,
+              text: 'Soldan bir kullanıcı seçin; sonra katalogdan özellik verin.',
+            ),
+          ),
+        ] else ...[
+          SliverToBoxAdapter(child: _buildSelectedUserCard(user)),
+          SliverToBoxAdapter(child: _buildAssignedList()),
+          SliverToBoxAdapter(
+            child: _SectionTitle(
+              step: 2,
+              title: 'Katalogdan özellik ver',
+              child: _buildCatalogFilters(),
+            ),
+          ),
+          ..._catalogSlivers(manage: false),
+        ],
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ],
+    );
+  }
+
+  Widget _buildSelectedUserCard(ProfileFeatureUser user) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: _Panel(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
+              _UserAvatar(user: user, radius: 26),
+              const SizedBox(width: 12),
               Expanded(
-                child: TextField(
-                  controller: _catalogSearchController,
-                  onSubmitted: (_) => _loadCatalog(),
-                  decoration: InputDecoration(
-                    labelText: 'Katalogda ara',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      onPressed: _loadCatalog,
-                      icon: const Icon(Icons.arrow_forward),
-                    ),
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              DropdownButton<String?>(
-                value: _kind,
-                hint: const Text('Tümü'),
-                items: const [
-                  DropdownMenuItem(value: null, child: Text('Tümü')),
-                  DropdownMenuItem(value: 'effect', child: Text('Efekt')),
-                  DropdownMenuItem(
-                    value: 'avatar_effect',
-                    child: Text('Profil Resmi Efekti'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'cover_effect',
-                    child: Text('Kapak Efekti'),
-                  ),
-                  DropdownMenuItem(value: 'icon', child: Text('İkon')),
-                  DropdownMenuItem(value: 'badge', child: Text('Tik/Rozet')),
-                ],
-                onChanged: (value) {
-                  setState(() => _kind = value);
-                  _loadCatalog();
-                },
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-          child: Row(
-            children: [
-              FilterChip(
-                label: const Text('Sadece ücretsiz'),
-                avatar: const Icon(Icons.people_alt_rounded, size: 16),
-                selected: _onlyFree,
-                onSelected: (value) => setState(() => _onlyFree = value),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Ücretsiz: ${_catalog.where((f) => f.isUserClaimable).length}/2',
-                style: TextStyle(
-                  color: Colors.green.shade700,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _loadingCatalog
-              ? const Center(child: CircularProgressIndicator())
-              : GridView.builder(
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 320,
-                    mainAxisExtent: 260,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemCount: _visibleCatalog.length,
-                  itemBuilder: (context, index) {
-                    final feature = _visibleCatalog[index];
-                    final assigned = _assignments.any(
-                      (item) => item.id == feature.id && item.isEnabled,
-                    );
-                    return Card(
-                      clipBehavior: Clip.antiAlias,
-                      shape: feature.isUserClaimable
-                          ? RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(
-                                color: Colors.green.shade600,
-                                width: 2,
-                              ),
-                            )
-                          : null,
-                      color: feature.isUserClaimable
-                          ? Colors.green.withValues(alpha: 0.06)
-                          : null,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ProfileFeaturePreview(
-                                  feature: feature,
-                                  size: 66,
-                                ),
-                                const SizedBox(width: 11),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        feature.name,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Wrap(
-                                        spacing: 4,
-                                        runSpacing: 4,
-                                        children: [
-                                          _KindChip(kind: feature.kind),
-                                          if (feature.isUserClaimable)
-                                            const _FreeChip(),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Expanded(
-                              child: Text(
-                                feature.description,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.grey.shade700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            if (feature.pointsPriceMonthly != null ||
-                                feature.pointsPriceYearly != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Text(
-                                  [
-                                    if (feature.pointsPriceMonthly != null)
-                                      'Aylık ${feature.pointsPriceMonthly} puan',
-                                    if (feature.pointsPriceYearly != null)
-                                      'Yıllık ${feature.pointsPriceYearly} puan',
-                                  ].join(' · '),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            if (feature.unlockAfterOrders != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Text(
-                                  'Sipariş kilidi: #${feature.unlockAfterOrders}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.deepPurple.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            if (feature.kind != ProfileFeatureKind.badge)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Tooltip(
-                                      message: feature.isUserClaimable
-                                          ? 'Kullanıcı kataloğundan kaldır'
-                                          : 'Kullanıcıların eklemesine izin ver',
-                                      child: IconButton.filledTonal(
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: () =>
-                                            _toggleClaimable(feature),
-                                        icon: Icon(
-                                          feature.isUserClaimable
-                                              ? Icons.people_alt_rounded
-                                              : Icons.person_off_outlined,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Tooltip(
-                                      message: 'Fiyat belirle',
-                                      child: IconButton.filledTonal(
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: () => _editPricing(feature),
-                                        icon: const Icon(
-                                          Icons.sell_outlined,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ),
-                                    if (feature.kind ==
-                                            ProfileFeatureKind.avatarEffect ||
-                                        feature.kind ==
-                                            ProfileFeatureKind.coverEffect) ...[
-                                      const SizedBox(width: 6),
-                                      Tooltip(
-                                        message: 'Sipariş kilidi belirle',
-                                        child: IconButton.filledTonal(
-                                          visualDensity: VisualDensity.compact,
-                                          onPressed: () =>
-                                              _editOrderUnlock(feature),
-                                          icon: const Icon(
-                                            Icons.local_shipping_outlined,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: assigned
-                                    ? null
-                                    : () => _assign(feature),
-                                icon: Icon(
-                                  assigned ? Icons.check : Icons.add,
-                                  size: 17,
-                                ),
-                                label: Text(
-                                  assigned ? 'VERİLDİ' : 'PROFİLE VER',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.fullName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
                       ),
-                    );
-                  },
+                    ),
+                    Text(
+                      '@${user.username}',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  ],
                 ),
+              ),
+              TextButton.icon(
+                onPressed: _clearUser,
+                icon: const Icon(Icons.swap_horiz, size: 18),
+                label: const Text('Değiştir'),
+              ),
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildAssignedSection() {
-    return Container(
-      height: 116,
-      color: Colors.grey.shade100,
-      child: _loadingAssignments
-          ? const Center(child: CircularProgressIndicator())
-          : _assignments.isEmpty
-          ? const Center(child: Text('Bu profile henüz özellik verilmedi.'))
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(10),
-              itemCount: _assignments.length,
-              itemBuilder: (context, index) {
-                final feature = _assignments[index];
-                return Container(
-                  width: 230,
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: feature.primaryColor.withValues(alpha: 0.4),
-                    ),
+  /// Seçili kullanıcının profilindeki özellikler (aç/kapa, kaldır).
+  Widget _buildAssignedList() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: _Panel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              child: Text(
+                'Profildeki özellikler',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ),
+            if (_loadingAssignments)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_assignments.isEmpty)
+              const _EmptyNote(text: 'Bu profile henüz özellik verilmedi.')
+            else
+              for (final feature in _assignments)
+                ListTile(
+                  leading: AnimatedPrivilegeIcon(feature: feature, size: 27),
+                  title: Text(
+                    feature.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  child: Row(
+                  subtitle: Text(
+                    feature.expiresAt == null
+                        ? 'Süresiz'
+                        : 'Bitiş: ${_date(feature.expiresAt!)}',
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      AnimatedPrivilegeIcon(feature: feature, size: 27),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              feature.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              feature.expiresAt == null
-                                  ? 'Süresiz'
-                                  : 'Bitiş: ${_date(feature.expiresAt!)}',
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
                       Switch(
                         value: feature.isEnabled,
                         onChanged: (value) => _toggle(feature, value),
@@ -757,44 +709,542 @@ class _UserFeaturesAdminContentState extends State<UserFeaturesAdminContent> {
                       ),
                     ],
                   ),
-                );
-              },
-            ),
+                ),
+          ],
+        ),
+      ),
     );
+  }
+
+  // ---- Katalog --------------------------------------------------------------
+
+  Widget _buildCatalogFilters() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _catalogSearchController,
+          onChanged: _searchCatalog,
+          onSubmitted: (_) => _loadCatalog(),
+          decoration: InputDecoration(
+            hintText: 'Katalogda ara',
+            prefixIcon: const Icon(Icons.search),
+            filled: true,
+            fillColor: Colors.white,
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final filter in _kindFilters) ...[
+                ChoiceChip(
+                  label: Text(filter.label),
+                  selected: _kind == filter.value,
+                  onSelected: (_) => _setKind(filter.value),
+                ),
+                const SizedBox(width: 6),
+              ],
+              FilterChip(
+                label: Text('Ücretsiz ($_freeCount/$_maxFreeFeatures)'),
+                avatar: const Icon(Icons.people_alt_rounded, size: 16),
+                selected: _onlyFree,
+                onSelected: (value) => setState(() => _onlyFree = value),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCatalogPane({required bool manage}) {
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _SectionTitle(
+            title: 'Katalog',
+            subtitle: 'Kullanıcılara açma, puan fiyatı ve sipariş kilidi',
+            child: _buildCatalogFilters(),
+          ),
+        ),
+        ..._catalogSlivers(manage: manage),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ],
+    );
+  }
+
+  List<Widget> _catalogSlivers({required bool manage}) {
+    if (_loadingCatalog) {
+      return const [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ),
+      ];
+    }
+    final items = _visibleCatalog;
+    if (items.isEmpty) {
+      return const [
+        SliverToBoxAdapter(child: _EmptyNote(text: 'Bu süzgeçte özellik yok.')),
+      ];
+    }
+    Widget card(ProfileFeature feature) => manage
+        ? _CatalogManageCard(
+            feature: feature,
+            supportsOrderUnlock: _supportsOrderUnlock(feature),
+            onToggleClaimable: () => _toggleClaimable(feature),
+            onEditPricing: () => _editPricing(feature),
+            onEditOrderUnlock: () => _editOrderUnlock(feature),
+          )
+        : _CatalogGrantCard(
+            feature: feature,
+            assigned: _isAssigned(feature),
+            onGrant: () => _assign(feature),
+          );
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        sliver: SliverLayoutBuilder(
+          builder: (context, constraints) {
+            // Dar ekranda alt alta (kart kendi yüksekliğinde, taşmaz);
+            // genişte ızgara.
+            final columns = (constraints.crossAxisExtent / 360).floor();
+            if (columns < 2) {
+              return SliverList.separated(
+                itemCount: items.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) => card(items[index]),
+              );
+            }
+            return SliverGrid.builder(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisExtent: manage ? 300 : 200,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: items.length,
+              itemBuilder: (context, index) => card(items[index]),
+            );
+          },
+        ),
+      ),
+    ];
   }
 
   String _date(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year}';
 }
 
-class _SummaryChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool highlight;
+// =============================================================================
+// Parçalar
+// =============================================================================
 
-  const _SummaryChip({
+/// Beyaz, hafif gölgeli yuvarlak kart kabuğu.
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(color: Colors.transparent, child: child),
+      ),
+    );
+  }
+}
+
+/// Adım başlığı ("1 Kullanıcı seçin") + altındaki içerik.
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({
+    required this.title,
+    required this.child,
+    this.step,
+    this.subtitle,
+  });
+
+  final int? step;
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (step != null) ...[
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: Colors.deepPurple,
+                  child: Text(
+                    '$step',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                subtitle!,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyNote extends StatelessWidget {
+  const _EmptyNote({required this.text, this.icon = Icons.info_outline});
+
+  final String text;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.grey.shade500),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserAvatar extends StatelessWidget {
+  const _UserAvatar({required this.user, required this.radius});
+
+  final ProfileFeatureUser user;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAvatar = user.avatarUrl?.isNotEmpty == true;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.deepPurple.shade50,
+      backgroundImage: hasAvatar ? NetworkImage(user.avatarUrl!) : null,
+      child: hasAvatar
+          ? null
+          : Text(
+              user.username.isEmpty ? '?' : user.username[0].toUpperCase(),
+              style: TextStyle(
+                color: Colors.deepPurple.shade700,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  const _StatPill({
     required this.label,
     required this.value,
     this.highlight = false,
   });
 
+  final String label;
+  final String value;
+  final bool highlight;
+
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      backgroundColor: highlight
-          ? Colors.greenAccent.withValues(alpha: 0.28)
-          : Colors.white.withValues(alpha: 0.18),
-      side: BorderSide.none,
-      avatar: highlight
-          ? const Icon(Icons.check_circle, color: Colors.white, size: 16)
-          : null,
-      label: Text(
-        '$label: $value',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: highlight
+            ? Colors.greenAccent.withValues(alpha: 0.28)
+            : Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Text(
+          '$label: $value',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// Özelliğin önizleme + ad + tür satırı (iki kart türü paylaşır).
+class _FeatureHeading extends StatelessWidget {
+  const _FeatureHeading({required this.feature});
+
+  final ProfileFeature feature;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ProfileFeaturePreview(feature: feature, size: 58),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                feature.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  _KindChip(kind: feature.kind),
+                  if (feature.isUserClaimable) const _FreeChip(),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Kullanıcıya Ver" kartı: önizleme, kısa açıklama, tek büyük eylem.
+class _CatalogGrantCard extends StatelessWidget {
+  const _CatalogGrantCard({
+    required this.feature,
+    required this.assigned,
+    required this.onGrant,
+  });
+
+  final ProfileFeature feature;
+  final bool assigned;
+  final VoidCallback onGrant;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _FeatureHeading(feature: feature),
+            if (feature.description.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                feature.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: assigned
+                  ? OutlinedButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.check, size: 17),
+                      label: const Text('Profilde'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: onGrant,
+                      icon: const Icon(Icons.add, size: 17),
+                      label: const Text('Profile ver'),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Katalog Yönetimi" kartı: etiketli ayarlar — anahtar ve düğmeler ne
+/// yaptığını söyler (eskiden yalnız ikon + ipucu balonuydu).
+class _CatalogManageCard extends StatelessWidget {
+  const _CatalogManageCard({
+    required this.feature,
+    required this.supportsOrderUnlock,
+    required this.onToggleClaimable,
+    required this.onEditPricing,
+    required this.onEditOrderUnlock,
+  });
+
+  final ProfileFeature feature;
+  final bool supportsOrderUnlock;
+  final VoidCallback onToggleClaimable;
+  final VoidCallback onEditPricing;
+  final VoidCallback onEditOrderUnlock;
+
+  bool get _isBadge => feature.kind == ProfileFeatureKind.badge;
+
+  String get _priceText {
+    final parts = [
+      if (feature.pointsPriceMonthly != null)
+        'Aylık ${feature.pointsPriceMonthly}',
+      if (feature.pointsPriceYearly != null)
+        'Yıllık ${feature.pointsPriceYearly}',
+    ];
+    return parts.isEmpty ? 'Satışta değil' : '${parts.join(' · ')} puan';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _FeatureHeading(feature: feature),
+            if (feature.description.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                feature.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+              ),
+            ],
+            const Divider(height: 18),
+            if (_isBadge)
+              Text(
+                'Tik/rozetler yalnızca admin tarafından verilir.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              )
+            else ...[
+              _SettingRow(
+                icon: Icons.people_alt_rounded,
+                label: 'Kullanıcılara ücretsiz açık',
+                trailing: Switch(
+                  value: feature.isUserClaimable,
+                  onChanged: (_) => onToggleClaimable(),
+                ),
+              ),
+              _SettingRow(
+                icon: Icons.sell_outlined,
+                label: _priceText,
+                trailing: TextButton(
+                  onPressed: onEditPricing,
+                  child: const Text('Fiyat'),
+                ),
+              ),
+              if (supportsOrderUnlock)
+                _SettingRow(
+                  icon: Icons.local_shipping_outlined,
+                  label: feature.unlockAfterOrders == null
+                      ? 'Sipariş kilidi yok'
+                      : '${feature.unlockAfterOrders}. siparişte açılır',
+                  trailing: TextButton(
+                    onPressed: onEditOrderUnlock,
+                    child: const Text('Kilit'),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({
+    required this.icon,
+    required this.label,
+    required this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.deepPurple.shade400),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+        trailing,
+      ],
     );
   }
 }

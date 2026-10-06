@@ -35,6 +35,9 @@ import 'features/main/screens/main_screen.dart';
 import 'features/onboarding/widgets/onboarding_gate.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
+import 'features/market/screens/product_detail_screen.dart';
+import 'features/market/screens/live_session_route_screen.dart';
+import 'ilanlar/screens/ilan_detail_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
 import 'features/courier/screens/courier_panel_screen.dart';
 import 'features/seller/screens/seller_reviews_screen.dart';
@@ -58,6 +61,7 @@ import 'core/services/cleanup_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/permission_service.dart';
 import 'core/models/cached_post_model.dart';
+import 'features/chat/services/chat_service.dart';
 import 'features/chat/services/presence_service.dart';
 import 'core/services/version_check_service.dart';
 import 'core/widgets/force_update_dialog.dart';
@@ -546,6 +550,14 @@ class _CizreAppState extends State<CizreApp> {
         } catch (e) {
           print('presence start error: $e');
         }
+        // Şehiriçi favori durakları kullanıcıya aittir; hesap değişince
+        // yenilenir (çıkışta aşağıda boşaltılıyor).
+        if (mounted) {
+          unawaited(
+            Provider.of<SehiriciProvider>(context, listen: false)
+                .reloadFavoriteStops(),
+          );
+        }
       }
 
       // Presence: çıkış yapınca durdur
@@ -553,6 +565,15 @@ class _CizreAppState extends State<CizreApp> {
         try {
           PresenceService.instance.dispose();
         } catch (_) {}
+        // Kullanıcıya ait, uygulama boyunca yaşayan durumu bırak: sonraki
+        // kullanıcı (ya da misafir) öncekinin favorilerini görmesin.
+        ChatService.clearCache();
+        if (mounted) {
+          Provider.of<FavoritesProvider>(context, listen: false)
+              .resetForSignOut();
+          Provider.of<SehiriciProvider>(context, listen: false)
+              .clearUserState();
+        }
       }
 
       // Yarım kalmış Google/Apple kaydını soğuk başlangıçta da yakala.
@@ -965,6 +986,39 @@ class _CizreAppState extends State<CizreApp> {
               }
             }
             
+            // Ürün detayı: /p/:productId (bildirim dokunuşu — Görev 3.3)
+            if (routeName.startsWith('/p/')) {
+              final productId = routeName.replaceFirst('/p/', '');
+              if (productId.isNotEmpty) {
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (context) => ProductDetailScreen(productId: productId),
+                );
+              }
+            }
+
+            // İlan detayı: /ilan/:ilanId (süre bildirimi dokunuşu — Görev 3.9)
+            if (routeName.startsWith('/ilan/')) {
+              final ilanId = routeName.replaceFirst('/ilan/', '');
+              if (ilanId.isNotEmpty) {
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (context) => IlanDetailScreen(ilanId: ilanId),
+                );
+              }
+            }
+
+            // Canlı yayın: /live/:sessionId ("yayın başladı" bildirimi dokunuşu)
+            if (routeName.startsWith('/live/')) {
+              final sessionId = routeName.replaceFirst('/live/', '');
+              if (sessionId.isNotEmpty) {
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (context) => LiveSessionRouteScreen(sessionId: sessionId),
+                );
+              }
+            }
+
             // Diğer rotalar için varsayılan davranış
             return null;
           },
@@ -984,7 +1038,8 @@ class _CizreAppState extends State<CizreApp> {
                 const SehiriciFavoritesScreen(),
             '/sehirici-driver': (context) =>
                 const SehiriciDriverPanelScreen(),
-            '/okey': (context) => const OkeyLobbyScreen(),
+            // Görev 4.1: modül kapalıysa "şu anda kapalı" ekranı.
+            '/okey': (context) => const OkeyModuleGate(child: OkeyLobbyScreen()),
           },
           showPerformanceOverlay: false,
         );

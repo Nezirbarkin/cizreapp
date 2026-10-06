@@ -5,6 +5,7 @@ import '../../../core/widgets/group_avatar_viewer.dart';
 import '../services/group_chat_service.dart';
 import 'group_chat_screen.dart';
 import '../../../core/models/group_model.dart';
+import '../../../core/utils/image_url.dart';
 
 class GroupSearchScreen extends StatefulWidget {
   const GroupSearchScreen({super.key});
@@ -337,7 +338,7 @@ class _GroupSearchScreenState extends State<GroupSearchScreen> {
           child: CircleAvatar(
             radius: 24,
             backgroundColor: isPrivate ? Colors.orange[100] : Colors.green[100],
-            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? avatarImage(avatarUrl) : null,
             child: avatarUrl == null || avatarUrl.isEmpty
                 ? Icon(
                     isPrivate ? Icons.lock : Icons.groups,

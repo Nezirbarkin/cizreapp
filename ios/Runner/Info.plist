@@ -50,13 +50,13 @@
 		<false/>
 		<!-- Permissions - Camera -->
 		<key>NSCameraUsageDescription</key>
-		<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilirsiniz.</string>
+		<string>CizreApp'in kamera erişimine ihtiyacı var; böylece fotoğraf çekip profil fotoğrafınızı güncelleyebilir, gönderi ve hikaye paylaşabilir, satışa sunmak istediğiniz ürünlerin fotoğraflarını çekebilir, satıcı olarak mağazanız için canlı yayın yapabilirsiniz.</string>
 		<!-- Permissions - Photo Library -->
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>CizreApp'in fotoğraf galerinize erişmesi gerekiyor; böylece galerinizden fotoğraf seçip gönderi veya hikaye paylaşabilir, ürün fotoğraflarını mağazanıza yükleyebilir ve profil fotoğrafınızı değiştirebilirsiniz.</string>
 		<!-- Permissions - Microphone -->
 		<key>NSMicrophoneUsageDescription</key>
-		<string>CizreApp'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve sesli mesajlar gönderebilirsiniz.</string>
+		<string>CizreApp'in mikrofon erişimine ihtiyacı var; böylece video gönderileri ve hikayeler kaydedebilir, satıcılar ürün tanıtım videoları çekebilir ve canlı yayında konuşabilir, sesli mesajlar gönderebilirsiniz.</string>
 		<!-- Permissions - Location -->
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>CizreApp, yakınıınızdaki mağazaları ve ürünleri göstermek için konum bilginize ihtiyaç duyar; böylece size en yakın satıcıları, kampanyaları ve mağazaları haritada görebilirsiniz.</string>

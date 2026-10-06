@@ -4,6 +4,8 @@
 
 library;
 
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -19,6 +21,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/navigation/app_navigator.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../market/services/category_service.dart';
+import '../services/admin_shops_service.dart';
 import '../widgets/reports_content.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
@@ -29,6 +32,10 @@ import '../widgets/product_image_library_content.dart';
 import '../widgets/leaderboard_management_content.dart';
 import '../widgets/music_management_content.dart';
 import '../widgets/seller_announcements_content.dart';
+import '../widgets/admin_sponsorships_content.dart';
+import '../widgets/admin_live_content.dart';
+import '../widgets/admin_shop_category_dialog.dart';
+import '../widgets/admin_moderators_content.dart';
 import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';
 import '../widgets/chat_presence_settings_content.dart';
@@ -150,12 +157,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _selectedShopFilter; // Sipariş yönetiminde dükkan filtresi
   String _paymentsStatusFilter = 'all'; // Ödemeler sekmesinde durum filtresi
 
-  // Dükkan listesi - state değişkeni olarak saklanıyor
+  // Dükkanlar: sunucu sayfalaması (admin_shops_page, TEK istek). Arama,
+  // filtre ve sıralama sunucuda; _shopsDetailed yüklenen sayfaların satırları.
+  final AdminShopsService _shopsService = AdminShopsService();
   List<Map<String, dynamic>> _shopsDetailed = [];
   bool _isLoadingShops = true;
-  // Dükkanlar ekranının arama / hızlı filtre / sıralama durumu. Liste
-  // _shopsDetailed üzerinden her build'de türetildiği için (bkz.
-  // _visibleShops) burada yalnızca kriterler tutulur.
+  bool _shopsLoadScheduled = false;
+  bool _loadingMoreShops = false;
+  // Arama + filtreye uyan toplam (sayfalama için).
+  int _shopsTotal = 0;
+  // Tüm dükkanların özeti (özet kutuları ve çip sayıları).
+  Map<String, num> _shopsSummary = const {};
+  // Yavaş dönen eski istek yeni sonucu ezmesin.
+  int _shopsRequestSeq = 0;
+  Timer? _shopSearchDebounce;
   final TextEditingController _shopSearchController = TextEditingController();
   String _shopSearchQuery = '';
   String _shopFilter = 'all';
@@ -181,6 +196,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _reportsChannel?.unsubscribe();
     _ticketsChannel?.unsubscribe();
     _newItemsChannel?.unsubscribe();
+    _shopSearchDebounce?.cancel();
     _shopSearchController.dispose();
     _productSearchController.dispose();
     super.dispose();

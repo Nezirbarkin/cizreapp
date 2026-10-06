@@ -48,6 +48,8 @@ class NotificationPreferencesService {
         'mentions': true,
         'group_join_requests_enabled': true,
         'group_member_joined_enabled': true,
+        'cart_price_drop_enabled': true,
+        'live_streams_enabled': true,
       };
 
       final response = await _supabase
@@ -75,6 +77,8 @@ class NotificationPreferencesService {
     bool? mentionsEnabled,
     bool? groupJoinRequestsEnabled,
     bool? groupMemberJoinedEnabled,
+    bool? cartPriceDropEnabled,
+    bool? liveStreamsEnabled,
   }) async {
     try {
       final Map<String, dynamic> updates = {
@@ -91,6 +95,8 @@ class NotificationPreferencesService {
       if (mentionsEnabled != null) updates['mentions'] = mentionsEnabled;
       if (groupJoinRequestsEnabled != null) updates['group_join_requests_enabled'] = groupJoinRequestsEnabled;
       if (groupMemberJoinedEnabled != null) updates['group_member_joined_enabled'] = groupMemberJoinedEnabled;
+      if (cartPriceDropEnabled != null) updates['cart_price_drop_enabled'] = cartPriceDropEnabled;
+      if (liveStreamsEnabled != null) updates['live_streams_enabled'] = liveStreamsEnabled;
 
       await _supabase
           .from('notification_preferences')
@@ -135,6 +141,10 @@ class NotificationPreferencesService {
           return prefs.groupJoinRequestsEnabled;
         case 'group_member_joined':
           return prefs.groupMemberJoinedEnabled;
+        case 'cart_price_drop':
+          return prefs.cartPriceDropEnabled;
+        case 'live_started':    // Mağaza canlı yayına başladı
+          return prefs.liveStreamsEnabled;
         case 'review_request':  // Değerlendirme isteği
         case 'review_pending':  // Bekleyen değerlendirme
           return prefs.orderUpdatesEnabled;
@@ -161,6 +171,7 @@ class NotificationPreferencesService {
         promotionalEnabled: enabled,
         groupJoinRequestsEnabled: enabled,
         groupMemberJoinedEnabled: enabled,
+        cartPriceDropEnabled: enabled,
       );
     } catch (e) {
       throw Exception('Bildirimler güncellenirken hata: $e');

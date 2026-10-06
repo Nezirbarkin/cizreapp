@@ -1,0 +1,501 @@
+# Züccaciye — 500 ürün. Biçim: Ad | arama kelimeleri | görsel tarifi (İngilizce)
+Çelik Tencere Seti | tencere seti, çelik | stainless steel cookware set with glass lids
+Granit Tencere Seti | granit, tencere seti | granite coated cookware set
+Döküm Tencere | döküm, tencere | cast iron dutch oven pot
+Düdüklü Tencere | düdüklü, basınçlı tencere | stainless steel pressure cooker
+Çelik Tencere | tencere, çelik | stainless steel cooking pot with lid
+Granit Tencere | granit tencere | granite coated pot with glass lid
+Emaye Tencere | emaye, tencere | enamel cooking pot with lid
+Bakır Tencere | bakır, tencere | copper cooking pot with lid
+Süt Tenceresi | süt tenceresi, sütlük | small milk saucepan with handle
+Sos Tenceresi | sos tenceresi | small stainless steel saucepan
+Makarna Tenceresi | makarna, süzgeçli tencere | pasta pot with strainer insert
+Buharlı Pişirici Tencere | buharlı tencere | steamer pot with basket
+Güveç | güveç, toprak | clay casserole pot with lid
+Toprak Tencere | toprak tencere | earthenware cooking pot
+Çömlek | çömlek | small clay pot
+Cam Tencere Kapağı | kapak, cam | glass pot lid
+Granit Tava | tava, yapışmaz | granite non stick frying pan
+Çelik Tava | tava, çelik | stainless steel frying pan
+Döküm Tava | döküm tava | cast iron skillet
+Teflon Tava | tava, teflon | non stick frying pan
+Seramik Tava | seramik tava | ceramic coated frying pan
+Taş Tava | taş tava | stone coated frying pan
+Izgara Tava | ızgara tava | square grill pan with ridges
+Krep Tavası | krep, pankek | flat crepe pan
+Omlet Tavası | omlet, yumurta | small omelette pan
+Wok Tava | wok | wok pan
+Derin Tava | derin tava, sote | deep saute pan with lid
+Bakır Sahan | sahan, yumurta | small two handled copper egg pan
+Kızartma Tavası | kızartma, sepetli | deep fryer pan with basket
+Balık Tavası | balık tavası | oval fish pan
+Kestane Tavası | kestane | perforated chestnut roasting pan
+Sac Tava | sac, gözleme | convex saj griddle pan
+Kek Kalıbı | kek kalıbı | ring bundt cake mold
+Baton Kek Kalıbı | baton kek | loaf cake pan
+Ekmek Kalıbı | ekmek kalıbı | bread loaf tin
+Kare Kek Kalıbı | kare kalıp | square cake pan
+Muffin Kalıbı | muffin, cupcake | muffin baking tray
+Tart Kalıbı | tart kalıbı | fluted tart pan
+Mini Tart Kalıbı | mini tart | set of mini tart molds
+Kelepçeli Kek Kalıbı | kelepçeli kalıp | springform cake pan
+Silikon Kek Kalıbı | silikon kalıp | silicone cake mold
+Pizza Tepsisi | pizza, tepsi | round pizza pan
+Fırın Tepsisi | fırın tepsisi | rectangular oven baking tray
+Börek Tepsisi | börek tepsisi | large round baking tray
+Kek Soğutma Teli | soğutma teli | wire cooling rack
+Borcam Fırın Kabı | fırın kabı, cam | glass baking dish
+Porselen Fırın Kabı | fırın kabı, porselen | white ceramic baking dish
+Bakır Cezve | cezve, türk kahvesi | copper turkish coffee pot
+Çelik Cezve | cezve, çelik | stainless steel turkish coffee pot
+Çaydanlık Takımı | çaydanlık, demlik | stainless steel double teapot set
+Emaye Çaydanlık Takımı | çaydanlık, emaye | enamel double teapot set
+Düdüklü Çaydanlık | düdüklü, çaydanlık | whistling stovetop kettle
+Porselen Demlik | demlik, porselen | porcelain teapot
+Cam Demlik | cam demlik, süzgeçli | glass teapot with infuser
+Semaver | semaver | copper samovar
+Çay Süzgeci | süzgeç, çay | tea strainer
+Çay Demleme Topu | çay topu | tea infuser ball
+French Press | french press, kahve | glass french press coffee maker
+Moka Pot | moka pot, espresso | aluminum moka pot
+Kepçe | kepçe, çorba | ladle
+Kevgir | kevgir, köpük | skimmer slotted spoon
+Silikon Spatula | spatula, silikon | silicone kitchen spatula
+Servis Kaşığı | servis kaşığı | serving spoon
+Tahta Kaşık | tahta kaşık | wooden spoon
+Spagetti Kepçesi | makarna kepçesi | spaghetti server
+Mutfak Maşası | maşa, mutfak | kitchen tongs
+Çırpma Teli | çırpıcı, tel | wire whisk
+Oklava | oklava | long thin rolling pin
+Merdane | merdane, hamur | wooden rolling pin
+Dört Yüzlü Rende | rende | box grater
+Sebze Soyacağı | soyacak | vegetable peeler
+Sarımsak Ezici | sarımsak, ezici | garlic press
+Limon Sıkacağı | limon sıkacağı | citrus juicer reamer
+Ahşap Kesme Tahtası | kesme tahtası, ahşap | wooden cutting board
+Plastik Kesme Tahtası | kesme tahtası | plastic cutting board
+Bıçak Seti | bıçak seti | kitchen knife set in wooden block
+Şef Bıçağı | şef bıçağı | chef knife
+Ekmek Bıçağı | ekmek bıçağı, tırtıklı | bread knife
+Meyve Bıçağı | meyve bıçağı | small paring knife
+Et Satırı | satır, et | meat cleaver
+Bıçak Bileyici | bileyici | knife sharpener
+Mutfak Makası | makas, mutfak | kitchen scissors
+Çelik Süzgeç | süzgeç, makarna | stainless steel colander
+Tel Süzgeç | süzgeç, elek | fine mesh strainer
+Un Eleği | elek | flour sieve
+Huni | huni | kitchen funnel
+Ölçü Kabı | ölçü kabı | measuring cup
+Ölçü Kaşığı Seti | ölçü kaşığı | measuring spoon set
+Mutfak Tartısı | tartı, dijital | digital kitchen scale
+Mutfak Termometresi | termometre | kitchen thermometer
+Mutfak Zamanlayıcısı | zamanlayıcı | kitchen timer
+Havan | havan, dibek | mortar and pestle
+Karabiber Değirmeni | öğütücü, karabiber | pepper grinder mill
+Patates Ezici | patates ezici | potato masher
+Et Döveceği | et tokmağı | meat tenderizer mallet
+Pizza Bıçağı | pizza, rulet | pizza cutter wheel
+Mandolin Dilimleyici | dilimleyici, mandolin | mandoline slicer
+Manuel Doğrayıcı | doğrayıcı | manual food chopper
+Spiral Sebze Doğrayıcı | spiral doğrayıcı | spiralizer
+Salata Kurutucu | salata kurutucu | salad spinner
+Elma Dilimleyici | elma dilimleyici | apple slicer
+Yumurta Dilimleyici | yumurta dilimleyici | egg slicer
+Kiraz Çekirdek Çıkarıcı | çekirdek çıkarıcı | cherry pitter
+Ceviz Kırıcı | ceviz kırıcı | nutcracker
+Kavanoz Açacağı | kavanoz açacağı | jar opener
+Konserve Açacağı | konserve açacağı | can opener
+Şişe Açacağı | açacak | bottle opener
+Tirbuşon | tirbuşon | corkscrew
+Poşet Klipsi | poşet klipsi | bag clips
+Fırın Eldiveni | fırın eldiveni | oven mitt
+Nihale | nihale, tencere altlığı | trivet pot holder
+Mutfak Önlüğü | önlük | kitchen apron
+Kurulama Bezi | mutfak havlusu | kitchen tea towels
+Buz Kalıbı | buz kalıbı | ice cube tray
+Buz Kovası | buz kovası | ice bucket
+Dondurma Kaşığı | dondurma kepçesi | ice cream scoop
+Pasta Spatulası | pasta spatulası | cake server
+Krema Sıkma Torbası | krema torbası, sac a poche | piping bag with nozzles
+Silikon Hamur Fırçası | silikon fırça | silicone pastry brush
+Kurabiye Kalıbı Seti | kurabiye kalıbı | cookie cutters set
+Mutfak Gereç Seti | mutfak gereçleri | kitchen utensil set in holder
+Kaşıklık | kaşıklık, gereç kabı | utensil holder crock
+Çekmece İçi Kaşıklık | kaşıklık, çekmece | drawer cutlery tray
+Süt Potu | süt sürahisi, barista | milk frothing pitcher
+Yemek Takımı | yemek takımı, porselen | porcelain dinnerware set
+Melamin Yemek Takımı | melamin | melamine dinnerware set
+Kahvaltı Takımı | kahvaltı takımı | breakfast plates and bowls set
+Düz Yemek Tabağı | tabak, düz tabak | white porcelain dinner plate
+Çukur Tabak | çorba tabağı | white soup plate
+Tatlı Tabağı | tatlı tabağı, pasta | small dessert plate
+Servis Tabağı | servis tabağı | large oval serving platter
+Kayık Tabak | kayık tabak | boat shaped serving dish
+Porselen Kase | kase, çorba kasesi | white ceramic bowl
+Cam Kase Seti | cam kase | set of glass bowls
+Ahşap Salata Kasesi | ahşap kase | wooden salad bowl
+Cam Salata Kasesi | salata kasesi | large glass salad bowl
+Ayaklı Meyve Tabağı | meyve tabağı | footed fruit bowl
+Kek Fanusu | kek fanusu, pasta | glass cake stand with dome
+Ayaklı Pasta Standı | pasta standı | cake stand
+Çerezlik | çerezlik | divided snack serving dish
+Kahvaltılık | kahvaltılık | breakfast condiment set
+Zeytinlik | zeytinlik | small olive dish
+Peynirlik | peynirlik | cheese dome plate
+Tereyağlık | tereyağlık | butter dish with lid
+Reçellik | reçellik | jam jar with spoon
+Yumurtalık | yumurtalık | egg cups
+Şekerlik | şekerlik | sugar bowl with lid
+Lokumluk | lokumluk | glass candy dish with lid
+Tuzluk Biberlik | tuzluk, biberlik | salt and pepper shakers
+Yağdanlık | yağdanlık, zeytinyağı | olive oil dispenser bottle
+Yağlık Sirkelik Seti | yağlık, sirkelik | oil and vinegar cruet set
+Peçetelik | peçetelik | napkin holder
+Kürdanlık | kürdanlık | toothpick holder
+Sosluk | sos kabı | small sauce bowls
+Ahşap Servis Tahtası | servis tahtası | wooden serving board
+Mermer Servis Tahtası | mermer, servis | marble serving board
+Cam Sürahi | sürahi, cam | glass water jug pitcher
+Kapaklı Sürahi | sürahi, kapaklı | plastic pitcher with lid
+Su Bardağı | bardak, su bardağı | set of glass tumblers
+Meşrubat Bardağı | meşrubat bardağı, uzun | tall drinking glasses
+Çay Bardağı | çay bardağı, ince belli | tulip shaped turkish tea glasses
+Çay Tabağı | çay tabağı | small tea glass saucers
+Türk Kahvesi Fincanı | kahve fincanı | turkish coffee cups with saucers
+Kahve Fincanı | fincan, latte | coffee cup and saucer
+Espresso Fincanı | espresso | espresso cups
+Seramik Kupa | kupa, mug | ceramic mug
+Cam Kupa | cam kupa | glass mug
+Çift Cidarlı Bardak | çift cidarlı | double wall glass coffee cup
+Kulplu Bardak | kulplu bardak | glass beer mug
+Viski Bardağı | viski bardağı | whiskey tumbler
+Kadeh | kadeh | wine glass
+Kokteyl Bardağı | kokteyl | cocktail glass
+Shot Bardağı | shot | shot glasses
+Kompostoluk | kompostoluk | small glass dessert bowls
+Ayaklı Dondurma Kupası | dondurma kupası | footed glass dessert cup
+Çatal Kaşık Bıçak Takımı | çatal bıçak takımı | stainless steel cutlery set
+Yemek Kaşığı | kaşık | stainless steel tablespoons
+Yemek Çatalı | çatal | stainless steel dinner forks
+Sofra Bıçağı | bıçak, sofra | table knives
+Tatlı Kaşığı | tatlı kaşığı | dessert spoons
+Çay Kaşığı | çay kaşığı | teaspoons
+Kahve Kaşığı | kahve kaşığı | small coffee spoons
+Pasta Çatalı | pasta çatalı | cake forks
+Salata Servis Seti | salata servis | salad servers
+Peynir Bıçağı Seti | peynir bıçağı | cheese knives set
+Steak Bıçağı Seti | steak bıçağı | steak knives set
+Hasır Ekmek Sepeti | ekmek sepeti | woven bread basket
+Servis Tepsisi | tepsi | rectangular serving tray
+Çay Tepsisi | çay tepsisi | round metal tea tray
+Masa Örtüsü | masa örtüsü | folded tablecloth
+Amerikan Servis | amerikan servis | set of placemats
+Masa Runner | runner, masa | table runner
+Bardak Altlığı | bardak altlığı | coasters set
+Karton Bardak | karton bardak, tek kullanımlık | stack of paper cups
+Tek Kullanımlık Tabak | plastik tabak | stack of disposable plates
+Tek Kullanımlık Çatal Kaşık | plastik çatal | disposable cutlery pack
+Pipet | pipet | drinking straws
+Kürdan | kürdan | toothpicks in a container
+Alüminyum Folyo Kap | folyo kap | aluminum foil food containers
+Cam Saklama Kabı | saklama kabı, cam | glass food storage container with lid
+Plastik Saklama Kabı Seti | saklama kabı | set of plastic food containers
+Vakumlu Saklama Kabı | vakumlu kap | vacuum food container
+Kilitli Saklama Kabı | kilitli kap | airtight lock food container
+Erzak Kavanozu | kavanoz, erzak | glass storage jar with lid
+Bakliyat Kabı | bakliyat kabı | dry food dispenser container
+Baharat Kavanozu Seti | baharatlık | spice jars set on rack
+Döner Baharatlık | döner baharatlık | rotating spice rack
+Ekmek Kutusu | ekmek kutusu | bread box
+Buzdolabı Düzenleyici | organizer, buzdolabı | clear fridge organizer bin
+Buzdolabı Yumurtalığı | yumurta saklama | egg storage container
+Beslenme Çantası | beslenme | insulated lunch bag
+Beslenme Kabı | beslenme kabı | plastic lunch box
+Metal Matara | matara, su şişesi | metal water bottle
+Cam Su Şişesi | su şişesi, cam | glass water bottle
+Spor Suluk | suluk | sport water bottle
+Pipetli Termos Bardak | termos bardak | insulated tumbler with straw
+Turşu Kavanozu | turşu kavanozu | large glass pickle jar
+Cam Süt Şişesi | cam şişe | glass milk bottle
+Yağ Şişesi | yağ şişesi | glass oil bottle with pourer
+Çelik Termos | termos | stainless steel vacuum flask
+Pompalı Termos | pompalı termos | pump action airpot
+Kahve Termosu | termos bardak | travel coffee tumbler
+Termos Kupa | termos kupa | insulated travel mug
+Filtreli Sürahi | su arıtma sürahisi | water filter pitcher
+Çay Makinesi | çay makinesi, elektrikli | electric tea maker
+Elektrikli Semaver | elektrikli semaver | electric samovar
+Türk Kahvesi Makinesi | kahve makinesi | turkish coffee machine
+Filtre Kahve Makinesi | filtre kahve | drip coffee maker
+Espresso Makinesi | espresso makinesi | espresso machine
+Kapsül Kahve Makinesi | kapsül kahve | capsule coffee machine
+Kahve Öğütücü | kahve değirmeni, elektrikli | electric coffee grinder
+Manuel Kahve Değirmeni | el değirmeni | manual coffee grinder
+Süt Köpürtücü | süt köpürtücü | milk frother
+Kettle | kettle, su ısıtıcı | electric kettle
+Cam Kettle | kettle, cam | glass electric kettle
+Tost Makinesi | tost makinesi | sandwich toaster grill
+Ekmek Kızartma Makinesi | ekmek kızartma | pop up toaster
+Blender | blender | countertop blender
+El Blenderı | el blenderi, çubuk blender | immersion hand blender
+El Mikseri | mikser | hand mixer
+Elektrikli Doğrayıcı | rondo, doğrayıcı | electric food chopper
+Mutfak Robotu | mutfak robotu | food processor
+Stand Mikser | hamur yoğurma, stand mikser | stand mixer
+Katı Meyve Sıkacağı | meyve sıkacağı | juicer machine
+Narenciye Sıkacağı | portakal sıkacağı | electric citrus juicer
+Airfryer | airfryer, fritöz | air fryer
+Fritöz | fritöz | deep fryer
+Mini Fırın | mini fırın | electric mini oven
+Mikrodalga Fırın | mikrodalga | microwave oven
+Waffle Makinesi | waffle | waffle maker
+Krep Makinesi | krep makinesi | electric crepe maker
+Yoğurt Makinesi | yoğurt makinesi | yogurt maker
+Ekmek Yapma Makinesi | ekmek makinesi | bread maker
+Dondurma Makinesi | dondurma makinesi | ice cream maker
+Pilav Pişirici | pilav pişirici | rice cooker
+Multicooker | çok amaçlı pişirici | electric multicooker
+Elektrikli Izgara | ızgara, elektrikli | electric grill
+Yumurta Pişirici | yumurta haşlama | electric egg boiler
+Patlamış Mısır Makinesi | mısır patlatma | popcorn maker
+Vakum Makinesi | vakum, poşet | vacuum sealer machine
+Su Sebili | sebil | water dispenser
+Banyo Baskülü | baskül, tartı | bathroom scale
+Buharlı Ütü | ütü | steam iron
+Buhar Kazanlı Ütü | buhar kazanlı ütü | steam generator iron
+Ütü Masası | ütü masası | ironing board
+Ütü Masası Kılıfı | ütü masası kılıfı | ironing board cover
+Elektrikli Süpürge | süpürge | canister vacuum cleaner
+Dikey Şarjlı Süpürge | şarjlı süpürge | cordless stick vacuum
+Robot Süpürge | robot süpürge | robot vacuum cleaner
+Buharlı Temizleyici | buharlı temizleyici | steam mop cleaner
+Vantilatör | vantilatör | stand fan
+Elektrikli Isıtıcı | ısıtıcı | electric heater
+Mop Seti | mop, kova | spin mop and bucket set
+Mop Başlığı | mop yedeği | microfiber mop head
+Paspas Sapı | paspas sapı | mop handle
+Plastik Kova | kova | plastic bucket
+Süpürge Faraş Seti | süpürge, faraş | broom and dustpan set
+Saplı Faraş | faraş | dustpan with long handle
+Yer Silme Paspası | paspas, ıslak | flat floor mop
+Cam Silme Aparatı | cam sileceği | window squeegee
+Mikrofiber Bez | mikrofiber bez | microfiber cleaning cloths
+Toz Bezi | toz bezi | dusting cloths
+Tüy Toz Alıcı | toz alıcı, tüy | feather duster
+Tavan Fırçası | örümcek fırçası | ceiling cobweb brush
+Bulaşık Eldiveni | bulaşık eldiveni | rubber dishwashing gloves
+Bulaşık Süngeri | sünger | dish sponges
+Bulaşık Fırçası | bulaşık fırçası | dish brush
+Bulaşıklık | bulaşıklık, damlalık | dish drying rack
+Deterjanlık | deterjanlık, sünger | dish soap dispenser caddy
+Lavabo Süzgeci | süzgeç | sink strainer
+Pompalı Sabunluk | sabunluk, pompalı | soap dispenser pump bottle
+Sensörlü Sabunluk | sensörlü sabunluk | automatic soap dispenser
+Pedallı Çöp Kovası | çöp kovası, pedallı | stainless steel pedal bin
+Mutfak Çöp Kovası | çöp kovası | kitchen trash bin
+Geri Dönüşüm Kutusu | geri dönüşüm | recycling bin
+Kirli Çamaşır Sepeti | çamaşır sepeti | laundry hamper
+Çamaşır Mandalı | mandal | clothes pegs
+Çamaşır Kurutmalık | kurutmalık | foldable clothes drying rack
+Çamaşır İpi | çamaşır ipi | clothesline
+Elbise Askısı | askı | clothes hangers
+Kadife Askı | kadife askı | velvet hangers
+Çamaşır Filesi | çamaşır filesi | mesh laundry bag
+Tüy Toplayıcı Rulo | tüy toplayıcı | lint roller
+Rulo Havlu Askısı | havlu askısı | paper towel holder
+Havluluk | havluluk | towel bar
+Halka Havluluk | halka havluluk | towel ring
+Sabunluk | sabunluk | soap dish
+Diş Fırçalık | diş fırçalık | toothbrush holder cup
+Banyo Seti | banyo seti | bathroom accessory set
+Klozet Fırçası | tuvalet fırçası | toilet brush with holder
+Tuvalet Kağıtlık | tuvalet kağıdı askısı | toilet paper holder
+Banyo Paspası | banyo paspası | bath mat
+Duş Perdesi | duş perdesi | shower curtain
+Duş Perdesi Rayı | duş perdesi askısı | shower curtain rod
+Banyo Rafı | banyo rafı | bathroom shelf
+Köşe Duş Rafı | duş rafı, köşe | corner shower caddy
+Banyo Aynası | ayna | round bathroom mirror
+Işıklı Makyaj Aynası | makyaj aynası | lighted makeup mirror
+Banyo Çöp Kovası | çöp kovası, banyo | small bathroom trash bin
+Banyo Havlusu | havlu | folded bath towel
+El Yüz Havlusu | havlu | folded hand towel
+Bornoz | bornoz | bathrobe
+Vantuzlu Askı | vantuz, askı | suction cup hooks
+Banyo Taburesi | tabure | plastic step stool
+Bebek Küveti | bebek küveti | baby bathtub
+Hurç | hurç | fabric storage box
+Vakumlu Hurç Torbası | vakum torbası | vacuum storage bags
+Ayakkabılık | ayakkabılık | shoe rack
+Kapı Arkası Askı | kapı askısı | over the door hooks
+Portmanto | portmanto, askılık | coat rack stand
+Plastik Saklama Kutusu | saklama kutusu | plastic storage box with lid
+Hasır Sepet | hasır sepet | woven storage basket
+Çok Katlı Düzenleyici Raf | raf, düzenleyici | multi tier storage shelf
+Çekmeceli Düzenleyici | çekmeceli kutu | plastic drawer organizer
+Takı Kutusu | takı kutusu | jewelry box
+Makyaj Düzenleyici | makyaj düzenleyici | acrylic makeup organizer
+Mutfak Duvar Rafı | baharat rafı | kitchen wall shelf
+Tezgah Üstü Düzenleyici | tezgah düzenleyici | countertop organizer
+Tencere Kapağı Düzenleyici | kapaklık | pot lid organizer rack
+Dolap İçi Raf | dolap rafı | cabinet shelf organizer
+Cam Vazo | vazo | glass vase
+Seramik Vazo | vazo, seramik | ceramic vase
+Mum | mum | white pillar candles
+Kokulu Mum | kokulu mum | scented candle in glass jar
+Şamdan | şamdan | candle holder
+Fotoğraf Çerçevesi | çerçeve | photo frame
+Duvar Saati | saat, duvar | wall clock
+Masa Saati | masa saati | table clock
+Yapay Çiçek | yapay çiçek | artificial flower bouquet
+Saksılı Yapay Bitki | yapay bitki | potted artificial plant
+Seramik Saksı | seramik saksı | ceramic plant pot
+Dekoratif Tepsi | dekoratif tepsi | decorative tray
+Dekoratif Kutu | dekoratif kutu | decorative box
+Biblo | biblo | decorative figurine
+Çubuklu Oda Kokusu | bambu çubuk, koku | reed diffuser
+Kül Tablası | küllük | glass ashtray
+Tablo | tablo | framed wall art
+Boy Aynası | boy aynası | full length mirror
+Masa Lambası | masa lambası | table lamp
+Abajur | abajur | bedside lamp with shade
+Kırlent | kırlent, yastık | decorative throw pillow
+Battaniye | battaniye | folded blanket
+Nevresim Takımı | nevresim | folded bedding set
+Lastikli Çarşaf | çarşaf | folded fitted sheet
+Yastık | yastık | bed pillow
+Yorgan | yorgan | folded duvet
+Sandalye Minderi | minder | seat cushion
+Kapı Önü Paspası | kapı paspası | door mat
+Mangal | mangal | charcoal barbecue grill
+Mangal Izgarası | ızgara teli | barbecue grill grate
+Mangal Maşası | mangal maşası | barbecue tongs
+Şiş Seti | şiş | metal skewers set
+Piknik Tüpü | piknik tüpü | portable camping gas stove
+Kartuşlu Ocak | portatif ocak | portable butane stove
+Soğutucu Çanta | buzluk çanta | cooler bag
+Buzluk | buz kabı | insulated cooler box
+Piknik Sepeti | piknik sepeti | picnic basket
+Piknik Örtüsü | piknik örtüsü | picnic blanket
+Kamp Sandalyesi | kamp sandalyesi | folding camping chair
+Kamp Masası | kamp masası | folding camping table
+Kamp Feneri | kamp feneri | camping lantern
+Bebek Mama Tabağı | mama tabağı | baby plate with suction base
+Alıştırma Bardağı | alıştırma bardağı | baby sippy cup
+Biberon | biberon | baby bottle
+Emzik | emzik | pacifier
+Çocuk Çatal Kaşık Seti | çocuk çatal | kids cutlery set
+Bakır Tencere Seti | bakır tencere seti | copper cookware set
+Döküm Fırın Kabı | döküm fırın kabı | cast iron baking dish
+Kalp Kek Kalıbı | kalp kalıp | heart shaped cake pan
+Silikon Pişirme Matı | silikon mat | silicone baking mat
+Pasta Döner Tablası | döner tabla, pasta | cake decorating turntable
+Pasta Süsleme Seti | pasta süsleme, krema ucu | cake decorating tips set
+Manuel Makarna Makinesi | makarna makinesi, el | manual pasta maker
+Hamburger Presi | hamburger presi, köfte | burger press
+Top Buz Kalıbı | top buz kalıbı | sphere ice mold
+Türk Kahvesi Sunum Tepsisi | kahve sunum | coffee serving tray with cup and water glass
+Porselen Servis Kasesi | servis kasesi | large porcelain serving bowl
+Kulplu Çorba Kasesi | kulplu kase | soup bowl with handles
+Çorba Terini | terin, çorba | soup tureen with ladle
+Kare Tabak | kare tabak | square porcelain plate
+Mat Siyah Tabak | siyah tabak, mat | matte black stoneware plate
+El Yapımı Seramik Tabak | seramik tabak | handmade ceramic plate
+Bambu Tabak | bambu | bamboo plate
+Bölmeli Çocuk Tabağı | bölmeli tabak | divided kids plate
+Meze Tabağı Seti | meze tabağı | small appetizer dishes set
+Sushi Takımı | sushi | sushi plate set with chopsticks
+Yemek Çubuğu | çubuk, chopstick | chopsticks
+Porselen Çay Fincanı | çay fincanı | porcelain tea cup and saucer
+Kristal Bardak | kristal bardak | crystal glass tumbler
+Renkli Su Bardağı | renkli bardak | colored glass tumblers
+Kahve Yanı Su Bardağı | küçük su bardağı | small water glasses
+Kristal Sürahi | kristal sürahi | crystal decanter
+Musluklu Cam Kavanoz | musluklu kavanoz, limonata | glass beverage dispenser with tap
+Cam Pipet Seti | cam pipet | glass straws set
+Çelik Pipet Seti | çelik pipet | metal straws set
+Bölmeli Kahvaltı Tabağı | bölmeli kahvaltılık | divided breakfast platter
+Döner Kahvaltılık | döner kahvaltılık | rotating breakfast serving tray
+Bal Kavanozu | ballık | honey jar with dipper
+Altın Çatal Kaşık Takımı | altın çatal kaşık | gold cutlery set
+Servis Seti | servis kaşıkları | serving utensils set
+Pasta Bıçağı | pasta bıçağı | cake knife
+Fondü Seti | fondü | fondue set
+Ahşap Tepsi | ahşap tepsi | wooden tray with handles
+Bakır Tepsi | bakır tepsi | hammered copper tray
+Dantel Masa Örtüsü | dantel örtü | lace tablecloth
+Kumaş Peçete | kumaş peçete | cloth napkins
+Peçete Halkası | peçete halkası | napkin rings
+Kurabiye Kavanozu | kurabiye kavanozu | glass cookie jar
+Metal Çay Kutusu | çay kutusu | metal tea canister
+Metal Kahve Kutusu | kahve kutusu | metal coffee canister
+Büyük Un Kabı | un kabı | large flour container
+Silikon Saklama Kapağı | silikon kapak | stretch silicone lids set
+Patates Soğan Sepeti | patates sepeti | potato and onion storage bin
+Fileli Sebze Torbası | file torba | mesh produce bags
+Pazar Arabası | pazar arabası | shopping trolley bag
+Bez Alışveriş Çantası | bez çanta | reusable shopping tote bag
+Yemek Termosu | yemek termosu | insulated food jar
+Çocuk Matarası | çocuk matarası | kids water bottle
+Elektrikli Buharlı Pişirici | buharlı pişirici | electric food steamer
+Elektrikli Tava | elektrikli tava | electric skillet pan
+Kişisel Blender | smoothie blender | personal smoothie blender
+Kıyma Makinesi | kıyma makinesi | electric meat grinder
+Gıda Kurutma Makinesi | kurutma makinesi | food dehydrator
+Termopot | termopot, su ısıtıcı | electric thermo pot
+Dilimleme Makinesi | dilimleme makinesi | electric food slicer
+Kapsül Standı | kapsül standı | coffee capsule holder
+Hava Nemlendirici | nemlendirici | air humidifier
+Aroma Difüzörü | difüzör | ultrasonic aroma diffuser
+Ovma Fırçası | ovma fırçası | scrubbing brush
+Manuel Halı Süpürgesi | halı süpürgesi | manual carpet sweeper
+Plastik Çamaşır Sepeti | çamaşır sepeti | plastic laundry basket
+Leğen | leğen | plastic washing basin
+Kepçeli Banyo Kovası | kova, kepçe | bath bucket with scoop
+Ayakkabı Fırçası | ayakkabı fırçası | shoe brush
+Ayakkabı Çekeceği | çekecek | shoe horn
+Ayaklı Havluluk | ayaklı havluluk | standing towel rack
+Lavabo Altı Düzenleyici | lavabo altı raf | under sink organizer
+Bornoz Askısı | bornoz askısı | bathrobe hook
+Plaj Havlusu | plaj havlusu | rolled beach towel
+Peştamal | peştamal | folded turkish peshtemal towel
+Kapüşonlu Bebek Havlusu | bebek havlusu | hooded baby towel
+Şeffaf Ayakkabı Kutusu | ayakkabı kutusu | clear shoe box
+Elbise Kılıfı | elbise kılıfı | garment bag
+Askılı Dolap Düzenleyici | askılı düzenleyici | hanging closet organizer
+Çekmece Bölücü | çekmece düzenleyici | drawer organizer dividers
+Anahtar Askısı | anahtarlık | key holder wall rack
+Şemsiyelik | şemsiyelik | umbrella stand
+Tekerlekli Servis Arabası | servis arabası | rolling utility cart
+Teraryum | teraryum | glass terrarium
+Güneş Ayna | dekoratif ayna | sunburst wall mirror
+Fener Mumluk | fener, mumluk | lantern candle holder
+Kum Saati | kum saati | hourglass
+Duvar Rafı | duvar rafı | floating wall shelf
+Saksı Standı | saksı standı | plant stand
+Mama Önlüğü | mama önlüğü | baby bib
+Kamp Çaydanlığı | kamp çaydanlığı | camping kettle
+Közleme Teli | köz teli | grill basket for vegetables
+Kömür Tutuşturucu | tutuşturucu, baca | charcoal chimney starter
+Izgara Temizleme Fırçası | ızgara fırçası | grill cleaning brush
+Mutfak Rulo Kağıt Standı | havlu standı | standing paper towel holder
+Kahve Filtresi | filtre kağıdı | paper coffee filters
+Çay Bardağı Takımı | çay seti | turkish tea glasses set with saucers and spoons
+Gümüş Kaplama Şekerlik | şekerlik, gümüş | silver plated sugar bowl
+Porselen Kahvaltı Tabağı | kahvaltı tabağı | porcelain breakfast plate
+Granit Fırın Tepsisi | granit tepsi | granite coated baking tray
+Teflon Kek Kalıbı | yapışmaz kalıp | non stick cake pan
+Döküm Sac | döküm sac, gözleme | cast iron griddle plate
+Kızartma Kevgiri | kızartma kepçesi | wire spider strainer
+Mutfak Makası Seti | makas seti | kitchen shears set
+Seramik Bıçak | seramik bıçak | ceramic kitchen knife
+Bıçaklık | bıçaklık | magnetic knife holder
+Kesme Tahtası Seti | kesme tahtası seti | set of cutting boards
+Kevgirli Kepçe Seti | kepçe seti | ladle and skimmer set
+Silikon Gereç Seti | silikon gereç | silicone kitchen utensils set
+Ahşap Gereç Seti | ahşap gereç | wooden kitchen utensils set
+Mutfak Kantarı | kantar, analog | analog kitchen scale
+Sıcak Çikolata Kupası | kupa, büyük | large jumbo mug
+Çocuk Kupası | çocuk kupası | kids plastic mug
+Tabak Rafı | tabaklık, düzenleyici | plate rack organizer
+Bardak Askısı | bardaklık | mug tree holder

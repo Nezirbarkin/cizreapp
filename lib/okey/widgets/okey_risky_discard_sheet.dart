@@ -44,11 +44,13 @@ abstract final class OkeyRiskyDiscardSheet {
                 color: OkeyUI.cardFillRaised,
                 borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
                 border: Border.all(color: const Color(0x80E05A4E)),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                    color: Color(0xBF000000),
+                    color: OkeyUI.isLight
+                        ? OkeyUI.shadow
+                        : const Color(0xBF000000),
                     blurRadius: 30,
-                    offset: Offset(0, 14),
+                    offset: const Offset(0, 14),
                   ),
                 ],
               ),
@@ -59,7 +61,9 @@ abstract final class OkeyRiskyDiscardSheet {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0x3DE05A4E),
+                      color: OkeyUI.isLight
+                          ? OkeyUI.dangerFill
+                          : const Color(0x3DE05A4E),
                       borderRadius: BorderRadius.circular(OkeyUI.radius),
                       border: Border.all(color: const Color(0x66E05A4E)),
                     ),
@@ -78,13 +82,15 @@ abstract final class OkeyRiskyDiscardSheet {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
+                              Text(
                                 'Bu taş masada işleniyor',
                                 style: TextStyle(
                                   fontSize: 14,
                                   height: 1.2,
                                   fontWeight: FontWeight.w800,
-                                  color: Color(0xFFFFD9D4),
+                                  color: OkeyUI.isLight
+                                      ? OkeyUI.dangerText
+                                      : const Color(0xFFFFD9D4),
                                 ),
                               ),
                               const SizedBox(height: OkeyUI.gapXs),
@@ -94,8 +100,10 @@ abstract final class OkeyRiskyDiscardSheet {
                                     const TextSpan(text: 'Atarsan '),
                                     TextSpan(
                                       text: '+$penalty ceza',
-                                      style: const TextStyle(
-                                        color: Color(0xFFFF9A90),
+                                      style: TextStyle(
+                                        color: OkeyUI.isLight
+                                            ? OkeyUI.dangerText
+                                            : const Color(0xFFFF9A90),
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -107,7 +115,9 @@ abstract final class OkeyRiskyDiscardSheet {
                                   ],
                                 ),
                                 style: OkeyUI.body.copyWith(
-                                  color: const Color(0xCCFFD9D4),
+                                  color: OkeyUI.isLight
+                                      ? OkeyUI.text
+                                      : const Color(0xCCFFD9D4),
                                 ),
                               ),
                             ],

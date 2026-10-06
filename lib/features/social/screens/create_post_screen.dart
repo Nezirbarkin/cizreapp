@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/post_image_format.dart';
+import '../services/post_image_preparer.dart';
 import '../services/post_service.dart';
+import '../widgets/post_image_composer.dart';
 import '../../profile/services/profile_service.dart';
-import '../../../core/utils/image_compression_helper.dart';
+import '../../profile/widgets/immersive_crop_screen.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/utils/image_crop_utils.dart';
 import '../../../core/widgets/text_background.dart';
 import '../../music/music.dart';
 
@@ -41,14 +45,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final _contentFocus = FocusNode();
   final ImagePicker _imagePicker = ImagePicker();
 
-  // XFile listesi - Web ve Mobile uyumlu
-  final List<XFile> _selectedImages = [];
+  // Seçili fotoğraflar — orijinal baytlarıyla birlikte (Web ve Mobile
+  // uyumlu). Kırpma her zaman ORİJİNALDEN yapılır; önizleme ve yükleme
+  // fotoğrafın kendisine bağlı olduğundan aradan biri silinince diğerlerinin
+  // önizlemesi kaymaz.
+  final List<PostDraftImage> _images = [];
   final List<String> _uploadedImageUrls = [];
-  // Web için preview bytes.
-  // ÖNEMLİ: Anahtar index DEĞİL dosya yolu. Index kullanıldığında aradan bir
-  // görsel silinince kalan görsellerin önizlemeleri kayıyordu (2. resmi
-  // silince 3. resim 2. resmin küçük görselini gösteriyordu).
-  final Map<String, Uint8List> _imageBytes = {};
+
+  /// Fotoğrafların çerçevesi (Görev 2.8): akışta bu oranda görünürler. İlk
+  /// fotoğraf eklenince — kullanıcı henüz kendisi seçmediyse — fotoğrafın
+  /// kendi oranına göre önerilir.
+  PostImageFormat _format = PostImageFormat.portrait;
+  bool _formatChosen = false;
+
+  static const PostImagePreparer _imagePreparer = PostImagePreparer();
 
   /// Secili arka plan kimligi; null = sade metin gonderisi.
   String? _backgroundId;
@@ -95,7 +105,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   String get _text => _contentController.text.trim();
 
-  bool get _hasImages => _selectedImages.isNotEmpty;
+  bool get _hasImages => _images.isNotEmpty;
 
   /// Gorsel varken arka plan uygulanmaz: gorselin uzerine gradyan basmak hem
   /// gorseli bozar hem de feed'de karsiligi yoktur (model ve servis de ayni
@@ -129,17 +139,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
 
     if (images.isEmpty) return;
-
-    setState(() => _selectedImages.addAll(images));
-
-    // Web için preview bytes'ı yükle
-    if (kIsWeb) {
-      for (final image in images) {
-        final bytes = await image.readAsBytes();
-        if (!mounted) return;
-        setState(() => _imageBytes[image.path] = bytes);
-      }
-    }
+    await _addPicked(images);
   }
 
   Future<void> _takePhoto() async {
@@ -151,13 +151,79 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       imageQuality: 85,
     );
     if (photo == null || !mounted) return;
-    setState(() => _selectedImages.add(photo));
+    await _addPicked([photo]);
+  }
+
+  /// Seçilen dosyaları baytlarıyla birlikte ekler (önizleme, kırpma ve
+  /// yükleme aynı baytları kullanır).
+  Future<void> _addPicked(List<XFile> files) async {
+    final drafts = <PostDraftImage>[];
+    for (final file in files) {
+      try {
+        drafts.add(PostDraftImage(file: file, bytes: await file.readAsBytes()));
+      } catch (e) {
+        debugPrint('❌ Fotoğraf okunamadı: $e');
+      }
+    }
+    if (!mounted || drafts.isEmpty) return;
+
+    final wasEmpty = _images.isEmpty;
+    setState(() => _images.addAll(drafts));
+
+    // İlk fotoğrafta çerçeve fotoğrafın kendi oranına göre önerilir: dikey
+    // fotoğraf Dikey'e, yatay fotoğraf Yatay'a oturur, kimse bir şeye
+    // dokunmadan paylaşsa bile fotoğraf en az kırpılır.
+    if (wasEmpty && !_formatChosen) {
+      final first = drafts.first;
+      final ratio = await readImageAspectRatio(first.bytes);
+      if (!mounted || ratio == null || _formatChosen) return;
+      if (_images.isEmpty || !identical(_images.first, first)) return;
+      setState(() => _format = PostImageFormat.suggestForAspect(ratio));
+    }
   }
 
   void _removeImage(int index) {
+    if (index < 0 || index >= _images.length) return;
+    setState(() => _images.removeAt(index));
+  }
+
+  void _setFormat(PostImageFormat format) {
     setState(() {
-      final removed = _selectedImages.removeAt(index);
-      _imageBytes.remove(removed.path);
+      _format = format;
+      _formatChosen = true;
+    });
+  }
+
+  /// Önizlemedeki fotoğrafı kırpma editöründe açar. Editörde çerçeve de
+  /// değiştirilebilir; seçilen çerçeve gönderinin tüm fotoğraflarına uygulanır.
+  Future<void> _cropImage(int index) async {
+    if (_isPosting || index < 0 || index >= _images.length) return;
+    final draft = _images[index];
+
+    final result = await showImmersiveAspectCropEditor(
+      context,
+      imageBytes: draft.bytes,
+      title: 'Fotoğrafı Kırp',
+      aspects: [
+        for (final format in PostImageFormat.values)
+          ImmersiveCropAspect(
+            label: format.label,
+            ratioLabel: format.ratioLabel,
+            ratio: format.aspectRatio,
+          ),
+      ],
+      initialAspect: _format.aspectRatio,
+      footnote: _images.length > 1
+          ? 'Seçtiğin çerçeve gönderideki tüm fotoğraflara uygulanır'
+          : '',
+    );
+    if (!mounted || result == null || !_images.contains(draft)) return;
+
+    final format = PostImageFormat.fromAspectRatio(result.aspectRatio) ?? _format;
+    setState(() {
+      _format = format;
+      _formatChosen = true;
+      draft.setCrop(result.bytes, format.aspectRatio);
     });
   }
 
@@ -166,39 +232,38 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   /// Eskiden hata sadece debugPrint'e yazılıyordu: tüm yüklemeler başarısız
   /// olsa bile gönderi görselsiz oluşturulup "Gönderi paylaşıldı!" deniyordu.
   /// Kullanıcı fotoğrafının kaybolduğunu ancak feed'e bakınca anlıyordu.
+  ///
+  /// Her fotoğraf yüklenmeden önce seçili çerçeveye oturtulur (elle
+  /// kırpıldıysa o, değilse ortası) ve JPEG'e sıkıştırılır — bkz.
+  /// [PostImagePreparer].
   Future<int> _uploadImages() async {
     _uploadedImageUrls.clear();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return _images.length;
+
+    final aspectRatio = _format.aspectRatio;
     int failed = 0;
 
-    for (int i = 0; i < _selectedImages.length; i++) {
-      final xFile = _selectedImages[i];
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) continue;
-
+    for (int i = 0; i < _images.length; i++) {
       try {
-        // Web ve Mobile'da XFile üzerinden sıkıştır
         debugPrint('📤 Post resmi işleniyor...');
-        final compressedBytes = await ImageCompressionHelper.compressXFile(
-          xFile: xFile,
-          quality: 85,
-          maxWidth: 1080,
-          maxHeight: 1920,
-        );
-        final Uint8List imageBytes =
-            compressedBytes ?? await xFile.readAsBytes();
+        final prepared = await _imagePreparer.prepare(_images[i], aspectRatio);
         debugPrint(
           '📤 Post resmi boyutu: '
-          '${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB',
+          '${(prepared.bytes.length / 1024 / 1024).toStringAsFixed(2)} MB',
         );
 
-        final fileExt = xFile.name.split('.').last.toLowerCase();
         final fileName =
-            'post_${userId}_${DateTime.now().millisecondsSinceEpoch}_$i.$fileExt';
+            'post_${userId}_${DateTime.now().millisecondsSinceEpoch}_$i.${prepared.extension}';
         final filePath = 'posts/$fileName';
 
         await Supabase.instance.client.storage
             .from('posts')
-            .uploadBinary(filePath, imageBytes);
+            .uploadBinary(
+              filePath,
+              prepared.bytes,
+              fileOptions: FileOptions(contentType: prepared.contentType),
+            );
 
         final imageUrl = Supabase.instance.client.storage
             .from('posts')
@@ -276,6 +341,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         userId: userId,
         content: content,
         images: _uploadedImageUrls,
+        imageAspectRatio: _hasImages ? _format.aspectRatio : null,
         background: _background?.id,
         music: _music,
       );
@@ -386,10 +452,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       ],
                       const SizedBox(height: 14),
                       _composerCard(),
-                      if (_hasImages) ...[
-                        const SizedBox(height: 14),
-                        _imageStrip(),
-                      ],
                     ],
                   ),
                 ),
@@ -548,10 +610,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
-  /// Tuval: gorsel varsa gorsel onizlemesi + altinda aciklama alani, yoksa
+  /// Tuval: gorsel varsa cerceveli gorsel onizlemesi + aciklama alani, yoksa
   /// arka planli (ya da sade) metin editoru.
   Widget _composerCard() {
-    if (_hasImages) return _imagePreviewCard();
+    if (_hasImages) return _imageComposer();
 
     final bg = _background;
     return ClipRRect(
@@ -646,139 +708,38 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
-  /// Gorselli gonderide tuval: ilk gorselin buyuk onizlemesi + aciklama alani.
-  Widget _imagePreviewCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _panelBg,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white12),
+  /// Gorselli gonderide tuval: fotograflar secili cercevede, akista
+  /// gorunecekleri haliyle onizlenir; cerceve secici, kirpma ve kucuk resim
+  /// seridi [PostImageComposer]'da (Görev 2.8).
+  Widget _imageComposer() {
+    return PostImageComposer(
+      images: _images,
+      format: _format,
+      enabled: !_isPosting,
+      onFormatChanged: _setFormat,
+      onCrop: _cropImage,
+      onRemove: _removeImage,
+      onAdd: _pickImages,
+      caption: TextField(
+        controller: _contentController,
+        focusNode: _contentFocus,
+        maxLines: 4,
+        minLines: 2,
+        maxLength: _maxLength,
+        inputFormatters: [LengthLimitingTextInputFormatter(_maxLength)],
+        cursorColor: Theme.of(context).colorScheme.primary,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          height: 1.4,
+        ),
+        decoration: const InputDecoration(
+          counterText: '',
+          border: InputBorder.none,
+          hintText: 'Bir açıklama ekle...',
+          hintStyle: TextStyle(color: Colors.white38, fontSize: 15),
+        ),
       ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: _imageWidget(_selectedImages.first, fit: BoxFit.cover),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _contentController,
-            focusNode: _contentFocus,
-            maxLines: 4,
-            minLines: 2,
-            maxLength: _maxLength,
-            inputFormatters: [LengthLimitingTextInputFormatter(_maxLength)],
-            cursorColor: Theme.of(context).colorScheme.primary,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              height: 1.4,
-            ),
-            decoration: const InputDecoration(
-              counterText: '',
-              border: InputBorder.none,
-              hintText: 'Bir açıklama ekle...',
-              hintStyle: TextStyle(color: Colors.white38, fontSize: 15),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _imageStrip() {
-    return SizedBox(
-      height: 88,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _selectedImages.length + 1,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          if (index == _selectedImages.length) {
-            return GestureDetector(
-              onTap: _isPosting ? null : _pickImages,
-              child: Container(
-                width: 88,
-                decoration: BoxDecoration(
-                  color: _panelBg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: const Icon(Icons.add, color: Colors.white70),
-              ),
-            );
-          }
-
-          return Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: SizedBox(
-                  width: 88,
-                  height: 88,
-                  child: _imageWidget(_selectedImages[index]),
-                ),
-              ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: GestureDetector(
-                  onTap: _isPosting ? null : () => _removeImage(index),
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                      color: Colors.black54,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// XFile onizlemesi. Web'de dosya yolu blob URL oldugu icin baytlar
-  /// uzerinden cizilir; baytlar bir kez okunup [_imageBytes]'ta tutulur.
-  Widget _imageWidget(XFile file, {BoxFit fit = BoxFit.cover}) {
-    final cached = _imageBytes[file.path];
-    if (cached != null) {
-      return Image.memory(cached, fit: fit);
-    }
-
-    return FutureBuilder<Uint8List>(
-      future: file.readAsBytes(),
-      builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          _imageBytes[file.path] = snapshot.data!;
-          return Image.memory(snapshot.data!, fit: fit);
-        }
-        return Container(
-          color: _panelBg,
-          child: const Center(
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white54,
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -845,7 +806,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Text(
-                        '${_selectedImages.length} fotoğraf',
+                        '${_images.length} fotoğraf',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 12.5,

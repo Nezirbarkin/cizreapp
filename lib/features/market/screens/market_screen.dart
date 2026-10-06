@@ -10,6 +10,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart' show Position;
 import '../../../core/models/category_model.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/models/sponsorship_model.dart';
+import '../../../core/utils/sponsor_ordering.dart';
+import '../../../core/widgets/sponsor_badge.dart';
 import '../../../core/services/user_distance_service.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/app_about_settings.dart';
@@ -63,6 +66,8 @@ import '../../user_courier/screens/send_package_screen.dart';
 import '../../../ilanlar/widgets/home_ilan_section.dart';
 import '../../leaderboard/leaderboard.dart';
 import '../../leaderboard/leaderboard_navigator.dart';
+import '../../social/widgets/follow_suggestions_section.dart';
+import '../../../core/utils/image_url.dart';
 // import '../../news/widgets/news_section_widget.dart';
 
 class MarketScreen extends StatefulWidget {
@@ -105,6 +110,9 @@ class _MarketScreenState extends State<MarketScreen> {
       _shops.any((s) => s.latitude != null && s.longitude != null);
   List<DailyDeal> _deals = [];
   List<Post> _recentPosts = [];
+
+  // Ana sayfa her yenilendiğinde artar; "Önerilen Kişiler" bölümü de yenilenir.
+  int _recentPostsVersion = 0;
   Map<String, Map<String, dynamic>> _postUsersMap = {}; // userId -> user data
   Set<String> _favoriteProductIds = {};
   /// Şu an geçerli kuponu olan dükkan id'leri ("Kupon Var" rozeti). Liste
@@ -192,8 +200,20 @@ class _MarketScreenState extends State<MarketScreen> {
     // Mesaj badge'i REALTIME: conversations değişince okunmamış sayısını yenile.
     // Böylece kullanıcı market ekranındayken yeni mesaj gelince yüzen mesaj
     // butonundaki kırmızı sayı anında güncellenir (2026-07-03).
-    _conversationsChannel = _chatService.subscribeToConversations((_) {
-      _loadChatUnreadCount();
+    //
+    // Yalnız rozet sayısı yenilenir: eskiden bu abonelik her değişiklikte tüm
+    // sohbet listesini de (4 istek) çekip atıyordu.
+    _conversationsChannel = _chatService.subscribeToConversationChanges(
+      'badge',
+      _loadChatUnreadCount,
+    );
+
+    // Sohbet listesini arka planda önceden yükle: kullanıcı mesajlara
+    // girdiğinde liste beklemeden çizilir. Ana sayfanın kendi yüklemesiyle
+    // yarışmasın diye birkaç saniye sonra.
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      _chatService.prefetchConversations().catchError((_) {});
     });
   }
 
@@ -273,9 +293,12 @@ class _MarketScreenState extends State<MarketScreen> {
     if (userId == null) return;
 
     try {
-      final directCount = await _chatService.getUnreadCount();
-      final groupCount = await _groupChatService.getTotalUnreadCount();
-      final totalCount = directCount + groupCount;
+      // İki sayaç paralel (tek tur).
+      final counts = await Future.wait([
+        _chatService.getUnreadCount(),
+        _groupChatService.getTotalUnreadCount(),
+      ]);
+      final totalCount = counts[0] + counts[1];
 
       if (mounted) {
         setState(() => _unreadChatCount = totalCount);
@@ -416,20 +439,27 @@ class _MarketScreenState extends State<MarketScreen> {
         _newsFuture = null;
       }
 
-      // Her yenilemede farklı sıralama için ürünleri karıştır (dükkanlar karıştırılmaz - sponsorlar en üstte)
+      // Her yenilemede farklı sıralama için ürünler karıştırılır; sponsorlar
+      // en üstte: admin sabitlemesi, sonra İndirimdekiler vitrininde ücretli
+      // öne çıkanlar (Görev 3.2).
       discountedProducts.shuffle();
-      // Sponsor dükkanları en üstte tut
-      shops.sort((a, b) {
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
-        return b.createdAt.compareTo(a.createdAt);
-      });
+      final orderedDiscounted = SponsorOrdering.products(
+        discountedProducts,
+        SponsorPlacement.productDiscount,
+      );
+      // Dükkanlar karıştırılmaz: sponsorlar en üstte (admin sabitlemesi, sonra
+      // dükkanlar listesinde ücretli öne çıkanlar), kalanlar en yeni önce.
+      final orderedShops = SponsorOrdering.shops(
+        shops,
+        SponsorPlacement.shopList,
+        restOrder: (a, b) => b.createdAt.compareTo(a.createdAt),
+      );
 
       setState(() {
         _categories = categories;
-        _shops = shops;
+        _shops = orderedShops;
         _stories = stories;
-        _discountedProducts = discountedProducts;
+        _discountedProducts = orderedDiscounted;
         _categoryShopCounts = categoryShopCounts;
         _deals = deals;
         _isLoading = false;
@@ -504,6 +534,7 @@ class _MarketScreenState extends State<MarketScreen> {
         setState(() {
           _recentPosts = recentPosts;
           _postUsersMap = postUsersMap;
+          _recentPostsVersion++;
         });
       }
     } catch (e) {
@@ -1291,6 +1322,7 @@ class _MarketScreenState extends State<MarketScreen> {
                     shop: shop,
                     globalOrdersEnabled: _globalOrdersEnabled,
                     hasCoupon: _couponShopIds.contains(shop.id),
+                    sponsored: shop.isSponsoredIn(SponsorPlacement.shopList),
                     distanceLabel: _shopDistanceLabel(shop),
                     margin: const EdgeInsets.only(bottom: 10),
                   );
@@ -1352,6 +1384,12 @@ class _MarketScreenState extends State<MarketScreen> {
                       const SizedBox(height: 4),
                     ],
                   ),
+          ),
+
+          // Önerilen Kişiler (takip önerileri) — "En Son Gönderiler" altı.
+          // Misafirde ve öneri yokken hiç yer kaplamaz.
+          SliverToBoxAdapter(
+            child: HomeFollowSuggestionsSection(refreshTick: _recentPostsVersion),
           ),
 
           // İlan kategorileri ve en yeni ilanlar — "En Son Gönderiler" altı.
@@ -1989,6 +2027,14 @@ class _MarketScreenState extends State<MarketScreen> {
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
                     Positioned(top: 4, right: 4, child: closedBadge),
+                  // Sponsor (admin sabitlemesi ya da İndirimdekiler vitrininde
+                  // ücretli öne çıkarma, Görev 3.2) - üst sağ, kapalı rozetinin altı
+                  if (SponsorOrdering.productBadge(product, SponsorPlacement.productDiscount))
+                    Positioned(
+                      top: closedBadge != null ? 24 : 4,
+                      right: 4,
+                      child: const SponsorBadge(),
+                    ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(
@@ -2293,7 +2339,7 @@ class _MarketScreenState extends State<MarketScreen> {
                             backgroundColor: Colors.grey.shade300,
                             backgroundImage:
                                 avatarUrl != null && avatarUrl.isNotEmpty
-                                ? NetworkImage(avatarUrl)
+                                ? avatarImage(avatarUrl)
                                 : null,
                             child: avatarUrl == null || avatarUrl.isEmpty
                                 ? const Icon(
@@ -2547,7 +2593,8 @@ class _BalanceBadgeState extends State<_BalanceBadge> {
 
   Future<void> _loadBalance() async {
     try {
-      final balance = await _balanceService.getBalance();
+      // Sekme rozetleri bakiyeyi paylaşır (bkz. getBalanceForDisplay).
+      final balance = await _balanceService.getBalanceForDisplay();
       if (mounted) {
         setState(() {
           _balance = balance?.availableBalance ?? 0;

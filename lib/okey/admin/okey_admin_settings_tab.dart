@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'okey_admin_service.dart';
+import 'okey_module_toggle_bar.dart';
 import 'okey_admin_widgets.dart';
 
 /// Admin panelinde Okey ayarları + sistem kazancı özeti.
@@ -395,6 +396,9 @@ class _OkeyAdminSettingsTabState extends State<OkeyAdminSettingsTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Görev 4.1: modülü uygulama genelinde aç/kapat.
+        const OkeyModuleToggleBar(),
+        const SizedBox(height: 12),
         // Ayarlar okunamadıysa BUNU SÖYLE. Alanların boş görünmesi
         // "ayarlar sıfırlanmış" gibi okunuyor; admin boş değerleri
         // kaydedip gerçekten sıfırlayabilirdi.

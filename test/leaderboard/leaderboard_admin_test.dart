@@ -119,7 +119,10 @@ void main() {
     expect(_visibleOrder(tester).first, 'stats');
     expect(find.text('1. Rakamlarla Cizre'), findsOneWidget);
     expect(find.text('2. Bugün Cizre’de'), findsOneWidget);
-    expect(find.text('3. Yeni Üyeler'), findsOneWidget);
+    // Görev 4.4: kişisel sayılar ve rekorlar günlük kartın hemen ardından.
+    expect(find.text('3. Rakamlarla Sen'), findsOneWidget);
+    expect(find.text('4. Rekor Skorlar'), findsOneWidget);
+    expect(find.text('5. Yeni Üyeler'), findsOneWidget);
     // Liste tembel kurulur (yalnız ekrana yakın kartlar); görünenlerin hepsinde
     // sürükleme tutamacı var.
     expect(

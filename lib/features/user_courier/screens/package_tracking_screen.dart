@@ -29,6 +29,7 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   bool _loadFailed = false;
 
   Position? _userLocation;
+  bool _isLocatingUser = false;
   Map<String, dynamic>? _courierLocation;
   Map<String, dynamic>? _packageData;
 
@@ -57,52 +58,60 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
     }
   }
 
+  /// Ekran açılırken izin İSTENMEZ: bu ekranın konusu kuryenin konumudur;
+  /// kullanıcının kendi konumu yalnız "sizden uzaklığı / tahmini varış" için ek
+  /// bilgidir. Kullanıcı konumunu daha önce paylaşmayı seçtiyse (açıklama
+  /// ekranını kabul edip izin verdiyse) burada sessizce okunur; aksi halde
+  /// konum boş kalır — sahte bir "Cizre merkezi" konumu uydurulmaz, çünkü
+  /// uzaklık ve varış süresi ona göre yanlış hesaplanırdı — ve kart bir
+  /// "göster" düğmesi sunar ([_enableUserLocation]).
   Future<void> _getUserLocation() async {
     try {
-      // Prominent Disclosure + sistem izni. Reddedilirse harita boş kalmasın:
-      // Cizre merkezi kullanılır.
-      if (!mounted) return;
+      if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
+        return;
+      }
+      await _readUserLocation();
+    } catch (e) {
+      debugPrint('Konum alma hatası: $e');
+    }
+  }
+
+  Future<void> _readUserLocation() async {
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _userLocation = position);
+    _updateMarkers();
+  }
+
+  /// Kullanıcı "Uzaklığı ve varış süresini göster"e dokunduğunda: önce konum
+  /// açıklaması + sistem izni, sonra kendi konumu. Reddederse hiçbir şey
+  /// değişmez ve düğme yerinde kalır.
+  Future<void> _enableUserLocation() async {
+    if (_isLocatingUser) return;
+    setState(() => _isLocatingUser = true);
+    try {
       final allowed = await LocationDisclosureService.ensure(
         context,
         LocationPurpose.nearby,
       );
+      if (!mounted) return;
       if (!allowed) {
-        _applyFallbackLocation();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Konum izni verilmedi.')),
+        );
         return;
       }
-
-      if (!mounted) return;
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
-        ),
-      );
-
-      if (mounted) setState(() => _userLocation = position);
+      await _readUserLocation();
     } catch (e) {
       debugPrint('Konum alma hatası: $e');
-      _applyFallbackLocation();
+    } finally {
+      if (mounted) setState(() => _isLocatingUser = false);
     }
-  }
-
-  void _applyFallbackLocation() {
-    if (!mounted) return;
-    setState(() {
-      _userLocation = Position(
-        latitude: _cizreLatitude,
-        longitude: _cizveLongitude,
-        timestamp: DateTime.now(),
-        accuracy: 0,
-        altitude: 0,
-        altitudeAccuracy: 0,
-        heading: 0,
-        headingAccuracy: 0,
-        speed: 0,
-        speedAccuracy: 0,
-      );
-    });
   }
 
   Future<void> _loadPackageData() async {
@@ -197,6 +206,11 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
           if (rows.isNotEmpty) {
             _pollCourierLocation();
           }
+        }, onError: (Object e) {
+          // Realtime yalnız "yeniden çek" sinyalidir; bağlantı kopsa bile 5 sn'lik
+          // polling kurye konumunu ve durumu güncel tutar. Hata dinlenmezse
+          // yakalanmamış istisna olarak raporlanır.
+          debugPrint('Paket durum akışı hatası: $e');
         });
   }
 
@@ -208,6 +222,11 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
 
   Future<void> _updateUserLocation() async {
     try {
+      // İzin yoksa (hiç verilmediyse ya da sonradan geri alındıysa) GPS'e hiç
+      // dokunma; izin yalnız kullanıcı "göster"e dokunursa istenir.
+      if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
+        return;
+      }
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.best,
@@ -590,6 +609,44 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
                                                 fontSize: 12,
                                                 color: Colors.green.shade700,
                                                 fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          // Konum izni verilmemişse uzaklık/varış
+                                          // hesaplanamaz; izin yalnız bu düğmeye
+                                          // dokunulunca istenir.
+                                          if (_userLocation == null)
+                                            TextButton.icon(
+                                              onPressed: _isLocatingUser
+                                                  ? null
+                                                  : _enableUserLocation,
+                                              icon: _isLocatingUser
+                                                  ? const SizedBox(
+                                                      width: 14,
+                                                      height: 14,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                          ),
+                                                    )
+                                                  : const Icon(
+                                                      Icons.my_location,
+                                                      size: 16,
+                                                    ),
+                                              label: const Text(
+                                                'Uzaklığı ve varış süresini göster',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: TextButton.styleFrom(
+                                                padding: EdgeInsets.zero,
+                                                minimumSize: const Size(0, 32),
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                alignment:
+                                                    Alignment.centerLeft,
                                               ),
                                             ),
                                         ],

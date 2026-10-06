@@ -109,6 +109,18 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             groupMemberJoinedEnabled: value,
           );
           break;
+        case 'cart_price_drop':
+          await _preferencesService.updatePreferences(
+            userId: userId,
+            cartPriceDropEnabled: value,
+          );
+          break;
+        case 'live_streams':
+          await _preferencesService.updatePreferences(
+            userId: userId,
+            liveStreamsEnabled: value,
+          );
+          break;
       }
       
       await _loadPreferences();
@@ -230,6 +242,22 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
 
                     // Pazarlama
                     _buildSectionHeader('Pazarlama'),
+                    _buildSwitchTile(
+                      title: 'Sepetimdeki Ürün İndirime Girince',
+                      subtitle: 'Sepetine eklediğin bir ürünün fiyatı düşünce bildirim al',
+                      icon: Icons.shopping_cart_checkout,
+                      iconColor: Colors.deepOrange,
+                      value: _preferences!.cartPriceDropEnabled,
+                      onChanged: (value) => _updatePreference('cart_price_drop', value),
+                    ),
+                    _buildSwitchTile(
+                      title: 'Canlı Yayınlar',
+                      subtitle: 'Takip ettiğin ya da haberdar olmak istediğin mağaza canlı yayına başlayınca bildirim al',
+                      icon: Icons.sensors,
+                      iconColor: const Color(0xFFE53935),
+                      value: _preferences!.liveStreamsEnabled,
+                      onChanged: (value) => _updatePreference('live_streams', value),
+                    ),
                     _buildSwitchTile(
                       title: 'Promosyon Bildirimleri',
                       subtitle: 'İndirim ve kampanyalar hakkında bildirim alın',

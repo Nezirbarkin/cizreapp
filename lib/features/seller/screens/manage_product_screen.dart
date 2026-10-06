@@ -14,6 +14,7 @@ import '../../market/services/product_service.dart';
 import '../../market/services/category_service.dart';
 import '../../market/services/product_image_preset_service.dart';
 import '../../market/services/product_image_scrape_service.dart';
+import '../../market/widgets/product_image_library_sheet.dart';
 import '../../market/widgets/product_image_link_sheet.dart';
 import '../../../core/widgets/color_picker_widget.dart';
 import '../../../core/models/smm_provider_model.dart';
@@ -110,13 +111,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   // Çoklu görsel desteği — bkz. _ProductImageEntry
   final List<_ProductImageEntry> _images = [];
   final int _maxImages = 5;
+
+  // Ürün adından kütüphane görseli önerisi (bkz. _onNameChanged).
+  final ProductImagePresetService _presetService = ProductImagePresetService();
+  Timer? _suggestDebounce;
+  String _suggestedFor = '';
+  List<ProductImagePreset> _nameSuggestions = [];
   bool _hasDiscount = false;
   bool _hasBuy2Get1BalanceCampaign = false;
 
-  // ── Ek özellikler (rozet / hazırlık süresi / kargo / adet limiti) ──────────
+  // ── Ek özellikler (rozet / kargo / adet limiti) ─────────────────────────────
+  // Hazırlık (kargoya verilme) süresi burada SORULMAZ: teslimat süresi satıcı
+  // profilinde (Mağaza Ayarları) zaten var, ürün başına ikinci bir değer
+  // mükerrerdi (Görev 2.2).
   final Set<String> _selectedBadges = {};
-  final TextEditingController _prepMinController = TextEditingController();
-  final TextEditingController _prepMaxController = TextEditingController();
   final TextEditingController _shippingFeeController = TextEditingController();
   bool _freeShipping = false;
   final TextEditingController _minOrderQtyController = TextEditingController();
@@ -187,6 +195,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     super.initState();
 
     _nameController = TextEditingController(text: widget.product?.name ?? '');
+    // Mevcut ad için öneri istenmez; yalnız satıcı adı değiştirince.
+    _suggestedFor = _nameController.text.trim();
+    _nameController.addListener(_onNameChanged);
     _descriptionController = TextEditingController(
       text: widget.product?.description ?? '',
     );
@@ -236,10 +247,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
       // Ek özellikler
       _selectedBadges.addAll(widget.product!.badges);
-      _prepMinController.text =
-          widget.product!.prepTimeMinDays?.toString() ?? '';
-      _prepMaxController.text =
-          widget.product!.prepTimeMaxDays?.toString() ?? '';
       _shippingFeeController.text =
           widget.product!.shippingFee?.toStringAsFixed(2) ?? '';
       _freeShipping = widget.product!.freeShipping;
@@ -407,6 +414,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
   @override
   void dispose() {
+    _suggestDebounce?.cancel();
     _nameController.dispose();
     _descriptionController.dispose();
     _digitalWarningController.dispose();
@@ -418,8 +426,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _minQuantityController.dispose();
     _maxQuantityController.dispose();
     _maxOrdersPerUserController.dispose();
-    _prepMinController.dispose();
-    _prepMaxController.dispose();
     _shippingFeeController.dispose();
     _minOrderQtyController.dispose();
     _maxOrderQtyController.dispose();
@@ -551,20 +557,71 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       return;
     }
 
-    final preset = await showModalBottomSheet<ProductImagePreset>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => const _ImagePresetPickerSheet(),
+    // Arama ürün adıyla açılır ("Salkım Domates 1 kg" tam eşleşmezse
+    // kelimelerinden biriyle eşleşenler gelir).
+    final preset = await showProductImageLibrarySheet(
+      context,
+      initialQuery: _nameController.text,
+      addedUrls: {
+        for (final e in _images)
+          if (e.url != null) e.url!,
+      },
+      service: _presetService,
     );
+    if (preset != null && mounted) _addLibraryImage(preset);
+  }
 
-    if (preset != null && mounted) {
-      setState(() {
-        _images.add(_ProductImageEntry.url(preset.imageUrl));
-      });
+  void _addLibraryImage(ProductImagePreset preset) {
+    if (_images.length >= _maxImages) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('En fazla $_maxImages resim ekleyebilirsiniz')),
+      );
+      return;
     }
+    if (_images.any((e) => e.url == preset.imageUrl)) return;
+    final isMain = _images.isEmpty;
+    setState(() => _images.add(_ProductImageEntry.url(preset.imageUrl)));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            isMain
+                ? '"${preset.name}" görseli ana resim olarak eklendi'
+                : '"${preset.name}" görseli eklendi',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+  }
+
+  /// Satıcı ürün adını yazarken kütüphanede eşleşen hazır görselleri önerir
+  /// (adın kelimelerinden biri yeter; "1 kg" gibi miktarlar yok sayılır).
+  /// Yalnız ürünün henüz hiç görseli yokken çalışır. Öneri isteğe bağlıdır:
+  /// kütüphaneye ulaşılamazsa sessizce gösterilmez.
+  void _onNameChanged() {
+    final name = _nameController.text.trim();
+    // İmleç hareketi de dinleyiciyi tetikler; yalnız metin değişince çalış.
+    if (name == _suggestedFor) return;
+    _suggestedFor = name;
+    _suggestDebounce?.cancel();
+    if (_images.isNotEmpty || name.length < 3) {
+      if (_nameSuggestions.isNotEmpty) setState(() => _nameSuggestions = []);
+      return;
+    }
+    _suggestDebounce = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final found = await _presetService.searchPresets(
+          name,
+          limit: 8,
+          matchAny: true,
+        );
+        if (!mounted || _suggestedFor != name) return;
+        setState(() => _nameSuggestions = found);
+      } catch (_) {
+        // Öneri isteğe bağlı; form etkilenmez.
+      }
+    });
   }
 
   Future<void> _addFromLink() async {
@@ -771,8 +828,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
 
     // Ek özellik validasyonu (fiziksel ürünler için)
-    final prepMin = _intOrNull(_prepMinController.text);
-    final prepMax = _intOrNull(_prepMaxController.text);
     final shippingFee = _productType == 'digital'
         ? null
         : _doubleOrNull(_shippingFeeController.text);
@@ -782,17 +837,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     final maxOrderQty = _productType == 'digital'
         ? null
         : _intOrNull(_maxOrderQtyController.text);
-
-    if (prepMin != null && prepMax != null && prepMax < prepMin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Hazırlık süresinde en fazla gün, en az günden küçük olamaz',
-          ),
-        ),
-      );
-      return;
-    }
 
     if (minOrderQty != null &&
         maxOrderQty != null &&
@@ -893,8 +937,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ? 'buy2_get1_balance'
               : null,
           badges: _selectedBadges.toList(),
-          prepTimeMinDays: prepMin,
-          prepTimeMaxDays: prepMax,
           shippingFee: _freeShipping ? null : shippingFee,
           freeShipping: _productType == 'digital' ? false : _freeShipping,
           minOrderQuantity: minOrderQty,
@@ -950,8 +992,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               : null,
           clearCampaignType: !_hasBuy2Get1BalanceCampaign,
           badges: _selectedBadges.toList(),
-          prepTimeMinDays: prepMin,
-          prepTimeMaxDays: prepMax,
+          // Hazırlık süresi artık formda yok; null "temizle" demektir, yani
+          // eski ürün başı değer kaydedilirken silinir (bkz. updateProduct).
+          prepTimeMinDays: null,
+          prepTimeMaxDays: null,
           shippingFee: _freeShipping ? null : shippingFee,
           freeShipping: _productType == 'digital' ? false : _freeShipping,
           minOrderQuantity: minOrderQty,
@@ -1214,6 +1258,91 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     );
   }
 
+  /// Ad alanının altındaki "kütüphanede hazır görsel var" şeridi.
+  Widget _buildNameSuggestions() {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.photo_library_rounded, size: 18, color: accent),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Kütüphanede hazır görsel var',
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: _isLoading ? null : _pickFromLibrary,
+                child: const Text('Tümünü gör'),
+              ),
+            ],
+          ),
+          Text(
+            'Fotoğrafın yoksa birine dokun; ana resim olarak eklenir.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 8),
+              itemCount: _nameSuggestions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, i) {
+                final preset = _nameSuggestions[i];
+                return SizedBox(
+                  width: 74,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: _isLoading ? null : () => _addLibraryImage(preset),
+                    child: Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: 74,
+                            height: 74,
+                            child: CachedNetworkImage(
+                              imageUrl: preset.imageUrl,
+                              fit: BoxFit.cover,
+                              memCacheWidth: 222,
+                              placeholder: (_, __) =>
+                                  ColoredBox(color: Colors.grey.shade200),
+                              errorWidget: (_, __, ___) => _buildPlaceholder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          preset.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPlaceholder() {
     return Container(
       color: Colors.grey.shade300,
@@ -1245,6 +1374,8 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               validator: (value) =>
                   value?.isEmpty ?? true ? 'Ürün adı gerekli' : null,
             ),
+            if (_images.isEmpty && _nameSuggestions.isNotEmpty)
+              _buildNameSuggestions(),
             const SizedBox(height: 16),
             TextFormField(
               controller: _descriptionController,
@@ -1961,7 +2092,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     );
   }
 
-  /// Rozetler, hazırlık süresi, ürüne özel kargo ve sipariş adedi limitleri.
+  /// Rozetler, ürüne özel kargo ve sipariş adedi limitleri.
   /// Hepsi opsiyoneldir — boş bırakılırsa ürün eskisi gibi davranır.
   Widget _buildExtrasSection() {
     final isDigital = _productType == 'digital';
@@ -2031,50 +2162,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   checkmarkColor: badge.color,
                 );
               }).toList(),
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── Hazırlık süresi ─────────────────────────────────────────────
-            const Text(
-              'Hazırlık Süresi',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Siparişi kaç iş günü içinde kargoya vereceğinizi belirtin. '
-              'Ürün sayfasında müşteriye gösterilir.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _prepMinController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(
-                      labelText: 'En az (gün)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _prepMaxController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(
-                      labelText: 'En fazla (gün)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
             ),
 
             // ── Kargo ve adet limitleri (dijital ürünlerde geçersiz) ────────
@@ -2577,164 +2664,6 @@ class _ColorPickerWidgetState extends State<_ColorPickerWidget> {
           ),
         ],
       ],
-    );
-  }
-}
-
-/// Satıcının ürün eklerken admin kütüphanesinden hazır görsel arayıp
-/// seçebildiği bottom sheet. Seçim `Navigator.pop(context, preset)` ile
-/// döner; kapatılırsa (seçim yapılmadan) null döner.
-class _ImagePresetPickerSheet extends StatefulWidget {
-  const _ImagePresetPickerSheet();
-
-  @override
-  State<_ImagePresetPickerSheet> createState() =>
-      _ImagePresetPickerSheetState();
-}
-
-class _ImagePresetPickerSheetState extends State<_ImagePresetPickerSheet> {
-  final _presetService = ProductImagePresetService();
-  final _searchController = TextEditingController();
-  Timer? _debounce;
-  List<ProductImagePreset> _presets = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPresets();
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadPresets() async {
-    setState(() => _isLoading = true);
-    try {
-      final query = _searchController.text.trim();
-      final results = query.isEmpty
-          ? await _presetService.getPresets()
-          : await _presetService.searchPresets(query);
-      if (mounted) setState(() => _presets = results);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  void _onSearchChanged(String value) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), _loadPresets);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: MediaQuery.sizeOf(context).height * 0.75,
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const Text(
-              'Görsel Kütüphanesi',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Admin tarafından eklenen hazır ürün görsellerinden seçin.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchController,
-              onChanged: _onSearchChanged,
-              decoration: InputDecoration(
-                hintText: 'Ürün adı ile ara (örn. domates)',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _presets.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Görsel bulunamadı',
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    )
-                  : GridView.builder(
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            mainAxisSpacing: 8,
-                            crossAxisSpacing: 8,
-                            childAspectRatio: 0.85,
-                          ),
-                      itemCount: _presets.length,
-                      itemBuilder: (context, index) {
-                        final preset = _presets[index];
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => Navigator.pop(context, preset),
-                          child: Column(
-                            children: [
-                              Expanded(
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: CachedNetworkImage(
-                                    memCacheWidth: 800,
-                                    imageUrl: preset.imageUrl,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    errorWidget: (_, __, ___) => Container(
-                                      color: Colors.grey.shade300,
-                                      child: const Icon(Icons.image),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                preset.name,
-                                style: const TextStyle(fontSize: 11),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

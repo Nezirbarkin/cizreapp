@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart' show Position;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/category_model.dart';
 import '../../../core/models/shop_model.dart';
+import '../../../core/models/sponsorship_model.dart';
+import '../../../core/utils/sponsor_ordering.dart';
 import '../../../core/services/user_distance_service.dart';
 import '../services/shop_service.dart';
 import '../widgets/shop_card.dart';
@@ -94,14 +96,15 @@ class _CategoryShopsScreenState extends State<CategoryShopsScreen> {
       }
 
       final shops = await _shopService.getShopsByCategory(widget.category.id);
-      // Sponsor dükkanları en üste sabitle
-      shops.sort((a, b) {
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
-        return b.createdAt.compareTo(a.createdAt);
-      });
+      // Sponsorlar en üstte: admin sabitlemesi, sonra kategori sayfasında
+      // ücretli öne çıkanlar (Görev 3.2); kalanlar en yeni önce.
+      final ordered = SponsorOrdering.shops(
+        shops,
+        SponsorPlacement.shopCategory,
+        restOrder: (a, b) => b.createdAt.compareTo(a.createdAt),
+      );
       setState(() {
-        _shops = shops;
+        _shops = ordered;
         _isLoading = false;
       });
       _loadCoupons(shops);
@@ -269,6 +272,7 @@ class _CategoryShopsScreenState extends State<CategoryShopsScreen> {
           shop: shop,
           globalOrdersEnabled: _globalOrdersEnabled,
           hasCoupon: _couponShopIds.contains(shop.id),
+          sponsored: shop.isSponsoredIn(SponsorPlacement.shopCategory),
           distanceLabel: _distanceLabel(shop),
         );
       },

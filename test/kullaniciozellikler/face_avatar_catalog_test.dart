@@ -144,7 +144,13 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Avatarın hazır'), findsOneWidget);
+    // Sahte ML Kit yüz bulamaz: varsayılan avatar + ipucu gösterilir.
+    expect(find.text('Varsayılan avatar'), findsOneWidget);
+    expect(find.text('Bu Avatarı Kullan'), findsOneWidget);
+    // İfade seçimi avatarı değiştirir, hata vermez.
+    await tester.tap(find.text('Kahkaha'));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(tester.takeException(), isNull);
     await tester.tap(find.text('Özelleştir'));
     await tester.pump(const Duration(milliseconds: 500));
 

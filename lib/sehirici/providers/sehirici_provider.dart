@@ -242,6 +242,29 @@ class SehiriciProvider extends ChangeNotifier {
   final Map<String, DateTime> _lastFavToggleAt = {};
   static const Duration _favCooldown = Duration(milliseconds: 600);
 
+  /// Oturum kapanınca kullanıcıya ait durumu bırakır (bkz. main.dart auth
+  /// dinleyicisi): sonraki kullanıcı ya da misafir öncekinin favori
+  /// duraklarını görmesin.
+  void clearUserState() {
+    if (_favoriteStopIds.isEmpty) return;
+    _favoriteStopIds = {};
+    notifyListeners();
+  }
+
+  /// Giriş yapan kullanıcının favori duraklarını yeniden yükler. Modül
+  /// kapalıysa (ya da ayarlar henüz yüklenmediyse) hiçbir şey yapmaz;
+  /// açılıştaki yükleme zaten [initialize] içinde.
+  Future<void> reloadFavoriteStops() async {
+    if (!_settings.moduleEnabled) return;
+    try {
+      _favoriteStopIds =
+          (await _favoriteService.getFavorites()).map((f) => f.stopId).toSet();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('SehiriciProvider.reloadFavoriteStops hata: $e');
+    }
+  }
+
   Future<void> toggleFavorite(String stopId) async {
     // Rate limit: aynı durağa kısa aralıklarla tıklamayı engelle
     final last = _lastFavToggleAt[stopId];

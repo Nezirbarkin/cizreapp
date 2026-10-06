@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/shop_service.dart';
 import '../../../core/models/address_model.dart';
 import '../../market/screens/address_picker_screen.dart';
+import '../utils/shop_contact_requirements.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_section_card.dart';
 
@@ -38,6 +39,10 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   List<Map<String, dynamic>> _categories = [];
   String? _selectedCategoryId;
   bool _isLoadingCategories = false;
+
+  // Görev 4.5: yönetici ana kategoriyi kilitlediyse satıcı değiştiremez.
+  bool _categoryLocked = false;
+  String? _categoryLockNote;
 
   // Form Controllers
   final _nameController = TextEditingController();
@@ -156,6 +161,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
             (sellerDeliveryFee ?? shop['delivery_fee'] ?? 0).toString();
         _hasOwnCourier = shop['has_own_courier'] ?? false;
         _selectedCategoryId = shop['category_id'];
+        await _loadCategoryLock(shop['id']?.toString());
         _latitude = (shop['latitude'] as num?)?.toDouble();
         _longitude = (shop['longitude'] as num?)?.toDouble();
         _pickupEnabled = shop['pickup_enabled'] ?? false;
@@ -175,6 +181,23 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
       }
     } finally {
       if (mounted && showLoading) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Görev 4.5: kilit satırı satıcıya (RLS) yalnız kendi mağazası için okunur.
+  Future<void> _loadCategoryLock(String? shopId) async {
+    if (shopId == null) return;
+    try {
+      final row = await _supabase
+          .from('shop_category_locks')
+          .select('note')
+          .eq('shop_id', shopId)
+          .maybeSingle();
+      _categoryLocked = row != null;
+      final note = (row?['note'] as String?)?.trim();
+      _categoryLockNote = note == null || note.isEmpty ? null : note;
+    } catch (e) {
+      debugPrint('Kategori kilidi okunamadı: $e');
     }
   }
 
@@ -212,9 +235,19 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
         );
       }
     } catch (e) {
+      // Görev 4.5: bu arada yönetici kilitlediyse anlaşılır mesaj.
+      final locked = e is PostgrestException && e.hint == 'SHOP_CATEGORY_LOCKED';
+      if (locked && mounted) setState(() => _categoryLocked = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              locked
+                  ? 'Ana kategori yönetim tarafından belirlendi; değiştirilemez.'
+                  : 'Hata: $e',
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -279,13 +312,12 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
   Future<void> _saveBasicInfo() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // "Gel Al" aktifken konum zorunlu; switch açılırken de kontrol ediliyor
-    // ama kaydetme anında da savunma amaçlı tekrar doğrulanıyor (ör. konum
-    // sonradan temizlenmiş olabilir).
-    if (_pickupEnabled && (_latitude == null || _longitude == null)) {
+    // Görev 3.7: haritadan konum HER ZAMAN zorunlu (kurye ve müşteri mağazayı
+    // bu noktaya göre bulur; sunucu da girilmiş konumun silinmesini reddeder).
+    if (_latitude == null || _longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gel Al aktifken mağaza konumunu haritadan seçmelisiniz'),
+          content: Text('Mağaza konumunu haritadan seçmelisiniz — kurye ve müşteri mağazanızı bu noktaya göre bulur'),
           backgroundColor: Colors.red,
         ),
       );
@@ -340,8 +372,9 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final hinted = e is PostgrestException ? ShopContactRequirements.messageForHint(e.hint) : null;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(hinted ?? 'Hata: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -688,11 +721,9 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.phone,
-              // Admin ve kurye müşteriye/dükkana ulaşabilsin diye telefon
-              // artık zorunlu. Mevcut boş kayıtlar bloklanmaz, sadece bir
-              // dahaki güncellemede doldurulması istenir.
-              validator: (value) =>
-                  value?.trim().isEmpty ?? true ? 'Telefon gerekli' : null,
+              // Görev 3.7: telefon zorunlu ve geçerli olmalı (10–13 rakam) —
+              // sunucudaki shop_phone_is_valid ile aynı kural.
+              validator: ShopContactRequirements.phoneError,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -732,6 +763,21 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                     : 'Haritadan Konum Seç',
               ),
             ),
+            if (_latitude == null || _longitude == null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.error_outline, size: 16, color: Colors.red.shade700),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Konum zorunlu — haritadan mağazanın yerini seçin',
+                      style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (_latitude != null && _longitude != null) ...[
               const SizedBox(height: 8),
               Row(
@@ -792,6 +838,31 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_categoryLocked)
+                      Container(
+                        key: const ValueKey('shop-category-locked-info'),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.lock_outline, color: Colors.orange.shade800, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Ana kategoriniz yönetim tarafından belirlendi'
+                                '${_categoryLockNote == null ? '' : ': $_categoryLockNote'}. '
+                                'Değiştirmek için destek talebi açabilirsiniz.',
+                                style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -842,17 +913,19 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                           ),
                         );
                       }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCategoryId = value;
-                        });
-                      },
+                      onChanged: _categoryLocked
+                          ? null
+                          : (value) {
+                              setState(() {
+                                _selectedCategoryId = value;
+                              });
+                            },
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isSaving ? null : _saveCategory,
+                        onPressed: _isSaving || _categoryLocked ? null : _saveCategory,
                         icon: _isSaving
                             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                             : const Icon(Icons.save),

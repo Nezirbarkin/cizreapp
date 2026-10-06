@@ -82,6 +82,37 @@ class IlanUi {
     return '$days gün kaldı';
   }
 
+  /// Süresi dolmuş mu (cron henüz 'expired' yapmamış olsa bile) — Görev 3.9.
+  static bool isExpired(Ilan ilan, [DateTime? now]) =>
+      ilan.status == IlanStatus.expired ||
+      (ilan.status == IlanStatus.published &&
+          ilan.expiresAt != null &&
+          !ilan.expiresAt!.isAfter(now ?? DateTime.now()));
+
+  /// Rozet ve sekmeler için: bitişi geçmiş yayındaki ilan "Süresi Doldu" sayılır.
+  static IlanStatus effectiveStatus(Ilan ilan, [DateTime? now]) =>
+      isExpired(ilan, now) ? IlanStatus.expired : ilan.status;
+
+  /// Sahibi süreyi uzatabilir mi: dolmuşsa yeniden yayın, son 7 günde uzatma.
+  static bool canExtend(Ilan ilan, [DateTime? now]) {
+    if (isExpired(ilan, now)) return true;
+    final expiresAt = ilan.expiresAt;
+    return ilan.status == IlanStatus.published &&
+        expiresAt != null &&
+        expiresAt.difference(now ?? DateTime.now()) <= const Duration(days: 7);
+  }
+
+  static const _months = [
+    'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+  ];
+
+  /// "28 Eylül 2026" (yerel saat).
+  static String longDate(DateTime value) {
+    final d = value.toLocal();
+    return '${d.day} ${_months[d.month - 1]} ${d.year}';
+  }
+
   static String status(IlanStatus status) => switch (status) {
     IlanStatus.draft => 'Taslak',
     IlanStatus.pending => 'Onay Bekliyor',
@@ -104,6 +135,11 @@ class IlanUi {
 
   static String friendlyError(Object error) {
     final text = error.toString();
+    if (text.contains('ILAN_TOO_EARLY'))
+      return 'Süreyi, bitimine 7 günden az kalınca uzatabilirsin.';
+    if (text.contains('ILAN_NOT_EXTENDABLE'))
+      return 'Bu ilanın süresi uzatılamaz.';
+    if (text.contains('ILAN_NOT_FOUND')) return 'İlan bulunamadı.';
     if (text.contains('Aktif ilan limitine'))
       return 'Aktif ilan limitinize ulaştınız.';
     if (text.contains('Kullanıcı ilan paylaşımı'))

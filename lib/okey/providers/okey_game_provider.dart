@@ -10,6 +10,7 @@ import '../engine/okey_hand_hints.dart';
 import '../engine/okey_hand_partition.dart';
 import '../engine/okey_meld_validator.dart';
 import '../engine/okey_rack_layout.dart';
+import '../engine/okey_sync.dart';
 import '../engine/okey_tile.dart';
 import '../engine/okey_win_detector.dart';
 import '../models/okey_models.dart';
@@ -47,9 +48,9 @@ class OkeyGameProvider with ChangeNotifier {
   /// ilerletmesi, izleyici sayısı arttıkça aynı hamlenin defalarca
   /// tetiklenmesi demek olurdu.
   final bool spectator;
-  final OkeyGameService _service = OkeyGameService();
+  final OkeyGameService _service;
   final OkeyRoomService _roomService = OkeyRoomService();
-  final OkeyRealtimeService _realtime = OkeyRealtimeService();
+  final OkeyRealtimeService _realtime;
   final OkeyGiftService _giftService = OkeyGiftService();
 
   Timer? _tickTimer;
@@ -100,6 +101,30 @@ class OkeyGameProvider with ChangeNotifier {
   /// Anahtar = maç + el + koltuk + son tarih.
   String? _autoAdvanceKey;
   bool _autoAdvancing = false;
+
+  /// "Otomatik oyna" çağrısı hata verdiyse bu ana kadar yeniden denenmez
+  /// (eskiden her saniye yeniden deneniyordu).
+  DateTime? _autoAdvanceRetryAt;
+
+  /// SUNUCU SAATİ (bkz. [OkeyServerClock]). Sayaç, "süre doldu" kararı ve
+  /// bayat görünüm denetimi cihaz saatiyle değil bununla verilir: sıra süresi
+  /// sunucu saatiyle yazılıyor.
+  final OkeyServerClock _clock;
+  DateTime get _serverNow => _clock.now();
+
+  /// Son başarılı masa okuması ya da bayat görünüm denemesi (sunucu
+  /// saatiyle; bkz. [_maybeResyncStaleTurn]).
+  DateTime? _lastSyncAt;
+
+  /// Hata veren maç kanalını yeniden kurma zamanlayıcısı ve deneme sayısı
+  /// (bkz. [_onMatchChannelError]).
+  Timer? _resubscribeTimer;
+  int _resubscribeAttempt = 0;
+
+  /// [reconnect] TEK UÇUŞ: arka arkaya iki çağrı birbirinin kanalını
+  /// kapatıp sızdırırdı (hediyeler iki kez görünürdü).
+  bool _reconnecting = false;
+  bool _reconnectQueued = false;
 
   final OkeySoundService _sound = OkeySoundService.instance;
 
@@ -454,8 +479,18 @@ class OkeyGameProvider with ChangeNotifier {
     }
   }
 
-  OkeyGameProvider(String matchId, {this.spectator = false})
-    : _matchId = matchId {
+  /// [service], [realtime] ve [clock] YALNIZCA testler içindir (sahte
+  /// sunucu/kanal/saat); uygulama her zaman varsayılanlarla kurar.
+  OkeyGameProvider(
+    String matchId, {
+    this.spectator = false,
+    OkeyGameService? service,
+    OkeyRealtimeService? realtime,
+    OkeyServerClock? clock,
+  }) : _matchId = matchId,
+       _service = service ?? OkeyGameService(),
+       _realtime = realtime ?? OkeyRealtimeService(),
+       _clock = clock ?? OkeyServerClock() {
     // KRİTİK: _init() (dolayısıyla içindeki refresh()) SENKRON olarak
     // çağrılırsa, refresh()'in ilk await'ten ÖNCEKİ kısmı (notifyListeners()
     // dahil) bu constructor'ın çağrıldığı build/mount işlemiyle AYNI
@@ -478,14 +513,8 @@ class OkeyGameProvider with ChangeNotifier {
     // Admin şarkı yüklediyse ve kullanıcı kapatmadıysa çalma listesini başlat
     unawaited(_sound.refreshPlaylist().then((_) => _sound.startMusic()));
     await refresh();
-    _realtime.subscribe(
-      matchId: matchId,
-      onMatchChanged: _scheduleRefresh,
-      onHandChanged: _scheduleRefresh,
-      onMeldsChanged: _scheduleRefresh,
-      onMovesChanged: _scheduleRefresh,
-      onQuickPhrase: _handleIncomingQuickPhrase,
-    );
+    if (_disposed) return;
+    _subscribeMatch();
     _subscribeGifts();
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
 
@@ -608,6 +637,52 @@ class OkeyGameProvider with ChangeNotifier {
     }
   }
 
+  /// Maç kanalına abone olur (masaya giriş, yeniden bağlanma, sıradaki el).
+  ///
+  /// Kanal HER (yeniden) katıldığında masa bir kez daha okunur: katılmadan
+  /// önce yapılan okuma ile katılma arasında olan hamleler başka türlü hiç
+  /// duyulmazdı — sıra bana geçmişken ekranım eski sırayı göstermeye devam
+  /// eder, süre dolunca sıram kendiliğinden oynanırdı (Görev 1.6).
+  void _subscribeMatch() {
+    _realtime.subscribe(
+      matchId: _matchId,
+      onMatchChanged: _scheduleRefresh,
+      onHandChanged: _scheduleRefresh,
+      onMeldsChanged: _scheduleRefresh,
+      onMovesChanged: _scheduleRefresh,
+      onQuickPhrase: _handleIncomingQuickPhrase,
+      onSubscribed: _onMatchChannelSubscribed,
+      onChannelError: _onMatchChannelError,
+    );
+  }
+
+  void _onMatchChannelSubscribed() {
+    if (_disposed) return;
+    _resubscribeTimer?.cancel();
+    _resubscribeTimer = null;
+    _resubscribeAttempt = 0;
+    _scheduleRefresh();
+  }
+
+  /// Maç kanalı hata verdi ya da katılma zaman aşımına uğradı.
+  ///
+  /// realtime_client çoğu hatada kendisi yeniden katılır; o zaman
+  /// [_onMatchChannelSubscribed] aşağıdaki zamanlayıcıyı iptal eder. Ama
+  /// postgres_changes kurulumu sunucuda başarısız olduğunda kanal "bağlı"
+  /// kalır ve HİÇ olay getirmez — o durumda kanalı biz yeniden kurarız.
+  /// Beklerken masa bir kez okunur; bekleme giderek uzar.
+  void _onMatchChannelError(Object? error) {
+    if (_disposed) return;
+    debugPrint('⚠️ Okey maç kanalı hatası: $error');
+    _scheduleRefresh();
+    if (_resubscribeTimer != null) return;
+    final delay = OkeyTurnSync.resubscribeDelay(_resubscribeAttempt++);
+    _resubscribeTimer = Timer(delay, () {
+      _resubscribeTimer = null;
+      if (!_disposed) _subscribeMatch();
+    });
+  }
+
   /// Realtime olaylarının ortak girişi: tazelemeyi ERTELER ve BİRLEŞTİRİR
   /// (bkz. [_refreshInFlight] üzerindeki açıklama).
   void _scheduleRefresh() {
@@ -661,6 +736,7 @@ class OkeyGameProvider with ChangeNotifier {
     _refreshDebounce?.cancel();
     _announceTimer?.cancel();
     _flightTimer?.cancel();
+    _resubscribeTimer?.cancel();
     if (spectator) {
       final roomId = _match?.roomId;
       // Masadan ayrılırken izleyici listesinden ÇIK. Başarısız olursa da
@@ -1059,6 +1135,9 @@ class OkeyGameProvider with ChangeNotifier {
     _announceTimer = null;
     _flightTimer?.cancel();
     _flightTimer = null;
+    _resubscribeTimer?.cancel();
+    _resubscribeTimer = null;
+    _resubscribeAttempt = 0;
 
     await _realtime.unsubscribeMatch();
     if (_disposed) return;
@@ -1094,6 +1173,8 @@ class OkeyGameProvider with ChangeNotifier {
     _barajs = const {};
     _barajHandNo = null;
     _autoAdvanceKey = null;
+    _autoAdvanceRetryAt = null;
+    _lastSyncAt = null;
     _timeWarningPlayed = false;
     _error = null;
 
@@ -1121,15 +1202,9 @@ class OkeyGameProvider with ChangeNotifier {
     // ABONELİK TAZELEMEDEN ÖNCE: tersi olsaydı, okuma sürerken yeni elde
     // olan bitenler (dağıtım biter bitmez ilk hamle) hiç duyulmazdı.
     // Aboneliğin erken kurulması zararsız — her olay yalnızca "tazele"
-    // sinyalidir ve tazeleme zaten birleştiriliyor.
-    _realtime.subscribe(
-      matchId: _matchId,
-      onMatchChanged: _scheduleRefresh,
-      onHandChanged: _scheduleRefresh,
-      onMeldsChanged: _scheduleRefresh,
-      onMovesChanged: _scheduleRefresh,
-      onQuickPhrase: _handleIncomingQuickPhrase,
-    );
+    // sinyalidir ve tazeleme zaten birleştiriliyor. Kanal katılmayı
+    // bitirdiğinde masa bir kez daha okunur (bkz. [_subscribeMatch]).
+    _subscribeMatch();
 
     await refresh(silent: true);
   }
@@ -1183,7 +1258,9 @@ class OkeyGameProvider with ChangeNotifier {
   int get secondsLeft {
     final deadline = _match?.turnDeadline;
     if (deadline == null) return 0;
-    final diff = deadline.difference(DateTime.now()).inSeconds;
+    // Süre sunucu saatiyle yazılır; cihaz saatiyle ölçmek, saati kaymış
+    // telefonda sayacı yanlış gösteriyordu (bkz. [OkeyServerClock]).
+    final diff = deadline.difference(_serverNow).inSeconds;
     return diff < 0 ? 0 : diff;
   }
 
@@ -1838,19 +1915,39 @@ class OkeyGameProvider with ChangeNotifier {
 
   /// Arka plandan dönüş / bağlantı kopması sonrası: realtime kanalları
   /// yeniden kurup durumu DB'den tam olarak yeniden okur.
+  ///
+  /// TEK UÇUŞ: çalışırken gelen ikinci çağrı kuyruğa yazılır ve bu bitince
+  /// BİR KEZ tekrarlanır. Eskiden iki çağrı iç içe geçebiliyordu (biri eski
+  /// kanalı kapatırken öteki yenisini kuruyordu): kapatılmayan kanal sızıyor,
+  /// hediye kanalı iki kez kurulup her hediye iki kez görünüyordu.
   Future<void> reconnect() async {
+    if (_disposed) return;
+    if (_reconnecting) {
+      _reconnectQueued = true;
+      return;
+    }
+    _reconnecting = true;
+    try {
+      do {
+        _reconnectQueued = false;
+        await _reconnectOnce();
+      } while (_reconnectQueued && !_disposed);
+    } finally {
+      _reconnecting = false;
+    }
+  }
+
+  Future<void> _reconnectOnce() async {
     _isDragging = false;
     _pendingNotify = false;
+    _resubscribeTimer?.cancel();
+    _resubscribeTimer = null;
+    _resubscribeAttempt = 0;
     await _realtime.unsubscribe();
-    _realtime.subscribe(
-      matchId: matchId,
-      onMatchChanged: _scheduleRefresh,
-      onHandChanged: _scheduleRefresh,
-      onMeldsChanged: _scheduleRefresh,
-      onMovesChanged: _scheduleRefresh,
-      onQuickPhrase: _handleIncomingQuickPhrase,
-    );
+    if (_disposed) return;
+    _subscribeMatch();
     await refresh(silent: true);
+    if (_disposed) return;
     // Hediye kanalı da unsubscribe ile kapandı — oda kimliği elimizdeyken
     // yeniden kurulur, yoksa masaya dönen oyuncu hediyeleri hiç görmezdi.
     // Asılı hediyeler de baştan okunur: bağlantı kopukken gelenler
@@ -1894,10 +1991,22 @@ class OkeyGameProvider with ChangeNotifier {
       //
       // Sunucu bu fonksiyonu tanımıyorsa (yayınlanmamış sürüm) snapshot null
       // döner ve aşağıdaki ESKİ yol aynen çalışır — oyun kesintiye uğramaz.
+      final sentAt = _clock.localNow();
       final snapshot = await _service.getSnapshot(
         matchId,
         afterMoveId: seenMoveId,
       );
+      // SUNUCU SAATİ ÖRNEĞİ — sayaç ve "süre doldu" kararı için
+      // (bkz. [OkeyServerClock]). Eski sunucuda serverNow gelmez, fark sıfır
+      // kalır (eski davranış).
+      final serverNow = snapshot?.serverNow;
+      if (serverNow != null) {
+        _clock.addSample(
+          sentAt: sentAt,
+          receivedAt: _clock.localNow(),
+          serverNow: serverNow,
+        );
+      }
 
       // ESKİ YOL — bu 4 çağrı birbirinden bağımsızdır (matchId zaten
       // biliniyor, hiçbiri diğerinin sonucuna muhtaç değil) ve Dart'ta bir
@@ -2008,6 +2117,7 @@ class OkeyGameProvider with ChangeNotifier {
         }
       }
       _error = null;
+      _lastSyncAt = _serverNow;
       _snapshotMode = snapshot != null;
       if (snapshot != null) {
         // BARAJ ROZETLERİ ve GERİ KOY HAKKI aynı okumada geldi — ikisi de
@@ -2495,23 +2605,32 @@ class OkeyGameProvider with ChangeNotifier {
 
     // Süre dolduysa sunucudan otomatik oynatma iste
     _maybeAutoAdvance();
+    // Süresi çoktan geçmiş sıra hâlâ ekrandaysa masa bayattır
+    _maybeResyncStaleTurn();
   }
 
   /// Sıra süresi dolduğunda sunucuya "otomatik oyna" der: o koltuk adına
   /// desteden taş çekilir ve ÇEKİLEN TAŞ doğrudan atılır.
   ///
-  /// Neden istemci tetikliyor: veritabanında zamanlanmış iş (pg_cron) yok.
-  /// Bu güvenli, çünkü SÜREYİ SUNUCU DOĞRULUYOR — istemci "süre doldu" diye
-  /// yalan söylerse sunucu hiçbir şey yapmaz.
-  ///
-  /// Masadaki DÖRT istemci de aynı anda tetikler; sunucu maç satırını
-  /// kilitlediği için sıra yine tek adım ilerler.
+  /// SÜREYİ SUNUCU DOĞRULAR — istemci "süre doldu" diye yanılsa da sunucu
+  /// hiçbir şey yapmaz. Masadaki istemcilerin yanında sunucunun 30 saniyelik
+  /// süpürücüsü de (göç 20260915000001) aynı işi yapar; bu çağrı yalnızca
+  /// masayı o beklemeden kurtarır. Masadaki DÖRT istemci de aynı anda
+  /// tetikler; sunucu maç satırını kilitlediği için sıra yine tek adım
+  /// ilerler.
   void _maybeAutoAdvance() {
+    // İZLEYİCİ OYUNU İLERLETMEZ (bkz. [_maybeScheduleBotTurn]). Sunucu zaten
+    // reddediyordu, ama izleyici hatadan sonra her saniye yeniden denerken
+    // canlı maç satırını kilitliyordu (bkz. göç 20260927000003).
+    if (isSpectating) return;
     final match = _match;
     if (match == null || match.status != 'in_progress') return;
     final deadline = match.turnDeadline;
     if (deadline == null) return;
-    if (DateTime.now().isBefore(deadline)) return;
+    final now = _serverNow;
+    if (now.isBefore(deadline)) return;
+    final retryAt = _autoAdvanceRetryAt;
+    if (retryAt != null && now.isBefore(retryAt)) return;
 
     // Her sıra için tek deneme: aksi halde saniyede bir istek gönderilirdi.
     final key =
@@ -2523,16 +2642,44 @@ class OkeyGameProvider with ChangeNotifier {
 
     unawaited(() async {
       try {
-        final played = await _service.autoAdvance(matchId);
-        if (played && !_disposed) await refresh(silent: true);
+        await _service.autoAdvance(matchId);
+        _autoAdvanceRetryAt = null;
+        // Oynatıldıysa masa değişti. Oynatılmadıysa sıra çoktan ilerlemiş
+        // demektir (başka bir istemci ya da sunucu ilerletti) ve bunu haber
+        // veren olay bende kaçmıştır: iki durumda da masa yeniden okunur.
+        // Eskiden yalnız ilkinde okunuyordu; olayı kaçıran istemci süresi
+        // dolmuş ESKİ sırada kalıyor, sıranın kendisine geçtiğini görmüyordu.
+        if (!_disposed) await refresh(silent: true);
       } catch (_) {
-        // Ağ hatası vb.: anahtarı sıfırla ki bir sonraki saniyede tekrar
-        // denensin — yoksa bu sıra sonsuza kadar kilitli kalırdı.
+        // Ağ hatası vb.: kısa bir beklemeden sonra yeniden denensin (her
+        // saniye değil) — yoksa bu sıra sonsuza kadar kilitli kalırdı.
         _autoAdvanceKey = null;
+        _autoAdvanceRetryAt = _serverNow.add(OkeyTurnSync.autoAdvanceRetry);
       } finally {
         _autoAdvancing = false;
       }
     }());
+  }
+
+  /// BAYAT GÖRÜNÜM DENETİMİ. Sıranın süresi çoktan geçmişken ekran hâlâ aynı
+  /// sırayı gösteriyorsa sırayı ilerleten realtime olayı kaçmıştır (ağ
+  /// titremesi, arka planda kopan kanal). Masa aralıklarla yeniden okunur;
+  /// sıra ilerleyince (yeni süre) kendiliğinden durur.
+  void _maybeResyncStaleTurn() {
+    if (_refreshInFlight || (_refreshDebounce?.isActive ?? false)) return;
+    final match = _match;
+    if (match == null || match.status != 'in_progress') return;
+    final now = _serverNow;
+    if (!OkeyTurnSync.shouldResync(
+      serverNow: now,
+      turnDeadline: match.turnDeadline,
+      lastRefreshAt: _lastSyncAt,
+    )) {
+      return;
+    }
+    // Deneme de sayılır: okuma başarısız olsa bile her saniye denenmez.
+    _lastSyncAt = now;
+    unawaited(refresh(silent: true));
   }
 
   void _maybeScheduleBotTurn() {
@@ -3425,7 +3572,9 @@ class OkeyGameProvider with ChangeNotifier {
         discardPiles: piles,
         turnSeat: (seat + 1) % 4,
         turnPhase: 'draw',
-        turnDeadline: DateTime.now().add(
+        // Sunucu saatiyle (bkz. [OkeyServerClock]): sunucunun yazacağı
+        // süreyle aynı ölçekte olsun, cevap gelince sayaç sıçramasın.
+        turnDeadline: _serverNow.add(
           Duration(seconds: _room?.turnSeconds ?? 20),
         ),
       );

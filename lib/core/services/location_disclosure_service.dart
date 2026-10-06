@@ -23,6 +23,11 @@ enum LocationPurpose {
   /// Şehiriçi şoför sefer takibi (manuel veya otomatik sefer). Sürekli akış,
   /// ekran kapalıyken bildirim ile devam eder, konum yolcularla paylaşılır.
   driverTrip,
+
+  /// Sohbette konum paylaşımı (Görev 3.1). Kullanıcı "Konum"a dokununca TEK
+  /// seferlik okunur; yalnız "Bu Konumu Gönder" ile o sohbetteki kişiye
+  /// mesaj olarak gider. Takip yok, arka plan yok.
+  chatShare,
 }
 
 /// Google Play "Prominent Disclosure and Consent" şartını karşılayan merkezi
@@ -58,12 +63,36 @@ class LocationDisclosureService {
   static String _consentKey(LocationPurpose purpose) =>
       'location_disclosure_v${_consentVersion}_${purpose.name}';
 
+  /// Aynı amaç için şu an açık olan istek. Sistem izin dialogu açılıp kapanırken
+  /// uygulama yaşam döngüsü `resumed` olur ve ekranlar `ensure`'ı yeniden
+  /// çağırabilir; ikinci çağrı yeni bir açıklama diyaloğu açmak yerine
+  /// birincinin sonucunu bekler — aksi halde diyaloglar üst üste biner.
+  static final Map<LocationPurpose, Future<bool>> _inFlight = {};
+
   /// Konum kullanılmadan önce çağrılır. `true` dönerse hem kullanıcı onayı
   /// hem sistem izni alınmıştır ve konum API'leri güvenle çağrılabilir.
+  ///
+  /// **Yalnızca kullanıcının açık bir eylemine (düğme, anahtar, "başlat")
+  /// karşılık çağrılmalıdır.** Ekran açılışı, uygulamaya dönüş ve zamanlayıcı
+  /// gibi otomatik tetikleyiciler izin İSTEMEMELİ; yalnız [isReady] ile durumu
+  /// okumalı ve izin yoksa sessizce konumsuz devam edip kullanıcıya bir düğme
+  /// sunmalıdır.
   ///
   /// [context] mounted değilse veya kullanıcı reddederse `false` döner —
   /// çağıran taraf bu durumda **hiçbir konum isteği yapmamalıdır**.
   static Future<bool> ensure(
+    BuildContext context,
+    LocationPurpose purpose,
+  ) {
+    final running = _inFlight[purpose];
+    if (running != null) return running;
+
+    final future = _ensure(context, purpose);
+    _inFlight[purpose] = future;
+    return future.whenComplete(() => _inFlight.remove(purpose));
+  }
+
+  static Future<bool> _ensure(
     BuildContext context,
     LocationPurpose purpose,
   ) async {
@@ -252,6 +281,36 @@ class LocationDisclosureService {
                   'karşılaştırılarak sefer kendiliğinden başlatılıp bitirilir. '
                   'Toplama, sefer bitince veya seferi elle durdurduğunuzda sona '
                   'erer.',
+            ),
+          ],
+        );
+
+      case LocationPurpose.chatShare:
+        return const _DisclosureContent(
+          icon: Icons.share_location_outlined,
+          title: 'Sohbette konum paylaşmak için izin gerekiyor',
+          lead:
+              'Sohbette "Konum" seçeneğine dokunduğunuzda CizreApp, bulunduğunuz '
+              'yeri haritada gösterebilmek için cihazınızın konum verisini (GPS '
+              'koordinatlarınızı) bir kez okur.',
+          bullets: [
+            _DisclosureBullet(
+              icon: Icons.chat_outlined,
+              text:
+                  'Konumunuz yalnızca siz "Bu Konumu Gönder"e dokunduğunuzda, '
+                  'yalnızca o sohbetteki kişiye mesaj olarak gönderilir.',
+            ),
+            _DisclosureBullet(
+              icon: Icons.edit_location_alt_outlined,
+              text:
+                  'Göndermeden önce iğneyi haritada kaydırarak başka bir nokta '
+                  'seçebilirsiniz.',
+            ),
+            _DisclosureBullet(
+              icon: Icons.visibility_off_outlined,
+              text:
+                  'Konumunuz arka planda toplanmaz, sürekli takip edilmez ve '
+                  'reklam amacıyla kullanılmaz.',
             ),
           ],
         );

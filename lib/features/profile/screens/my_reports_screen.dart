@@ -5,6 +5,7 @@ import '../services/profile_service.dart';
 import '../../social/services/post_report_service.dart';
 import '../../../core/providers/theme_provider.dart';
 import 'user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
@@ -289,7 +290,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> with SingleTickerProv
             child: ExpansionTile(
               leading: CircleAvatar(
                 radius: 24,
-                backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                backgroundImage: avatarUrl != null ? avatarImage(avatarUrl) : null,
                 backgroundColor: Colors.grey.shade300,
                 child: avatarUrl == null
                     ? Text(

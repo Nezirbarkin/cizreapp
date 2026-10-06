@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/services/social_access_service.dart';
 import '../services/bot_service.dart';
+import 'bot_comments_tab.dart';
 
 /// Admin panelinin "Bot Hesapları" bölümü.
 ///
@@ -35,7 +36,7 @@ class _BotManagementContentState extends State<BotManagementContent>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadBots();
   }
 
@@ -96,6 +97,8 @@ class _BotManagementContentState extends State<BotManagementContent>
               Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Botlar'),
               Tab(icon: Icon(Icons.post_add), text: 'Gönderiler'),
               Tab(icon: Icon(Icons.auto_stories_outlined), text: 'Kitaplık'),
+              // Görev 4.7: manuel/otomatik bot yorumları
+              Tab(icon: Icon(Icons.mode_comment_outlined), text: 'Yorumlar'),
               Tab(icon: Icon(Icons.tune), text: 'Ayarlar'),
             ],
           ),
@@ -107,6 +110,7 @@ class _BotManagementContentState extends State<BotManagementContent>
               _buildBotsTab(),
               _BotQueueTab(service: _service, bots: _bots),
               _BotLibraryTab(service: _service, onChanged: _loadBots),
+              BotCommentsTab(bots: _bots),
               _BotSettingsTab(service: _service, onChanged: _loadBots),
             ],
           ),

@@ -15,7 +15,7 @@ import 'sehirici_stop_editor_sheet.dart';
 enum _StopFilter { all, linked, unlinked, inactive }
 
 /// Admin > Şehiriçi > Duraklar: arama, filtre, hangi hatlarda kullanıldığı,
-/// tek tek veya haritadan çoklu ekleme.
+/// tek tek veya haritadan çoklu ekleme, seçip toplu silme (Görev 3.10).
 class SehiriciAdminStopsTab extends StatefulWidget {
   final SehiriciAdminController controller;
   const SehiriciAdminStopsTab({super.key, required this.controller});
@@ -29,6 +29,11 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
   String _query = '';
   _StopFilter _filter = _StopFilter.all;
   bool _bulkSaving = false;
+
+  // Toplu seçim (Görev 3.10): uzun basış ya da "Seç" ile açılır.
+  bool _selecting = false;
+  final Set<String> _selected = <String>{};
+  bool _deleting = false;
 
   SehiriciAdminController get c => widget.controller;
 
@@ -120,6 +125,125 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
     );
   }
 
+  void _startSelection([String? stopId]) {
+    setState(() {
+      _selecting = true;
+      if (stopId != null) _selected.add(stopId);
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
+  }
+
+  void _toggle(String stopId) {
+    setState(() {
+      if (!_selected.remove(stopId)) _selected.add(stopId);
+    });
+  }
+
+  /// Seçilen durakları siler; hatta kullanılanlar için etkilenen hatları söyler.
+  Future<void> _deleteSelected() async {
+    // Görünmeyen (silinmiş/süzülmüş) seçimleri at.
+    final existing = c.stops.map((s) => s.id).toSet();
+    final ids = _selected.where(existing.contains).toList();
+    if (ids.isEmpty) return;
+    final usage = c.linesByStop;
+    final affected = <String, SehiriciLine>{};
+    for (final id in ids) {
+      for (final line in usage[id] ?? const <SehiriciLine>[]) {
+        affected[line.id] = line;
+      }
+    }
+    final codes = affected.values.map((l) => l.code.isEmpty ? l.name : l.code).join(', ');
+    final ok = await sehiriciConfirm(
+      context,
+      icon: Icons.delete_sweep_rounded,
+      title: '${ids.length} durak silinsin mi?',
+      message: affected.isEmpty
+          ? 'Seçilen duraklar hiçbir hatta bağlı değil; kalıcı olarak silinir.'
+          : 'Seçilen duraklar ${affected.length} hatta kullanılıyor ($codes). Silinince bu '
+              'hatların durak listesinden çıkar ve sıraları yeniden düzenlenir; '
+              'rotalarını yeniden çizmeniz gerekebilir.',
+      confirmLabel: '${ids.length} Durağı Sil',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _deleting = true);
+    try {
+      final result = await c.lineService.deleteStopsOrThrow(ids);
+      await c.reloadCityData();
+      _refreshUserSide();
+      if (!mounted) return;
+      setState(() {
+        _deleting = false;
+        _selecting = false;
+        _selected.clear();
+      });
+      sehiriciSnack(
+        context,
+        result.affectedLines.isEmpty
+            ? '${result.deleted} durak silindi.'
+            : '${result.deleted} durak silindi; ${result.affectedLines.length} hattın durak sırası güncellendi.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      sehiriciSnack(context, sehiriciErrorMessage(e), error: true);
+    }
+  }
+
+  Widget _selectionBar(List<SehiriciStop> visible) {
+    final allVisible = visible.isNotEmpty && visible.every((s) => _selected.contains(s.id));
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Seçimi kapat',
+          onPressed: _deleting ? null : _exitSelection,
+          icon: const Icon(Icons.close_rounded),
+        ),
+        Expanded(
+          child: Text(
+            '${_selected.length} durak seçili',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+        ),
+        TextButton(
+          onPressed: visible.isEmpty || _deleting
+              ? null
+              : () => setState(() {
+                    final ids = visible.map((s) => s.id);
+                    if (allVisible) {
+                      _selected.removeAll(ids);
+                    } else {
+                      _selected.addAll(ids);
+                    }
+                  }),
+          child: Text(allVisible ? 'Seçimi kaldır' : 'Tümünü seç'),
+        ),
+        const SizedBox(width: 4),
+        FilledButton.icon(
+          onPressed: _selected.isEmpty || _deleting ? null : _deleteSelected,
+          icon: _deleting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.delete_outline_rounded, size: 18),
+          label: const Text('Sil'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFDC2626),
+            minimumSize: const Size(0, 44),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -158,6 +282,9 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
                 onChanged: (v) => setState(() => _query = v),
               ),
               const SizedBox(height: 10),
+              if (_selecting)
+                _selectionBar(visible)
+              else
               Row(
                 children: [
                   Expanded(
@@ -200,7 +327,10 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
         ),
         Padding(
           padding: const EdgeInsets.only(left: 16, bottom: 6),
-          child: AdminChipBar<_StopFilter>(
+          child: Row(
+            children: [
+              Expanded(
+                child: AdminChipBar<_StopFilter>(
             selected: _filter,
             onSelected: (f) => setState(() => _filter = f),
             items: [
@@ -223,6 +353,15 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
                 icon: null,
                 count: c.stops.where((s) => !s.isActive).length
               ),
+            ],
+          ),
+              ),
+              if (!_selecting && c.stops.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => _startSelection(),
+                  icon: const Icon(Icons.checklist_rounded, size: 18),
+                  label: const Text('Seç'),
+                ),
             ],
           ),
         ),
@@ -249,7 +388,10 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
                       return _StopCard(
                         stop: stop,
                         lines: lines,
-                        onTap: () => _edit(stop),
+                        selecting: _selecting,
+                        selected: _selected.contains(stop.id),
+                        onTap: _selecting ? () => _toggle(stop.id) : () => _edit(stop),
+                        onLongPress: _selecting ? null : () => _startSelection(stop.id),
                       );
                     },
                   ),
@@ -264,11 +406,17 @@ class _StopCard extends StatelessWidget {
   final SehiriciStop stop;
   final List<SehiriciLine> lines;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool selecting;
+  final bool selected;
 
   const _StopCard({
     required this.stop,
     required this.lines,
     required this.onTap,
+    this.onLongPress,
+    this.selecting = false,
+    this.selected = false,
   });
 
   @override
@@ -281,7 +429,9 @@ class _StopCard extends StatelessWidget {
 
     return Opacity(
       opacity: stop.isActive ? 1 : 0.6,
-      child: AdminCard(
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: AdminCard(
         onTap: onTap,
         padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
         child: Row(
@@ -356,12 +506,20 @@ class _StopCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Icon(Icons.chevron_right_rounded, color: AdminUi.muted),
-            ),
+            if (selecting)
+              Checkbox(
+                value: selected,
+                onChanged: (_) => onTap(),
+                activeColor: const Color(0xFFDC2626),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.chevron_right_rounded, color: AdminUi.muted),
+              ),
           ],
         ),
+      ),
       ),
     );
   }

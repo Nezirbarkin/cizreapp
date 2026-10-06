@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/okey_table_theme.dart';
@@ -108,6 +110,14 @@ class _DamaskPainter extends CustomPainter {
           _paintTufted(canvas, size, strength);
         case OkeyBackdropPattern.grid:
           _paintGrid(canvas, size, strength);
+        case OkeyBackdropPattern.star:
+          _paintStar(canvas, size, strength);
+        case OkeyBackdropPattern.ogee:
+          _paintOgee(canvas, size, strength);
+        case OkeyBackdropPattern.hex:
+          _paintHex(canvas, size, strength);
+        case OkeyBackdropPattern.waves:
+          _paintWaves(canvas, size, strength);
       }
       canvas.restore();
     }
@@ -239,6 +249,153 @@ class _DamaskPainter extends CustomPainter {
       for (var x = 0.0; x < size.width; x += step) {
         canvas.drawCircle(Offset(x, y), 1.4, dot);
       }
+    }
+  }
+
+  /// İZNİK YILDIZI (İznik Çini) — her düğümde iki kareden doğan sekiz
+  /// köşeli yıldız, aralarında küçük baklava "haç" dolgusu. Gerçek çini
+  /// panolarının geometrik iskeleti budur; renkli dolgu yerine yalnızca
+  /// kabartma çizgisi çizilir ki taşların önüne geçmesin.
+  void _paintStar(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.15).clamp(56.0, 120.0);
+    final outer = step * 0.34;
+    final inner = outer * 0.7654; // {8/2} yıldızının iç köşe oranı
+    final shadow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..strokeJoin = StrokeJoin.round
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.26 * strength);
+    final light = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..strokeJoin = StrokeJoin.round
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.13 * strength);
+    final fill = Paint()
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.035 * strength);
+
+    Path star(Offset c) {
+      final path = Path();
+      for (var i = 0; i < 16; i++) {
+        final r = i.isEven ? outer : inner;
+        final a = i * math.pi / 8;
+        final p = c + Offset(math.cos(a) * r, math.sin(a) * r);
+        if (i == 0) {
+          path.moveTo(p.dx, p.dy);
+        } else {
+          path.lineTo(p.dx, p.dy);
+        }
+      }
+      return path..close();
+    }
+
+    Path diamond(Offset c, double r) => Path()
+      ..moveTo(c.dx, c.dy - r)
+      ..lineTo(c.dx + r, c.dy)
+      ..lineTo(c.dx, c.dy + r)
+      ..lineTo(c.dx - r, c.dy)
+      ..close();
+
+    for (var y = 0.0; y < size.height + step; y += step) {
+      for (var x = 0.0; x < size.width + step; x += step) {
+        final c = Offset(x, y);
+        final s = star(c);
+        canvas.drawPath(s, fill);
+        canvas.drawPath(s.shift(const Offset(0.8, 1.0)), shadow);
+        canvas.drawPath(s, light);
+        final d = diamond(c.translate(step / 2, step / 2), step * 0.12);
+        canvas.drawPath(d.shift(const Offset(0.8, 1.0)), shadow);
+        canvas.drawPath(d, light);
+      }
+    }
+  }
+
+  /// SARAY KAFESİ (Osmanlı Saray) — kare ızgaranın düğümlerine oturan,
+  /// komşusuyla kesişen daireler: aralarında dört yapraklı kemer (ogee)
+  /// pencereleri belirir. Düğümlerde varak altın birer nokta.
+  void _paintOgee(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.14).clamp(48.0, 110.0);
+    final r = step * 0.5;
+    final shadow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.24 * strength);
+    final light = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.10 * strength);
+    final stud = Paint()
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.24 * strength);
+
+    for (var y = 0.0; y < size.height + step; y += step) {
+      for (var x = 0.0; x < size.width + step; x += step) {
+        final c = Offset(x, y);
+        canvas.drawCircle(c.translate(0.7, 1.0), r, shadow);
+        canvas.drawCircle(c, r, light);
+        canvas.drawCircle(c.translate(step / 2, step / 2), 1.6, stud);
+      }
+    }
+  }
+
+  /// PETEK (Gece Neon) — düz tepeli altıgen ızgara + köşelerde ışık
+  /// noktaları. Her iç kenar iki altıgende ortak olduğundan çizgi parlaklığı
+  /// her yerde eşittir.
+  void _paintHex(Canvas canvas, Size size, double strength) {
+    final a = (size.height * 0.06).clamp(22.0, 44.0);
+    final h = math.sqrt(3) * a;
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.07 * strength);
+    final dot = Paint()
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.22 * strength);
+
+    var col = 0;
+    for (var x = 0.0; x < size.width + 2 * a; x += 1.5 * a, col++) {
+      final yOffset = col.isOdd ? h / 2 : 0.0;
+      for (var y = yOffset; y < size.height + h; y += h) {
+        final path = Path();
+        for (var i = 0; i < 6; i++) {
+          final ang = i * math.pi / 3;
+          final p = Offset(x + a * math.cos(ang), y + a * math.sin(ang));
+          if (i == 0) {
+            path.moveTo(p.dx, p.dy);
+          } else {
+            path.lineTo(p.dx, p.dy);
+          }
+        }
+        path.close();
+        canvas.drawPath(path, line);
+        canvas.drawCircle(Offset(x + a, y), 1.2, dot);
+      }
+    }
+  }
+
+  /// EGE DALGASI (Ege) — yatay sinüs dalgaları; komşu sıralar yarım dalga
+  /// kaydırılır ki yüzey çizgili değil SU gibi okunsun.
+  void _paintWaves(Canvas canvas, Size size, double strength) {
+    final step = (size.height * 0.075).clamp(26.0, 56.0);
+    final amp = step * 0.2;
+    final wave = step * 2.4;
+    final shadow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..strokeCap = StrokeCap.round
+      ..color = OkeyColors.damaskGrainShadow.withValues(alpha: 0.22 * strength);
+    final light = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..strokeCap = StrokeCap.round
+      ..color = OkeyColors.damaskGrainLight.withValues(alpha: 0.11 * strength);
+
+    var row = 0;
+    for (var y = step / 2; y < size.height + step; y += step, row++) {
+      final shift = row.isOdd ? wave / 2 : 0.0;
+      final path = Path()..moveTo(-wave, y);
+      for (var x = -wave; x <= size.width + wave; x += 4) {
+        path.lineTo(x, y + amp * math.sin((x + shift) / wave * 2 * math.pi));
+      }
+      canvas.drawPath(path.shift(const Offset(0, 1.1)), shadow);
+      canvas.drawPath(path, light);
     }
   }
 

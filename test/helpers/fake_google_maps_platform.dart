@@ -28,6 +28,8 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
   String? style;
   MapType mapType = MapType.normal;
   bool trafficEnabled = false;
+  /// Mavi "konumum" katmanı (`GoogleMap.myLocationEnabled`) açık mı.
+  bool myLocationEnabled = false;
   /// Etkin (en son oluşturulan) haritanın kimliği. Aynı anda birden çok harita
   /// açık olabilir (ör. yönetim panelinde altta canlı harita, üstte konum
   /// seçici diyaloğu); testler her zaman en yeni olanı inceler, eskilerin
@@ -58,6 +60,15 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
   /// Kamerayı [zoom]'a taşır ve hareket + boşta olaylarını gönderir.
   void zoomTo(double zoom) {
     camera = CameraPosition(target: camera.target, zoom: zoom);
+    _events.add(CameraMoveEvent(mapId, camera));
+    _events.add(CameraIdleEvent(mapId));
+    notify();
+  }
+
+  /// Kullanıcı haritayı [target]'a kaydırmış gibi: kamera + hareket + boşta
+  /// olayları (ör. merkezdeki iğneyle konum seçen ekranlar için).
+  void panTo(LatLng target) {
+    camera = CameraPosition(target: target, zoom: camera.zoom);
     _events.add(CameraMoveEvent(mapId, camera));
     _events.add(CameraIdleEvent(mapId));
     notify();
@@ -95,6 +106,7 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
       camera = widgetConfiguration.initialCameraPosition;
       style = mapConfiguration.style;
       mapType = mapConfiguration.mapType ?? MapType.normal;
+      myLocationEnabled = mapConfiguration.myLocationEnabled ?? false;
       for (final m in mapObjects.markers) {
         markers[m.markerId] = m;
       }
@@ -118,6 +130,7 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
     style = configuration.style ?? style;
     mapType = configuration.mapType ?? mapType;
     trafficEnabled = configuration.trafficEnabled ?? trafficEnabled;
+    myLocationEnabled = configuration.myLocationEnabled ?? myLocationEnabled;
     notify();
   }
 

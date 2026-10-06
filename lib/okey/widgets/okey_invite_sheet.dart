@@ -140,7 +140,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
         maxChildSize: 0.95,
         expand: false,
         builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: OkeyUI.screenGradient,
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(OkeyUI.radiusLg),
@@ -169,14 +169,14 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
                     Icon(
                       Icons.person_add_alt_1,
                       size: 20,
-                      color: OkeyUI.brass,
+                      color: OkeyUI.accentInk,
                     ),
                     const SizedBox(width: OkeyUI.gapSm),
-                    const Expanded(
+                    Expanded(
                       child: Text('Arkadaşını davet et', style: OkeyUI.title),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: OkeyUI.textDim),
+                      icon: Icon(Icons.close, color: OkeyUI.textDim),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
@@ -187,12 +187,12 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
                 child: TextField(
                   controller: _searchController,
                   onChanged: _onSearchChanged,
-                  style: const TextStyle(color: OkeyUI.text),
+                  style: TextStyle(color: OkeyUI.text),
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: 'İsim ara',
-                    hintStyle: const TextStyle(color: OkeyUI.textFaint),
-                    prefixIcon: const Icon(
+                    hintStyle: TextStyle(color: OkeyUI.textFaint),
+                    prefixIcon: Icon(
                       Icons.search,
                       color: OkeyUI.textDim,
                       size: 20,
@@ -222,9 +222,7 @@ class _OkeyInviteSheetState extends State<_OkeyInviteSheet> {
 
   Widget _buildBody(ScrollController controller) {
     if (_loading) {
-      return Center(
-        child: CircularProgressIndicator(color: OkeyUI.brass),
-      );
+      return Center(child: CircularProgressIndicator(color: OkeyUI.brass));
     }
     if (_error != null) {
       return ListView(
@@ -362,16 +360,14 @@ class _JoinCodeRow extends StatelessWidget {
       },
       child: Row(
         children: [
-          Icon(Icons.vpn_key, size: 16, color: OkeyUI.brass),
+          Icon(Icons.vpn_key, size: 16, color: OkeyUI.accentInk),
           const SizedBox(width: OkeyUI.gapSm),
-          const Expanded(
-            child: Text('Davet kodunu kopyala', style: OkeyUI.caption),
-          ),
+          Expanded(child: Text('Davet kodunu kopyala', style: OkeyUI.caption)),
           Text(
             code,
             maxLines: 1,
             style: TextStyle(
-              color: OkeyUI.brass,
+              color: OkeyUI.accentInk,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.5,
             ),

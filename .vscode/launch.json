@@ -1,0 +1,30 @@
+{
+    // Debug derlemesi (JIT, assert'ler açık) yalnız geliştirme içindir; akıcılık
+    // ve hız ÖLÇÜLMEZ, kullanıcıların gördüğünden kat kat yavaştır.
+    // Gerçek performansı görmek için "Profile" (DevTools açık, release'e yakın)
+    // ya da "Release" (Play Store'dakiyle aynı) seçin.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "cizreapp (Debug)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "flutterMode": "debug"
+        },
+        {
+            "name": "cizreapp (Profile - performans ölçümü)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "cizreapp (Release - gerçek hız)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "flutterMode": "release"
+        }
+    ]
+}

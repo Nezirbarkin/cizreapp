@@ -137,8 +137,92 @@ class OkeyRackStyle {
     grainOpacity: 0,
   );
 
+  // --- Tasarım paketleriyle gelen ıstakalar (2026-10-05, bkz. OkeyDesign) ---
+
+  /// KOBALT — İznik Çini masasının sırlı mavi ıstakası; beyaz porselen taşlar
+  /// en yüksek kontrastı koyu kobaltta verir (beyaz ıstaka taşları yutuyordu).
+  static const kobalt = OkeyRackStyle(
+    key: 'kobalt',
+    label: 'Kobalt',
+    body: [
+      Color(0xFF2F5FB8),
+      Color(0xFF22488F),
+      Color(0xFF173366),
+      Color(0xFF0E2145),
+    ],
+    lipTop: Color(0xFF2A56A6),
+    lipBottom: Color(0xFF0E2145),
+    accent: Color(0xFFF2C94C),
+    grainColor: Color(0x00000000),
+    grainOpacity: 0,
+    glossOpacity: 0.2,
+  );
+
+  /// ABANOZ — Saray masasının siyaha yakın ağır ahşabı, varak altın ipli.
+  static const abanoz = OkeyRackStyle(
+    key: 'abanoz',
+    label: 'Abanoz',
+    body: [
+      Color(0xFF3A2A20),
+      Color(0xFF2A1E17),
+      Color(0xFF1A120D),
+      Color(0xFF0E0906),
+    ],
+    lipTop: Color(0xFF33251C),
+    lipBottom: Color(0xFF120C08),
+    accent: Color(0xFFF1C75B),
+    grainColor: Color(0xFF050302),
+    grainOpacity: 0.35,
+    glossOpacity: 0.2,
+  );
+
+  /// NEON — siyah akrilik, camgöbeği ışık ipi. Damar yok, cila parlak.
+  static const neon = OkeyRackStyle(
+    key: 'neon',
+    label: 'Neon',
+    body: [
+      Color(0xFF221C40),
+      Color(0xFF18132F),
+      Color(0xFF0F0B1F),
+      Color(0xFF080612),
+    ],
+    lipTop: Color(0xFF1D1838),
+    lipBottom: Color(0xFF07050F),
+    accent: Color(0xFF35E8FF),
+    grainColor: Color(0x00000000),
+    grainOpacity: 0,
+    glossOpacity: 0.24,
+  );
+
+  /// ZEYTİN — Ege masasının açık, belirgin damarlı zeytin ağacı.
+  static const zeytin = OkeyRackStyle(
+    key: 'zeytin',
+    label: 'Zeytin',
+    body: [
+      Color(0xFFCDB47E),
+      Color(0xFFAD9259),
+      Color(0xFF7E6838),
+      Color(0xFF54451F),
+    ],
+    lipTop: Color(0xFFC4AA72),
+    lipBottom: Color(0xFF5E4C24),
+    accent: Color(0xFFFFF0C8),
+    grainColor: Color(0xFF4A3B18),
+    grainOpacity: 0.34,
+    glossOpacity: 0.15,
+  );
+
   /// Ayarlar ekranında GÖSTERİLDİKLERİ sıra.
-  static const List<OkeyRackStyle> all = [ceviz, mese, maun, grafit];
+  static const List<OkeyRackStyle> all = [
+    ceviz,
+    mese,
+    maun,
+    grafit,
+    kobalt,
+    abanoz,
+    neon,
+    zeytin,
+  ];
 
   static OkeyRackStyle byKey(String? key) {
     for (final s in all) {
@@ -146,6 +230,8 @@ class OkeyRackStyle {
     }
     return ceviz;
   }
+
+  static bool isKnown(String? key) => all.any((s) => s.key == key);
 }
 
 /// Seçili ıstakayı tutan ve cihazda saklayan tek nokta.
@@ -170,26 +256,66 @@ class OkeyRackStylePrefs {
 
   bool _loaded = false;
 
+  /// Oyuncunun elle seçtiği ıstaka (yoksa null) — bkz. OkeyTableThemePrefs
+  /// "İki katman" notu: aynı kural.
+  String? _userKey;
+  String _designKey = OkeyRackStyle.ceviz.key;
+  bool _userChoiceAllowed = true;
+
+  bool get hasUserChoice => _userKey != null;
+  bool get userChoiceAllowed => _userChoiceAllowed;
+  OkeyRackStyle get designDefault => OkeyRackStyle.byKey(_designKey);
+
   /// Kayıtlı tercihi okur. ASLA hata fırlatmaz — okunamazsa varsayılan kalır.
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      current.value = OkeyRackStyle.byKey(prefs.getString(_prefsKey));
+      final stored = prefs.getString(_prefsKey);
+      _userKey = OkeyRackStyle.isKnown(stored) ? stored : null;
     } catch (_) {
       // tercih okunamadıysa varsayılan ıstaka kullanılır
     }
+    _recompute();
+  }
+
+  /// Aktif tasarım değişti (bkz. OkeyDesignPrefs).
+  void applyDesignDefault(String key, {required bool userChoiceAllowed}) {
+    _designKey = key;
+    _userChoiceAllowed = userChoiceAllowed;
+    _recompute();
+  }
+
+  void _recompute() {
+    final userKey = _userKey;
+    current.value = _userChoiceAllowed && userKey != null
+        ? OkeyRackStyle.byKey(userKey)
+        : OkeyRackStyle.byKey(_designKey);
   }
 
   Future<void> select(OkeyRackStyle style) async {
-    if (current.value.key == style.key) return;
-    current.value = style;
+    if (!_userChoiceAllowed) return;
+    if (_userKey == style.key && current.value.key == style.key) return;
+    _userKey = style.key;
+    _recompute();
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, style.key);
     } catch (_) {
       // kaydedilemezse seçim bu oturum boyunca geçerli kalır
+    }
+  }
+
+  /// Oyuncunun ıstaka seçimini kaldırır → tasarımın ıstakasına döner.
+  Future<void> clearUserChoice() async {
+    _userKey = null;
+    _recompute();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+    } catch (_) {
+      // yoksayılır
     }
   }
 }

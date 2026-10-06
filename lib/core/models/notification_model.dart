@@ -176,6 +176,16 @@ class NotificationModel {
         return 'group_add';
       case 'group_member_joined':
         return 'group';
+      case 'cart_price_drop':
+        return 'local_offer';
+      case 'price_drop':
+        return 'trending_down';
+      case 'ilan_expiring':
+        return 'hourglass_bottom';
+      case 'ilan_expired':
+        return 'timer_off';
+      case 'live_started':
+        return 'sensors';
       case 'okey_invite':
         return 'casino';
       case 'okey_invite_accepted':
@@ -237,6 +247,16 @@ class NotificationModel {
         return 'deepOrange';
       case 'group_member_joined':
         return 'lightGreen';
+      case 'cart_price_drop':
+        return 'deepOrange';
+      case 'price_drop':
+        return 'green';
+      case 'ilan_expiring':
+        return 'orange';
+      case 'ilan_expired':
+        return 'red';
+      case 'live_started':
+        return 'red';
       case 'okey_invite':
       case 'okey_invite_accepted':
         return 'amber';

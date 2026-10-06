@@ -307,6 +307,53 @@ class AdminBadge extends StatelessWidget {
   }
 }
 
+/// [AdminBadge] görünümünde ama dar alanda üç noktayla kısalan rozet: kart
+/// içindeki `Wrap`'lerde büyük yazıda taşmaz (AdminBadge küçülemez).
+class AdminPill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData? icon;
+
+  const AdminPill({
+    super.key,
+    required this.label,
+    required this.color,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 3),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Boş/hata durumu.
 class AdminEmpty extends StatelessWidget {
   final IconData icon;

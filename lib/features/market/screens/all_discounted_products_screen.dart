@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/models/sponsorship_model.dart';
+import '../../../core/utils/sponsor_ordering.dart';
+import '../../../core/widgets/sponsor_badge.dart';
 import '../../../core/services/favorite_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
@@ -437,6 +440,14 @@ class _AllDiscountedProductsScreenState
                   // Geçici Kapalı rozeti - üst sağ
                   if (closedBadge != null)
                     Positioned(top: 4, right: 4, child: closedBadge),
+                  // Sponsor (Görev 3.2) - üst sağ, kapalı rozetinin altı. Sıra
+                  // ana sayfadan gelir (sponsorlar zaten en üstte).
+                  if (SponsorOrdering.productBadge(product, SponsorPlacement.productDiscount))
+                    Positioned(
+                      top: closedBadge != null ? 24 : 4,
+                      right: 4,
+                      child: const SponsorBadge(),
+                    ),
                   // Stokta yok overlay
                   if (!isInStock)
                     Positioned.fill(

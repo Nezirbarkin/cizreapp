@@ -1,0 +1,502 @@
+# Market (markalı) — 500 ürün. Biçim: Ad | arama kelimeleri | görsel tarifi (İngilizce)
+# Görseller marka logosu/yazısı OLMADAN, sade ambalajla üretilir (bkz. üretim betiği).
+Pınar Tam Yağlı Süt 1 L | süt, uht süt, kutu süt | 1 liter carton of whole milk
+Sütaş Tam Yağlı Süt 1 L | süt, uht süt, kutu süt | 1 liter carton of whole milk
+İçim Tam Yağlı Süt 1 L | süt, uht süt, kutu süt | 1 liter carton of whole milk
+Torku Tam Yağlı Süt 1 L | süt, uht süt, kutu süt | 1 liter carton of whole milk
+Sek Tam Yağlı Süt 1 L | süt, uht süt, kutu süt | 1 liter carton of whole milk
+Pınar Yarım Yağlı Süt 1 L | süt, yarım yağlı, light | 1 liter carton of semi skimmed milk
+Pınar Laktozsuz Süt 1 L | süt, laktozsuz | 1 liter carton of lactose free milk
+Pınar Kakaolu Süt 200 ml | kakaolu süt, çocuk | small carton of chocolate milk with straw
+Pınar Çilekli Süt 200 ml | çilekli süt, çocuk | small carton of strawberry milk with straw
+Pınar Protein Süt 500 ml | protein, süt | bottle of protein milk drink
+Sütaş Ayran 1 L | ayran, yoğurt içeceği | 1 liter bottle of ayran yogurt drink
+Pınar Ayran 1 L | ayran | 1 liter bottle of ayran yogurt drink
+İçim Ayran 1 L | ayran | 1 liter bottle of ayran yogurt drink
+Eker Ayran 1 L | ayran | 1 liter bottle of ayran yogurt drink
+Sütaş Bardak Ayran 200 ml | ayran, bardak | sealed plastic cup of ayran
+Sütaş Yoğurt 1,5 kg | yoğurt, tam yağlı | large plastic tub of plain yogurt
+Pınar Yoğurt 1,5 kg | yoğurt | large plastic tub of plain yogurt
+Eker Kaymaklı Yoğurt 1 kg | yoğurt, kaymaklı | plastic tub of creamy set yogurt
+Sütaş Süzme Yoğurt 750 g | süzme yoğurt | plastic tub of strained yogurt
+Mis Yoğurt 1 kg | yoğurt | plastic tub of plain yogurt
+Danone Activia Sade Yoğurt | activia, probiyotik | four small cups of probiotic yogurt
+Danone Activia Çilekli Yoğurt | activia, meyveli yoğurt | four small cups of strawberry yogurt
+Danone Danino | danino, çocuk yoğurdu | small cups of kids fruit yogurt
+Sütaş Kefir 1 L | kefir | 1 liter bottle of kefir
+Pınar Beyaz Peynir 500 g | beyaz peynir, inek peyniri | block of white feta cheese in plastic pack
+Sütaş Beyaz Peynir 500 g | beyaz peynir | block of white feta cheese in plastic pack
+Ekici Beyaz Peynir 500 g | beyaz peynir | block of white feta cheese in plastic pack
+Bahçıvan Beyaz Peynir 500 g | beyaz peynir | block of white feta cheese in plastic pack
+Teksüt Beyaz Peynir 500 g | beyaz peynir | block of white feta cheese in plastic pack
+Pınar Kaşar Peyniri 400 g | kaşar, peynir | wedge of yellow kashar cheese in vacuum pack
+Sütaş Kaşar Peyniri 400 g | kaşar, peynir | wedge of yellow kashar cheese in vacuum pack
+Ekici Kaşar Peyniri 400 g | kaşar | wedge of yellow kashar cheese in vacuum pack
+Pınar Dilimli Kaşar | dilimli peynir, tost | pack of sliced yellow cheese
+Pınar Rende Pizza Peyniri | rende peynir, pizza | bag of shredded mozzarella cheese
+Pınar Labne 400 g | labne, krem peynir | tub of cream cheese
+Pınar Üçgen Peynir | üçgen peynir, çocuk | round box of triangle cheese portions
+Muratbey Çeçil Peyniri | çeçil, tel peyniri | braided string cheese in pack
+Muratbey Burgu Peyniri | burgu peynir | twisted string cheese in pack
+Sütaş Lor Peyniri | lor | tub of fresh curd cheese
+Sütaş Tereyağı 250 g | tereyağı | wrapped block of butter
+Pınar Tereyağı 250 g | tereyağı | wrapped block of butter
+Sütaş Kaymak 200 g | kaymak | small tub of clotted cream
+Pınar Krema 200 ml | sıvı krema, mutfak kreması | small carton of cooking cream
+Sütaş Sütlaç | sütlaç, tatlı | cup of rice pudding
+Keskinoğlu Yumurta 30'lu | yumurta | carton of thirty brown eggs
+Lezita Yumurta 15'li | yumurta | carton of fifteen eggs
+Tariş Siyah Zeytin 1 kg | zeytin, siyah zeytin, kahvaltılık | jar of black olives
+Marmarabirlik Siyah Zeytin 1 kg | zeytin, gemlik | jar of black olives
+Tariş Kırma Yeşil Zeytin | yeşil zeytin | jar of cracked green olives
+Koska Tahin Helva | helva, tahin helvası | block of tahini halva in plastic tub
+Koska Fıstıklı Helva | helva, antep fıstığı | block of pistachio halva in plastic tub
+Koska Tahin 300 g | tahin | jar of tahini
+Koska Üzüm Pekmezi | pekmez | jar of grape molasses
+Balparmak Süzme Çiçek Balı 850 g | bal, çiçek balı | glass jar of golden honey
+Balparmak Petek Bal | petek bal | honeycomb in a plastic box
+Anavarza Çiçek Balı | bal | glass jar of golden honey
+Tamek Çilek Reçeli | reçel, çilek | glass jar of strawberry jam
+Tamek Vişne Reçeli | reçel, vişne | glass jar of sour cherry jam
+Tamek Kayısı Reçeli | reçel, kayısı | glass jar of apricot jam
+Seyidoğlu Gül Reçeli | reçel, gül | glass jar of rose petal jam
+Nutella 400 g | fındık kreması, kakaolu | glass jar of chocolate hazelnut spread
+Sarelle Fındık Kreması | fındık kreması | jar of chocolate hazelnut spread
+Ülker Çokokrem | kakaolu krema | plastic jar of cocoa hazelnut spread
+Torku Banada | fındık kreması | plastic jar of cocoa hazelnut spread
+Nestlé Corn Flakes | mısır gevreği, kahvaltı | box of corn flakes cereal
+Nestlé Nesquik Gevrek | kakaolu gevrek | box of chocolate cereal
+Nestlé Fitness Gevrek | tam tahıllı gevrek | box of whole grain cereal flakes
+Kellogg's Corn Flakes | mısır gevreği | box of corn flakes cereal
+Uno Tost Ekmeği | tost ekmeği, ekmek | sliced white sandwich bread loaf in bag
+Uno Tam Buğday Ekmeği | tam buğday, ekmek | sliced whole wheat bread loaf in bag
+Pınar Dana Sucuk | sucuk | ring of turkish beef sausage
+Namet Dana Sucuk | sucuk | ring of turkish beef sausage
+Apikoğlu Sucuk | sucuk | ring of turkish beef sausage
+Pınar Sosis | sosis | pack of hot dog sausages
+Namet Dana Sosis | sosis | pack of hot dog sausages
+Pınar Dana Salam | salam | pack of sliced salami
+Pınar Hindi Füme | hindi füme, şarküteri | pack of sliced smoked turkey
+Pınar Hazır Köfte | köfte, dondurulmuş | box of frozen meatballs
+Pınar Hamburger Köftesi | hamburger köftesi | box of frozen burger patties
+Banvit Bütün Piliç | tavuk, piliç | whole raw chicken in plastic tray
+Banvit Tavuk Göğsü | tavuk göğsü, fileto | tray of raw chicken breast fillets
+Banvit Tavuk Baget | baget, tavuk but | tray of raw chicken drumsticks
+Banvit Piliç Nugget | nugget, pane | box of frozen chicken nuggets
+Şenpiliç Bütün Piliç | tavuk, piliç | whole raw chicken in plastic tray
+Erpiliç Tavuk Kanat | kanat, tavuk | tray of raw chicken wings
+Beypiliç Tavuk Göğüs Fileto | tavuk göğsü | tray of raw chicken breast fillets
+Dardanel Ton Balığı 3'lü | ton balığı, konserve | stack of three tuna cans
+Superfresh Dondurulmuş Patates | patates kızartması, dondurulmuş | bag of frozen french fries
+Superfresh Bezelye | bezelye, dondurulmuş | bag of frozen green peas
+Superfresh Ispanak | ıspanak, dondurulmuş | bag of frozen spinach
+Superfresh Mantı | mantı | bag of frozen turkish dumplings
+Dr. Oetker Ristorante Pizza | pizza, dondurulmuş | box of frozen pizza
+Algida Cornetto | dondurma, külah | ice cream cone with wrapper
+Algida Magnum Badem | dondurma, çubuk | chocolate coated ice cream bar
+Algida Maraş Usulü Dondurma | dondurma, kutu | tub of vanilla ice cream
+Mado Kaymaklı Dondurma | dondurma, kaymaklı | tub of creamy ice cream
+Coca-Cola 1 L | kola, gazlı içecek | 1 liter plastic bottle of cola
+Coca-Cola 2,5 L | kola, büyük boy | large plastic bottle of cola
+Coca-Cola Kutu 330 ml | kola, kutu | aluminum can of cola
+Coca-Cola Zero 1 L | kola, şekersiz | 1 liter plastic bottle of sugar free cola
+Pepsi 1 L | kola | 1 liter plastic bottle of cola
+Pepsi Kutu 330 ml | kola, kutu | aluminum can of cola
+Fanta Portakal 1 L | portakallı gazoz | plastic bottle of orange soda
+Fanta Kutu 330 ml | portakallı, kutu | aluminum can of orange soda
+Sprite 1 L | limonlu gazoz | plastic bottle of lemon lime soda
+7Up 1 L | limonlu gazoz | plastic bottle of lemon lime soda
+Yedigün Portakal 1 L | portakallı gazoz | plastic bottle of orange soda
+Schweppes Mandalina | mandalinalı gazoz | plastic bottle of tangerine soda
+Uludağ Gazoz 1 L | gazoz | plastic bottle of clear soda
+Uludağ Limonata 1 L | limonata | plastic bottle of lemonade
+Çamlıca Gazoz 1 L | gazoz | plastic bottle of clear soda
+Beypazarı Maden Suyu 200 ml | maden suyu, soda | small glass bottle of mineral water
+Kızılay Maden Suyu 200 ml | maden suyu, soda | small glass bottle of mineral water
+Uludağ Premium Maden Suyu | maden suyu | glass bottle of sparkling mineral water
+Erikli Maden Suyu 200 ml | maden suyu | small glass bottle of mineral water
+Erikli Su 0,5 L | su, pet şişe | small plastic bottle of water
+Erikli Su 5 L | su, damacana | 5 liter plastic water jug with handle
+Erikli Damacana 19 L | damacana, su | large 19 liter water carboy
+Hayat Su 1,5 L | su | 1.5 liter plastic bottle of water
+Hayat Damacana 19 L | damacana | large 19 liter water carboy
+Pınar Su 0,5 L | su | small plastic bottle of water
+Damla Su 0,5 L | su | small plastic bottle of water
+Saka Su 1,5 L | su | 1.5 liter plastic bottle of water
+Sırma Su 5 L | su | 5 liter plastic water jug with handle
+Lipton Ice Tea Şeftali 1 L | soğuk çay, şeftali | bottle of peach iced tea
+Lipton Ice Tea Limon 1 L | soğuk çay, limon | bottle of lemon iced tea
+Fuse Tea Limon 1 L | soğuk çay | bottle of lemon iced tea
+Çaykur Didi Şeftali | soğuk çay | bottle of peach iced tea
+Cappy Vişne 1 L | meyve suyu, vişne | carton of sour cherry juice
+Cappy Şeftali 1 L | meyve suyu, şeftali | carton of peach nectar
+Dimes Portakal Suyu 1 L | portakal suyu | carton of orange juice
+Dimes Vişne 1 L | vişne suyu | carton of sour cherry juice
+Tamek Şeftali Nektarı 1 L | şeftali | carton of peach nectar
+Meysu Karışık Meyve Suyu 1 L | meyve suyu | carton of mixed fruit juice
+Doğanay Şalgam Suyu 1 L | şalgam | bottle of dark purple turnip juice
+Doğanay Acılı Şalgam 1 L | şalgam, acılı | bottle of dark purple turnip juice
+Red Bull 250 ml | enerji içeceği | slim can of energy drink
+Monster Energy 500 ml | enerji içeceği | tall can of energy drink
+Nescafé Xpress Soğuk Kahve | soğuk kahve, kutu | can of iced coffee
+Nescafé Gold 100 g | hazır kahve | glass jar of instant coffee
+Nescafé Classic 100 g | hazır kahve | glass jar of instant coffee
+Nescafé 3'ü 1 Arada | kahve, sachet | box of 3 in 1 coffee sachets
+Nescafé 2'si 1 Arada | kahve, sachet | box of 2 in 1 coffee sachets
+Jacobs Monarch Gold | hazır kahve | glass jar of instant coffee
+Kurukahveci Mehmet Efendi Türk Kahvesi 100 g | türk kahvesi | foil pack of ground turkish coffee
+Kahve Dünyası Türk Kahvesi 100 g | türk kahvesi | foil pack of ground turkish coffee
+Nesquik Kakao 420 g | kakao, sıcak çikolata | canister of cocoa drink powder
+Çaykur Rize Turist Çayı 1 kg | çay, siyah çay, dökme | pack of loose black tea
+Çaykur Tiryaki Çay 1 kg | çay, dökme | pack of loose black tea
+Çaykur Filiz Çay 1 kg | çay, filiz | pack of loose black tea
+Çaykur Altınbaş Çay 1 kg | çay | pack of loose black tea
+Doğuş Karadeniz Çay 1 kg | çay | pack of loose black tea
+Lipton Yellow Label Bardak Poşet | çay poşeti | box of tea bags
+Lipton Demlik Poşet | demlik poşet, çay | box of teapot tea bags
+Lipton Rize Çayı 1 kg | çay | pack of loose black tea
+Lipton Yeşil Çay | yeşil çay | box of green tea bags
+Doğadan Ihlamur | bitki çayı, ıhlamur | box of linden herbal tea bags
+Doğadan Yeşil Çay | yeşil çay | box of green tea bags
+Doğadan Kuşburnu | kuşburnu çayı | box of rosehip tea bags
+Doğadan Papatya | papatya çayı | box of chamomile tea bags
+Doğadan Adaçayı | adaçayı | box of sage tea bags
+Doğadan Rezene | rezene çayı | box of fennel tea bags
+Ahmad Tea Earl Grey | earl grey, çay | box of earl grey tea bags
+Ülker Çikolatalı Gofret | gofret, çikolata | chocolate coated wafer bar
+Ülker Albeni | çikolata, karamel | caramel chocolate bar
+Ülker Biskrem | bisküvi, kakaolu | pack of cocoa cream biscuits
+Ülker Halley | halley, marshmallow | chocolate coated marshmallow biscuit
+Ülker Dido | gofret, çikolata | chocolate wafer bar
+Ülker Hanımeller | kurabiye | pack of cookies
+Ülker Pötibör | bisküvi, çay bisküvisi | pack of plain tea biscuits
+Ülker Çokoprens | kakaolu bisküvi | chocolate sandwich biscuits
+Ülker Napoliten | çikolata | small individually wrapped chocolate squares
+Ülker Sütlü Tablet Çikolata | çikolata, sütlü | milk chocolate tablet bar
+Ülker Bitter Çikolata | bitter çikolata | dark chocolate tablet bar
+Ülker Laviva | çikolata | chocolate candy bar
+Ülker Metro | çikolata | chocolate candy bar
+Ülker Saklıköy | kurabiye, bisküvi | pack of baked biscuits
+Ülker Krispi | kraker | pack of crackers
+Ülker Çizi | kraker, peynirli | pack of cheese crackers
+Ülker Dankek | kek | individually wrapped snack cake
+Ülker Bebe Bisküvisi | bebe bisküvi | pack of baby biscuits
+Eti Burçak | bisküvi, tam buğday | pack of digestive biscuits
+Eti Popkek | kek | individually wrapped snack cake
+Eti Topkek | kek, kakaolu | individually wrapped cocoa cake
+Eti Karam | gofret, bitter | dark chocolate wafer bar
+Eti Petito | bisküvi, tereyağlı | pack of butter biscuits
+Eti Cin | kurabiye, portakal | pack of jam filled cookies
+Eti Crax | kraker | pack of crackers
+Eti Crax Çubuk | kraker çubuk | pack of cracker sticks
+Eti Tutku | bisküvi, çikolatalı | pack of chocolate chip cookies
+Eti Form | bisküvi, kepekli | pack of bran biscuits
+Eti Browni | kek, brownie | chocolate brownie cake
+Eti Puf | puf, marshmallow | chocolate coated marshmallow cake
+Eti Canga | çikolata, fıstıklı | chocolate bar with peanuts
+Eti Gong | pirinç patlağı | puffed rice cakes
+Eti Wanted | çikolata, gofret | chocolate wafer bar
+Eti Hoşbeş | gofret | cream filled wafers
+Şölen Ozmo Burger | ozmo, kek | burger shaped snack cake
+Şölen Luppo | kek, çikolatalı | chocolate snack cake
+Tadelle Fındıklı Gofret | gofret, fındık | hazelnut chocolate wafer bar
+Nestlé Damak | çikolata, antep fıstığı | pistachio chocolate bar
+Nestlé KitKat | gofret, çikolata | chocolate wafer fingers bar
+Milka Sütlü Çikolata | çikolata, tablet | milk chocolate tablet bar
+Milka Fındıklı Çikolata | çikolata, fındıklı | hazelnut milk chocolate bar
+Snickers | çikolata, fıstıklı | chocolate bar with peanuts
+Twix | çikolata, karamel | chocolate caramel cookie bars
+M&M's | şekerleme, çikolata | bag of colorful chocolate candies
+Kinder Çikolata | çikolata, çocuk | milk chocolate fingers
+Kinder Joy | sürpriz yumurta | egg shaped chocolate surprise
+Ferrero Rocher 16'lı | çikolata, hediye | box of gold wrapped hazelnut chocolates
+Oreo | bisküvi, kakaolu | pack of chocolate sandwich cookies
+Lay's Klasik | cips, patates | bag of potato chips
+Ruffles Original | cips, tırtıklı | bag of ridged potato chips
+Doritos Nacho | cips, mısır | bag of tortilla chips
+Cheetos Peynirli | çerez, mısır | bag of cheese puffs
+Patos | mısır cipsi | bag of tortilla chips
+Çerezza | çerez, mısır | bag of corn snack
+Pringles Original | cips, tüp | tube of stacked potato chips
+Pringles Ekşi Krema | cips, tüp | tube of stacked potato chips
+Tadım Karışık Kuruyemiş | kuruyemiş | bag of mixed nuts
+Tadım Antep Fıstığı | antep fıstığı, kuruyemiş | bag of pistachios
+Tadım Ay Çekirdeği | ay çekirdeği | bag of sunflower seeds
+Tadım Leblebi | leblebi | bag of roasted chickpeas
+Tadım Badem | badem | bag of almonds
+Peyman Kavrulmuş Fındık | fındık | bag of roasted hazelnuts
+Peyman Ay Çekirdeği | ay çekirdeği | bag of sunflower seeds
+Haribo Altın Ayıcık | jelibon | bag of gummy bears
+Mentos | şeker, nane | roll of chewy mints
+Halls | şeker, mentollü | pack of menthol candies
+Falım Sakız | sakız | pack of chewing gum
+First Sakız | sakız | pack of chewing gum
+Vivident Xylit | sakız, şekersiz | pack of sugar free chewing gum
+Filiz Spagetti 500 g | makarna, spagetti | pack of spaghetti pasta
+Filiz Burgu Makarna 500 g | makarna, burgu | pack of fusilli pasta
+Filiz Erişte | erişte | pack of egg noodles
+Filiz Arpa Şehriye | şehriye | pack of orzo pasta
+Barilla Spagetti 500 g | makarna, spagetti | pack of spaghetti pasta
+Barilla Penne 500 g | makarna, kalem | pack of penne pasta
+Nuh'un Ankara Spagetti | makarna, spagetti | pack of spaghetti pasta
+Nuh'un Ankara Burgu Makarna | makarna, burgu | pack of fusilli pasta
+Pastavilla Spagetti | makarna | pack of spaghetti pasta
+Piyale Spagetti | makarna | pack of spaghetti pasta
+Oba Makarna Kelebek | makarna, kelebek | pack of bow tie pasta
+Arbella Makarna Fiyonk | makarna | pack of bow tie pasta
+Duru Pilavlık Bulgur 1 kg | bulgur, pilavlık | bag of coarse bulgur wheat
+Duru Köftelik Bulgur 1 kg | bulgur, köftelik | bag of fine bulgur wheat
+Duru Kırmızı Mercimek 1 kg | mercimek, kırmızı | bag of red lentils
+Duru Yeşil Mercimek 1 kg | mercimek, yeşil | bag of green lentils
+Duru Nohut 1 kg | nohut | bag of chickpeas
+Duru Kuru Fasulye 1 kg | kuru fasulye | bag of white beans
+Duru Barbunya 1 kg | barbunya | bag of borlotti beans
+Reis Baldo Pirinç 1 kg | pirinç, baldo | bag of rice
+Reis Osmancık Pirinç 1 kg | pirinç, osmancık | bag of rice
+Yayla Baldo Pirinç 1 kg | pirinç | bag of rice
+Söke Un 5 kg | un, buğday unu | bag of wheat flour
+Sinangil Un 5 kg | un | bag of wheat flour
+Torku Toz Şeker 1 kg | şeker, toz şeker | bag of granulated sugar
+Bal Küpü Toz Şeker 1 kg | şeker | bag of granulated sugar
+Bal Küpü Küp Şeker | küp şeker | box of sugar cubes
+Bal Küpü Pudra Şekeri | pudra şekeri | bag of powdered sugar
+Billur Tuz | tuz, sofra tuzu | box of table salt
+Tat Domates Salçası 830 g | salça, domates | can of tomato paste
+Tukaş Domates Salçası 830 g | salça, domates | can of tomato paste
+Tat Biber Salçası | salça, biber | jar of red pepper paste
+Burcu Biber Salçası | salça, biber | jar of red pepper paste
+Öncü Biber Salçası | salça, acı biber | jar of red pepper paste
+Tat Ketçap | ketçap | squeeze bottle of ketchup
+Heinz Ketçap | ketçap | squeeze bottle of ketchup
+Calvé Mayonez | mayonez | squeeze bottle of mayonnaise
+Hellmann's Mayonez | mayonez | jar of mayonnaise
+Kemal Kükrer Nar Ekşili Sos | nar ekşisi | bottle of pomegranate molasses
+Fersan Üzüm Sirkesi | sirke, üzüm sirkesi | bottle of grape vinegar
+Fersan Elma Sirkesi | sirke, elma sirkesi | bottle of apple cider vinegar
+Knorr Domates Çorbası | çorba, hazır çorba | packet of instant tomato soup
+Knorr Mercimek Çorbası | çorba, mercimek | packet of instant lentil soup
+Knorr Ezogelin Çorbası | çorba, ezogelin | packet of instant soup
+Knorr Yayla Çorbası | çorba, yayla | packet of instant yogurt soup
+Knorr Şehriyeli Tavuk Çorbası | çorba, tavuk | packet of instant chicken noodle soup
+Knorr Tavuk Bulyon | bulyon, tavuk suyu | box of bouillon cubes
+Maggi Et Bulyon | bulyon, et suyu | box of bouillon cubes
+Dr. Oetker Kabartma Tozu | kabartma tozu, kek | sachets of baking powder
+Dr. Oetker Vanilin | vanilin | sachets of vanilla sugar
+Dr. Oetker Çikolatalı Puding | puding | box of chocolate pudding mix
+Dr. Oetker Krem Şanti | krem şanti | box of whipped cream powder
+Dr. Oetker Jöle | jöle | box of fruit jelly mix
+Dr. Oetker Hazır Kek Karışımı | kek, hazır karışım | box of cake mix
+Bağdat Pul Biber | pul biber, baharat | bag of red pepper flakes
+Bağdat Karabiber | karabiber, baharat | bag of ground black pepper
+Bağdat Kimyon | kimyon, baharat | bag of ground cumin
+Bağdat Kekik | kekik, baharat | bag of dried thyme
+Bağdat Tarçın | tarçın, baharat | bag of ground cinnamon
+Bağdat Sumak | sumak, baharat | bag of ground sumac
+Yudum Ayçiçek Yağı 5 L | ayçiçek yağı, sıvı yağ | 5 liter plastic bottle of sunflower oil
+Komili Ayçiçek Yağı 5 L | ayçiçek yağı | 5 liter plastic bottle of sunflower oil
+Orkide Ayçiçek Yağı 5 L | ayçiçek yağı | 5 liter plastic bottle of sunflower oil
+Kristal Ayçiçek Yağı 5 L | ayçiçek yağı | 5 liter plastic bottle of sunflower oil
+Komili Riviera Zeytinyağı 1 L | zeytinyağı | 1 liter bottle of olive oil
+Komili Sızma Zeytinyağı 1 L | zeytinyağı, sızma | 1 liter bottle of extra virgin olive oil
+Kristal Sızma Zeytinyağı 1 L | zeytinyağı, sızma | 1 liter bottle of extra virgin olive oil
+Tariş Sızma Zeytinyağı 1 L | zeytinyağı | 1 liter bottle of extra virgin olive oil
+Kırlangıç Zeytinyağı 1 L | zeytinyağı | 1 liter tin of olive oil
+Bizim Yağ Margarin | margarin | tub of margarine
+Becel Margarin | margarin | tub of margarine
+Sana Margarin | margarin, kalıp | wrapped block of margarine
+Rama Margarin | margarin | tub of margarine
+Tamek Bezelye Konservesi | konserve, bezelye | can of green peas
+Tat Kuru Fasulye Konservesi | konserve, fasulye | can of white beans
+Tat Mısır Konservesi | konserve, mısır | can of sweet corn
+Bonduelle Mısır | konserve, mısır | can of sweet corn
+Tat Közlenmiş Biber | közlenmiş biber, kavanoz | jar of roasted red peppers
+Prima Bebek Bezi | bebek bezi | pack of baby diapers
+Molfix Bebek Bezi | bebek bezi | pack of baby diapers
+Sleepy Bebek Bezi | bebek bezi | pack of baby diapers
+Huggies Bebek Bezi | bebek bezi | pack of baby diapers
+Sleepy Külot Bez | külot bez | pack of baby pull up diapers
+Sleepy Islak Havlu | ıslak mendil, bebek | pack of baby wet wipes
+Uni Baby Islak Havlu | ıslak mendil | pack of baby wet wipes
+Prima Islak Havlu | ıslak mendil | pack of baby wet wipes
+Bebelac Devam Sütü | mama, devam sütü | can of baby formula
+Aptamil Devam Sütü | mama, devam sütü | can of baby formula
+Hero Baby Kaşık Maması | kaşık maması | box of baby cereal
+Hipp Organik Kaşık Maması | kaşık maması, organik | small glass jar of baby food puree
+Ariel Toz Deterjan 5 kg | çamaşır deterjanı, toz | large box of laundry powder
+Persil Toz Deterjan 5 kg | çamaşır deterjanı, toz | large box of laundry powder
+Omo Toz Deterjan 5 kg | çamaşır deterjanı, toz | large box of laundry powder
+Bingo Toz Deterjan 5 kg | çamaşır deterjanı, toz | large box of laundry powder
+Alo Toz Deterjan 5 kg | çamaşır deterjanı, toz | large box of laundry powder
+Ariel Sıvı Deterjan | sıvı deterjan, çamaşır | bottle of liquid laundry detergent
+Persil Sıvı Deterjan | sıvı deterjan | bottle of liquid laundry detergent
+Omo Sıvı Deterjan | sıvı deterjan | bottle of liquid laundry detergent
+Perwoll Sıvı Deterjan | sıvı deterjan, siyahlar | bottle of liquid laundry detergent
+Bingo Sıvı Deterjan | sıvı deterjan | bottle of liquid laundry detergent
+Ariel Kapsül | kapsül deterjan | tub of laundry detergent pods
+Persil Kapsül | kapsül deterjan | tub of laundry detergent pods
+Vernel Yumuşatıcı | yumuşatıcı | bottle of fabric softener
+Yumoş Yumuşatıcı | yumuşatıcı | bottle of fabric softener
+Bingo Soft Yumuşatıcı | yumuşatıcı | bottle of fabric softener
+Vanish Leke Çıkarıcı | leke çıkarıcı | tub of stain remover powder
+Ace Çamaşır Suyu | çamaşır suyu, beyazlatıcı | bottle of bleach
+Domestos Çamaşır Suyu | çamaşır suyu | bottle of thick bleach
+Domestos WC Jel | tuvalet temizleyici | bottle of toilet cleaner gel
+Fairy Bulaşık Deterjanı | bulaşık deterjanı | bottle of dishwashing liquid
+Pril Bulaşık Deterjanı | bulaşık deterjanı | bottle of dishwashing liquid
+Fairy Bulaşık Makinesi Tableti | tablet, bulaşık makinesi | box of dishwasher tablets
+Finish Bulaşık Makinesi Tableti | tablet, bulaşık makinesi | box of dishwasher tablets
+Finish Parlatıcı | parlatıcı | bottle of dishwasher rinse aid
+Finish Tuz | bulaşık makinesi tuzu | bag of dishwasher salt
+Calgon Tablet | kireç önleyici | box of washing machine tablets
+Cif Krem | krem temizleyici | bottle of cream cleanser
+Cif Mutfak Sprey | mutfak temizleyici | spray bottle of kitchen cleaner
+Mr. Muscle Mutfak Sprey | yağ çözücü | spray bottle of kitchen degreaser
+Mr. Muscle Lavabo Açıcı | lavabo açıcı | bottle of drain cleaner gel
+Mr. Proper Yüzey Temizleyici | yüzey temizleyici | bottle of floor cleaner
+Marc Yüzey Temizleyici | yüzey temizleyici | bottle of floor cleaner
+Glorix Yüzey Temizleyici | yüzey temizleyici, çamaşır suyulu | bottle of bleach floor cleaner
+Viakal Kireç Sökücü | kireç sökücü | spray bottle of limescale remover
+Asperox Kireç Sökücü | kireç sökücü | spray bottle of limescale remover
+Camsil Cam Temizleyici | cam temizleyici | spray bottle of blue glass cleaner
+Bref WC Blok | klozet blok | toilet rim block
+Harpic WC Temizleyici | tuvalet temizleyici | bottle of toilet cleaner
+Pronto Mobilya Cilası | mobilya cilası | spray can of furniture polish
+Glade Oda Spreyi | oda kokusu | spray can of air freshener
+Air Wick Oda Kokusu | oda kokusu, koku | plug-in air freshener
+Febreze Kumaş Spreyi | kumaş spreyi | spray bottle of fabric refresher
+Raid Sinek Spreyi | böcek ilacı, sinek | spray can of insect killer
+Raid Likit Sivrisinek Kovucu | sivrisinek, likit | plug-in mosquito repellent device
+Sinkill Böcek İlacı | böcek ilacı | spray can of insecticide
+Selpak Tuvalet Kağıdı 32'li | tuvalet kağıdı | large pack of toilet paper rolls
+Solo Tuvalet Kağıdı 32'li | tuvalet kağıdı | large pack of toilet paper rolls
+Familia Tuvalet Kağıdı 32'li | tuvalet kağıdı | large pack of toilet paper rolls
+Papia Tuvalet Kağıdı 32'li | tuvalet kağıdı | large pack of toilet paper rolls
+Selpak Kağıt Havlu | kağıt havlu | pack of paper towel rolls
+Solo Kağıt Havlu | kağıt havlu | pack of paper towel rolls
+Familia Kağıt Havlu | kağıt havlu | pack of paper towel rolls
+Selpak Cep Mendili | cep mendili | pack of pocket tissues
+Solo Kutu Mendil | kutu mendil | box of facial tissues
+Selpak Peçete | peçete | pack of paper napkins
+Selpak Islak Havlu | ıslak mendil | pack of wet wipes
+Koroplast Çöp Torbası | çöp poşeti | roll of garbage bags
+Koroplast Buzdolabı Poşeti | buzdolabı poşeti | roll of food storage bags
+Koroplast Streç Film | streç film | roll of cling film in a box
+Koroplast Alüminyum Folyo | alüminyum folyo | roll of aluminum foil in a box
+Koroplast Pişirme Kağıdı | pişirme kağıdı | roll of baking paper in a box
+Scotch-Brite Bulaşık Süngeri | sünger, bulaşık | pack of dish sponges
+Duracell AA Kalem Pil | pil, kalem pil | pack of AA batteries
+Duracell AAA İnce Pil | pil, ince pil | pack of AAA batteries
+Energizer AA Kalem Pil | pil | pack of AA batteries
+Whiskas Kedi Maması | kedi maması | bag of dry cat food
+Whiskas Yaş Kedi Maması | yaş mama, kedi | pouch of wet cat food
+Felix Yaş Kedi Maması | yaş mama, kedi | pouch of wet cat food
+Pro Plan Kedi Maması | kedi maması | bag of dry cat food
+Reflex Kedi Maması | kedi maması | bag of dry cat food
+Pedigree Köpek Maması | köpek maması | bag of dry dog food
+Ever Clean Kedi Kumu | kedi kumu | box of cat litter
+Coca-Cola Zero Kutu 330 ml | kola, şekersiz, kutu | aluminum can of sugar free cola
+Coca-Cola Cam Şişe 250 ml | kola, cam şişe | small glass bottle of cola
+Pepsi Max 1 L | kola, şekersiz | plastic bottle of sugar free cola
+Sprite Kutu 330 ml | limonlu gazoz, kutu | aluminum can of lemon lime soda
+Schweppes Tonik | tonik | plastic bottle of tonic water
+Uludağ Frutti Portakal | meyveli gazoz | plastic bottle of orange soda
+Powerade Mavi 500 ml | sporcu içeceği | bottle of blue sports drink
+Burn Enerji İçeceği 250 ml | enerji içeceği | slim can of energy drink
+Erikli Su 1,5 L | su | 1.5 liter plastic bottle of water
+Kızılay Limonlu Maden Suyu | maden suyu, limonlu | small glass bottle of flavored mineral water
+Cappy Kayısı 1 L | meyve suyu, kayısı | carton of apricot nectar
+Dimes Elma Suyu 1 L | elma suyu | carton of apple juice
+Lipton Ice Tea Mango 1 L | soğuk çay, mango | bottle of mango iced tea
+Fuse Tea Şeftali 1 L | soğuk çay, şeftali | bottle of peach iced tea
+Torku Ayran 1 L | ayran | 1 liter bottle of ayran yogurt drink
+Doğadan Kış Çayı | bitki çayı | box of herbal winter tea bags
+Jacobs Filtre Kahve | filtre kahve | bag of ground filter coffee
+Kahve Dünyası Filtre Kahve | filtre kahve | bag of ground filter coffee
+Nestlé Sıcak Çikolata | sıcak çikolata | box of hot chocolate sachets
+Dr. Oetker Sahlep | sahlep | box of salep drink powder
+Dr. Oetker Kakao | kakao | box of cocoa powder
+Coffee Mate Kahve Kreması | kahve kreması | jar of coffee creamer powder
+Ülker İkram | bisküvi, kremalı | pack of cream filled biscuits
+Ülker Sütlü Fındıklı Çikolata | çikolata, fındıklı | hazelnut milk chocolate bar
+Eti Lifalif | granola, bar | oat and fruit granola bar
+Nestlé Fitness Bar | tahıl bar | cereal bar
+Toblerone | çikolata, nugat | triangular chocolate bar
+Milka Oreo | çikolata, bisküvili | milk chocolate bar with cookie pieces
+Lindt Excellence Bitter | bitter çikolata | premium dark chocolate bar
+Bounty | çikolata, hindistan cevizi | coconut chocolate bars
+Mars | çikolata, karamel | chocolate caramel bar
+Kinder Bueno | çikolata, gofret | hazelnut cream chocolate wafer bars
+Nutella B-ready | gofret, fındık kreması | crispy wafer bar filled with hazelnut cream
+Kent Toffo | şekerleme, karamel | pack of toffee candies
+Tic Tac | şeker, nane | small plastic box of mints
+Doritos Taco | cips, mısır | bag of tortilla chips
+Tadım Kabak Çekirdeği | kabak çekirdeği | bag of pumpkin seeds
+Tadım Kaju | kaju | bag of cashew nuts
+Tadım Ceviz İçi | ceviz | bag of walnut kernels
+Peyman Antep Fıstığı | antep fıstığı | bag of pistachios
+Tadım Kuru Kayısı | kuru kayısı | bag of dried apricots
+Tadım Kuru Üzüm | kuru üzüm | bag of raisins
+Yayla Nohut 1 kg | nohut | bag of chickpeas
+Reis Kırmızı Mercimek 1 kg | mercimek | bag of red lentils
+Reis Basmati Pirinç 1 kg | pirinç, basmati | bag of basmati rice
+Söke Tam Buğday Unu | un, tam buğday | bag of whole wheat flour
+Bal Küpü Esmer Şeker | esmer şeker | bag of brown sugar
+Billur Kaya Tuzu | kaya tuzu | jar of rock salt
+Filiz Tel Şehriye | şehriye | pack of vermicelli
+Nuh'un Ankara Erişte | erişte | pack of egg noodles
+Barilla Lazanya | lazanya | box of lasagne sheets
+Indomie Hazır Noodle | noodle, hazır | pack of instant noodles
+Nongshim Shin Ramyun | ramen, noodle | pack of spicy instant ramen
+Tat Karışık Turşu | turşu | jar of mixed pickles
+Kühne Kornişon Turşu | turşu, kornişon | jar of gherkin pickles
+Tat Mayonez | mayonez | squeeze bottle of mayonnaise
+Tat Hardal | hardal | squeeze bottle of mustard
+Calvé Ketçap | ketçap | squeeze bottle of ketchup
+Knorr Tarhana Çorbası | çorba, tarhana | packet of instant tarhana soup
+Knorr Mantar Çorbası | çorba, mantar | packet of instant mushroom soup
+Dr. Oetker Muhallebi | muhallebi, tatlı | box of milk pudding mix
+Pakmaya Kuru Maya | maya, instant | sachets of dry yeast
+Pakmaya Yaş Maya | yaş maya | block of fresh yeast
+Bağdat Zerdeçal | zerdeçal, baharat | bag of ground turmeric
+Bağdat Nane | nane, baharat | bag of dried mint
+Bağdat Kırmızı Toz Biber | toz biber, baharat | bag of ground paprika
+Komili Mısırözü Yağı | mısırözü yağı | bottle of corn oil
+Tamek Ayva Reçeli | reçel, ayva | glass jar of quince jam
+Pınar Cheddar Dilimli | cheddar, dilimli | pack of sliced cheddar cheese
+Philadelphia Krem Peynir | krem peynir | tub of cream cheese
+Sütaş Labne | labne | tub of cream cheese
+Président Tereyağı | tereyağı | wrapped block of butter
+Danone Actimel | probiyotik içecek | small bottles of probiotic yogurt drink
+Alpro Badem Sütü | badem sütü, bitkisel | carton of almond milk
+Alpro Soya Sütü | soya sütü, bitkisel | carton of soy milk
+Superfresh Karışık Sebze | dondurulmuş sebze | bag of frozen mixed vegetables
+Superfresh Sigara Böreği | börek, dondurulmuş | box of frozen cheese rolls
+Algida Twister | dondurma, meyveli | twisted fruit ice lolly
+Namet Pastırma | pastırma | pack of sliced pastrami
+Cumhuriyet Sucuk | sucuk, afyon | ring of turkish beef sausage
+Polonez Sucuk | sucuk | ring of turkish beef sausage
+Namet Kavurma | kavurma | pack of cooked meat kavurma
+Şenpiliç Tavuk Pirzola | tavuk pirzola | tray of raw chicken thigh cutlets
+Dardanel Sardalya | sardalya, konserve | can of sardines
+Uno Hamburger Ekmeği | hamburger ekmeği | pack of burger buns
+Uno Bazlama | bazlama, ekmek | pack of flatbread
+Schär Glutensiz Ekmek | glutensiz, ekmek | pack of gluten free bread
+Molfix Külot Bez | külot bez | pack of baby pull up diapers
+Hero Baby Meyve Püresi | meyve püresi, bebek | baby fruit puree pouch
+Cif Banyo Sprey | banyo temizleyici | spray bottle of bathroom cleaner
+Finish Makine Temizleyici | makine temizleyici | bottle of dishwasher cleaner
+Scotch-Brite Bulaşık Teli | bulaşık teli, tel | stainless steel scouring pad
+Koroplast Bulaşık Eldiveni | bulaşık eldiveni | pair of rubber dishwashing gloves
+Selpak Kolonyalı Mendil | kolonyalı mendil | pack of individually wrapped cologne wipes
+Familia Peçete | peçete | pack of paper napkins
+Bic Çakmak | çakmak | disposable lighter
+Pedigree Yaş Köpek Maması | yaş mama, köpek | pouch of wet dog food
+Pro Plan Köpek Maması | köpek maması | bag of dry dog food
+Royal Canin Kedi Maması | kedi maması | bag of dry cat food
+Reflex Köpek Maması | köpek maması | bag of dry dog food
+Purina Cat Chow | kedi maması | bag of dry cat food
+Dreamies Kedi Ödülü | kedi ödül maması | small bag of cat treats
+Algida Magnum Klasik | dondurma, çubuk | chocolate coated vanilla ice cream bar
+Eti Burçak Sütlü Çikolatalı | bisküvi, çikolatalı | pack of chocolate coated digestive biscuits
+Sütaş Yarım Yağlı Süt 1 L | süt, yarım yağlı | 1 liter carton of semi skimmed milk
+Superfresh Brokoli | brokoli, dondurulmuş | bag of frozen broccoli florets

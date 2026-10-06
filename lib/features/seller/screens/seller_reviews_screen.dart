@@ -5,6 +5,7 @@ import '../../../core/models/shop_review_model.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 import '../widgets/common/seller_section_card.dart';
+import '../../../core/utils/image_url.dart';
 
 class SellerReviewsScreen extends StatefulWidget {
   const SellerReviewsScreen({super.key});
@@ -334,7 +335,7 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
                 CircleAvatar(
                   radius: 20,
                   backgroundImage: review.userAvatar != null
-                      ? NetworkImage(review.userAvatar!)
+                      ? avatarImage(review.userAvatar!)
                       : null,
                   child: review.userAvatar == null
                       ? const Icon(Icons.person)

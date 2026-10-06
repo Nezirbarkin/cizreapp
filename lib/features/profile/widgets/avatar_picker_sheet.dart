@@ -12,29 +12,24 @@ import '../models/character_avatar_recipes.dart';
 /// betiklerdeki sıra. Kullanıcıların seçtiği avatar dosya adına bağlı olduğu
 /// için numaralar asla kaydırılmaz; yeni avatar yalnızca sona eklenir.
 
-/// Klasik (modern düz illüstrasyon) avatar sayısı.
-/// Üretici: `scripts/generate_classic_avatars.py`.
-const int kClassicAvatarCount = 20;
+/// Hareketli (GIF) avatarların numara aralığı —
+/// `generate_elegant_animated_avatars.py`: 56-67 şık soyut sahneler, 68-79 göz
+/// kırpan portreler, 80-91 gerçekçi yeni setten göz kırpan portreler (Görev
+/// 2.6). Eski geometrik 01-55 ve klasik düz illüstrasyonlar (Klasik sekmesi)
+/// Görev 2.6'da kaldırıldı — dosya numaraları KAYDIRILMADI; daha önce seçenlerin
+/// avatarı zaten kendi storage kopyasıdır, etkilenmez.
+const int kAnimatedAvatarFirst = 56;
+const int kAnimatedAvatarLast = 91;
 
-/// Hareketli (GIF) avatar sayısı. 01-55: `generate_animated_avatars.py`
-/// (geometrik), 56-79: `generate_elegant_animated_avatars.py` (şık sahneler
-/// ve göz kırpan portreler).
-const int kAnimatedAvatarCount = 79;
-
-/// Bu numaradan (dahil) sonrakiler "şık" sette; sekmede öne alınır.
-const int kElegantAnimatedFirst = 56;
-
-/// Kız & erkek karakter sayısı (50 erkek + 50 kadın). Tarifler:
+/// Kız & erkek karakter sayısı (70 erkek + 70 kadın). Tarifler:
 /// `character_avatar_recipes.dart`.
-const int kCharacterAvatarCount = 100;
+const int kCharacterAvatarCount = 140;
+
+/// Bu numaradan (dahil) sonraki karakterler Görev 2.6'nın gerçekçi modern seti;
+/// "Hepsi"nde öne alınır, "Yeni" süzgeciyle ayrıca listelenir.
+const int kNewCharacterFirst = 101;
 
 String _two(int n) => n.toString().padLeft(2, '0');
-
-/// Klasik avatarlar — modern düz illüstrasyon (kep, bere, gözlük, başörtüsü,
-/// kulaklık, kedi kulağı, robot…).
-final List<String> kPresetAvatars = List<String>.unmodifiable(<String>[
-  for (var i = 1; i <= kClassicAvatarCount; i++) 'assets/avatars/avatar_${_two(i)}.png',
-]);
 
 /// Hareketli (animasyonlu GIF) hazır avatarlar.
 ///
@@ -44,11 +39,12 @@ final List<String> kPresetAvatars = List<String>.unmodifiable(<String>[
 /// zaten oynatıyor. (Lottie/SVG seçilseydi feed, yorumlar, sohbet, admin...
 /// hepsinde ayrı bir oynatıcı gerekirdi.)
 final List<String> kAnimatedAvatars = List<String>.unmodifiable(<String>[
-  for (var i = 1; i <= kAnimatedAvatarCount; i++) 'assets/avatars_animated/avatar_anim_${_two(i)}.gif',
+  for (var i = kAnimatedAvatarFirst; i <= kAnimatedAvatarLast; i++)
+    'assets/avatars_animated/avatar_anim_${_two(i)}.gif',
 ]);
 
-/// Kız / erkek karakter avatarları: yüzünden avatar oluşturan aynı gerçekçi
-/// çizim motoruyla üretilir (gerçekçi ten/göz/saç/sakal). Cinsiyet bilgisi
+/// Kız / erkek karakter avatarları: yüzünden Bitmoji oluşturan aynı çizim
+/// motoruyla (Bitmoji tarzı; 2026-10-06'da yeniden üretildi) çizilir. Cinsiyet bilgisi
 /// tariflerde tutulur ([isFemaleCharacter]).
 final List<String> kCharacterAvatars = List<String>.unmodifiable(<String>[
   for (var i = 1; i <= kCharacterAvatarCount; i++)
@@ -59,7 +55,6 @@ final List<String> kCharacterAvatars = List<String>.unmodifiable(<String>[
 final List<String> kAllPresetAvatars = List<String>.unmodifiable(<String>[
   ...kCharacterAvatars,
   ...kAnimatedAvatars,
-  ...kPresetAvatars,
 ]);
 
 /// Verilen asset yolu hareketli (GIF) avatar mı?
@@ -76,9 +71,7 @@ Future<String?> showPresetAvatarPicker(BuildContext context, {String? selected})
   );
 }
 
-enum _CharacterFilter { all, male, female }
-
-enum _AnimatedFilter { all, elegant, classic }
+enum _CharacterFilter { all, newest, male, female }
 
 class _PresetAvatarSheet extends StatefulWidget {
   const _PresetAvatarSheet({this.selected});
@@ -93,23 +86,14 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
   late final TabController _tabController;
   late String? _selected = widget.selected;
   _CharacterFilter _characterFilter = _CharacterFilter.all;
-  _AnimatedFilter _animatedFilter = _AnimatedFilter.all;
 
   @override
   void initState() {
     super.initState();
-    // Sekmeler: 0 = Kız & Erkek, 1 = Hareketli, 2 = Klasik.
-    // Seçili avatar hangi sekmedeyse o sekmeyle açılsın; seçim yoksa yeni
-    // karakter avatarları önde.
-    int initialIndex = 0;
-    if (_selected != null) {
-      if (kAnimatedAvatars.contains(_selected)) {
-        initialIndex = 1;
-      } else if (kPresetAvatars.contains(_selected)) {
-        initialIndex = 2;
-      }
-    }
-    _tabController = TabController(length: 3, vsync: this, initialIndex: initialIndex);
+    // Sekmeler: 0 = Kız & Erkek, 1 = Hareketli. Seçili avatar hareketliyse o
+    // sekmeyle açılır; aksi halde karakterler (yeni set önde).
+    final initialIndex = kAnimatedAvatars.contains(_selected) ? 1 : 0;
+    _tabController = TabController(length: 2, vsync: this, initialIndex: initialIndex);
   }
 
   @override
@@ -121,7 +105,12 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
   List<String> get _characters {
     switch (_characterFilter) {
       case _CharacterFilter.all:
-        return kCharacterAvatars;
+        return [
+          ...kCharacterAvatars.sublist(kNewCharacterFirst - 1),
+          ...kCharacterAvatars.sublist(0, kNewCharacterFirst - 1),
+        ];
+      case _CharacterFilter.newest:
+        return kCharacterAvatars.sublist(kNewCharacterFirst - 1);
       case _CharacterFilter.male:
         return [
           for (var i = 0; i < kCharacterAvatars.length; i++)
@@ -132,19 +121,6 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
           for (var i = 0; i < kCharacterAvatars.length; i++)
             if (isFemaleCharacter(i)) kCharacterAvatars[i],
         ];
-    }
-  }
-
-  List<String> get _animated {
-    final classic = kAnimatedAvatars.sublist(0, kElegantAnimatedFirst - 1);
-    final elegant = kAnimatedAvatars.sublist(kElegantAnimatedFirst - 1);
-    switch (_animatedFilter) {
-      case _AnimatedFilter.all:
-        return [...elegant, ...classic]; // şıklar önde
-      case _AnimatedFilter.elegant:
-        return elegant;
-      case _AnimatedFilter.classic:
-        return classic;
     }
   }
 
@@ -215,7 +191,6 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
                 tabs: [
                   Tab(text: 'Kız & Erkek (${kCharacterAvatars.length})'),
                   Tab(text: 'Hareketli (${kAnimatedAvatars.length})'),
-                  Tab(text: 'Klasik (${kPresetAvatars.length})'),
                 ],
               ),
               const Divider(height: 1),
@@ -233,6 +208,8 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
                         current: _characterFilter,
                         labelOf: (f) => switch (f) {
                           _CharacterFilter.all => 'Hepsi',
+                          _CharacterFilter.newest =>
+                            'Yeni (${kCharacterAvatarCount - kNewCharacterFirst + 1})',
                           _CharacterFilter.male => 'Erkek',
                           _CharacterFilter.female => 'Kadın',
                         },
@@ -242,22 +219,7 @@ class _PresetAvatarSheetState extends State<_PresetAvatarSheet> with SingleTicke
                       controller: scrollController,
                       tabKey: 'char-${_characterFilter.name}',
                     ),
-                    _tab(
-                      chips: _filterChips<_AnimatedFilter>(
-                        values: _AnimatedFilter.values,
-                        current: _animatedFilter,
-                        labelOf: (f) => switch (f) {
-                          _AnimatedFilter.all => 'Hepsi',
-                          _AnimatedFilter.elegant => 'Şık & Portre (${kAnimatedAvatarCount - kElegantAnimatedFirst + 1})',
-                          _AnimatedFilter.classic => 'Geometrik',
-                        },
-                        onPick: (f) => setState(() => _animatedFilter = f),
-                      ),
-                      assets: _animated,
-                      controller: null,
-                      tabKey: 'anim-${_animatedFilter.name}',
-                    ),
-                    _tab(chips: null, assets: kPresetAvatars, controller: null, tabKey: 'classic'),
+                    _tab(chips: null, assets: kAnimatedAvatars, controller: null, tabKey: 'anim'),
                   ],
                 ),
               ),

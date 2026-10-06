@@ -29,12 +29,21 @@ extension on _AdminDashboardScreenState {
   /// sinirlandirildi.
   Widget _buildShopsContent() {
     if (_isLoadingShops && _shopsDetailed.isEmpty) {
-      _loadAndSetShops();
+      // İlk yükleme BİR KEZ, kare çizildikten sonra. Eskiden build içinden
+      // setState'li yükleme çağrılıyordu: yükleme sürerken her yeniden
+      // çizim tüm yüklemeyi baştan başlatıyordu.
+      if (!_shopsLoadScheduled) {
+        _shopsLoadScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadAndSetShops();
+        });
+      }
       return const Center(child: CircularProgressIndicator());
     }
 
-    final shops = _shopsDetailed;
-    final visible = _visibleShops(shops);
+    // Arama, filtre ve sıralama sunucuda uygulandı; burada yüklenen sayfalar
+    // gelen sırayla durur.
+    final visible = _shopsDetailed;
 
     return RefreshIndicator(
       onRefresh: _loadAndSetShops,
@@ -54,21 +63,23 @@ extension on _AdminDashboardScreenState {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _buildShopsToolbar(shops, isCompact),
+                      _buildShopsToolbar(isCompact),
                       const SizedBox(height: 16),
-                      _buildShopsSummary(shops),
+                      _buildShopsSummary(),
                       const SizedBox(height: 14),
                       _buildShopsSearchField(),
                       const SizedBox(height: 10),
-                      _buildShopsFilterChips(shops),
+                      _buildShopsFilterChips(),
                       const SizedBox(height: 10),
-                      _buildShopsResultBar(shops.length, visible.length),
+                      _buildShopsResultBar(_shopsTotal, visible.length),
                     ],
                   ),
                 ),
               ),
               if (visible.isEmpty)
-                SliverToBoxAdapter(child: _buildShopsEmptyState(shops.isEmpty))
+                SliverToBoxAdapter(
+                  child: _buildShopsEmptyState(_shopCount('total') == 0),
+                )
               else
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -100,6 +111,34 @@ extension on _AdminDashboardScreenState {
                     }, childCount: rowCount),
                   ),
                 ),
+              if (visible.isNotEmpty && visible.length < _shopsTotal)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+                    child: Center(
+                      child: OutlinedButton.icon(
+                        onPressed: _loadingMoreShops ? null : _loadMoreShops,
+                        icon: _loadingMoreShops
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.expand_more),
+                        label: Text(
+                          'Daha fazla yükle '
+                          '(${_shopsTotal - visible.length} kaldı)',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.purple.shade700,
+                          side: BorderSide(color: Colors.purple.shade200),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           );
         },
@@ -108,113 +147,121 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _loadAndSetShops ---
-  Future<void> _loadAndSetShops() async {
-    setState(() {
-      _isLoadingShops = true;
-    });
-    final shops = await _loadShopsWithDetails();
-    if (mounted) {
+  /// Mevcut arama/filtre/sıralamayla listeyi (yeniden) yükler — TEK istek
+  /// (admin_shops_page). Kart işlemleri, diyaloglar ve aşağı çekip yenileme
+  /// de bunu çağırır: o durumda [keepLoaded] ile yönetici "Daha fazla yükle"
+  /// ile açtığı kadar satırı görmeye devam eder. Arama/filtre/sıralama
+  /// değişince ilk sayfaya dönülür. Ekranda liste varken tam ekran spinner
+  /// gösterilmez.
+  Future<void> _loadAndSetShops({bool keepLoaded = true}) async {
+    final seq = ++_shopsRequestSeq;
+    if (_shopsDetailed.isEmpty && !_isLoadingShops) {
+      setState(() => _isLoadingShops = true);
+    }
+    final limit = keepLoaded
+        ? math.min(
+            math.max(_shopsDetailed.length, AdminShopsService.pageSize),
+            100,
+          )
+        : AdminShopsService.pageSize;
+    try {
+      final page = await _shopsService.fetchPage(
+        search: _shopSearchQuery,
+        filter: _shopFilter,
+        sort: _shopSort,
+        limit: limit,
+      );
+      // Yavaş dönen eski istek, yeni kriterlerin sonucunu ezmesin.
+      if (!mounted || seq != _shopsRequestSeq) return;
       setState(() {
-        _shopsDetailed = shops;
+        _shopsDetailed = page.rows;
+        _shopsTotal = page.total;
+        _shopsSummary = page.summary;
         _isLoadingShops = false;
       });
-    }
-  }
-
-  // ==========================================================================
-  // Filtre / arama / siralama
-  // ==========================================================================
-
-  // --- _shopMatchesFilter ---
-  bool _shopMatchesFilter(Map<String, dynamic> shop, String filter) {
-    switch (filter) {
-      case 'pending':
-        return !(shop['is_approved'] as bool? ?? false);
-      case 'active':
-        return shop['is_active'] as bool? ?? true;
-      case 'passive':
-        return !(shop['is_active'] as bool? ?? true);
-      case 'pinned':
-        return shop['is_pinned'] as bool? ?? false;
-      case 'verified':
-        return shop['is_verified'] as bool? ?? false;
-      case 'admin_courier':
-        return !(shop['has_own_courier'] as bool? ?? false);
-      case 'overridden':
-        return _isShopPricingOverridden(shop);
-      default:
-        return true;
-    }
-  }
-
-  // --- _visibleShops ---
-  /// Arama sorgusu + hizli filtre + siralama uygulanmis liste.
-  List<Map<String, dynamic>> _visibleShops(List<Map<String, dynamic>> shops) {
-    final query = _shopSearchQuery.trim().toLowerCase();
-
-    final list = shops.where((shop) {
-      if (!_shopMatchesFilter(shop, _shopFilter)) return false;
-      if (query.isEmpty) return true;
-      final fields = <dynamic>[
-        shop['name'],
-        shop['slug'],
-        shop['description'],
-        shop['profiles']?['full_name'],
-        shop['profiles']?['username'],
-        shop['profiles']?['email'],
-      ];
-      return fields.whereType<Object>().any(
-        (value) => value.toString().toLowerCase().contains(query),
+    } catch (e) {
+      debugPrint('❌ Dükkanlar yüklenirken hata: $e');
+      if (!mounted || seq != _shopsRequestSeq) return;
+      setState(() => _isLoadingShops = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dükkanlar yüklenemedi: $e')),
       );
-    }).toList();
-
-    int byName(Map<String, dynamic> a, Map<String, dynamic> b) =>
-        (a['name']?.toString() ?? '').toLowerCase().compareTo(
-          (b['name']?.toString() ?? '').toLowerCase(),
-        );
-
-    double money(Map<String, dynamic> shop, String key) =>
-        (shop[key] as num?)?.toDouble() ?? 0;
-
-    switch (_shopSort) {
-      case 'name':
-        list.sort(byName);
-        break;
-      case 'earnings':
-        list.sort(
-          (a, b) =>
-              money(b, 'total_earnings').compareTo(money(a, 'total_earnings')),
-        );
-        break;
-      case 'orders':
-        list.sort(
-          (a, b) => ((b['total_orders'] as num?) ?? 0).compareTo(
-            (a['total_orders'] as num?) ?? 0,
-          ),
-        );
-        break;
-      case 'newest':
-        list.sort((a, b) {
-          final da =
-              DateTime.tryParse(a['created_at']?.toString() ?? '') ??
-              DateTime(1970);
-          final db =
-              DateTime.tryParse(b['created_at']?.toString() ?? '') ??
-              DateTime(1970);
-          return db.compareTo(da);
-        });
-        break;
-      default:
-        // Sabitlenenler once, sonra isim sirasi.
-        list.sort((a, b) {
-          final ap = (a['is_pinned'] as bool? ?? false) ? 0 : 1;
-          final bp = (b['is_pinned'] as bool? ?? false) ? 0 : 1;
-          if (ap != bp) return ap - bp;
-          return byName(a, b);
-        });
     }
+  }
 
-    return list;
+  // --- _loadMoreShops ---
+  /// Sonraki sayfa ("Daha fazla yükle").
+  Future<void> _loadMoreShops() async {
+    if (_loadingMoreShops || _shopsDetailed.length >= _shopsTotal) return;
+    final seq = _shopsRequestSeq;
+    setState(() => _loadingMoreShops = true);
+    try {
+      final page = await _shopsService.fetchPage(
+        search: _shopSearchQuery,
+        filter: _shopFilter,
+        sort: _shopSort,
+        offset: _shopsDetailed.length,
+      );
+      if (!mounted || seq != _shopsRequestSeq) return;
+      setState(() {
+        final known = {for (final shop in _shopsDetailed) shop['id']};
+        _shopsDetailed = [
+          ..._shopsDetailed,
+          ...page.rows.where((shop) => !known.contains(shop['id'])),
+        ];
+        _shopsTotal = page.total;
+        _shopsSummary = page.summary;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Daha fazla yüklenemedi: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMoreShops = false);
+    }
+  }
+
+  // ==========================================================================
+  // Filtre / arama / siralama — sunucuda (admin_shops_page)
+  // ==========================================================================
+
+  /// Özet sayısı (arama/filtreden bağımsız, tüm dükkanlar).
+  int _shopCount(String key) => _shopsSummary[key]?.toInt() ?? 0;
+
+  double _shopAmount(String key) => _shopsSummary[key]?.toDouble() ?? 0;
+
+  /// Arama: yazarken her tuşta değil, 350 ms durunca sunucuya gider.
+  void _onShopSearchChanged(String value) {
+    setState(() => _shopSearchQuery = value);
+    _shopSearchDebounce?.cancel();
+    _shopSearchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _loadAndSetShops(keepLoaded: false),
+    );
+  }
+
+  void _setShopFilter(String filter) {
+    if (_shopFilter == filter) return;
+    setState(() => _shopFilter = filter);
+    _loadAndSetShops(keepLoaded: false);
+  }
+
+  void _setShopSort(String sort) {
+    if (_shopSort == sort) return;
+    setState(() => _shopSort = sort);
+    _loadAndSetShops(keepLoaded: false);
+  }
+
+  void _resetShopFilters() {
+    _shopSearchDebounce?.cancel();
+    _shopSearchController.clear();
+    setState(() {
+      _shopSearchQuery = '';
+      _shopFilter = 'all';
+    });
+    _loadAndSetShops(keepLoaded: false);
   }
 
   // --- _shopMoney ---
@@ -238,10 +285,9 @@ extension on _AdminDashboardScreenState {
   // ==========================================================================
 
   // --- _buildShopsToolbar ---
-  Widget _buildShopsToolbar(List<Map<String, dynamic>> shops, bool isCompact) {
-    final pending = shops
-        .where((s) => !(s['is_approved'] as bool? ?? false))
-        .length;
+  Widget _buildShopsToolbar(bool isCompact) {
+    final total = _shopCount('total');
+    final pending = _shopCount('pending');
 
     final title = Column(
       mainAxisSize: MainAxisSize.min,
@@ -260,8 +306,8 @@ extension on _AdminDashboardScreenState {
         const SizedBox(height: 2),
         Text(
           pending > 0
-              ? '${shops.length} dükkan • $pending tanesi onay bekliyor'
-              : '${shops.length} dükkan • tümü onaylı',
+              ? '$total dükkan • $pending tanesi onay bekliyor'
+              : '$total dükkan • tümü onaylı',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -332,25 +378,14 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _buildShopsSummary ---
-  Widget _buildShopsSummary(List<Map<String, dynamic>> shops) {
-    final total = shops.length;
-    final pending = shops
-        .where((s) => !(s['is_approved'] as bool? ?? false))
-        .length;
-    final passive = shops
-        .where((s) => !(s['is_active'] as bool? ?? true))
-        .length;
-    final adminCourier = shops
-        .where((s) => !(s['has_own_courier'] as bool? ?? false))
-        .length;
-    final revenue = shops.fold<double>(
-      0,
-      (sum, s) => sum + ((s['total_earnings'] as num?)?.toDouble() ?? 0),
-    );
-    final commission = shops.fold<double>(
-      0,
-      (sum, s) => sum + ((s['admin_commission_total'] as num?)?.toDouble() ?? 0),
-    );
+  Widget _buildShopsSummary() {
+    // Tüm dükkanların özeti sunucudan (sayfalı listeden bağımsız).
+    final total = _shopCount('total');
+    final pending = _shopCount('pending');
+    final passive = _shopCount('passive');
+    final adminCourier = _shopCount('admin_courier');
+    final revenue = _shopAmount('revenue');
+    final commission = _shopAmount('commission');
 
     // Wrap kullaniliyor: kutucuklar icerik genisliginde kalir, sigmayanlar
     // alt satira iner; hicbir ekran genisliginde tasma olusmaz.
@@ -455,7 +490,7 @@ extension on _AdminDashboardScreenState {
 
     return TextField(
       controller: _shopSearchController,
-      onChanged: (value) => setState(() => _shopSearchQuery = value),
+      onChanged: _onShopSearchChanged,
       textInputAction: TextInputAction.search,
       style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
@@ -470,7 +505,7 @@ extension on _AdminDashboardScreenState {
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: () {
                   _shopSearchController.clear();
-                  setState(() => _shopSearchQuery = '');
+                  _onShopSearchChanged('');
                 },
               ),
         filled: true,
@@ -487,7 +522,7 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _buildShopsFilterChips ---
-  Widget _buildShopsFilterChips(List<Map<String, dynamic>> shops) {
+  Widget _buildShopsFilterChips() {
     const filters = <MapEntry<String, String>>[
       MapEntry('all', 'Tümü'),
       MapEntry('pending', 'Onay bekleyen'),
@@ -508,9 +543,10 @@ extension on _AdminDashboardScreenState {
         padding: EdgeInsets.zero,
         itemBuilder: (context, index) {
           final entry = filters[index];
-          final count = shops
-              .where((s) => _shopMatchesFilter(s, entry.key))
-              .length;
+          // Sayılar tüm dükkanlar üzerinden, sunucudan.
+          final count = entry.key == 'all'
+              ? _shopCount('total')
+              : _shopCount(entry.key);
           final selected = _shopFilter == entry.key;
           return Padding(
             padding: EdgeInsets.only(
@@ -519,7 +555,7 @@ extension on _AdminDashboardScreenState {
             child: ChoiceChip(
               label: Text('${entry.value} ($count)'),
               selected: selected,
-              onSelected: (_) => setState(() => _shopFilter = entry.key),
+              onSelected: (_) => _setShopFilter(entry.key),
               showCheckmark: false,
               backgroundColor: Colors.white,
               selectedColor: Colors.purple.shade600,
@@ -573,7 +609,7 @@ extension on _AdminDashboardScreenState {
           initialValue: _shopSort,
           padding: EdgeInsets.zero,
           position: PopupMenuPosition.under,
-          onSelected: (value) => setState(() => _shopSort = value),
+          onSelected: _setShopSort,
           itemBuilder: (context) => [
             for (final entry in sortLabels.entries)
               PopupMenuItem<String>(
@@ -651,13 +687,7 @@ extension on _AdminDashboardScreenState {
           if (!noShopsAtAll) ...[
             const SizedBox(height: 12),
             TextButton.icon(
-              onPressed: () {
-                _shopSearchController.clear();
-                setState(() {
-                  _shopSearchQuery = '';
-                  _shopFilter = 'all';
-                });
-              },
+              onPressed: _resetShopFilters,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('Filtreleri temizle'),
               style: TextButton.styleFrom(
@@ -796,6 +826,15 @@ extension on _AdminDashboardScreenState {
                                     ownerEmail,
                                   ),
                                 ],
+                                // Görev 4.5: ana kategori (kilitliyse kilit ikonu)
+                                const SizedBox(height: 2),
+                                _shopMetaLine(
+                                  shop['category_locked'] == true
+                                      ? Icons.lock_outline
+                                      : Icons.category_outlined,
+                                  '${(shop['category_name'] as String?) ?? 'Kategori seçilmemiş'}'
+                                  '${shop['category_locked'] == true ? ' · kilitli' : ''}',
+                                ),
                               ],
                             ),
                           ),
@@ -1125,6 +1164,9 @@ extension on _AdminDashboardScreenState {
           case 'pricing':
             _showShopPricingOverrideDialog();
             break;
+          case 'category':
+            _showShopCategoryDialog(shop);
+            break;
           case 'delete':
             _showDeleteShopDialog(shop);
             break;
@@ -1163,10 +1205,37 @@ extension on _AdminDashboardScreenState {
           'Teslimat & min. sepet',
           color: Colors.purple,
         ),
+        _shopMenuItem(
+          'category',
+          Icons.category_outlined,
+          'Ana kategori',
+          color: Colors.teal,
+        ),
         const PopupMenuDivider(height: 1),
         _shopMenuItem('delete', Icons.delete_outline, 'Sil', color: Colors.red),
       ],
     );
+  }
+
+  // --- _showShopCategoryDialog (Görev 4.5) ---
+  /// Satıcının seçtiği ana kategoriyi değiştirir / kilitler; sonra liste
+  /// yeniden okunur (kartın kategori satırı güncellenir).
+  Future<void> _showShopCategoryDialog(Map<String, dynamic> shop) async {
+    final change = await AdminShopCategoryDialog.show(
+      context,
+      shopId: shop['id'].toString(),
+      shopName: shop['name']?.toString() ?? 'Mağaza',
+      currentCategoryId: shop['category_id']?.toString(),
+      currentLocked: shop['category_locked'] == true,
+      currentLockNote: shop['category_lock_note'] as String?,
+    );
+    if (change == null || !mounted) return;
+    final text = change.changed
+        ? 'Ana kategori "${change.categoryName}" olarak değiştirildi'
+              '${change.locked ? ' ve kilitlendi' : ''}'
+        : (change.locked ? 'Ana kategori kilitlendi' : 'Ana kategori kilidi açıldı');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    await _loadAndSetShops();
   }
 
   // --- _shopMenuItem ---

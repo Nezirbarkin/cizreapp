@@ -137,249 +137,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           debugShowCheckedModeBanner: false,
-          home: Scaffold(
-            backgroundColor: OkeyColors.tableBackground,
-            body: Stack(
-              children: [
-                const Positioned.fill(
-                  child: IgnorePointer(child: OkeyRoomBackdrop()),
-                ),
-                OkeyTableScaffold(
-                  seatAcross: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    avatarSize: m.avatarSize,
-                    side: OkeySeatSide.top,
-                    parts: OkeySeatParts.identity,
-                    seat: _seat(2, 'Oyuncu 2'),
-                    seatNo: 2,
-                    tileCount: 14,
-                    score: 116,
-                    isCurrentTurn: false,
-                  ),
-                  seatLeft: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.left,
-                    parts: OkeySeatParts.identity,
-                    seat: _seat(3, 'Oyuncu 3'),
-                    seatNo: 3,
-                    tileCount: 15,
-                    score: 23,
-                    isCurrentTurn: false,
-                  ),
-                  seatRight: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.right,
-                    parts: OkeySeatParts.identity,
-                    seat: _seat(1, 'Oyuncu 1'),
-                    seatNo: 1,
-                    tileCount: 13,
-                    score: 5,
-                    isCurrentTurn: true,
-                    // SÜRE HALKASI (düzen v5) — önizleme PNG'sinde de
-                    // görünsün: sıranın kimde olduğunu artık bu yay söylüyor,
-                    // ıstakanın üstündeki eski çizgi değil.
-                    turnSecondsLeft: seconds,
-                    turnTotalSeconds: 20,
-                  ),
-                  seatMine: (c, m) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      OkeyCornerPileWidget(
-                        size: m.discardTileWidth,
-                        avatarSize: m.avatarSize,
-                        side: OkeySeatSide.bottom,
-                        parts: OkeySeatParts.identity,
-                        seat: _seat(0, 'SM-S9..'),
-                        seatNo: 0,
-                        tileCount: 13,
-                        score: 115,
-                        isMe: true,
-                        isCurrentTurn: false,
-                      ),
-                      const SizedBox(width: 6),
-                      OkeyScoreBubble(
-                        score: 115,
-                        height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
-                      ),
-                    ],
-                  ),
-                  cornerDiscardTopLeft: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.left,
-                    parts: OkeySeatParts.discard,
-                    seat: _seat(2, 'Oyuncu 2'),
-                    seatNo: 2,
-                    topDiscard: _t(OkeyColor.black, 1),
-                    tileCount: 14,
-                    isCurrentTurn: false,
-                  ),
-                  cornerDiscardBottomLeft: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.left,
-                    parts: OkeySeatParts.discard,
-                    seat: _seat(3, 'Oyuncu 3'),
-                    seatNo: 3,
-                    topDiscard: _t(OkeyColor.red, 4),
-                    tileCount: 15,
-                    isCurrentTurn: false,
-                    isDrawSource: true,
-                  ),
-                  cornerDiscardTopRight: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.right,
-                    parts: OkeySeatParts.discard,
-                    seat: _seat(1, 'Oyuncu 1'),
-                    seatNo: 1,
-                    topDiscard: _t(OkeyColor.yellow, 5),
-                    tileCount: 13,
-                    isCurrentTurn: false,
-                  ),
-                  myDiscard: (c, m) => OkeyCornerPileWidget(
-                    size: m.discardTileWidth,
-                    side: OkeySeatSide.right,
-                    parts: OkeySeatParts.discard,
-                    seat: _seat(0, 'SM-S9..'),
-                    seatNo: 0,
-                    tileCount: 13,
-                    score: 115,
-                    isMe: true,
-                    isCurrentTurn: false,
-                    isDiscardTarget: true,
-                  ),
-                  island: (c, m) => OkeyIndicatorWidget(
-                    vertical: true,
-                    indicatorTile: _t(OkeyColor.red, 11),
-                    okeyTile: _t(OkeyColor.red, 12),
-                    deckRemaining: 18,
-                    isMyTurn: true,
-                    canDragFromDeck: true,
-                    tileWidth: m.islandTileWidth,
-                  ),
-                  melds: (c, m) => OkeyBoardWidget(
-                    melds: _melds(),
-                    okeyTile: _t(OkeyColor.yellow, 13),
-                    tileWidth: m.meldTileWidth,
-                    tileHeight: m.meldTileHeight,
-                  ),
-                  pairsBoard: (c, m) => OkeyBoardWidget(
-                    okeyTile: _t(OkeyColor.yellow, 13),
-                    melds: [
-                      OkeyTableMeld(
-                        id: 90,
-                        matchId: 'm',
-                        laidBySeat: 1,
-                        meldType: 'pair',
-                        tiles: [_t(OkeyColor.blue, 6), _t(OkeyColor.blue, 6)],
-                      ),
-                      OkeyTableMeld(
-                        id: 91,
-                        matchId: 'm',
-                        laidBySeat: 1,
-                        meldType: 'pair',
-                        tiles: [_t(OkeyColor.black, 9), _t(OkeyColor.black, 9)],
-                      ),
-                    ],
-                    tileWidth: m.meldTileWidth,
-                    tileHeight: m.meldTileHeight,
-                  ),
-                  // SERİ DİZ / ÇİFT DİZ artık ıstakanın SOL ucunda ALT
-                  // ALTA (düzen v5); sağ uç hamle dock'unun.
-                  rackCapStart: (c, m) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: OkeyDizCapButton.series(
-                          active: true,
-                          onPressed: _noop,
-                        ),
-                      ),
-                      const SizedBox(height: OkeyTableMetrics.rackCapGap),
-                      Expanded(
-                        child: OkeyDizCapButton.pairs(
-                          active: false,
-                          onPressed: _noop,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Geri çağrılar VERİLİR: dock "etkin" görünümünü ancak o
-                  // zaman alır. Önizlemede boş bırakılınca her düğme kapalı
-                  // çiziliyor ve tasarımın asıl mesajı (pirinç = şu an
-                  // yapılabilir) hiç görünmüyordu.
-                  actionDock: (c, m) => OkeyActionDock(
-                    drawPhase: false,
-                    canOpen: true,
-                    openBadge: '108/101',
-                    onOpen: _noop,
-                    canProcess: true,
-                    autoProcessCount: 2,
-                    onProcess: _noop,
-                    canDiscard: true,
-                    onDiscard: _noop,
-                  ),
-                  modeBadges: const OkeyModeBadgeStack(
-                    items: [
-                      ('Eşsiz', Colors.lightBlueAccent),
-                      ('Yardımlı', Colors.lightGreenAccent),
-                      ('Katlamasız', Colors.redAccent),
-                      ('3. EL', Colors.white70),
-                    ],
-                  ),
-                  topLeading: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const OkeyCoinPill(amount: 4500, height: 26),
-                      const SizedBox(width: 6),
-                      // MASA PUANI (2026-09-05): 3 el × 500 = 1.500
-                      const OkeyStakePill(
-                        stake: 1500,
-                        perHand: 500,
-                        hands: 3,
-                        height: 26,
-                      ),
-                      const SizedBox(width: 6),
-                      OkeyHudActionButton.bonus(
-                        label: 'BONUS AL',
-                        height: 26,
-                        enabled: true,
-                        onTap: _noop,
-                      ),
-                    ],
-                  ),
-                  topControls: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const OkeyRoundIconButton(
-                        size: 26,
-                        icon: Icons.volume_up,
-                        tooltip: 'Ses',
-                        onTap: _noop,
-                      ),
-                      const SizedBox(width: 5),
-                      const OkeyRoundIconButton(
-                        size: 26,
-                        icon: Icons.keyboard_arrow_down,
-                        tooltip: 'Menü',
-                        onTap: _noop,
-                      ),
-                    ],
-                  ),
-                  rack: (c, m) => OkeyRackPanel(
-                    rack: OkeyRackBarWidget(
-                      slots: _rack(),
-                      selectedIndices: const {},
-                      onTap: (_) {},
-                      onMove: (_, _) {},
-                      metrics: m,
-                      showChrome: false,
-                      groupEndSlots: const {2, 6, 9},
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          home: okeyPreviewTable(seconds),
         ),
       );
       await tester.pumpAndSettle();
@@ -391,5 +149,243 @@ void main() {
     });
   }
 }
+
+/// Önizleme masası — yerleşim ve renkler gerçek masayla aynı; tema
+/// önizlemeleri (bkz. tasarım sistemi) de bunu kullanır.
+Widget okeyPreviewTable(ValueNotifier<int> seconds) => Scaffold(
+  backgroundColor: OkeyColors.tableBackground,
+  body: Stack(
+    children: [
+      const Positioned.fill(child: IgnorePointer(child: OkeyRoomBackdrop())),
+      OkeyTableScaffold(
+        seatAcross: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          avatarSize: m.avatarSize,
+          side: OkeySeatSide.top,
+          parts: OkeySeatParts.identity,
+          seat: _seat(2, 'Oyuncu 2'),
+          seatNo: 2,
+          tileCount: 14,
+          score: 116,
+          isCurrentTurn: false,
+        ),
+        seatLeft: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.left,
+          parts: OkeySeatParts.identity,
+          seat: _seat(3, 'Oyuncu 3'),
+          seatNo: 3,
+          tileCount: 15,
+          score: 23,
+          isCurrentTurn: false,
+        ),
+        seatRight: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.right,
+          parts: OkeySeatParts.identity,
+          seat: _seat(1, 'Oyuncu 1'),
+          seatNo: 1,
+          tileCount: 13,
+          score: 5,
+          isCurrentTurn: true,
+          // SÜRE HALKASI (düzen v5) — önizleme PNG'sinde de
+          // görünsün: sıranın kimde olduğunu artık bu yay söylüyor,
+          // ıstakanın üstündeki eski çizgi değil.
+          turnSecondsLeft: seconds,
+          turnTotalSeconds: 20,
+        ),
+        seatMine: (c, m) => Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OkeyCornerPileWidget(
+              size: m.discardTileWidth,
+              avatarSize: m.avatarSize,
+              side: OkeySeatSide.bottom,
+              parts: OkeySeatParts.identity,
+              seat: _seat(0, 'SM-S9..'),
+              seatNo: 0,
+              tileCount: 13,
+              score: 115,
+              isMe: true,
+              isCurrentTurn: false,
+            ),
+            const SizedBox(width: 6),
+            OkeyScoreBubble(
+              score: 115,
+              height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
+            ),
+          ],
+        ),
+        cornerDiscardTopLeft: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.left,
+          parts: OkeySeatParts.discard,
+          seat: _seat(2, 'Oyuncu 2'),
+          seatNo: 2,
+          topDiscard: _t(OkeyColor.black, 1),
+          tileCount: 14,
+          isCurrentTurn: false,
+        ),
+        cornerDiscardBottomLeft: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.left,
+          parts: OkeySeatParts.discard,
+          seat: _seat(3, 'Oyuncu 3'),
+          seatNo: 3,
+          topDiscard: _t(OkeyColor.red, 4),
+          tileCount: 15,
+          isCurrentTurn: false,
+          isDrawSource: true,
+        ),
+        cornerDiscardTopRight: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.right,
+          parts: OkeySeatParts.discard,
+          seat: _seat(1, 'Oyuncu 1'),
+          seatNo: 1,
+          topDiscard: _t(OkeyColor.yellow, 5),
+          tileCount: 13,
+          isCurrentTurn: false,
+        ),
+        myDiscard: (c, m) => OkeyCornerPileWidget(
+          size: m.discardTileWidth,
+          side: OkeySeatSide.right,
+          parts: OkeySeatParts.discard,
+          seat: _seat(0, 'SM-S9..'),
+          seatNo: 0,
+          tileCount: 13,
+          score: 115,
+          isMe: true,
+          isCurrentTurn: false,
+          isDiscardTarget: true,
+        ),
+        island: (c, m) => OkeyIndicatorWidget(
+          vertical: true,
+          indicatorTile: _t(OkeyColor.red, 11),
+          okeyTile: _t(OkeyColor.red, 12),
+          deckRemaining: 18,
+          isMyTurn: true,
+          canDragFromDeck: true,
+          tileWidth: m.islandTileWidth,
+        ),
+        melds: (c, m) => OkeyBoardWidget(
+          melds: _melds(),
+          okeyTile: _t(OkeyColor.yellow, 13),
+          tileWidth: m.meldTileWidth,
+          tileHeight: m.meldTileHeight,
+        ),
+        pairsBoard: (c, m) => OkeyBoardWidget(
+          okeyTile: _t(OkeyColor.yellow, 13),
+          melds: [
+            OkeyTableMeld(
+              id: 90,
+              matchId: 'm',
+              laidBySeat: 1,
+              meldType: 'pair',
+              tiles: [_t(OkeyColor.blue, 6), _t(OkeyColor.blue, 6)],
+            ),
+            OkeyTableMeld(
+              id: 91,
+              matchId: 'm',
+              laidBySeat: 1,
+              meldType: 'pair',
+              tiles: [_t(OkeyColor.black, 9), _t(OkeyColor.black, 9)],
+            ),
+          ],
+          tileWidth: m.meldTileWidth,
+          tileHeight: m.meldTileHeight,
+        ),
+        // SERİ DİZ / ÇİFT DİZ artık ıstakanın SOL ucunda ALT
+        // ALTA (düzen v5); sağ uç hamle dock'unun.
+        rackCapStart: (c, m) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: OkeyDizCapButton.series(active: true, onPressed: _noop),
+            ),
+            const SizedBox(height: OkeyTableMetrics.rackCapGap),
+            Expanded(
+              child: OkeyDizCapButton.pairs(active: false, onPressed: _noop),
+            ),
+          ],
+        ),
+        // Geri çağrılar VERİLİR: dock "etkin" görünümünü ancak o
+        // zaman alır. Önizlemede boş bırakılınca her düğme kapalı
+        // çiziliyor ve tasarımın asıl mesajı (pirinç = şu an
+        // yapılabilir) hiç görünmüyordu.
+        actionDock: (c, m) => OkeyActionDock(
+          drawPhase: false,
+          canOpen: true,
+          openBadge: '108/101',
+          onOpen: _noop,
+          canProcess: true,
+          autoProcessCount: 2,
+          onProcess: _noop,
+          canDiscard: true,
+          onDiscard: _noop,
+        ),
+        modeBadges: const OkeyModeBadgeStack(
+          items: [
+            ('Eşsiz', Colors.lightBlueAccent),
+            ('Yardımlı', Colors.lightGreenAccent),
+            ('Katlamasız', Colors.redAccent),
+            ('3. EL', Colors.white70),
+          ],
+        ),
+        topLeading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const OkeyCoinPill(amount: 4500, height: 26),
+            const SizedBox(width: 6),
+            // MASA PUANI (2026-09-05): 3 el × 500 = 1.500
+            const OkeyStakePill(
+              stake: 1500,
+              perHand: 500,
+              hands: 3,
+              height: 26,
+            ),
+            const SizedBox(width: 6),
+            OkeyHudActionButton.bonus(
+              label: 'BONUS AL',
+              height: 26,
+              enabled: true,
+              onTap: _noop,
+            ),
+          ],
+        ),
+        topControls: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const OkeyRoundIconButton(
+              size: 26,
+              icon: Icons.volume_up,
+              tooltip: 'Ses',
+              onTap: _noop,
+            ),
+            const SizedBox(width: 5),
+            const OkeyRoundIconButton(
+              size: 26,
+              icon: Icons.keyboard_arrow_down,
+              tooltip: 'Menü',
+              onTap: _noop,
+            ),
+          ],
+        ),
+        rack: (c, m) => OkeyRackPanel(
+          rack: OkeyRackBarWidget(
+            slots: _rack(),
+            selectedIndices: const {},
+            onTap: (_) {},
+            onMove: (_, _) {},
+            metrics: m,
+            showChrome: false,
+            groupEndSlots: const {2, 6, 9},
+          ),
+        ),
+      ),
+    ],
+  ),
+);
 
 void _noop() {}

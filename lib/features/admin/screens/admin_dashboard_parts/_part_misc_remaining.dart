@@ -283,6 +283,15 @@ extension on _AdminDashboardScreenState {
         return _buildShopsContent();
       case 'Satıcı Duyuruları':
         return const SellerAnnouncementsContent();
+      case 'Öne Çıkarma':
+        // Görev 4.2: öne çıkarma başvuruları, paketler ve ayarlar.
+        return const AdminSponsorshipsContent();
+      case 'Canlı Yayınlar':
+        // Görev 4.3: yayını kapatma, mağaza yayın izni, genel ayarlar.
+        return const AdminLiveContent();
+      case 'Moderatörler':
+        // Görev 4.6: moderatör atama, yetki alanları.
+        return const AdminModeratorsContent();
       case 'Siparişler':
         return _buildOrdersContent();
       case 'Kurye Yönetimi':

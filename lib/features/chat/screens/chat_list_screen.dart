@@ -15,6 +15,7 @@ import 'chat_privacy_settings_screen.dart';
 import 'group_list_screen.dart';
 import 'members_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -51,6 +52,14 @@ class _ChatListScreenState extends State<ChatListScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    // Daha önce yüklenmiş (ya da ana sayfada önceden çekilmiş) liste varsa
+    // beklemeden çizilir; aşağıdaki yükleme onu sessizce tazeler.
+    final cached = _chatService.cachedConversations;
+    if (cached != null) {
+      _conversations = cached;
+      _isLoading = false;
+      _refreshPresence(cached);
+    }
     _loadConversations();
     _loadUnreadCount();
     _loadGroupUnreadCount();
@@ -89,7 +98,11 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> _loadConversations() async {
-    setState(() => _isLoading = true);
+    // Ekranda liste varken spinner gösterilmez: eskisi yerinde kalır, yenisi
+    // gelince değişir.
+    if (_conversations.isEmpty && !_isLoading) {
+      setState(() => _isLoading = true);
+    }
     final conversations = await _chatService.getConversations();
     if (mounted) {
       setState(() {
@@ -461,7 +474,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                                         backgroundImage:
                                             avatarUrl != null &&
                                                 avatarUrl.isNotEmpty
-                                            ? NetworkImage(avatarUrl)
+                                            ? avatarImage(avatarUrl)
                                             : null,
                                         child:
                                             (avatarUrl == null ||
@@ -640,10 +653,11 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
           ),
         );
-        // Mesajları okundu olarak işaretle ve listeyi yenile
+        // Mesajları okundu olarak işaretle, sonra listeyi ve sayacı sessizce
+        // (spinner'sız, paralel) tazele.
         await _chatService.markMessagesAsRead(conversation.id);
-        await _loadConversations();
-        await _loadUnreadCount();
+        unawaited(_loadConversations());
+        unawaited(_loadUnreadCount());
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -670,7 +684,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                           ? Colors.red[100]
                           : Colors.deepPurple[100],
                       backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                          ? NetworkImage(avatarUrl)
+                          ? avatarImage(avatarUrl)
                           : null,
                       child: (avatarUrl == null || avatarUrl.isEmpty)
                           ? Text(
@@ -953,12 +967,19 @@ class _ChatListScreenState extends State<ChatListScreen>
   ) async {
     final userId = user['id'] as String;
 
-    // Kullanıcının mesaj alma özelliğini kontrol et
-    final targetProfile = await Supabase.instance.client
-        .from('profiles')
-        .select('messages_enabled')
-        .eq('id', userId)
-        .maybeSingle();
+    // Mesaj izni ve konuşma PARALEL (tek tur). getOrCreateConversation izin
+    // kapalıysa konuşma açmadan null döner; buradaki kontrol yalnız doğru
+    // uyarıyı göstermek için.
+    final results = await Future.wait<Object?>([
+      Supabase.instance.client
+          .from('profiles')
+          .select('messages_enabled')
+          .eq('id', userId)
+          .maybeSingle(),
+      _chatService.getOrCreateConversation(userId),
+    ]);
+    final targetProfile = results[0] as Map<String, dynamic>?;
+    final conversation = results[1] as Conversation?;
 
     if (targetProfile != null && targetProfile['messages_enabled'] == false) {
       if (mounted) {
@@ -972,8 +993,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
       return;
     }
-
-    final conversation = await _chatService.getOrCreateConversation(userId);
 
     if (conversation != null && mounted) {
       Navigator.push(

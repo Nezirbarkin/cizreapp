@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/navigation/app_navigator.dart';
 import '../widgets/auth_shell.dart';
 
 /// Google/Apple ile girişten hemen sonra çağrılır. `handle_new_user`
@@ -142,12 +143,10 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     Navigator.of(context).pushNamedAndRemoveUntil('/main', (route) => false);
   }
 
-  Future<void> _signOutAndExit() async {
-    await Supabase.instance.client.auth.signOut();
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-    }
-  }
+  /// "Yanlış hesapla mı girdin?" → merkezi çıkış akışı. Ham `signOut`
+  /// FCM token'ını ve Google oturumunu bırakmıyordu; kullanıcı "Google ile
+  /// devam et"e basınca hesap seçemeden aynı hesaba geri düşüyordu.
+  Future<void> _signOutAndExit() => AppNavigator.signOutAndReset();
 
   Widget? _buildUsernameSuffix(AuthPalette p) {
     if (_isCheckingUsername) {

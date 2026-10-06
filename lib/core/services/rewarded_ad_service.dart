@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../models/ad_settings_model.dart';
 import '../models/reward_session_model.dart';
 import 'ad_settings_service.dart';
+import 'analytics_service.dart';
 import 'reward_points_service.dart';
 
 abstract interface class RewardedAdHandle {
@@ -30,6 +31,70 @@ abstract interface class RewardedAdLoader {
   Future<RewardedAdHandle?> load(String adUnitId);
 }
 
+/// AdMob'un reklam yükleme reddini merkezi analitiğe yazar.
+///
+/// Bu hata daha önce yalnız `debugPrint`'e gidiyordu; üretimde "reklam
+/// çıkmıyor" şikayetinin NEDENİ (hesap/uygulama onaysız mı, doldurulamadı mı,
+/// ağ mı) cihaz günlüğü olmadan bilinemiyordu. Kayıt `event_type='error'`
+/// olarak ve admin Loglar › "Son Hatalar" / "Hata Tipi Dağılımı" kartlarının
+/// okuduğu `type/details/origin` anahtarlarıyla yazılır; AdMob'un ham alanları
+/// (`ad_error_code` vb.) SQL ile sorgulanabilsin diye ek anahtar olarak durur.
+class RewardedAdLoadFailureLog {
+  RewardedAdLoadFailureLog._();
+
+  static const String errorType = 'Ödüllü reklam yüklenemedi';
+  static const String _origin = 'core/services/rewarded_ad_service.dart';
+  static const int _maxMessageLength = 300;
+
+  /// Aynı hata bu uygulama çalışmasında bir kez yazılır: hata kalıcıysa
+  /// (ör. "Account not approved yet") her önyükleme denemesi tabloyu
+  /// doldurmasın.
+  static final Set<String> _reported = <String>{};
+
+  /// Yazımı AnalyticsService/Supabase yerine testte yakalamak içindir.
+  @visibleForTesting
+  static Future<void> Function(Map<String, dynamic> metadata) writer = _write;
+
+  static Future<void> _write(Map<String, dynamic> metadata) =>
+      AnalyticsService().trackEvent(eventType: 'error', metadata: metadata);
+
+  /// Test kancası: bu çalışmada yazılmış hataların bellekteki listesini sıfırlar.
+  @visibleForTesting
+  static void resetForTest() => _reported.clear();
+
+  static void record({
+    required String platform,
+    required String adUnitId,
+    required int code,
+    required String domain,
+    required String message,
+    String? responseId,
+  }) {
+    final shortMessage = message.length <= _maxMessageLength
+        ? message
+        : message.substring(0, _maxMessageLength);
+    if (!_reported.add('$platform|$adUnitId|$code|$shortMessage')) return;
+
+    final metadata = <String, dynamic>{
+      'type': errorType,
+      'details': '$platform · kod $code · $shortMessage · $adUnitId',
+      'origin': _origin,
+      'ad_error_code': code,
+      'ad_error_domain': domain,
+      'ad_error_message': shortMessage,
+      'ad_unit_id': adUnitId,
+      'platform': platform,
+      if (responseId != null && responseId.isNotEmpty)
+        'ad_response_id': responseId,
+    };
+    try {
+      unawaited(writer(metadata).catchError((_) {}));
+    } catch (_) {
+      // Analitik yazımı reklam akışını asla bozmamalı.
+    }
+  }
+}
+
 class GoogleRewardedAdLoader implements RewardedAdLoader {
   const GoogleRewardedAdLoader();
 
@@ -43,6 +108,14 @@ class GoogleRewardedAdLoader implements RewardedAdLoader {
         onAdLoaded: (ad) => completer.complete(_GoogleRewardedAdHandle(ad)),
         onAdFailedToLoad: (error) {
           debugPrint('Rewarded ad yüklenemedi: $error');
+          RewardedAdLoadFailureLog.record(
+            platform: Platform.isIOS ? 'ios' : 'android',
+            adUnitId: adUnitId,
+            code: error.code,
+            domain: error.domain,
+            message: error.message,
+            responseId: error.responseInfo?.responseId,
+          );
           completer.complete(null);
         },
       ),

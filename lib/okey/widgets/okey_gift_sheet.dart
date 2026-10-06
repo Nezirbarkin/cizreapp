@@ -147,7 +147,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
+            colors: [OkeyUI.cardFillRaised, OkeyUI.cardFill],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
@@ -173,13 +173,9 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
               // ızgaradan çalınan bir sıra demek.
               Row(
                 children: [
-                  Icon(
-                    Icons.card_giftcard,
-                    size: 18,
-                    color: OkeyUI.brass,
-                  ),
+                  Icon(Icons.card_giftcard, size: 18, color: OkeyUI.accentInk),
                   const SizedBox(width: 7),
-                  const Text('HEDİYE GÖNDER', style: OkeyUI.title),
+                  Text('HEDİYE GÖNDER', style: OkeyUI.title),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -194,7 +190,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
               const SizedBox(height: OkeyUI.gapSm),
 
               if (targets.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
                   child: Text(
                     'Masada hediye gönderilecek oyuncu yok.',
@@ -202,7 +198,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                   ),
                 )
               else ...[
-                const Text('KİME', style: OkeyUI.sectionLabel),
+                Text('KİME', style: OkeyUI.sectionLabel),
                 const SizedBox(height: OkeyUI.gapXs),
                 SizedBox(
                   height: 38,
@@ -223,7 +219,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                   ),
                 ),
                 const SizedBox(height: OkeyUI.gapSm),
-                const Text('NE', style: OkeyUI.sectionLabel),
+                Text('NE', style: OkeyUI.sectionLabel),
                 const SizedBox(height: OkeyUI.gapXs),
                 // Menü sunucudan gelir; kodda gömülü hediye listesi YOK.
                 Flexible(
@@ -243,7 +239,7 @@ class _OkeyGiftSheetState extends State<OkeyGiftSheet> {
                       }
                       final gifts = snap.data ?? const <OkeyGift>[];
                       if (gifts.isEmpty) {
-                        return const Padding(
+                        return Padding(
                           padding: EdgeInsets.symmetric(vertical: 18),
                           child: Text(
                             'Şu an gönderilebilecek hediye yok.',
@@ -329,13 +325,13 @@ class _SeatChip extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 13,
-              backgroundColor: Colors.white12,
+              backgroundColor: OkeyUI.avatarFill,
               backgroundImage: seat.avatarUrl == null
                   ? null
                   : NetworkImage(seat.avatarUrl!),
               child: seat.avatarUrl != null
                   ? null
-                  : const Icon(Icons.person, size: 14, color: Colors.white70),
+                  : Icon(Icons.person, size: 14, color: OkeyUI.avatarIcon),
             ),
             const SizedBox(width: 7),
             ConstrainedBox(
@@ -345,7 +341,7 @@ class _SeatChip extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: selected ? OkeyUI.brass : OkeyUI.text,
+                  color: selected ? OkeyUI.accentInk : OkeyUI.text,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
@@ -399,7 +395,7 @@ class _GiftTile extends StatelessWidget {
                 gift.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   color: OkeyUI.text,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -409,12 +405,12 @@ class _GiftTile extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.stars, size: 12, color: Color(0xFFFFD54F)),
+                  Icon(Icons.stars, size: 12, color: OkeyUI.chipText),
                   const SizedBox(width: 3),
                   Text(
                     '${gift.price}',
-                    style: const TextStyle(
-                      color: Color(0xFFFFD54F),
+                    style: TextStyle(
+                      color: OkeyUI.chipText,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),

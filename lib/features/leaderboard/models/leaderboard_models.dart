@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
-/// Kartın türü: sıralama listesi ya da sayaç kartı.
-enum LeaderboardKind { ranking, stats }
+/// Kartın türü: sıralama listesi, sayaç kartı ya da rekorlar (Görev 4.4).
+enum LeaderboardKind { ranking, stats, records }
 
-/// Sayaç kartları iki tanedir: genel sayılar ve günlük ("Bugün Cizre'de").
+/// Sayaç kartları üç tanedir: genel sayılar, günlük ("Bugün Cizre'de") ve
+/// kişisel ("Rakamlarla Sen", Görev 4.4 — yalnız kullanıcının kendi sayıları).
 /// Her [LeaderboardStat] birine aittir; kart yalnız kendi grubunun açık
-/// sayaçlarını gösterir. 14 sayacı tek kartta göstermek karuseli çok uzatırdı.
-enum LeaderboardStatGroup { general, today }
+/// sayaçlarını gösterir. Tümünü tek kartta göstermek karuseli çok uzatırdı.
+enum LeaderboardStatGroup { general, today, personal }
 
-/// Liderler Tablosu'ndaki kartlar (23 adet: 21 pano + 2 sayaç kartı; 8'i 101 Okey).
+/// Liderler Tablosu'ndaki kartlar (25 adet: 21 pano + 3 sayaç kartı + rekorlar;
+/// 8'i 101 Okey).
 ///
 /// Enum SIRASI varsayılan kart sırasıdır ve sunucudaki
 /// `leaderboard_card_keys()` ile AYNI olmalı. [key] sunucudaki
@@ -38,6 +40,28 @@ enum LeaderboardBoard {
     periodAware: false,
     kind: LeaderboardKind.stats,
     statGroup: LeaderboardStatGroup.today,
+  ),
+  // Görev 4.4
+  myStats(
+    key: 'my_stats',
+    title: 'Rakamlarla Sen',
+    chipLabel: 'Sen',
+    description: 'Senin sayıların — yalnız sana görünür',
+    icon: Icons.person_pin_rounded,
+    color: Color(0xFF7C3AED),
+    periodAware: false,
+    kind: LeaderboardKind.stats,
+    statGroup: LeaderboardStatGroup.personal,
+  ),
+  records(
+    key: 'records',
+    title: 'Rekor Skorlar',
+    chipLabel: 'Rekorlar',
+    description: 'Cizre’nin tüm zamanlar rekorları',
+    icon: Icons.military_tech_rounded,
+    color: Color(0xFFD97706),
+    periodAware: false,
+    kind: LeaderboardKind.records,
   ),
   newMembers(
     key: 'new_members',
@@ -265,6 +289,8 @@ enum LeaderboardBoard {
 
   bool get isStats => kind == LeaderboardKind.stats;
 
+  bool get isRecords => kind == LeaderboardKind.records;
+
   /// `app_settings` anahtarı.
   String get settingKey => 'leaderboard_board_$key';
 
@@ -333,6 +359,8 @@ enum LeaderboardBoard {
       case LeaderboardBoard.newMembers:
       case LeaderboardBoard.stats:
       case LeaderboardBoard.statsToday:
+      case LeaderboardBoard.myStats:
+      case LeaderboardBoard.records:
         return '';
     }
   }
@@ -466,6 +494,78 @@ enum LeaderboardStat {
     icon: Icons.shopping_cart_checkout_rounded,
     color: Color(0xFF10B981),
     group: LeaderboardStatGroup.today,
+  ),
+
+  // --- Kişisel ("Rakamlarla Sen"; yalnız kullanıcının kendisine, Görev 4.4) ---
+  myDays(
+    key: 'my_days',
+    label: 'Gündür üyesin',
+    icon: Icons.cake_rounded,
+    color: Color(0xFF7C3AED),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myPosts(
+    key: 'my_posts',
+    label: 'Gönderin',
+    icon: Icons.article_rounded,
+    color: Color(0xFFEC4899),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myLikes(
+    key: 'my_likes',
+    label: 'Aldığın beğeni',
+    icon: Icons.favorite_rounded,
+    color: Color(0xFFEF4444),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myPostViews(
+    key: 'my_post_views',
+    label: 'Gönderi görüntülenmen',
+    icon: Icons.visibility_rounded,
+    color: Color(0xFF0EA5E9),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myFollowers(
+    key: 'my_followers',
+    label: 'Takipçin',
+    icon: Icons.groups_rounded,
+    color: Color(0xFF8B5CF6),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myFollowing(
+    key: 'my_following',
+    label: 'Takip ettiğin',
+    icon: Icons.person_add_alt_rounded,
+    color: Color(0xFF6366F1),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myOrders(
+    key: 'my_orders',
+    label: 'Tamamlanan siparişin',
+    icon: Icons.local_shipping_rounded,
+    color: Color(0xFF10B981),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myLogins(
+    key: 'my_logins',
+    label: 'Girişin (son 90 gün)',
+    icon: Icons.login_rounded,
+    color: Color(0xFF0891B2),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myOkeyMatches(
+    key: 'my_okey_matches',
+    label: 'Okey maçın',
+    icon: Icons.sports_esports_rounded,
+    color: Color(0xFF92400E),
+    group: LeaderboardStatGroup.personal,
+  ),
+  myOkeyWins(
+    key: 'my_okey_wins',
+    label: 'Okey galibiyetin',
+    icon: Icons.emoji_events_rounded,
+    color: Color(0xFFF59E0B),
+    group: LeaderboardStatGroup.personal,
   );
 
   const LeaderboardStat({
@@ -484,6 +584,211 @@ enum LeaderboardStat {
 
   /// `app_settings` anahtarı.
   String get settingKey => 'leaderboard_stat_$key';
+
+  /// 101 Okey sayacı mı (modül kapalıyken gizlenir, Görev 4.1).
+  bool get isOkey => key.contains('okey');
+}
+
+/// "Rekor Skorlar" kartındaki rekorlar (Görev 4.4). Sıra = sunucudaki
+/// `leaderboard_record_keys()`; ayar anahtarı `leaderboard_record_<key>`.
+enum LeaderboardRecord {
+  busiestDay(
+    key: 'busiest_day',
+    label: 'En kalabalık gün',
+    icon: Icons.local_fire_department_rounded,
+    color: Color(0xFFF97316),
+    unit: 'kişi',
+  ),
+  signupDay(
+    key: 'signup_day',
+    label: 'Tek günde en çok yeni üye',
+    icon: Icons.person_add_alt_1_rounded,
+    color: Color(0xFF3B82F6),
+    unit: 'üye',
+  ),
+  ordersDay(
+    key: 'orders_day',
+    label: 'Tek günde en çok sipariş',
+    icon: Icons.shopping_bag_rounded,
+    color: Color(0xFF10B981),
+    unit: 'sipariş',
+  ),
+  postsDay(
+    key: 'posts_day',
+    label: 'Tek günde en çok gönderi',
+    icon: Icons.edit_note_rounded,
+    color: Color(0xFFEC4899),
+    unit: 'gönderi',
+  ),
+  oldestMember(
+    key: 'oldest_member',
+    label: 'En eski üye',
+    icon: Icons.workspace_premium_rounded,
+    color: Color(0xFF8B5CF6),
+    unit: 'gün',
+  ),
+  topPostLikes(
+    key: 'top_post_likes',
+    label: 'En çok beğenilen gönderi',
+    icon: Icons.favorite_rounded,
+    color: Color(0xFFEF4444),
+    unit: 'beğeni',
+  ),
+  livePeak(
+    key: 'live_peak',
+    label: 'En kalabalık canlı yayın',
+    icon: Icons.live_tv_rounded,
+    color: Color(0xFFDC2626),
+    unit: 'izleyici',
+  ),
+  firstPost(
+    key: 'first_post',
+    label: 'İlk gönderi',
+    icon: Icons.flag_rounded,
+    color: Color(0xFF0EA5E9),
+    unit: '',
+  );
+
+  const LeaderboardRecord({
+    required this.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.unit,
+  });
+
+  final String key;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  /// Değerin birimi ("87 kişi"); boşsa değer yerine tarih gösterilir.
+  final String unit;
+
+  /// `app_settings` anahtarı.
+  String get settingKey => 'leaderboard_record_$key';
+
+  static LeaderboardRecord? fromKey(String key) {
+    for (final record in values) {
+      if (record.key == key) return record;
+    }
+    return null;
+  }
+}
+
+const _trMonths = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+];
+
+/// "21 Eylül 2026" (yerel takvim günü).
+String formatTrDate(DateTime at) {
+  final local = at.isUtc ? at.toLocal() : at;
+  return '${local.day} ${_trMonths[local.month - 1]} ${local.year}';
+}
+
+/// Üyelik süresi: "12 gündür üye", "10 aydır üye", "1 yıl 2 aydır üye", "2 yıldır üye".
+String memberForLabel(int days) {
+  if (days < 30) return '$days gündür üye';
+  final months = days ~/ 30;
+  if (months < 12) return '$months aydır üye';
+  final years = months ~/ 12;
+  final rest = months % 12;
+  return rest == 0 ? '$years yıldır üye' : '$years yıl $rest aydır üye';
+}
+
+/// Bir rekorun değeri ve öznesi (gün, kişi, gönderi ya da dükkân).
+class LeaderboardRecordValue {
+  const LeaderboardRecordValue({
+    required this.record,
+    this.value,
+    this.at,
+    this.type,
+    this.id,
+    this.name,
+    this.handle,
+    this.avatarUrl,
+    this.ownerId,
+    this.detail,
+  });
+
+  final LeaderboardRecord record;
+  final int? value;
+  final DateTime? at;
+
+  /// Öznenin türü; gün rekorunda null.
+  final LeaderboardEntityType? type;
+  final String? id;
+  final String? name;
+  final String? handle;
+  final String? avatarUrl;
+  final String? ownerId;
+
+  /// Ek bilgi (canlı yayının başlığı).
+  final String? detail;
+
+  static LeaderboardRecordValue? tryFromJson(LeaderboardRecord record, Object? raw) {
+    if (raw is! Map) return null;
+    String? text(Object? value) {
+      final t = value?.toString().trim();
+      return t == null || t.isEmpty ? null : t;
+    }
+
+    final rawType = text(raw['type']);
+    final value = raw['value'];
+    return LeaderboardRecordValue(
+      record: record,
+      value: value is num ? value.toInt() : int.tryParse('${value ?? ''}'),
+      at: DateTime.tryParse('${raw['at'] ?? ''}'),
+      type: rawType == null || rawType == 'day' ? null : LeaderboardEntityType.parse(rawType),
+      id: text(raw['id']),
+      name: text(raw['name']),
+      handle: text(raw['handle']),
+      avatarUrl: text(raw['avatar']),
+      ownerId: text(raw['owner']),
+      detail: text(raw['detail']),
+    );
+  }
+
+  /// Sağdaki değer: "87 kişi", "1.234 beğeni", "1 yıl 2 aydır üye"; birimsiz
+  /// rekorda (ilk gönderi) tarih.
+  String get valueLabel {
+    final v = value;
+    if (record == LeaderboardRecord.oldestMember) return v == null ? '' : memberForLabel(v);
+    if (record.unit.isEmpty) return at == null ? '' : formatTrDate(at!);
+    return v == null ? '' : '${formatCount(v)} ${record.unit}';
+  }
+
+  /// Etiketin altındaki satır: gün rekorunda tarih, kişide ad, gönderide
+  /// yazar ve metin, canlı yayında dükkân ve başlık.
+  String get subtitle {
+    final h = handle, n = name, d = detail, date = at;
+    final parts = switch (type) {
+      null => [if (date != null) formatTrDate(date)],
+      LeaderboardEntityType.post => [if (h != null) h, if (n != null) n],
+      LeaderboardEntityType.shop => [if (n != null) n, if (d != null) d],
+      _ => [if (n != null) n, if (h != null) h],
+    };
+    return parts.join(' · ');
+  }
+
+  /// Dokununca açılacak satır (kişi, gönderi, dükkân); gün rekorunda null.
+  LeaderboardEntry? toEntry() {
+    final entityType = type;
+    final entityId = id;
+    if (entityType == null || entityId == null) return null;
+    return LeaderboardEntry(
+      rank: 1,
+      type: entityType,
+      id: entityId,
+      name: name ?? '',
+      handle: handle,
+      avatarUrl: avatarUrl,
+      metric: value?.toDouble(),
+      at: at,
+      ownerId: ownerId,
+    );
+  }
 }
 
 /// Sayıyı Türkçe binlik ayraçla yazar: 1234 -> "1.234".
@@ -640,6 +945,7 @@ class LeaderboardSettings {
     required this.boards,
     this.order = const [],
     this.stats = const {},
+    this.records = const {},
   });
 
   final bool enabled;
@@ -656,6 +962,9 @@ class LeaderboardSettings {
   /// Sayaç anahtarı -> açık mı.
   final Map<String, bool> stats;
 
+  /// Rekor anahtarı -> açık mı (Görev 4.4).
+  final Map<String, bool> records;
+
   /// Ayar okunamadığında bölüm HİÇ görünmesin: yanlışlıkla kapatılmış bir
   /// özelliği açık göstermektense ana sayfayı boş bırakmak daha güvenli.
   static const LeaderboardSettings fallback = LeaderboardSettings(
@@ -669,6 +978,8 @@ class LeaderboardSettings {
 
   bool isStatEnabled(LeaderboardStat stat) => stats[stat.key] ?? false;
 
+  bool isRecordEnabled(LeaderboardRecord record) => records[record.key] ?? false;
+
   /// Yalnız kart sırası değişmiş kopya (admin ekranındaki anlık sıralama için).
   LeaderboardSettings withOrder(List<LeaderboardBoard> newOrder) =>
       LeaderboardSettings(
@@ -678,6 +989,7 @@ class LeaderboardSettings {
         boards: boards,
         order: [for (final b in newOrder) b.key],
         stats: stats,
+        records: records,
       );
 
   /// TÜM kartlar, admin sırasıyla: kayıtlı sıradaki bilinen anahtarlar önce
@@ -722,6 +1034,7 @@ class LeaderboardSettings {
           ? [for (final key in rawOrder) key.toString()]
           : const [],
       stats: flags(json['stats']),
+      records: flags(json['records']),
     );
   }
 }
@@ -732,6 +1045,7 @@ class LeaderboardSnapshot {
     required this.settings,
     this.boards = const {},
     this.stats = const {},
+    this.records = const {},
   });
 
   final LeaderboardSettings settings;
@@ -740,8 +1054,12 @@ class LeaderboardSnapshot {
   /// olarak, çağıranın sırası N'den büyükse kendi satırı da bulunur.
   final Map<String, List<LeaderboardEntry>> boards;
 
-  /// Sayaç anahtarı -> değer (yalnız açık sayaçlar gelir).
+  /// Sayaç anahtarı -> değer (yalnız açık sayaçlar gelir; kişisel sayaçlar
+  /// `my_` önekiyle ve yalnız çağıranın kendisi için).
   final Map<String, int> stats;
+
+  /// Rekor anahtarı -> değer (yalnız açık ve verisi olan rekorlar).
+  final Map<String, LeaderboardRecordValue> records;
 
   static const LeaderboardSnapshot empty = LeaderboardSnapshot(
     settings: LeaderboardSettings.fallback,
@@ -775,12 +1093,44 @@ class LeaderboardSnapshot {
       }
     }
 
+    final records = <String, LeaderboardRecordValue>{};
+    final rawRecords = json['records'];
+    if (rawRecords is Map) {
+      for (final entry in rawRecords.entries) {
+        final record = LeaderboardRecord.fromKey(entry.key.toString());
+        if (record == null) continue;
+        final value = LeaderboardRecordValue.tryFromJson(record, entry.value);
+        if (value != null) records[record.key] = value;
+      }
+    }
+
     return LeaderboardSnapshot(
       settings: settings,
       boards: boards,
       stats: stats,
+      records: records,
     );
   }
+
+  /// 101 Okey modülü kapalıyken (Görev 4.1): Okey panoları ve sayaçları olmadan.
+  LeaderboardSnapshot withoutOkey() => LeaderboardSnapshot(
+    settings: settings,
+    boards: {
+      for (final entry in boards.entries)
+        if (!entry.key.startsWith('okey_')) entry.key: entry.value,
+    },
+    stats: {
+      for (final entry in stats.entries)
+        if (!entry.key.contains('okey')) entry.key: entry.value,
+    },
+    records: records,
+  );
+
+  /// "Rekor Skorlar" kartındaki rekorlar, enum sırasıyla.
+  List<LeaderboardRecordValue> recordsFor() => [
+    for (final record in LeaderboardRecord.values)
+      if (records[record.key] case final value?) value,
+  ];
 
   /// Bir sayaç kartında gösterilecek sayaçlar: kartın grubundaki, sunucunun
   /// döndürdüğü (açık) olanlar, enum sırasıyla. Sıralama kartında boştur.
@@ -790,10 +1140,13 @@ class LeaderboardSnapshot {
   ];
 
   /// Ekranda kart olarak çizilecekler: açık kartlar, admin sırasıyla; hiç
-  /// sayaç yoksa sayaç kartı da yok.
+  /// sayaç/rekor yoksa o kart da yok.
   List<LeaderboardBoard> get cards => [
     for (final board in settings.visibleBoards)
-      if (!board.isStats || statsFor(board).isNotEmpty) board,
+      if (board.isRecords
+          ? recordsFor().isNotEmpty
+          : (!board.isStats || statsFor(board).isNotEmpty))
+        board,
   ];
 
   /// Listenin görünen kısmı (ilk N).

@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/conversation_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/utils/app_logger.dart';
+import 'chat_location_service.dart';
+import 'chat_media_service.dart';
 
 // =============================================================================
 // Realtime event model'leri — subscribeToMessagesChannel callback'inde
@@ -32,6 +34,14 @@ class DeleteMessageEvent extends RealtimeMessageEvent {
   const DeleteMessageEvent(this.messageId);
 }
 
+/// Karşı taraf mesajımı okudu: mailbox modelinde mesajımın ONUN
+/// konuşmasındaki kopyası `is_read=true` oldu. [partnerCopy] o kopyadır;
+/// ekrandaki mesajım gönderen|içerik|zaman anahtarıyla eşlenir.
+class PartnerReadEvent extends RealtimeMessageEvent {
+  final Message partnerCopy;
+  const PartnerReadEvent(this.partnerCopy);
+}
+
 class ChatService {
   SupabaseClient get _supabase {
     try {
@@ -39,6 +49,78 @@ class ChatService {
     } catch (e) {
       debugPrint('Supabase henuz baslatilmadi: $e');
       rethrow;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // HIZLI YOL (Görev 1.2): liste ve konuşma ekranı TEK istekle açılır
+  // (get_my_conversations / get_conversation_messages RPC'leri) ve son
+  // görülen veri bellekte tutulur; ekran önce onu ANINDA çizer, sonra tazeler.
+  // Önbellek oturum sahibine bağlıdır: başka kullanıcı giriş yapınca kullanılmaz.
+  // ---------------------------------------------------------------------------
+
+  /// Konuşma ekranında bir seferde yüklenen mesaj sayısı.
+  static const int messagePageSize = 40;
+  static const int _messagesCacheLimit = 20;
+
+  static String? _cacheOwnerId;
+  static List<Conversation>? _conversationsCache;
+  static final Map<String, List<Message>> _firstPageCache = {};
+  static Future<List<Conversation>>? _inflightConversations;
+  static int _channelSeq = 0;
+
+  static void _ensureCacheOwner(String userId) {
+    if (_cacheOwnerId == userId) return;
+    _cacheOwnerId = userId;
+    _conversationsCache = null;
+    _firstPageCache.clear();
+    _inflightConversations = null;
+  }
+
+  /// Oturum kapanınca çağrılır (bkz. main.dart auth dinleyicisi): önceki
+  /// kullanıcının sohbetleri bellekte kalmaz.
+  static void clearCache() {
+    _cacheOwnerId = null;
+    _conversationsCache = null;
+    _firstPageCache.clear();
+    _inflightConversations = null;
+  }
+
+  bool _isCacheOwner() {
+    final userId = _supabase.auth.currentUser?.id;
+    return userId != null && userId == _cacheOwnerId;
+  }
+
+  /// Son yüklenen sohbet listesi; yoksa (ya da başka kullanıcınınsa) null.
+  List<Conversation>? get cachedConversations =>
+      _isCacheOwner() ? _conversationsCache : null;
+
+  /// Sohbet listesini arka planda önceden yükler (ör. ana sayfa açılınca);
+  /// sohbet ekranı ilk açılışta da dolu gelir.
+  Future<void> prefetchConversations() async {
+    if (_supabase.auth.currentUser == null) return;
+    await getConversations();
+  }
+
+  /// Konuşmanın en son görülen ilk sayfası (en yeniden eskiye); yoksa null.
+  List<Message>? cachedFirstPage(String conversationId) =>
+      _isCacheOwner() ? _firstPageCache[conversationId] : null;
+
+  /// Konuşma ekranı kapanırken en yeni mesajlarını (en yeniden eskiye) saklar;
+  /// aynı konuşma tekrar açılınca ekran bunları beklemeden çizer.
+  void rememberConversationPage(
+    String conversationId,
+    List<Message> newestFirst,
+  ) {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+    _ensureCacheOwner(userId);
+    _firstPageCache.remove(conversationId);
+    _firstPageCache[conversationId] = List.unmodifiable(
+      newestFirst.take(messagePageSize),
+    );
+    while (_firstPageCache.length > _messagesCacheLimit) {
+      _firstPageCache.remove(_firstPageCache.keys.first);
     }
   }
 
@@ -61,13 +143,29 @@ class ChatService {
     );
 
     try {
-      // public_profiles_chat SECURITY DEFINER; messages_enabled sütununu
-      // profiles tablosundan RLS bypass ile okur.
-      final otherUserProfile = await _supabase
-          .from('public_profiles_chat')
-          .select('messages_enabled')
-          .eq('id', otherUserId)
-          .maybeSingle();
+      // Profil (mesaj izni + görünen alanlar) ile mevcut konuşma PARALEL, tek
+      // turda okunur. Eskiden profil iki kez sorgulanıyor ve 3–4 ardışık istek
+      // konuşma ekranının açılışını geciktiriyordu. public_profiles_chat
+      // messages_enabled sütununu profiles tablosundan RLS bypass ile okur.
+      final results = await Future.wait<Map<String, dynamic>?>([
+        _supabase
+            .from('public_profiles_chat')
+            .select(
+              'id, full_name, username, avatar_url, is_online, last_seen, messages_enabled',
+            )
+            .eq('id', otherUserId)
+            .maybeSingle(),
+        _supabase
+            .from('conversations')
+            .select(
+              'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
+            )
+            .eq('user_id', currentUserId)
+            .eq('other_user_id', otherUserId)
+            .maybeSingle(),
+      ]);
+      final otherUserProfile = results[0];
+      final existingConv = results[1];
 
       if (otherUserProfile != null &&
           otherUserProfile['messages_enabled'] == false) {
@@ -75,14 +173,11 @@ class ChatService {
         return null;
       }
 
-      final existingConv = await _supabase
-          .from('conversations')
-          .select(
-            'id, user_id, other_user_id, last_message, last_message_time, unread_count, created_at, updated_at, deleted_for_user_id',
-          )
-          .eq('user_id', currentUserId)
-          .eq('other_user_id', otherUserId)
-          .maybeSingle();
+      // Ekrana giden profil eskisi gibi yalnız görünen alanları taşır.
+      final otherUserProfileData = otherUserProfile == null
+          ? null
+          : (Map<String, dynamic>.from(otherUserProfile)
+            ..remove('messages_enabled'));
 
       if (existingConv != null) {
         if ((existingConv['deleted_for_user_id'] as String?) == currentUserId) {
@@ -91,8 +186,6 @@ class ChatService {
               .update({'deleted_for_user_id': null})
               .eq('id', existingConv['id'] as String);
         }
-
-        final otherUserProfileData = await _getOtherUserProfile(otherUserId);
 
         Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(
           existingConv,
@@ -112,10 +205,8 @@ class ChatService {
           )
           .single();
 
-      final newOtherUserProfileData = await _getOtherUserProfile(otherUserId);
-
       Map<String, dynamic> convWithProfile = Map<String, dynamic>.from(newConv);
-      convWithProfile['other_user'] = newOtherUserProfileData;
+      convWithProfile['other_user'] = otherUserProfileData;
 
       return Conversation.fromMap(convWithProfile);
     } catch (e, stackTrace) {
@@ -178,7 +269,54 @@ class ChatService {
     }
   }
 
-  Future<List<Conversation>> getConversations() async {
+  /// Sohbet listesi — TEK istek (`get_my_conversations`). Aynı anda gelen
+  /// çağrılar (ekran açılışı, realtime, ön yükleme) tek isteği paylaşır.
+  /// RPC hata verirse eski çoklu-sorgu yoluna düşer.
+  Future<List<Conversation>> getConversations() {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) return Future.value(<Conversation>[]);
+
+    _ensureCacheOwner(currentUserId);
+    final inflight = _inflightConversations;
+    if (inflight != null) return inflight;
+
+    final future = _fetchConversations(currentUserId);
+    _inflightConversations = future;
+    future.whenComplete(() {
+      if (identical(_inflightConversations, future)) {
+        _inflightConversations = null;
+      }
+    }).ignore();
+    return future;
+  }
+
+  Future<List<Conversation>> _fetchConversations(String currentUserId) async {
+    List<Conversation> conversations;
+    try {
+      final rows = await _supabase.rpc('get_my_conversations') as List;
+      conversations = rows
+          .map(
+            (row) => Conversation.fromMap(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (e, stackTrace) {
+      AppLogger.error(
+        'get_my_conversations başarısız, eski yola düşülüyor: $e',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      conversations = await _getConversationsLegacy();
+    }
+    if (_cacheOwnerId == currentUserId) {
+      _conversationsCache = conversations;
+    }
+    return conversations;
+  }
+
+  /// Eski yol (RPC'den önce): 4 ardışık istek. Yalnız RPC hata verirse çalışır.
+  Future<List<Conversation>> _getConversationsLegacy() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return [];
 
@@ -513,14 +651,59 @@ class ChatService {
     }
   }
 
+  /// Konuşmanın bir sayfa mesajı, EN YENİDEN ESKİYE — TEK istek
+  /// (`get_conversation_messages`; iki posta kutusu kopyası sunucuda
+  /// tekilleştirilir, okundu kuralları [getMessages] ile aynıdır).
+  ///
+  /// [before] verilirse yalnız ondan eski mesajlar gelir (yukarı kaydırınca).
+  /// İlk sayfada RPC hata verirse eski tam-geçmiş yoluna düşer; önceki
+  /// sayfalarda hata yukarı iletilir (ekran sonraki kaydırmada yeniden dener).
+  Future<List<Message>> getMessagesPage(
+    String conversationId, {
+    DateTime? before,
+    int limit = messagePageSize,
+  }) async {
+    if (_supabase.auth.currentUser == null) return const [];
+    try {
+      final rows = await _supabase.rpc(
+        'get_conversation_messages',
+        params: {
+          'p_conversation_id': conversationId,
+          'p_before': before?.toUtc().toIso8601String(),
+          'p_limit': limit,
+        },
+      ) as List;
+      final page = rows
+          .map((row) => Message.fromMap(Map<String, dynamic>.from(row as Map)))
+          .toList();
+      if (before == null) rememberConversationPage(conversationId, page);
+      return page;
+    } catch (e, stackTrace) {
+      if (before != null) rethrow;
+      AppLogger.error(
+        'get_conversation_messages başarısız, eski yola düşülüyor: $e',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      final all = await getMessages(conversationId);
+      return all.reversed.toList();
+    }
+  }
+
   /// Mesaj gönder - Hem gönderenin hem alıcının conversation'ına ekler
   /// ÖNEMLI (2026-07-02): V2 RPC kullanıyor - trigger sonsuz döngü riski yok
+  ///
+  /// Görev 3.1: [messageType] fotoğraf/konum ise [attachment] türe özgü
+  /// veriyi taşır, [content] önizleme metnidir. Metin mesajında RPC'ye yeni
+  /// parametreler HİÇ gönderilmez (istek eskisiyle birebir aynı).
   Future<Message?> sendMessage({
     required String conversationId,
     required String content,
     String? replyToId,
     String? replyToContent,
     String? replyToSenderName,
+    MessageType messageType = MessageType.text,
+    Map<String, dynamic>? attachment,
   }) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return null;
@@ -539,6 +722,10 @@ class ChatService {
           'p_reply_to_id': replyToId,
           'p_reply_to_content': replyToContent,
           'p_reply_to_sender_name': replyToSenderName,
+          if (messageType != MessageType.text) ...{
+            'p_message_type': messageType.dbValue,
+            'p_attachment': attachment,
+          },
         },
       );
 
@@ -578,6 +765,76 @@ class ChatService {
       // Kullaniciya hata gosterilecek
       return null;
     }
+  }
+
+  /// Fotoğraf mesajı (Görev 3.1): önce özel `chat_attachments` kovasına
+  /// yüklenir, sonra mesaj gönderilir (sunucu dosyanın yüklendiğini ve yolun
+  /// gönderen/alıcı klasöründe olduğunu denetler). Yükleme ya da gönderim
+  /// başarısızsa null.
+  Future<Message?> sendImageMessage({
+    required String conversationId,
+    required String path,
+    required PreparedChatImage image,
+    String? caption,
+    String? replyToId,
+    String? replyToContent,
+    String? replyToSenderName,
+    @visibleForTesting ChatMediaService? media,
+  }) async {
+    try {
+      await (media ?? ChatMediaService.shared).upload(
+        path,
+        image.bytes,
+        contentType: image.contentType,
+      );
+    } catch (e, stackTrace) {
+      AppLogger.error('Sohbet fotoğrafı yüklenemedi', error: e, stackTrace: stackTrace);
+      return null;
+    }
+    final trimmedCaption = caption?.trim() ?? '';
+    return sendMessage(
+      conversationId: conversationId,
+      content: imagePreviewText(trimmedCaption),
+      replyToId: replyToId,
+      replyToContent: replyToContent,
+      replyToSenderName: replyToSenderName,
+      messageType: MessageType.image,
+      attachment: imageAttachment(path: path, image: image, caption: trimmedCaption),
+    );
+  }
+
+  /// Fotoğraf mesajının `attachment` alanı.
+  static Map<String, dynamic> imageAttachment({
+    required String path,
+    required PreparedChatImage image,
+    String caption = '',
+  }) => {
+    'path': path,
+    if (image.width > 0 && image.height > 0) ...{'w': image.width, 'h': image.height},
+    if (caption.trim().isNotEmpty) 'caption': caption.trim(),
+  };
+
+  /// Fotoğraf mesajının önizleme metni (liste, bildirim, eski sürümler).
+  static String imagePreviewText(String caption) =>
+      caption.trim().isEmpty ? '📷 Fotoğraf' : '📷 ${caption.trim()}';
+
+  /// Konum mesajı (Görev 3.1).
+  Future<Message?> sendLocationMessage({
+    required String conversationId,
+    required ChatLocationPick location,
+    String? replyToId,
+    String? replyToContent,
+    String? replyToSenderName,
+  }) {
+    return sendMessage(
+      conversationId: conversationId,
+      content: ChatLocationService.previewText(location.label),
+      replyToId: replyToId,
+      replyToContent: replyToContent,
+      replyToSenderName: replyToSenderName,
+      messageType: MessageType.location,
+      attachment: location.toAttachment(),
+    );
   }
 
   Future<Message?> sendSharedPost({
@@ -756,22 +1013,83 @@ class ChatService {
     }
   }
 
+  /// Sohbet listesini canlı tutar: konuşmalar değişince listeyi (tek istekle)
+  /// yeniden çekip [onUpdate]'e verir.
   RealtimeChannel subscribeToConversations(
     Function(List<Conversation>) onUpdate,
   ) {
-    return _supabase
-        .channel('conversations_channel')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'conversations',
-          callback: (payload) async {
-            await Future.delayed(const Duration(milliseconds: 300));
-            final conversations = await getConversations();
-            onUpdate(conversations);
-          },
-        )
-        .subscribe();
+    return subscribeToConversationChanges('list', () async {
+      final conversations = await getConversations();
+      onUpdate(conversations);
+    });
+  }
+
+  /// `conversations` değişikliklerine hafif abonelik: veri ÇEKMEZ, yalnız
+  /// [onChange]'i çağırır (ör. ana sayfa rozeti kendi sayısını yeniler).
+  ///
+  /// * Yalnız bu kullanıcının satırları dinlenir (sunucu filtresi); eskiden
+  ///   tablodaki her değişiklik her istemciye geliyordu.
+  /// * Olaylar birleştirilir: bir mesaj iki satırı günceller ama [onChange]
+  ///   bir kez çalışır; çalışırken gelen olaylar tek bir tekrar doğurur.
+  /// * Kanal adı benzersizdir: aynı anda açık iki ekran aynı konuya iki kez
+  ///   katılıp birbirinin aboneliğini düşürmez.
+  RealtimeChannel subscribeToConversationChanges(
+    String purpose,
+    FutureOr<void> Function() onChange,
+  ) {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    final channel = _supabase.channel(
+      'conversations:$purpose:${currentUserId ?? 'guest'}:${_channelSeq++}',
+    );
+    // Misafirin dinleyeceği satır yok; kanal açılmaz (kaldırılması yine güvenli).
+    if (currentUserId == null) return channel;
+
+    Timer? debounce;
+    var running = false;
+    var rerun = false;
+
+    Future<void> run() async {
+      if (running) {
+        rerun = true;
+        return;
+      }
+      running = true;
+      try {
+        await onChange();
+      } catch (e, stackTrace) {
+        AppLogger.error(
+          'Konuşma değişikliği işlenemedi: $e',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      } finally {
+        running = false;
+        if (rerun) {
+          rerun = false;
+          unawaited(run());
+        }
+      }
+    }
+
+    void schedule(PostgresChangePayload _) {
+      debounce?.cancel();
+      debounce = Timer(const Duration(milliseconds: 300), () => unawaited(run()));
+    }
+
+    for (final column in const ['user_id', 'other_user_id']) {
+      channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'conversations',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: column,
+          value: currentUserId,
+        ),
+        callback: schedule,
+      );
+    }
+    return channel.subscribe();
   }
 
   /// Konuşma bazlı presence dinlemesi. ChatDetailScreen initState'inde kullanılır.
@@ -787,7 +1105,10 @@ class ChatService {
     required String currentUserId,
     required void Function(RealtimeMessageEvent event) onEvent,
   }) {
-    final channel = _supabase.channel('messages:$conversationId');
+    // Benzersiz ad: aynı konuşma iki kez açıksa iki abonelik çakışmasın.
+    final channel = _supabase.channel(
+      'messages:$conversationId:${_channelSeq++}',
+    );
 
     // INSERT: yalnızca bu konuşmaya ait mesajları sunucudan al
     channel.onPostgresChanges(
@@ -860,6 +1181,31 @@ class ChatService {
       },
     );
 
+    // OKUNDU BİLGİSİ (Görev 2.3). Mailbox modelinde mesajımın karşı taraftaki
+    // kopyası PARTNERİN konuşmasında durur ve o okuyunca o kopyanın is_read'i
+    // true olur. Yukarıdaki süzgeçler (bu konuşma) onu hiç görmüyordu: mavi
+    // çift tik ancak ekran yeniden açılınca geliyordu. "Gönderen = ben"
+    // süzgeci mesajlarımın bütün kopyalarını getirir; RLS karşı kopyayı
+    // görmeme izin verir (konuşmanın other_user_id'si benim).
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'messages',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'sender_id',
+        value: currentUserId,
+      ),
+      callback: (payload) {
+        final event = readReceiptFrom(
+          payload.newRecord,
+          conversationId: conversationId,
+          currentUserId: currentUserId,
+        );
+        if (event != null) onEvent(event);
+      },
+    );
+
     return channel.subscribe((status, error) {
       if (status == RealtimeSubscribeStatus.subscribed) {
         AppLogger.debug('Messages channel subscribed: $conversationId');
@@ -870,125 +1216,25 @@ class ChatService {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Stream-based realtime mesajlar — UI'da StreamBuilder veya subscription ile
-  // kullanılır. Her event tipi ayrı channel'da, DB'yi yeniden çekmez.
-  // -------------------------------------------------------------------------
-
-  /// ÖNEMLI: Bu stream TÜM mesajları dinler.
-  /// Client tarafında conversationId'ye göre filtreleme yapılmalı.
-  ///
-  /// ÖNEMLI (2026-07-02 duplicate fix):
-  ///   - Aynı channel adı varsa removeChannel ile temizlenir
-  ///   - Böylece çift subscription önlenir (3'er gidiyor sorunu)
-  Stream<Message> streamNewMessages(String conversationId) {
-    final controller = StreamController<Message>();
-    final channelName = 'messages:insert:$conversationId';
-
-    // Aynı isimli channel varsa önce kaldır (duplicate subscription önle)
-    final existingChannel = _supabase.channel(channelName);
-    _supabase.removeChannel(existingChannel);
-
-    final channel = _supabase
-        .channel(channelName)
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
-          callback: (payload) {
-            try {
-              final msg = Message.fromMap(payload.newRecord);
-              // Client tarafı filtreleme: sadece bu conversation'a ait
-              if (msg.conversationId == conversationId) {
-                controller.add(msg);
-              }
-            } catch (e) {
-              debugPrint('streamNewMessages decode error: $e');
-            }
-          },
-        )
-        .subscribe();
-
-    controller.onCancel = () async {
-      await _supabase.removeChannel(channel);
-    };
-
-    return controller.stream;
-  }
-
-  /// ÖNEMLI: Bu stream artık TÜM mesaj güncellemelerini dinler.
-  /// Client tarafında conversationId'ye göre filtreleme yapılmalı.
-  Stream<Message> streamMessageUpdates(String conversationId) {
-    final controller = StreamController<Message>();
-
-    final channel = _supabase
-        .channel('messages:update:$conversationId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
-          callback: (payload) {
-            try {
-              final msg = Message.fromMap(payload.newRecord);
-              // Client tarafı filtreleme
-              if (msg.conversationId == conversationId) {
-                controller.add(msg);
-              }
-            } catch (e) {
-              debugPrint('streamMessageUpdates decode error: $e');
-            }
-          },
-        )
-        .subscribe();
-
-    controller.onCancel = () async {
-      await _supabase.removeChannel(channel);
-    };
-
-    return controller.stream;
-  }
-
-  /// ÖNEMLI: Bu stream artık TÜM mesaj silme işlemlerini dinler.
-  /// Client tarafında conversationId'ye göre filtreleme yapılmalı.
-  Stream<String> streamDeletedMessages(String conversationId) {
-    final controller = StreamController<String>();
-
-    final channel = _supabase
-        .channel('messages:delete:$conversationId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.delete,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
-          callback: (payload) {
-            final id = payload.oldRecord['id'] as String?;
-            final convId = payload.oldRecord['conversation_id'] as String?;
-            if (id != null && convId == conversationId) {
-              controller.add(id);
-            }
-          },
-        )
-        .subscribe();
-
-    controller.onCancel = () async {
-      await _supabase.removeChannel(channel);
-    };
-
-    return controller.stream;
+  /// Bir mesaj güncellemesi, mesajımın KARŞI TARAFTAKİ kopyasının "okundu"
+  /// olması mı? Öyleyse olay döner. Bu konuşmadaki kendi kopyam (orada
+  /// is_read hep true'dur, anlamsızdır), okunmamış kopya ya da başkasının
+  /// mesajı null döner.
+  @visibleForTesting
+  static PartnerReadEvent? readReceiptFrom(
+    Map<String, dynamic> record, {
+    required String conversationId,
+    required String currentUserId,
+  }) {
+    if (record['sender_id'] != currentUserId) return null;
+    if (record['conversation_id'] == conversationId) return null;
+    if (record['is_read'] != true) return null;
+    try {
+      return PartnerReadEvent(Message.fromMap(record));
+    } catch (e) {
+      AppLogger.error('Okundu olayı çözülemedi: $e');
+      return null;
+    }
   }
 
   Future<int> getUnreadCount() async {

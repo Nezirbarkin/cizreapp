@@ -137,4 +137,88 @@ void main() {
     expect(await service.preload(), isFalse);
     expect(loader.requestedUnitIds, isEmpty);
   });
+
+  group('yükleme hatası kaydı', () {
+    const unit = 'ca-app-pub-1234567890123456/1234567890';
+    late List<Map<String, dynamic>> written;
+    late Future<void> Function(Map<String, dynamic>) originalWriter;
+
+    setUp(() {
+      written = [];
+      originalWriter = RewardedAdLoadFailureLog.writer;
+      RewardedAdLoadFailureLog.resetForTest();
+      RewardedAdLoadFailureLog.writer = (metadata) async {
+        written.add(metadata);
+      };
+    });
+
+    tearDown(() {
+      RewardedAdLoadFailureLog.writer = originalWriter;
+      RewardedAdLoadFailureLog.resetForTest();
+    });
+
+    void record({
+      int code = 3,
+      String message = 'Account not approved yet.',
+      String? responseId,
+    }) {
+      RewardedAdLoadFailureLog.record(
+        platform: 'android',
+        adUnitId: unit,
+        code: code,
+        domain: 'com.google.android.gms.ads',
+        message: message,
+        responseId: responseId,
+      );
+    }
+
+    test('kodu, mesajı ve birimi admin kartlarının okuduğu biçimde yazar', () {
+      record(responseId: 'abc123');
+
+      expect(written, hasLength(1));
+      final metadata = written.single;
+      expect(metadata['type'], RewardedAdLoadFailureLog.errorType);
+      expect(metadata['details'], contains('kod 3'));
+      expect(metadata['details'], contains('Account not approved yet.'));
+      expect(metadata['details'], contains(unit));
+      expect(metadata['origin'], isNotEmpty);
+      expect(metadata['ad_error_code'], 3);
+      expect(metadata['ad_error_domain'], 'com.google.android.gms.ads');
+      expect(metadata['ad_unit_id'], unit);
+      expect(metadata['ad_response_id'], 'abc123');
+    });
+
+    test('response id yoksa o anahtar hiç eklenmez', () {
+      record();
+
+      expect(written.single.containsKey('ad_response_id'), isFalse);
+    });
+
+    test('aynı hata aynı çalışmada bir kez yazılır, farklı hata yazılır', () {
+      record();
+      record();
+      expect(written, hasLength(1));
+
+      record(code: 2, message: 'Network error');
+      expect(written, hasLength(2));
+    });
+
+    test('çok uzun mesaj kesilir', () {
+      record(message: 'x' * 1000);
+
+      expect(written.single['ad_error_message'], hasLength(300));
+    });
+
+    test('yazım patlasa da reklam akışına istisna sızmaz', () async {
+      RewardedAdLoadFailureLog.writer = (_) => throw StateError('eşzamanlı');
+      expect(record, returnsNormally);
+
+      RewardedAdLoadFailureLog.resetForTest();
+      RewardedAdLoadFailureLog.writer = (_) async => throw StateError('async');
+      expect(record, returnsNormally);
+
+      // Yutulmayan bir async hata test bölgesini düşürürdü.
+      await Future<void>.delayed(Duration.zero);
+    });
+  });
 }

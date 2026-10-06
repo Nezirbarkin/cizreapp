@@ -216,6 +216,20 @@ class FavoritesProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Oturum kapanınca YALNIZCA bellekteki favorileri bırakır (bkz. main.dart
+  /// auth dinleyicisi); sonraki kullanıcı ya da misafir öncekinin
+  /// favorilerini görmez. Sunucuya dokunmaz — [clearAll] favorileri
+  /// veritabanından SİLER, çıkışta kullanılmamalı.
+  void resetForSignOut() {
+    _productFavorites = [];
+    _postFavorites = [];
+    _productFavoritedCache.clear();
+    _postFavoritedCache.clear();
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+  }
+
   /// Tüm favorileri temizler
   Future<void> clearAll() async {
     try {

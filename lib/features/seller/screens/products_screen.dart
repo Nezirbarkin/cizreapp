@@ -898,8 +898,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   Widget _buildProductCard(Product product) {
     final discountPercent = product.discountPercentage;
-    // Aktif flaş sale'i asenkron çek (ürün kartı zaten asenkron yüklemelere sahip).
-    final flashService = FlashSaleService();
+    // Aktif flaş satış ortak önbellekten (kart başına istek yok).
+    final flashCache = ActiveFlashSaleCache.instance..ensureFresh();
 
     final isSelected = _selectedIds.contains(product.id);
     final primary = Theme.of(context).colorScheme.primary;
@@ -1022,12 +1022,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     const SizedBox(height: 8),
 
                     // Fiyat ve indirim (flaş sale bilinçli)
-                    FutureBuilder<FlashSale?>(
-                      future: flashService.getActiveFlashSaleForProduct(
-                        product.id,
-                      ),
-                      builder: (context, snap) {
-                        final flash = snap.data;
+                    ValueListenableBuilder<Map<String, FlashSale>>(
+                      valueListenable: flashCache.byProduct,
+                      builder: (context, _, __) {
+                        final flash = flashCache.activeFor(product.id);
                         if (flash != null) {
                           return _buildFlashSalePriceRow(flash);
                         }
@@ -1131,13 +1129,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
-  /// Rozetler + kargo / hazırlık süresi / adet limiti göstergeleri.
+  /// Rozetler + kargo / adet limiti göstergeleri.
   /// Hiçbiri tanımlı değilse hiç yer kaplamaz.
   Widget _buildProductExtrasRow(Product product) {
     final hasExtras =
         product.badgeDetails.isNotEmpty ||
         product.hasCustomShipping ||
-        product.prepTimeLabel != null ||
         product.orderQuantityLabel != null;
 
     if (!hasExtras) return const SizedBox.shrink();

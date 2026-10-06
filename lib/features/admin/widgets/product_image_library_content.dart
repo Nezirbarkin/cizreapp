@@ -19,9 +19,12 @@ import 'admin_ui.dart';
 ///
 /// Satıcıların ürün eklerken kendi fotoğraflarını yüklemek yerine seçebileceği
 /// hazır görseller. Her görsel bir `product_image_presets` satırıdır (görsel +
-/// ad + arama kelimeleri). Admin tek seferde BİRDEN ÇOK görsel seçip her birine
-/// ayrı ad verebilir; ızgaradan arar, filtreler, sıralar, düzenler ve toplu
-/// yayına alır / pasife çeker / siler.
+/// ad + arama kelimeleri) ve bir klasörde durabilir (Market, Kozmetik…).
+/// Admin tek seferde BİRDEN ÇOK görsel seçip her birine ayrı ad verebilir;
+/// ızgaradan arar, klasöre/duruma göre süzer, sıralar, düzenler, klasöre taşır
+/// ve toplu yayına alır / pasife çeker / siler. Klasörler "Klasörler"
+/// sayfasından eklenir, sıralanır, kapatılır (kapalı klasörün görselleri
+/// satıcılara gösterilmez).
 class ProductImageLibraryContent extends StatefulWidget {
   const ProductImageLibraryContent({
     super.key,
@@ -43,6 +46,11 @@ class ProductImageLibraryContent extends StatefulWidget {
 enum _StatusFilter { all, active, passive }
 
 enum _Sort { order, newest }
+
+/// Klasör süzgecinde "tüm klasörler" ve "klasörsüz" değerleri (diğerleri
+/// klasör id'si).
+const String _allFolders = '';
+const String _unfiled = '-';
 
 /// Türkçe harfleri sadeleştirip küçültür: "Çiğ Köfte" ile "cig kofte" eşleşsin.
 const Map<String, String> _trFold = {
@@ -69,9 +77,11 @@ class _ProductImageLibraryContentState
   final TextEditingController _searchController = TextEditingController();
 
   List<ProductImagePreset> _all = [];
+  List<ProductImageFolder> _folders = [];
   bool _loading = true;
   String? _error;
   String _query = '';
+  String _folderFilter = _allFolders;
   _StatusFilter _filter = _StatusFilter.all;
   _Sort _sort = _Sort.order;
   final Set<String> _selected = {};
@@ -103,13 +113,26 @@ class _ProductImageLibraryContentState
       });
     }
     try {
-      final list = await _service.getAllPresetsForAdmin();
+      final results = await Future.wait<Object>([
+        _service.getAllPresetsForAdmin(),
+        _service.getFolders(),
+      ]);
       if (!mounted) return;
+      final list = results[0] as List<ProductImagePreset>;
+      final folders = results[1] as List<ProductImageFolder>;
+      final ids = {for (final p in list) p.id};
       setState(() {
         _all = list;
+        _folders = folders;
         _loading = false;
         _error = null;
-        _selected.removeWhere((id) => !list.any((p) => p.id == id));
+        _selected.removeWhere((id) => !ids.contains(id));
+        // Süzülen klasör silindiyse tüm klasörlere dön.
+        if (_folderFilter != _allFolders &&
+            _folderFilter != _unfiled &&
+            !folders.any((f) => f.id == _folderFilter)) {
+          _folderFilter = _allFolders;
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -121,9 +144,38 @@ class _ProductImageLibraryContentState
     }
   }
 
+  /// Yalnız klasör süzgeci uygulanmış liste (durum sayaçları bunu sayar).
+  List<ProductImagePreset> get _inFolder => switch (_folderFilter) {
+    _allFolders => _all,
+    _unfiled => _all.where((p) => p.folderId == null).toList(),
+    final id => _all.where((p) => p.folderId == id).toList(),
+  };
+
+  String? _folderName(String? id) {
+    if (id == null) return null;
+    for (final f in _folders) {
+      if (f.id == id) return f.name;
+    }
+    return null;
+  }
+
+  /// Klasör başına görsel sayısı (tüm durumlar); null anahtarı = klasörsüz.
+  /// Yerel listeden sayılır ki taşıma/silme sonrası anında doğru olsun.
+  Map<String?, ({int all, int active})> get _folderCounts {
+    final all = <String?, int>{};
+    final active = <String?, int>{};
+    for (final p in _all) {
+      all[p.folderId] = (all[p.folderId] ?? 0) + 1;
+      if (p.isActive) active[p.folderId] = (active[p.folderId] ?? 0) + 1;
+    }
+    return {
+      for (final k in all.keys) k: (all: all[k]!, active: active[k] ?? 0),
+    };
+  }
+
   List<ProductImagePreset> get _visible {
     final q = _fold(_query.trim());
-    final list = _all.where((p) {
+    final list = _inFolder.where((p) {
       if (_filter == _StatusFilter.active && !p.isActive) return false;
       if (_filter == _StatusFilter.passive && p.isActive) return false;
       if (q.isEmpty) return true;
@@ -196,6 +248,12 @@ class _ProductImageLibraryContentState
         service: _service,
         scrapeService: widget.scrapeService,
         startOrder: _nextOrder,
+        folders: _folders,
+        // Bir klasör süzülüyorsa yeni görseller oraya eklenir.
+        initialFolderId:
+            _folderFilter == _allFolders || _folderFilter == _unfiled
+            ? null
+            : _folderFilter,
       ),
     );
     if (saved != null && saved > 0) {
@@ -211,11 +269,80 @@ class _ProductImageLibraryContentState
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       constraints: const BoxConstraints(maxWidth: 560),
-      builder: (_) => _EditPresetSheet(preset: preset, service: _service),
+      builder: (_) => _EditPresetSheet(
+        preset: preset,
+        service: _service,
+        folders: _folders,
+      ),
     );
     if (result == null) return;
     _snack(result == 'deleted' ? 'Görsel silindi' : 'Görsel güncellendi');
     await _load(silent: true);
+  }
+
+  Future<void> _openFolders() async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
+      builder: (_) => _FoldersSheet(
+        service: _service,
+        folders: _folders,
+        counts: _folderCounts,
+      ),
+    );
+    if (changed == true) await _load(silent: true);
+  }
+
+  Future<void> _move(List<ProductImagePreset> items) async {
+    if (items.isEmpty || _busy) return;
+    final current = items.map((p) => p.folderId).toSet();
+    final picked = await showModalBottomSheet<_FolderChoice>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 480),
+      builder: (_) => _FolderPickerSheet(
+        service: _service,
+        folders: _folders,
+        count: items.length,
+        current: current,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    final target = picked.folderId;
+    final ids = items.map((p) => p.id).toSet();
+    final before = _all;
+    setState(() {
+      _busy = true;
+      if (picked.created != null) _folders = [..._folders, picked.created!];
+      _all = [
+        for (final p in _all) ids.contains(p.id) ? p.withFolder(target) : p,
+      ];
+    });
+    try {
+      await _service.moveToFolder(ids.toList(), target);
+      if (!mounted) return;
+      _selected.clear();
+      final where = target == null
+          ? 'klasörsüz bırakıldı'
+          : '"${_folderName(target) ?? 'klasör'}" klasörüne taşındı';
+      _snack(
+        items.length == 1 ? 'Görsel $where' : '${items.length} görsel $where',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _all = before);
+      _snack(_cleanError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    // Yeni klasör oluşturulduysa sıra/sayılar sunucudan tazelensin.
+    if (picked.created != null) await _load(silent: true);
   }
 
   Future<void> _setActive(List<ProductImagePreset> items, bool active) async {
@@ -329,8 +456,9 @@ class _ProductImageLibraryContentState
   }
 
   Widget _buildHeader(bool compact) {
-    final active = _all.where((p) => p.isActive).length;
-    final passive = _all.length - active;
+    final scoped = _inFolder;
+    final active = scoped.where((p) => p.isActive).length;
+    final passive = scoped.length - active;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -400,13 +528,15 @@ class _ProductImageLibraryContentState
               ],
             ),
           const SizedBox(height: 14),
+          _buildFolderBar(compact),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: _FilterStat(
                   icon: Icons.grid_view_rounded,
                   label: 'Tümü',
-                  value: _all.length,
+                  value: scoped.length,
                   color: AdminUi.brand,
                   selected: _filter == _StatusFilter.all,
                   onTap: () => setState(() => _filter = _StatusFilter.all),
@@ -515,6 +645,80 @@ class _ProductImageLibraryContentState
     );
   }
 
+  /// Klasör çipleri (tümü / her klasör / klasörsüz) + klasör yönetimi.
+  /// Dar ekranda yönetim düğmesi yalnız simgedir ki çiplere yer kalsın.
+  Widget _buildFolderBar(bool compact) {
+    final counts = _folderCounts;
+    final unfiled = counts[null]?.all ?? 0;
+    return Row(
+      children: [
+        Expanded(
+          child: AdminChipBar<String>(
+            selected: _folderFilter,
+            onSelected: (v) => setState(() => _folderFilter = v),
+            items: [
+              (
+                value: _allFolders,
+                label: 'Tüm klasörler',
+                icon: Icons.folder_copy_rounded,
+                count: _all.length,
+              ),
+              for (final f in _folders)
+                (
+                  value: f.id,
+                  label: f.isActive ? f.name : '${f.name} (kapalı)',
+                  icon: f.isActive
+                      ? Icons.folder_rounded
+                      : Icons.visibility_off_rounded,
+                  count: counts[f.id]?.all ?? 0,
+                ),
+              if (unfiled > 0 || _folderFilter == _unfiled)
+                (
+                  value: _unfiled,
+                  label: 'Klasörsüz',
+                  icon: Icons.folder_off_outlined,
+                  count: unfiled,
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (compact)
+          IconButton.outlined(
+            tooltip: 'Klasörler',
+            onPressed: _loading ? null : _openFolders,
+            icon: const Icon(Icons.create_new_folder_outlined, size: 20),
+            style: IconButton.styleFrom(
+              foregroundColor: AdminUi.brand,
+              backgroundColor: Colors.white,
+              side: const BorderSide(color: AdminUi.line),
+              fixedSize: const Size(38, 38),
+              minimumSize: const Size(38, 38),
+              padding: EdgeInsets.zero,
+            ),
+          )
+        else
+          SizedBox(
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: _loading ? null : _openFolders,
+              icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+              label: const Text('Klasörler'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AdminUi.brand,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: AdminUi.line),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildSelectionBar() {
     final items = _selectedItems;
     final visible = _visible;
@@ -532,6 +736,8 @@ class _ProductImageLibraryContentState
           Expanded(
             child: Text(
               '${_selected.length} seçildi',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 15,
@@ -544,6 +750,11 @@ class _ProductImageLibraryContentState
             icon: const Icon(Icons.select_all_rounded),
             onPressed: () =>
                 setState(() => _selected.addAll(visible.map((p) => p.id))),
+          ),
+          IconButton(
+            tooltip: 'Klasöre taşı',
+            icon: Icon(Icons.drive_file_move_outline, color: AdminUi.brand),
+            onPressed: _busy ? null : () => _move(items),
           ),
           IconButton(
             tooltip: 'Yayına al',
@@ -605,6 +816,21 @@ class _ProductImageLibraryContentState
 
     final visible = _visible;
     if (visible.isEmpty) {
+      if (_inFolder.isEmpty && _folderFilter != _unfiled) {
+        return AdminEmpty(
+          icon: Icons.folder_open_rounded,
+          title: 'Bu klasörde henüz görsel yok',
+          subtitle:
+              'Görsel eklerken bu klasör seçili gelir; başka klasördeki '
+              'görselleri "Klasöre taşı" ile buraya alabilirsin.',
+          action: FilledButton.icon(
+            onPressed: _openAdd,
+            icon: const Icon(Icons.add_photo_alternate_rounded),
+            label: const Text('Bu klasöre görsel ekle'),
+            style: FilledButton.styleFrom(backgroundColor: AdminUi.brand),
+          ),
+        );
+      }
       return AdminEmpty(
         icon: Icons.search_off_rounded,
         title: 'Sonuç bulunamadı',
@@ -615,6 +841,7 @@ class _ProductImageLibraryContentState
             setState(() {
               _query = '';
               _filter = _StatusFilter.all;
+              _folderFilter = _allFolders;
             });
           },
           child: const Text('Filtreleri temizle'),
@@ -639,6 +866,10 @@ class _ProductImageLibraryContentState
           return _PresetTile(
             key: ValueKey(p.id),
             preset: p,
+            // Tek klasöre bakarken her kartta klasör adı tekrar etmesin.
+            folderName: _folderFilter == _allFolders
+                ? _folderName(p.folderId)
+                : null,
             selected: _selected.contains(p.id),
             selecting: _selecting,
             onTap: () => _selecting ? _toggleSelect(p.id) : _openEdit(p),
@@ -647,6 +878,8 @@ class _ProductImageLibraryContentState
               switch (v) {
                 case 'edit':
                   _openEdit(p);
+                case 'move':
+                  _move([p]);
                 case 'toggle':
                   _setActive([p], !p.isActive);
                 case 'select':
@@ -762,9 +995,13 @@ class _PresetTile extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     required this.onMenu,
+    this.folderName,
   });
 
   final ProductImagePreset preset;
+
+  /// Verilirse görselin sağ altında klasör etiketi gösterilir.
+  final String? folderName;
   final bool selected;
   final bool selecting;
   final VoidCallback onTap;
@@ -829,6 +1066,19 @@ class _PresetTile extends StatelessWidget {
                         bottom: 8,
                         child: _OverlayPill(text: '#${preset.displayOrder}'),
                       ),
+                      if (folderName != null)
+                        Positioned(
+                          right: 8,
+                          bottom: 8,
+                          left: 56,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: _OverlayPill(
+                              text: folderName!,
+                              icon: Icons.folder_rounded,
+                            ),
+                          ),
+                        ),
                       Positioned(
                         left: 8,
                         top: 8,
@@ -895,6 +1145,10 @@ class _PresetTile extends StatelessWidget {
         const PopupMenuItem(
           value: 'edit',
           child: _MenuRow(Icons.edit_rounded, 'Düzenle'),
+        ),
+        const PopupMenuItem(
+          value: 'move',
+          child: _MenuRow(Icons.drive_file_move_outline, 'Klasöre taşı'),
         ),
         PopupMenuItem(
           value: 'toggle',
@@ -979,12 +1233,17 @@ class _OverlayPill extends StatelessWidget {
             Icon(icon, size: 11, color: Colors.white),
             const SizedBox(width: 3),
           ],
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
+          // Dar yerde (ör. kartta klasör adı) üç noktayla kısalır.
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -1168,6 +1427,38 @@ const int _maxImageBytes = 2 * 1024 * 1024; // bucket sınırı: 2 MB
 String _megabytes(int bytes) =>
     '${(bytes / (1024 * 1024)).toStringAsFixed(1).replaceAll('.', ',')} MB';
 
+/// Ekleme ve düzenleme sayfalarındaki klasör seçimi. [value] null =
+/// klasörsüz. Listede olmayan id (ör. başka sekmede silinmiş) klasörsüz
+/// gösterilir; Dropdown, listede olmayan değerde assert'e düşerdi.
+Widget _folderDropdown({
+  required List<ProductImageFolder> folders,
+  required String? value,
+  required bool enabled,
+  required ValueChanged<String?> onChanged,
+}) {
+  final known = value != null && folders.any((f) => f.id == value);
+  return DropdownButtonFormField<String>(
+    initialValue: known ? value : '',
+    isExpanded: true,
+    decoration: _fieldDecoration('Klasör', icon: Icons.folder_outlined),
+    items: [
+      const DropdownMenuItem(value: '', child: Text('Klasörsüz')),
+      for (final f in folders)
+        DropdownMenuItem(
+          value: f.id,
+          child: Text(
+            f.isActive ? f.name : '${f.name} (kapalı)',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ],
+    onChanged: enabled
+        ? (v) => onChanged(v == null || v.isEmpty ? null : v)
+        : null,
+  );
+}
+
 /// Dosya adından öneri ad üretir: "domates_kirmizi.jpg" -> "Domates kirmizi".
 /// Kamera/ekran görüntüsü gibi anlamsız adlar boş bırakılır (admin yazsın).
 String _nameFromFile(String fileName) {
@@ -1224,12 +1515,18 @@ class _AddImagesSheet extends StatefulWidget {
   const _AddImagesSheet({
     required this.service,
     required this.startOrder,
+    required this.folders,
+    this.initialFolderId,
     this.scrapeService,
   });
 
   final ProductImagePresetService service;
   final ProductImageScrapeService? scrapeService;
   final int startOrder;
+  final List<ProductImageFolder> folders;
+
+  /// Görsellerin ekleneceği klasörün ilk değeri (null = klasörsüz).
+  final String? initialFolderId;
 
   @override
   State<_AddImagesSheet> createState() => _AddImagesSheetState();
@@ -1244,6 +1541,7 @@ class _AddImagesSheetState extends State<_AddImagesSheet> {
   int _tag = 0;
 
   bool _publishNow = true;
+  late String? _folderId = widget.initialFolderId;
   bool _picking = false;
   bool _uploading = false;
   int _saved = 0;
@@ -1422,6 +1720,7 @@ class _AddImagesSheetState extends State<_AddImagesSheet> {
         imageUrl: d.uploadedUrl!,
         displayOrder: order,
         isActive: _publishNow,
+        folderId: _folderId,
       );
       d.status = _DraftStatus.done;
       _saved++;
@@ -1830,6 +2129,13 @@ class _AddImagesSheetState extends State<_AddImagesSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _folderDropdown(
+            folders: widget.folders,
+            value: _folderId,
+            enabled: !_uploading,
+            onChanged: (v) => setState(() => _folderId = v),
+          ),
+          const SizedBox(height: 4),
           Row(
             children: [
               const Expanded(
@@ -1925,10 +2231,15 @@ class _InfoChip extends StatelessWidget {
 // ===========================================================================
 
 class _EditPresetSheet extends StatefulWidget {
-  const _EditPresetSheet({required this.preset, required this.service});
+  const _EditPresetSheet({
+    required this.preset,
+    required this.service,
+    required this.folders,
+  });
 
   final ProductImagePreset preset;
   final ProductImagePresetService service;
+  final List<ProductImageFolder> folders;
 
   @override
   State<_EditPresetSheet> createState() => _EditPresetSheetState();
@@ -1945,6 +2256,11 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
     text: '${widget.preset.displayOrder}',
   );
   late bool _active = widget.preset.isActive;
+  // Listede olmayan (silinmiş) klasör kaydedilirken FK hatası vermesin.
+  late String? _folderId =
+      widget.folders.any((f) => f.id == widget.preset.folderId)
+      ? widget.preset.folderId
+      : null;
 
   XFile? _newFile;
   Uint8List? _newBytes;
@@ -2018,6 +2334,8 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
         displayOrder:
             int.tryParse(_order.text.trim()) ?? widget.preset.displayOrder,
         isActive: _active,
+        setFolder: true,
+        folderId: _folderId,
       );
       if (mounted) Navigator.pop(context, 'saved');
     } catch (e) {
@@ -2177,6 +2495,13 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    _folderDropdown(
+                      folders: widget.folders,
+                      value: _folderId,
+                      enabled: !_saving,
+                      onChanged: (v) => setState(() => _folderId = v),
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: _order,
                       enabled: !_saving,
@@ -2259,6 +2584,616 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Klasörler
+// ===========================================================================
+
+/// Klasör seçicinin sonucu. [folderId] null = klasörsüz; [created] seçicinin
+/// içinden yeni açılan klasör.
+class _FolderChoice {
+  const _FolderChoice(this.folderId, {this.created});
+
+  final String? folderId;
+  final ProductImageFolder? created;
+}
+
+Future<String?> _askFolderName(
+  BuildContext context, {
+  required String title,
+  required String confirmLabel,
+  String initial = '',
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _FolderNameDialog(
+      title: title,
+      confirmLabel: confirmLabel,
+      initial: initial,
+    ),
+  );
+}
+
+/// Klasör adı soran kutu (yeni klasör / yeniden adlandırma). Boş ad
+/// gönderilemez; sonuç kırpılmış addır.
+class _FolderNameDialog extends StatefulWidget {
+  const _FolderNameDialog({
+    required this.title,
+    required this.confirmLabel,
+    this.initial = '',
+  });
+
+  final String title;
+  final String confirmLabel;
+  final String initial;
+
+  @override
+  State<_FolderNameDialog> createState() => _FolderNameDialogState();
+}
+
+class _FolderNameDialogState extends State<_FolderNameDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial,
+  );
+  bool _empty = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _empty = true);
+      return;
+    }
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Text(widget.title),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        maxLength: 40,
+        textCapitalization: TextCapitalization.words,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+        onChanged: (v) {
+          if (_empty && v.trim().isNotEmpty) setState(() => _empty = false);
+        },
+        decoration: _fieldDecoration(
+          'Klasör adı',
+          hint: 'örn. Kozmetik',
+          errorText: _empty ? 'Ad gerekli' : null,
+          icon: Icons.folder_outlined,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Vazgeç'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          style: FilledButton.styleFrom(backgroundColor: AdminUi.brand),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Klasöre taşı": hedef klasörü seçtirir; içinden yeni klasör de açılabilir.
+class _FolderPickerSheet extends StatefulWidget {
+  const _FolderPickerSheet({
+    required this.service,
+    required this.folders,
+    required this.count,
+    required this.current,
+  });
+
+  final ProductImagePresetService service;
+  final List<ProductImageFolder> folders;
+
+  /// Taşınacak görsel sayısı (başlık için).
+  final int count;
+
+  /// Taşınan görsellerin şu anki klasörleri (null = klasörsüz). Tek bir
+  /// değerse o satır "Şu anki" diye işaretlenir ve seçilemez.
+  final Set<String?> current;
+
+  @override
+  State<_FolderPickerSheet> createState() => _FolderPickerSheetState();
+}
+
+class _FolderPickerSheetState extends State<_FolderPickerSheet> {
+  bool _creating = false;
+  String? _notice;
+
+  bool _isCurrent(String? id) =>
+      widget.current.length == 1 && widget.current.first == id;
+
+  Future<void> _create() async {
+    final name = await _askFolderName(
+      context,
+      title: 'Yeni klasör',
+      confirmLabel: 'Oluştur',
+    );
+    if (name == null || !mounted) return;
+    setState(() {
+      _creating = true;
+      _notice = null;
+    });
+    try {
+      final order =
+          widget.folders.fold<int>(0, (m, f) => math.max(m, f.displayOrder)) +
+          1;
+      final folder = await widget.service.addFolder(
+        name: name,
+        displayOrder: order,
+      );
+      if (mounted) {
+        Navigator.pop(context, _FolderChoice(folder.id, created: folder));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _creating = false;
+          _notice = _cleanError(e);
+        });
+      }
+    }
+  }
+
+  Widget _option({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required String? folderId,
+    Color? color,
+  }) {
+    final current = _isCurrent(folderId);
+    return ListTile(
+      leading: Icon(icon, color: color ?? AdminUi.brand),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          color: AdminUi.ink,
+        ),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle,
+              style: const TextStyle(fontSize: 12, color: AdminUi.muted),
+            ),
+      trailing: current
+          ? const AdminPill(label: 'Şu anki', color: AdminUi.muted)
+          : null,
+      onTap: (_creating || current)
+          ? null
+          : () => Navigator.pop(context, _FolderChoice(folderId)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: _sheetShape,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SheetHeader(
+            title: 'Klasöre taşı',
+            subtitle: widget.count == 1
+                ? 'Görselin gideceği klasörü seç'
+                : '${widget.count} görselin gideceği klasörü seç',
+            onClose: () => Navigator.pop(context),
+          ),
+          if (_notice != null)
+            _NoticeBar(
+              message: _notice!,
+              onClose: () => setState(() => _notice = null),
+            ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.fromLTRB(
+                4,
+                6,
+                4,
+                10 + MediaQuery.paddingOf(context).bottom,
+              ),
+              children: [
+                for (final f in widget.folders)
+                  _option(
+                    icon: f.isActive
+                        ? Icons.folder_rounded
+                        : Icons.visibility_off_rounded,
+                    title: f.name,
+                    subtitle: f.isActive
+                        ? null
+                        : 'Kapalı · satıcılar bu klasörü görmez',
+                    folderId: f.id,
+                  ),
+                _option(
+                  icon: Icons.folder_off_outlined,
+                  title: 'Klasörsüz',
+                  subtitle: 'Satıcılar yalnız "Tümü" ve aramada görür',
+                  folderId: null,
+                  color: AdminUi.muted,
+                ),
+                const Divider(height: 16, color: AdminUi.line),
+                ListTile(
+                  leading: _creating
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : Icon(
+                          Icons.create_new_folder_outlined,
+                          color: AdminUi.brand,
+                        ),
+                  title: Text(
+                    'Yeni klasör oluştur',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AdminUi.brand,
+                    ),
+                  ),
+                  onTap: _creating ? null : _create,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Klasör yönetimi: ekle, yeniden adlandır, sürükleyerek sırala, aç/kapat,
+/// sil. Her değişiklik anında kaydedilir; "Kapat" ile çıkınca bir şey
+/// değiştiyse true döner (üst ekran listeyi tazeler).
+class _FoldersSheet extends StatefulWidget {
+  const _FoldersSheet({
+    required this.service,
+    required this.folders,
+    required this.counts,
+  });
+
+  final ProductImagePresetService service;
+  final List<ProductImageFolder> folders;
+
+  /// Klasör başına görsel sayıları (üst ekranın yerel listesinden).
+  final Map<String?, ({int all, int active})> counts;
+
+  @override
+  State<_FoldersSheet> createState() => _FoldersSheetState();
+}
+
+class _FoldersSheetState extends State<_FoldersSheet> {
+  late List<ProductImageFolder> _items = [...widget.folders];
+  final TextEditingController _newName = TextEditingController();
+  bool _busy = false;
+  bool _changed = false;
+  String? _notice;
+
+  @override
+  void dispose() {
+    _newName.dispose();
+    super.dispose();
+  }
+
+  /// [action] sırasında düğmeler kilitlenir; hata sayfa içi şeritte gösterilir.
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      await action();
+      _changed = true;
+    } catch (e) {
+      if (mounted) _notice = _cleanError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _add() async {
+    final name = _newName.text.trim();
+    if (name.isEmpty) {
+      setState(() => _notice = 'Klasör adı yaz');
+      return;
+    }
+    await _run(() async {
+      final order =
+          _items.fold<int>(0, (m, f) => math.max(m, f.displayOrder)) + 1;
+      final folder = await widget.service.addFolder(
+        name: name,
+        displayOrder: order,
+      );
+      _items = [..._items, folder];
+      _newName.clear();
+    });
+  }
+
+  Future<void> _rename(ProductImageFolder f) async {
+    final name = await _askFolderName(
+      context,
+      title: 'Klasörü yeniden adlandır',
+      confirmLabel: 'Kaydet',
+      initial: f.name,
+    );
+    if (name == null || name == f.name || !mounted) return;
+    await _run(() async {
+      await widget.service.updateFolder(id: f.id, name: name);
+      _items = [
+        for (final x in _items) x.id == f.id ? x.copyWith(name: name) : x,
+      ];
+    });
+  }
+
+  Future<void> _toggle(ProductImageFolder f, bool active) async {
+    await _run(() async {
+      await widget.service.updateFolder(id: f.id, isActive: active);
+      _items = [
+        for (final x in _items) x.id == f.id ? x.copyWith(isActive: active) : x,
+      ];
+    });
+  }
+
+  Future<void> _delete(ProductImageFolder f) async {
+    final n = widget.counts[f.id]?.all ?? 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Klasör silinsin mi?'),
+        content: Text(
+          n == 0
+              ? '"${f.name}" klasörü silinir.'
+              : '"${f.name}" klasörü silinir. İçindeki $n görsel SİLİNMEZ, '
+                    'klasörsüz kalır; sonra başka klasöre taşıyabilirsin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(() async {
+      await widget.service.deleteFolder(f.id);
+      _items = _items.where((x) => x.id != f.id).toList();
+    });
+  }
+
+  Future<void> _reorder(int oldIndex, int newIndex) async {
+    if (_busy) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex == oldIndex) return;
+    final before = _items;
+    final next = [..._items];
+    next.insert(newIndex, next.removeAt(oldIndex));
+    setState(() {
+      // İyimser: liste anında yeni sırada görünsün, hata olursa geri alınır.
+      _items = [
+        for (var i = 0; i < next.length; i++)
+          next[i].copyWith(displayOrder: i + 1),
+      ];
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      await widget.service.reorderFolders([for (final f in next) f.id]);
+      _changed = true;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _items = before;
+          _notice = _cleanError(e);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 100),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Material(
+        color: Colors.white,
+        shape: _sheetShape,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SheetHeader(
+              title: 'Klasörler',
+              subtitle:
+                  'Sürükleyerek sırala · kapalı klasörün görselleri '
+                  'satıcılara gösterilmez',
+              onClose: () => Navigator.pop(context, _changed),
+            ),
+            if (_notice != null)
+              _NoticeBar(
+                message: _notice!,
+                onClose: () => setState(() => _notice = null),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _newName,
+                      enabled: !_busy,
+                      maxLength: 40,
+                      buildCounter:
+                          (
+                            _, {
+                            required currentLength,
+                            required isFocused,
+                            maxLength,
+                          }) => null,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _add(),
+                      decoration: _fieldDecoration(
+                        'Yeni klasör adı',
+                        hint: 'örn. Kırtasiye',
+                        icon: Icons.create_new_folder_outlined,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _busy ? null : _add,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AdminUi.brand,
+                      minimumSize: const Size(0, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Ekle'),
+                  ),
+                ],
+              ),
+            ),
+            if (_items.isEmpty)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  20,
+                  24,
+                  24 + MediaQuery.paddingOf(context).bottom,
+                ),
+                child: const Text(
+                  'Henüz klasör yok. Market, Kozmetik gibi bir klasör ekle.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AdminUi.muted),
+                ),
+              )
+            else
+              Flexible(
+                child: ReorderableListView.builder(
+                  shrinkWrap: true,
+                  buildDefaultDragHandles: false,
+                  padding: EdgeInsets.fromLTRB(
+                    4,
+                    4,
+                    8,
+                    12 + MediaQuery.paddingOf(context).bottom,
+                  ),
+                  itemCount: _items.length,
+                  onReorder: _reorder,
+                  itemBuilder: (context, i) => _buildRow(_items[i], i),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(ProductImageFolder f, int index) {
+    final c = widget.counts[f.id];
+    final all = c?.all ?? 0;
+    final active = c?.active ?? 0;
+    return Material(
+      key: ValueKey(f.id),
+      color: Colors.white,
+      child: ListTile(
+        contentPadding: const EdgeInsets.only(right: 4),
+        leading: ReorderableDragStartListener(
+          index: index,
+          enabled: !_busy,
+          child: const Padding(
+            padding: EdgeInsets.all(10),
+            child: Icon(Icons.drag_indicator_rounded, color: AdminUi.muted),
+          ),
+        ),
+        title: Text(
+          f.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: f.isActive ? AdminUi.ink : AdminUi.muted,
+          ),
+        ),
+        subtitle: Text(
+          f.isActive
+              ? '$all görsel · $active yayında'
+              : '$all görsel · kapalı, satıcılar görmez',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12, color: AdminUi.muted),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: f.isActive,
+              activeThumbColor: AdminUi.brand,
+              onChanged: _busy ? null : (v) => _toggle(f, v),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'İşlemler',
+              enabled: !_busy,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              onSelected: (v) => v == 'rename' ? _rename(f) : _delete(f),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'rename',
+                  child: _MenuRow(Icons.edit_rounded, 'Yeniden adlandır'),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: _MenuRow(
+                    Icons.delete_outline_rounded,
+                    'Sil',
+                    color: Colors.red.shade600,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

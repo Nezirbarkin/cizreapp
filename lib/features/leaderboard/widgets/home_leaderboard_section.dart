@@ -1,6 +1,7 @@
 import 'dart:ui' show lerpDouble;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../okey/services/okey_module_service.dart';
 import 'package:flutter/material.dart';
 
 import '../models/leaderboard_models.dart';
@@ -91,7 +92,10 @@ class _HomeLeaderboardSectionState extends State<HomeLeaderboardSection> {
 
   double _cardHeightFor(LeaderboardBoard board, LeaderboardSnapshot snapshot) {
     var body = _bodyMessage;
-    if (board.isStats) {
+    if (board.isRecords) {
+      final rows = snapshot.recordsFor().length;
+      if (rows > 0) body = rows * _rowHeight;
+    } else if (board.isStats) {
       final rows = (snapshot.statsFor(board).length / 2).ceil();
       body = rows * _statTileHeight + (rows - 1).clamp(0, 99) * _statGap;
     } else {
@@ -123,9 +127,15 @@ class _HomeLeaderboardSectionState extends State<HomeLeaderboardSection> {
             return const SizedBox.shrink();
           }
           if (snapshot.hasError) return _buildError();
-          final data = snapshot.data;
-          if (data == null) return const SizedBox.shrink();
-          final cards = data.cards;
+          final loaded = snapshot.data;
+          if (loaded == null) return const SizedBox.shrink();
+          // Görev 4.1: 101 Okey kapalıyken Okey panoları ve sayaçları gösterilmez.
+          final okeyOn = OkeyModuleService.cachedEnabled;
+          final data = okeyOn ? loaded : loaded.withoutOkey();
+          final cards = [
+            for (final board in data.cards)
+              if (okeyOn || !board.key.startsWith('okey_')) board,
+          ];
           if (cards.isEmpty) return const SizedBox.shrink();
           return _buildCarousel(data, cards);
         },
@@ -363,6 +373,8 @@ class _HomeLeaderboardSectionState extends State<HomeLeaderboardSection> {
           Expanded(
             child: board.isStats
                 ? _statsBody(data, board)
+                : board.isRecords
+                ? _recordsBody(data)
                 : _rankingBody(data, board),
           ),
         ],
@@ -467,6 +479,28 @@ class _HomeLeaderboardSectionState extends State<HomeLeaderboardSection> {
             onTap: () => widget.onOpenEntry(context, mine),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _recordsBody(LeaderboardSnapshot data) {
+    final records = data.recordsFor();
+    if (records.isEmpty) {
+      return _message(
+        icon: Icons.military_tech_outlined,
+        text: 'Henüz rekor yok.',
+      );
+    }
+    return Column(
+      children: [
+        for (final value in records)
+          _RecordRow(
+            value: value,
+            onTap: switch (value.toEntry()) {
+              final entry? => () => widget.onOpenEntry(context, entry),
+              null => null,
+            },
+          ),
       ],
     );
   }
@@ -603,6 +637,98 @@ class _StatTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// "Rekor Skorlar" kartında tek rekor (Görev 4.4): etiket, özne/tarih, değer.
+class _RecordRow extends StatelessWidget {
+  const _RecordRow({required this.value, this.onTap});
+
+  final LeaderboardRecordValue value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final record = value.record;
+    final main = value.valueLabel;
+    final subtitle = value.subtitle;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: InkWell(
+        key: ValueKey('leaderboard-record-${record.key}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: record.color.withValues(alpha: .06),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: record.color.withValues(alpha: .16),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(record.icon, size: 19, color: record.color),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      record.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    if (subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (main.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 130),
+                  child: Text(
+                    main,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: record.color,
+                    ),
+                  ),
+                ),
+              ],
+              if (onTap != null)
+                const Icon(Icons.chevron_right_rounded, color: Colors.black26),
+            ],
+          ),
+        ),
       ),
     );
   }

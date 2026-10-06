@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/navigation/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../widgets/auth_shell.dart';
 
@@ -120,7 +121,8 @@ class _ResetPasswordConfirmScreenState
     return AuthScaffold(
       title: 'Yeni şifre belirle',
       subtitle: 'Hesabını korumak için güçlü bir şifre seç',
-      onBack: () => Navigator.of(context).pop(),
+      // Tek sayfayken `pop()` Navigator'ı boşaltırdı (bkz. AppNavigator.popOrGo).
+      onBack: () => AppNavigator.popOrGo(context, '/login'),
       child: _isCheckingSession
           // Session kontrol edilirken yükleme göster; aksi halde form.
           ? const Padding(

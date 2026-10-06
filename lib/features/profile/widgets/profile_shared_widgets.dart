@@ -3,6 +3,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/models/analytics_model.dart';
+import '../../../core/utils/image_url.dart';
 import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
 
 /// Profil ekranları (ProfileScreen + UserProfileScreen) arasında tekrar eden
@@ -236,26 +237,30 @@ class ProfileIdentityHeader extends StatelessWidget {
                               color: Colors.white,
                               shape: BoxShape.circle,
                             ),
-                            child: CircleAvatar(
-                              backgroundColor: const Color(0xFFF3F4F6),
-                              backgroundImage:
-                                  avatarUrl != null && avatarUrl!.isNotEmpty
-                                  ? NetworkImage(avatarUrl!)
-                                  : null,
-                              child: avatarUrl == null || avatarUrl!.isEmpty
-                                  ? Text(
-                                      username.isNotEmpty
-                                          ? username
-                                                .substring(0, 1)
-                                                .toUpperCase()
-                                          : '?',
-                                      style: const TextStyle(
-                                        fontSize: 34,
-                                        fontWeight: FontWeight.w800,
-                                        color: Color(0xFF4B5563),
-                                      ),
-                                    )
-                                  : null,
+                            // Hareketli (GIF) avatarın her karesi yalnız
+                            // avatarı yeniden boyasın, profil başlığını değil.
+                            child: RepaintBoundary(
+                              child: CircleAvatar(
+                                backgroundColor: const Color(0xFFF3F4F6),
+                                backgroundImage:
+                                    avatarUrl != null && avatarUrl!.isNotEmpty
+                                    ? avatarImage(avatarUrl!, decodeWidth: 360)
+                                    : null,
+                                child: avatarUrl == null || avatarUrl!.isEmpty
+                                    ? Text(
+                                        username.isNotEmpty
+                                            ? username
+                                                  .substring(0, 1)
+                                                  .toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                          fontSize: 34,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF4B5563),
+                                        ),
+                                      )
+                                    : null,
+                              ),
                             ),
                           ),
                         ),
@@ -442,24 +447,26 @@ class ProfileHeroHeader extends StatelessWidget {
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: CircleAvatar(
-                      backgroundColor: const Color(0xFFF3F4F6),
-                      backgroundImage:
-                          avatarUrl != null && avatarUrl!.isNotEmpty
-                          ? NetworkImage(avatarUrl!)
-                          : null,
-                      child: avatarUrl == null || avatarUrl!.isEmpty
-                          ? Text(
-                              username.isNotEmpty
-                                  ? username.substring(0, 1).toUpperCase()
-                                  : '?',
-                              style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF4B5563),
-                              ),
-                            )
-                          : null,
+                    child: RepaintBoundary(
+                      child: CircleAvatar(
+                        backgroundColor: const Color(0xFFF3F4F6),
+                        backgroundImage:
+                            avatarUrl != null && avatarUrl!.isNotEmpty
+                            ? avatarImage(avatarUrl!, decodeWidth: 360)
+                            : null,
+                        child: avatarUrl == null || avatarUrl!.isEmpty
+                            ? Text(
+                                username.isNotEmpty
+                                    ? username.substring(0, 1).toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF4B5563),
+                                ),
+                              )
+                            : null,
+                      ),
                     ),
                   ),
                 ),

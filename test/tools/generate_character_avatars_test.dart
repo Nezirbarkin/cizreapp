@@ -15,8 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('tarif sayısı ve cinsiyet dağılımı', () {
-    expect(kCharacterRecipes.length, 100);
-    expect(kCharacterRecipes.where((r) => r.female).length, 50);
+    expect(kCharacterRecipes.length, 140);
+    expect(kCharacterRecipes.where((r) => r.female).length, 70);
   });
 
   testWidgets('karakter avatarlarını üret', (tester) async {

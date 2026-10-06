@@ -1804,6 +1804,7 @@ extension on _AdminDashboardScreenState {
     final paymentMethod = order['payment_method'] as String? ?? 'cash';
     final total = (order['total'] as num?)?.toDouble() ?? 0;
     final hasRefund = paymentMethod == 'balance' || paymentMethod == 'online';
+    final isDelivered = order['status'] == 'delivered';
 
     final reasonController = TextEditingController(
       text: 'Admin tarafından iptal edildi',
@@ -1884,6 +1885,40 @@ extension on _AdminDashboardScreenState {
                   ],
                 ),
               ),
+            if (isDelivered) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: Colors.orange.shade800,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bu sipariş teslim edilmiş. İptalde satıcının bu '
+                        'siparişten kazandığı tutar bakiyesinden düşülür ve '
+                        'satıcıya bildirim gider. Stok geri yüklenmez, kurye '
+                        'kazancı korunur.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: reasonController,

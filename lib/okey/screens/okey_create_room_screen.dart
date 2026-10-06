@@ -326,7 +326,7 @@ class _OkeyCreateRoomScreenState extends State<OkeyCreateRoomScreen> {
                 value: _isPrivate,
                 onChanged: (v) => setState(() => _isPrivate = v),
                 activeThumbColor: OkeyUI.brass,
-                title: const Text(
+                title: Text(
                   'Özel oda',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -394,17 +394,20 @@ class _Summary extends StatelessWidget {
           children: [
             OkeyPill(
               text: gameMode == 'katlamali' ? 'Katlamalı' : 'Katlamasız',
-              color: const Color(0xFFFF8A80),
+              color: OkeyUI.signal(const Color(0xFFFF8A80)),
             ),
             OkeyPill(
               text: teamMode == 'esli' ? 'Eşli' : 'Eşsiz',
-              color: const Color(0xFF80D8FF),
+              color: OkeyUI.signal(const Color(0xFF80D8FF)),
             ),
             OkeyPill(
               text: assistMode == 'yardimsiz' ? 'Yardımsız' : 'Yardımlı',
-              color: const Color(0xFFB9F6CA),
+              color: OkeyUI.signal(const Color(0xFFB9F6CA)),
             ),
-            OkeyPill(text: '$totalHands el', color: const Color(0xFFE1BEE7)),
+            OkeyPill(
+              text: '$totalHands el',
+              color: OkeyUI.signal(const Color(0xFFE1BEE7)),
+            ),
             // MASA PUANI = el başına puan × el sayısı. Rozet ÇARPIMI
             // gösterir, çarpanı değil: cüzdandan düşecek olan sayı budur.
             OkeyPill(text: '${entryFee * totalHands} çip', icon: Icons.stars),
@@ -491,18 +494,18 @@ class _FeeField extends StatelessWidget {
                   labelStyle: OkeyUI.caption,
                   prefixIcon: Icon(
                     Icons.stars,
-                    color: OkeyUI.brass,
+                    color: OkeyUI.accentInk,
                     size: 18,
                   ),
                   filled: true,
                   fillColor: OkeyUI.cardFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
-                    borderSide: const BorderSide(color: OkeyUI.cardBorder),
+                    borderSide: BorderSide(color: OkeyUI.cardBorder),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
-                    borderSide: const BorderSide(color: OkeyUI.cardBorder),
+                    borderSide: BorderSide(color: OkeyUI.cardBorder),
                   ),
                 ),
                 onChanged: (t) => onChanged(int.tryParse(t) ?? 0),
@@ -613,7 +616,7 @@ class _SectionTitle extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: OkeyUI.brass),
+          Icon(icon, size: 17, color: OkeyUI.accentInk),
           const SizedBox(width: OkeyUI.gapSm),
           Expanded(
             child: Column(
@@ -689,7 +692,7 @@ class _RuleSegment extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 17, color: OkeyUI.brass),
+                Icon(icon, size: 17, color: OkeyUI.accentInk),
                 const SizedBox(width: OkeyUI.gapSm),
                 Expanded(
                   child: Text(
@@ -705,7 +708,7 @@ class _RuleSegment extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: const Color(0x14FFF0D2),
+                color: OkeyUI.wash,
                 borderRadius: BorderRadius.circular(OkeyUI.radius),
                 border: Border.all(color: OkeyUI.cardBorder),
               ),
@@ -725,7 +728,7 @@ class _RuleSegment extends StatelessWidget {
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               color: o.value == selected
-                                  ? const Color(0xFFE4B04C)
+                                  ? OkeyUI.brass
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(
                                 OkeyUI.radiusSm,

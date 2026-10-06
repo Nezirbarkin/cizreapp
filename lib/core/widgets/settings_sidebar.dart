@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'app_version_label.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,9 @@ import '../../features/profile/screens/account_settings_screen.dart';
 import '../../features/profile/screens/customize_screen.dart';
 import '../../features/profile/screens/about_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
+import '../../features/moderation/models/moderation_models.dart';
+import '../../features/moderation/screens/moderation_panel_screen.dart';
+import '../../features/moderation/services/moderation_service.dart';
 import '../../features/seller/screens/seller_dashboard_screen.dart';
 import '../../features/courier/screens/courier_panel_screen.dart';
 import '../../features/news/screens/news_reporter_panel_screen.dart';
@@ -62,6 +66,12 @@ class _SettingsSidebarState extends State<SettingsSidebar>
 
   // Görünüm — "101 Okey" kısayolu gizlenmiş mi? (aşağıdaki GÖRÜNÜM bölümü)
   bool _hide101OkeyButton = false;
+
+  // Görev 4.1: admin 101 Okey modülünü kapattıysa girişler gizlenir.
+  bool _okeyModuleEnabled = OkeyModuleService.cachedEnabled;
+
+  // Görev 4.6: moderatörse "Moderasyon Paneli" görünür (yetki sunucuda).
+  ModerationAccess _moderationAccess = ModerationService.cachedAccess;
   // Görünüm — en üstteki müzik çalar kartı gizlenmiş mi?
   bool _hideMusicPlayer = false;
 
@@ -84,6 +94,16 @@ class _SettingsSidebarState extends State<SettingsSidebar>
     _loadMusicState();
     _loadCustomizationSettings();
     _loadMusicFeatureFlag();
+    OkeyModuleService.fetch().then((enabled) {
+      if (mounted && enabled != _okeyModuleEnabled) {
+        setState(() => _okeyModuleEnabled = enabled);
+      }
+    });
+    ModerationService.fetchMyAccess().then((access) {
+      if (mounted && access != _moderationAccess) {
+        setState(() => _moderationAccess = access);
+      }
+    });
     // Müzik uygulama genelinde TEK servisten çalıyor; bildirim panelinden
     // ya da Okey masasından yapılan değişiklik bu satırdaki oynatıcıya da
     // yansımalı.
@@ -329,8 +349,11 @@ class _SettingsSidebarState extends State<SettingsSidebar>
 
   void _close() async {
     await _controller.reverse();
+    // `Navigator.of(context).pop()` DEĞİL: animasyon beklenirken üste başka
+    // bir sayfa açılmış olabilir (ör. çıkış yönlendirmesi) ve pop o sayfayı
+    // kapatıp Navigator'ı boşaltabilirdi. Menü yalnızca hâlâ en üstteyse kapanır.
     if (mounted) {
-      Navigator.of(context).pop();
+      AppNavigator.popIfCurrent(context);
     }
   }
 
@@ -683,7 +706,43 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                     );
                                   },
                                 ),
-                              if (!_hide101OkeyButton)
+                              // Görev 4.6: moderatör (yöneticinin Admin Paneli var)
+                              if (_moderationAccess.hasAny &&
+                                  _userRole != UserRole.admin)
+                                _buildPanelButton(
+                                  context: context,
+                                  icon: Icons.shield_outlined,
+                                  title: 'Moderasyon Paneli',
+                                  subtitle: _moderationAccess.summary,
+                                  color: Colors.teal,
+                                  onTap: () async {
+                                    // Önbellekteki yetki bayat olabilir (yetkisi
+                                    // alınmış kişi): girmeden sunucuya sor.
+                                    final access =
+                                        await ModerationService.fetchMyAccess();
+                                    if (!context.mounted) return;
+                                    if (!access.hasAny) {
+                                      setState(() => _moderationAccess = access);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Moderatör yetkin bulunmuyor.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            ModerationPanelScreen(access: access),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              if (!_hide101OkeyButton && _okeyModuleEnabled)
                                 _buildPanelButton(
                                   context: context,
                                   icon: Icons.casino,
@@ -696,7 +755,9 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                       context,
                                       MaterialPageRoute(
                                         builder: (context) =>
-                                            const OkeyLobbyScreen(),
+                                            const OkeyModuleGate(
+                                              child: OkeyLobbyScreen(),
+                                            ),
                                       ),
                                     );
                                   },
@@ -1094,15 +1155,17 @@ class _SettingsSidebarState extends State<SettingsSidebar>
                                     );
 
                                     if (confirm == true && mounted) {
-                                      // Root navigator key ile güvenli çıkış:
-                                      // async signOut sonrası context dispose
-                                      // olsa bile yönlendirme çalışır → siyah
-                                      // ekran önlenir.
-                                      await AppNavigator.signOutAndReset('/');
+                                      // Merkezi çıkış: "Çıkış yapılıyor…"
+                                      // perdesi → temizlik → Giriş ekranı
+                                      // (bkz. AppNavigator.signOutAndReset).
+                                      await AppNavigator.signOutAndReset();
                                     }
                                   }
                                 },
                               ),
+                              // Görev 3.8: sürüm, "Çıkış Yap"ın hemen altında.
+                              const SizedBox(height: 12),
+                              const AppVersionLabel(),
                             ],
                           ),
                         ),

@@ -23,10 +23,18 @@ class InstagramStoryCreator extends StatefulWidget {
   final void Function(String text, String backgroundId, AttachedMusic? music)?
   onTextStory;
 
+  /// "Canlı" seçeneği: canlı yayın başlatır (çağıran sayfayı kapatıp yayıncı
+  /// ekranını açar). Verilmezse ya da [liveAvailable] false dönerse (izin yok,
+  /// misafir) veya web'de seçenek gösterilmez.
+  final VoidCallback? onGoLive;
+  final Future<bool> Function()? liveAvailable;
+
   const InstagramStoryCreator({
     required this.imagePicker,
     required this.onMediaSelected,
     this.onTextStory,
+    this.onGoLive,
+    this.liveAvailable,
   });
 
   @override
@@ -72,10 +80,21 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
     setState(() => _music = picked);
   }
 
+  /// "Canlı" seçeneği gösterilsin mi (yayın izni sunucudan sorulur).
+  bool _liveAvailable = false;
+
+  Future<void> _loadLiveFlag() async {
+    if (widget.onGoLive == null || kIsWeb) return;
+    final check = widget.liveAvailable;
+    final available = check == null ? true : await check();
+    if (mounted && available != _liveAvailable) setState(() => _liveAvailable = available);
+  }
+
   @override
   void initState() {
     super.initState();
     _loadMusicFlag();
+    _loadLiveFlag();
   }
 
   @override
@@ -339,43 +358,53 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                // Hızlı seçim butonları
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildQuickOption(
-                      icon: Icons.photo_library_outlined,
-                      label: 'Galeri',
-                      onTap: () => _pickFromGallery(),
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 24),
-                    if (!kIsWeb) ...[
+                // Hızlı seçim butonları. Wrap: "Canlı" ile 5 seçenek dar
+                // telefonda tek satıra sığmayınca alta geçer (taşmaz).
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 20,
+                    runSpacing: 16,
+                    children: [
                       _buildQuickOption(
-                        icon: Icons.camera_alt,
-                        label: 'Kamera',
-                        onTap: () => _pickFromCamera(),
+                        icon: Icons.photo_library_outlined,
+                        label: 'Galeri',
+                        onTap: () => _pickFromGallery(),
                         isDark: isDark,
                       ),
-                      const SizedBox(width: 24),
-                    ],
-                    _buildQuickOption(
-                      icon: Icons.videocam_outlined,
-                      label: 'Video',
-                      onTap: () => _pickVideo(),
-                      isDark: isDark,
-                    ),
-                    // Arka planlı metin hikayesi (fotoğraf gerekmez).
-                    if (widget.onTextStory != null) ...[
-                      const SizedBox(width: 24),
+                      if (!kIsWeb)
+                        _buildQuickOption(
+                          icon: Icons.camera_alt,
+                          label: 'Kamera',
+                          onTap: () => _pickFromCamera(),
+                          isDark: isDark,
+                        ),
                       _buildQuickOption(
-                        icon: Icons.text_fields_rounded,
-                        label: 'Metin',
-                        onTap: _openTextMode,
+                        icon: Icons.videocam_outlined,
+                        label: 'Video',
+                        onTap: () => _pickVideo(),
                         isDark: isDark,
                       ),
+                      // Arka planlı metin hikayesi (fotoğraf gerekmez).
+                      if (widget.onTextStory != null)
+                        _buildQuickOption(
+                          icon: Icons.text_fields_rounded,
+                          label: 'Metin',
+                          onTap: _openTextMode,
+                          isDark: isDark,
+                        ),
+                      if (_liveAvailable && widget.onGoLive != null)
+                        _buildQuickOption(
+                          key: const ValueKey('story-go-live'),
+                          icon: Icons.sensors,
+                          label: 'Canlı',
+                          onTap: widget.onGoLive!,
+                          isDark: isDark,
+                          color: const Color(0xFFE53935),
+                        ),
                     ],
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -405,22 +434,26 @@ class InstagramStoryCreatorState extends State<InstagramStoryCreator> {
   }
 
   Widget _buildQuickOption({
+    Key? key,
     required IconData icon,
     required String label,
     required VoidCallback onTap,
     required bool isDark,
+    Color? color,
   }) {
     return GestureDetector(
+      key: key,
       onTap: _isUploading ? null : onTap,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             width: 64,
             height: 64,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.12),
-              border: Border.all(color: Colors.white24, width: 1.5),
+              color: color ?? Colors.white.withValues(alpha: 0.12),
+              border: Border.all(color: color == null ? Colors.white24 : Colors.white70, width: 1.5),
             ),
             child: Icon(
               icon,

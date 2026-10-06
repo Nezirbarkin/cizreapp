@@ -95,6 +95,15 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.shield_outlined,
+                    title: 'Moderatörler',
+                    isSelected: _selectedMenu == 'Moderatörler',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Moderatörler');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.auto_awesome_rounded,
                     title: 'Kullanıcı Özellikleri',
                     isSelected: _selectedMenu == 'Kullanıcı Özellikleri',
@@ -195,6 +204,24 @@ extension on _AdminDashboardScreenState {
                     isSelected: _selectedMenu == 'Satıcı Duyuruları',
                     onTap: () {
                       setState(() => _selectedMenu = 'Satıcı Duyuruları');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.rocket_launch_rounded,
+                    title: 'Öne Çıkarma',
+                    isSelected: _selectedMenu == 'Öne Çıkarma',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Öne Çıkarma');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.live_tv_rounded,
+                    title: 'Canlı Yayınlar',
+                    isSelected: _selectedMenu == 'Canlı Yayınlar',
+                    onTap: () {
+                      setState(() => _selectedMenu = 'Canlı Yayınlar');
                       Navigator.pop(context);
                     },
                   ),

@@ -133,7 +133,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                           children: [
                             Icon(
                               Icons.stars,
-                              color: OkeyUI.brass,
+                              color: OkeyUI.accentInk,
                               size: 15,
                             ),
                             const SizedBox(height: 2),
@@ -145,7 +145,7 @@ class _OkeyLeaderboardViewState extends State<OkeyLeaderboardView> {
                                   '${e.points}',
                                   maxLines: 1,
                                   style: TextStyle(
-                                    color: OkeyUI.brass,
+                                    color: OkeyUI.accentInk,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 13,
                                   ),
@@ -191,7 +191,7 @@ class _AvatarWithRate extends StatelessWidget {
               child: CircularProgressIndicator(
                 value: rate.clamp(0.0, 1.0),
                 strokeWidth: 3,
-                backgroundColor: const Color(0x24FFFFFF),
+                backgroundColor: OkeyUI.avatarFill,
                 valueColor: AlwaysStoppedAnimation(OkeyUI.brass),
               ),
             ),
@@ -211,9 +211,9 @@ class OkeyRankBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (rank) {
-      1 => const Color(0xFFFFD54F),
-      2 => const Color(0xFFCFD8DC),
-      3 => const Color(0xFFBCAAA4),
+      1 => OkeyUI.isLight ? OkeyUI.chipText : const Color(0xFFFFD54F),
+      2 => OkeyUI.signal(const Color(0xFFCFD8DC)),
+      3 => OkeyUI.signal(const Color(0xFFBCAAA4)),
       _ => OkeyUI.textFaint,
     };
     return Container(
@@ -251,23 +251,24 @@ class OkeyLeaderboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: OkeyColors.screenBackground,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: OkeyUI.text,
-        title: const Text(
-          'Skor tablosu',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontWeight: FontWeight.w800),
+    return OkeyThemed(
+      child: Scaffold(
+        backgroundColor: OkeyUI.screenTop,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: OkeyUI.text,
+          title: const Text(
+            'Skor tablosu',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
         ),
-      ),
-      body: Container(
-        decoration: const BoxDecoration(gradient: OkeyUI.screenGradient),
-        child: const SafeArea(top: false, child: OkeyLeaderboardView()),
+        body: const OkeyDesignBackground(
+          child: SafeArea(top: false, child: OkeyLeaderboardView()),
+        ),
       ),
     );
   }

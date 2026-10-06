@@ -15,13 +15,14 @@ import '../../profile/screens/profile_screen.dart';
 import '../../market/providers/cart_provider.dart';
 import '../../market/services/product_service.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/models/sponsorship_model.dart';
+import '../../../core/utils/sponsor_ordering.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/privacy_service.dart';
 import '../../../core/services/social_access_service.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/widgets/closed_shop_badge.dart';
 import '../../../core/widgets/product_extras_widgets.dart';
-import '../../market/services/shop_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/widgets/settings_sidebar.dart';
@@ -320,11 +321,30 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           return Scaffold(
             extendBody: true,
             // Tembel + seçici korumalı sekme gövdesi (bkz. _retainedTabs).
-            body: LazyTabStack(
-              index: _selectedIndex,
-              count: 5,
-              retained: _retainedTabs,
-              tabBuilder: _getScreen,
+            //
+            // PERFORMANS: extendBody:true iken Scaffold gövdeyi kendi
+            // LayoutBuilder'ına sarar. Flutter'da bir LayoutBuilder'ın
+            // altındaki HER yeniden kurulum (sekmedeki tek bir yanıp sönen
+            // rozet, dönen yükleme halkası…) o LayoutBuilder'ı yeniden
+            // yerleştirir; bu da tüm Scaffold'u yeniden yerleştirip alt
+            // çubuğun çentik kırpmasını ve bütün kabuğu HER KAREDE yeniden
+            // boyatıyordu (profile ölçümü 2026-10-06). Buradaki sıkı
+            // kısıtlı (SizedBox.expand) kendi LayoutBuilder'ımız sekmelerin
+            // yeniden kurulumlarını kendi içinde tutar; iki RepaintBoundary
+            // de boyamayı sekmeyle sınırlar. Görünüm değişmez.
+            body: RepaintBoundary(
+              child: SizedBox.expand(
+                child: LayoutBuilder(
+                  builder: (context, _) => RepaintBoundary(
+                    child: LazyTabStack(
+                      index: _selectedIndex,
+                      count: 5,
+                      retained: _retainedTabs,
+                      tabBuilder: _getScreen,
+                    ),
+                  ),
+                ),
+              ),
             ),
             floatingActionButton: Stack(
               alignment: Alignment.topRight,
@@ -534,7 +554,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
   int _animationPrimaryDurationMs = 6000;
   int _animationSecondaryDurationMs = 3000;
   int _animationTransitionDurationMs = 700;
-  final ShopService _shopService = ShopService();
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
   bool _isLoading = true;
@@ -589,7 +608,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   // Ürünlerin unique shopId'leri için dükkanların sipariş alma durumunu yükle.
-  // ShopService 30 sn cache kullandığından tekrar sorgular ucuzdur.
+  // Daha önce yüklenen dükkânlar tekrar sorgulanmaz.
   Future<void> _loadShopAcceptingOrdersForProducts(
     List<Product> products,
   ) async {
@@ -599,17 +618,25 @@ class _ProductsScreenState extends State<ProductsScreen> {
         .toSet();
     if (shopIds.isEmpty) return;
 
-    await Future.wait(
-      shopIds.map((shopId) async {
-        try {
-          final shop = await _shopService.getShopById(shopId);
-          final accepting = shop?.isAcceptingOrders ?? true;
-          if (mounted) setState(() => _shopAcceptingOrders[shopId] = accepting);
-        } catch (_) {
-          if (mounted) setState(() => _shopAcceptingOrders[shopId] = true);
-        }
-      }),
-    );
+    // Tek istek + tek setState. Eskiden dükkân başına ayrı bir
+    // `shops?id=eq.…` isteği atılıyor ve her yanıt ürün ızgarasını ayrı ayrı
+    // yeniden kuruyordu (Ürünler sekmesi açılışında 8 istek; cihaz ölçümü
+    // 2026-10-06). Yanıtta olmayan dükkân eskisi gibi "açık" sayılır.
+    final result = <String, bool>{for (final id in shopIds) id: true};
+    try {
+      final rows = await Supabase.instance.client
+          .from('shops')
+          .select('id, is_accepting_orders')
+          .inFilter('id', shopIds.toList());
+      for (final row in rows) {
+        final id = row['id']?.toString();
+        if (id == null) continue;
+        result[id] = row['is_accepting_orders'] as bool? ?? true;
+      }
+    } catch (_) {
+      // Hata olursa sipariş almayı engelleme (eski davranış).
+    }
+    if (mounted) setState(() => _shopAcceptingOrders.addAll(result));
   }
 
   // Bir ürünün sipariş alınıp alınamayacağını kontrol et.
@@ -635,28 +662,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
           .toList();
     }
 
-    // Sponsor ve sponsor olmayan ürünleri ayır
-    final pinnedProducts = _filteredProducts.where((p) => p.isPinned).toList();
-    final nonPinnedProducts = _filteredProducts
-        .where((p) => !p.isPinned)
-        .toList();
-
-    // Sıralama (sadece sponsor olmayanlara uygulanır)
-    switch (_sortBy) {
-      case 'price_asc':
-        nonPinnedProducts.sort((a, b) => a.price.compareTo(b.price));
-        break;
-      case 'price_desc':
-        nonPinnedProducts.sort((a, b) => b.price.compareTo(a.price));
-        break;
-      case 'newest':
-      default:
-        // Sponsor olmayanlar zaten shuffle edilmiş durumda kalacak
-        break;
-    }
-
-    // Sponsorlar + sıralanmış sponsor olmayanlar
-    _filteredProducts = [...pinnedProducts, ...nonPinnedProducts];
+    // Sponsorlar en üstte: admin sabitlemesi, sonra Ürünler vitrininde (seçili
+    // kategori dahil) ücretli öne çıkanlar (Görev 3.2). Sıralama yalnız geri
+    // kalanlara uygulanır; "En Yeni"de karıştırılmış sıra korunur.
+    final Comparator<Product>? restOrder = switch (_sortBy) {
+      'price_asc' => (a, b) => a.price.compareTo(b.price),
+      'price_desc' => (a, b) => b.price.compareTo(a.price),
+      _ => null,
+    };
+    _filteredProducts = SponsorOrdering.products(
+      _filteredProducts,
+      SponsorPlacement.productCategory,
+      restOrder: restOrder,
+    );
 
     setState(() {});
   }
@@ -1225,8 +1243,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     left: 4,
                     child: FlashAwareDiscountBadge(product: product),
                   ),
-                  // Sponsor badge
-                  if (product.isPinned)
+                  // Sponsor badge (admin sabitlemesi ya da Ürünler vitrininde
+                  // ücretli öne çıkarma, Görev 3.2)
+                  if (SponsorOrdering.productBadge(product, SponsorPlacement.productCategory))
                     Positioned(
                       top: 4,
                       left: product.hasDiscount ? 52 : 4,
@@ -1675,7 +1694,8 @@ class _ProductsBalanceBadgeState extends State<_ProductsBalanceBadge> {
 
   Future<void> _loadBalance() async {
     try {
-      final balance = await _balanceService.getBalance();
+      // Sekme rozetleri bakiyeyi paylaşır (bkz. getBalanceForDisplay).
+      final balance = await _balanceService.getBalanceForDisplay();
       if (mounted) {
         setState(() {
           _balance = balance?.availableBalance ?? 0;

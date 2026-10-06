@@ -98,6 +98,8 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.deepPurple,
                         ),
+                        // Görev 4.1: modül kapalıyken Okey tıkları gizli.
+                        if (OkeyModuleService.cachedEnabled) ...[
                         SwitchListTile(
                           title: const Text('101 Okey Ses Efektleri'),
                           subtitle: const Text(
@@ -126,6 +128,7 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
                           contentPadding: EdgeInsets.zero,
                           activeColor: Colors.deepPurple,
                         ),
+                        ],
                       ],
                     ),
                   ),

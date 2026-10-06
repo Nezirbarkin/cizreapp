@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'user_profile_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 /// Takipçi, Takip Edilen ve Arkadaş listesi ekranı
 enum FollowListType { followers, following, friends }
@@ -510,7 +511,7 @@ class _UserListItemState extends State<_UserListItem> {
             // Avatar
             CircleAvatar(
               radius: 26,
-              backgroundImage: widget.avatarUrl != null ? NetworkImage(widget.avatarUrl!) : null,
+              backgroundImage: widget.avatarUrl != null ? avatarImage(widget.avatarUrl!) : null,
               backgroundColor: Colors.grey.shade200,
               child: widget.avatarUrl == null
                   ? Text(

@@ -1,13 +1,20 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/models/address_model.dart';
 import '../../../core/models/seller_announcement_model.dart';
+import '../../../core/navigation/app_navigator.dart';
 import '../../../core/widgets/lazy_tab_stack.dart';
+import '../../market/screens/address_picker_screen.dart';
 import '../services/payout_service.dart';
 import '../services/shop_analytics_service.dart';
+import '../utils/shop_contact_requirements.dart';
 import '../widgets/common/seller_bottom_nav.dart';
+import '../widgets/dashboard/seller_menu.dart';
 import '../widgets/dashboard/seller_more_tab.dart';
 import '../widgets/dashboard/seller_overview_tab.dart';
 import '../widgets/dashboard/seller_payments_tab.dart';
@@ -56,6 +63,9 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
   final _ordersNavKey = GlobalKey<NavigatorState>();
   final _moreNavKey = GlobalKey<NavigatorState>();
 
+  // Yan menüyü (endDrawer) açıp kapatmak ve geri tuşunda kapatmak için.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   // Dashboard verileri
   Map<String, dynamic> _stats = {};
   List<Map<String, dynamic>> _recentOrders = [];
@@ -84,30 +94,38 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     _loadDashboardData();
   }
 
+  /// Aynı anda iki yükleme olursa (ör. "Diğer"den dönüş + aşağı çekme)
+  /// ekrana yalnız en sonuncusu yazar.
+  int _loadSeq = 0;
+
+  /// Panel verileri. Tam ekran spinner YALNIZ ilk yüklemede gösterilir;
+  /// sonraki yenilemeler (aşağı çekme, "Diğer"deki bir sayfadan dönüş,
+  /// IBAN/ödeme işlemleri) ekranı yerinde günceller. Eskiden her yenileme
+  /// gövdeyi spinner'a çevirip sekmeleri ve iç sayfa yığınlarını sıfırlıyor,
+  /// alt bar da ~15 ARDIŞIK istek boyunca kayboluyordu (Görev 1.5). Mağaza
+  /// bulunduktan sonraki istekler birbirinden bağımsız olduğundan PARALEL.
   Future<void> _loadDashboardData() async {
-    debugPrint('🔵 [_loadDashboardData] Başladı');
-    setState(() => _isLoading = true);
+    final seq = ++_loadSeq;
+    final hasData = _shopInfo != null || _stats.isNotEmpty;
+    if (!hasData && !_isLoading) setState(() => _isLoading = true);
 
     try {
       final userId = _supabase.auth.currentUser?.id;
-      debugPrint('🔵 [_loadDashboardData] userId: $userId');
       if (userId == null) {
         debugPrint('🔴 [_loadDashboardData] HATA: userId null - giriş yapılmamış olabilir');
         return;
       }
 
       // Satıcının mağazasını bul
-      debugPrint('🔵 [_loadDashboardData] Mağaza sorgulanıyor...');
       final shopResponse = await _supabase
           .from('shops')
-          .select('id, name, iban, bank_name, account_holder_name, pending_payout, total_paid, commission_rate, has_own_courier, delivery_fee, logo_url, is_accepting_orders, admin_credit, commission_debt, cash_payment_revenue, online_payment_revenue')
+          .select('id, name, phone, latitude, longitude, iban, bank_name, account_holder_name, pending_payout, total_paid, commission_rate, has_own_courier, delivery_fee, logo_url, is_accepting_orders, admin_credit, commission_debt, cash_payment_revenue, online_payment_revenue')
           .eq('owner_id', userId)
           .maybeSingle();
-      debugPrint('🔵 [_loadDashboardData] Mağaza sonucu: ${shopResponse != null ? "BULUNDU (id: ${shopResponse['id']})" : "BULUNAMADI"}');
+      if (!mounted || seq != _loadSeq) return;
 
       if (shopResponse == null) {
         debugPrint('🔴 [_loadDashboardData] HATA: Satıcıya ait mağaza yok! userId=$userId');
-        if (!mounted) return;
         setState(() {
           _stats = {'hasShop': false};
           _isLoading = false;
@@ -115,173 +133,159 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
         return;
       }
 
-      final shopId = shopResponse['id'];
+      final shopId = shopResponse['id'] as String;
       _shopInfo = Map<String, dynamic>.from(shopResponse);
       _hasOwnCourier = shopResponse['has_own_courier'] as bool? ?? false;
       _isAcceptingOrders = shopResponse['is_accepting_orders'] as bool? ?? true;
-      debugPrint('🔵 [_loadDashboardData] Shop ID: $shopId, hasOwnCourier: $_hasOwnCourier');
-      debugPrint('🔵 [_loadDashboardData] admin_credit: ${shopResponse['admin_credit']}, commission_debt: ${shopResponse['commission_debt']}');
-      debugPrint('🔵 [_loadDashboardData] cash_payment_revenue: ${shopResponse['cash_payment_revenue']}, online_payment_revenue: ${shopResponse['online_payment_revenue']}');
 
-      // İstatistikleri yükle
-      debugPrint('🔵 [_loadDashboardData] Siparişler sorgulanıyor...');
-      final ordersResult = await _supabase
-          .from('orders')
-          .select('id')
-          .eq('shop_id', shopId);
-      debugPrint('🔵 [_loadDashboardData] Sipariş sayısı: ${(ordersResult as List).length}');
-
-      debugPrint('🔵 [_loadDashboardData] Ürünler sorgulanıyor...');
-      final productsResult = await _supabase
-          .from('products')
-          .select('id')
-          .eq('shop_id', shopId);
-      debugPrint('🔵 [_loadDashboardData] Ürün sayısı: ${(productsResult as List).length}');
-
-      // Son siparişler
-      debugPrint('🔵 [_loadDashboardData] Son siparişler sorgulanıyor...');
-      final orders = await _supabase
-          .from('orders')
-          .select('*, profiles!orders_user_id_fkey(full_name)')
-          .eq('shop_id', shopId)
-          .order('created_at', ascending: false)
-          .limit(5);
-      debugPrint('🔵 [_loadDashboardData] Son siparişler: ${(orders as List).length} adet');
-
-      // En çok satılan ürünler
-      debugPrint('🔵 [_loadDashboardData] Ürünler sorgulanıyor...');
-      final products = await _supabase
-          .from('products')
-          .select('*')
-          .eq('shop_id', shopId)
-          .order('created_at', ascending: false)
-          .limit(5);
-      debugPrint('🔵 [_loadDashboardData] Ürünler: ${(products as List).length} adet');
-
-      // Gelir özeti (YENİ - tek sorgu ile tüm gelir verileri)
-      debugPrint('🔵 [_loadDashboardData] Gelir özeti sorgulanıyor...');
-      try {
-        _revenueSummary = await _payoutService.getRevenueSummary(shopId);
-        debugPrint('🔵 [_loadDashboardData] Gelir özeti başarılı: $_revenueSummary');
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Gelir özeti HATASI: $e');
-        _revenueSummary = {};
+      // Ödeme/istatistik parçaları eskisi gibi hata verirse varsayılana düşer;
+      // sayılar ve listeler hata verirse yenileme iptal olur, eski veri kalır.
+      Future<T> orDefault<T>(
+        String label,
+        Future<T> Function() load,
+        T fallback,
+      ) async {
+        try {
+          return await load();
+        } catch (e) {
+          debugPrint('🔴 [_loadDashboardData] $label HATASI: $e');
+          return fallback;
+        }
       }
 
-      debugPrint('🔵 [_loadDashboardData] Bekleyen ödeme tutarı sorgulanıyor...');
-      try {
-        _pendingPayout = await _payoutService.getPendingPayoutAmount(shopId);
-        debugPrint('🔵 [_loadDashboardData] Bekleyen ödeme: $_pendingPayout');
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Bekleyen ödeme HATASI: $e');
-        _pendingPayout = 0;
-      }
+      final results = await Future.wait<Object?>([
+        // 0-1: sayılar — satırları indirmeden, yalnız sayı (HEAD + count)
+        _supabase.from('orders').count(CountOption.exact).eq('shop_id', shopId),
+        _supabase.from('products').count(CountOption.exact).eq('shop_id', shopId),
+        // 2: son siparişler
+        _supabase
+            .from('orders')
+            .select('*, profiles!orders_user_id_fkey(full_name)')
+            .eq('shop_id', shopId)
+            .order('created_at', ascending: false)
+            .limit(5),
+        // 3: son eklenen ürünler
+        _supabase
+            .from('products')
+            .select('*')
+            .eq('shop_id', shopId)
+            .order('created_at', ascending: false)
+            .limit(5),
+        // 4: gelir özeti (tek sorgu ile tüm gelir verileri)
+        orDefault(
+          'Gelir özeti',
+          () => _payoutService.getRevenueSummary(shopId),
+          <String, dynamic>{},
+        ),
+        // 5-6: bekleyen / toplam ödenen
+        orDefault(
+          'Bekleyen ödeme',
+          () => _payoutService.getPendingPayoutAmount(shopId),
+          0.0,
+        ),
+        orDefault(
+          'Toplam ödenen',
+          () => _payoutService.getTotalPaidAmount(shopId),
+          0.0,
+        ),
+        // 7-8: toplam görüntülenme + beğeni
+        orDefault(
+          'Toplam görüntülenme',
+          () => _analyticsService.getShopTotalViews(shopId),
+          0,
+        ),
+        orDefault(
+          'Toplam beğeni',
+          () => _analyticsService.getShopTotalFavorites(shopId),
+          0,
+        ),
+        // 9-10: ödeme istekleri + bekleyenlerin toplamı
+        orDefault(
+          'Ödeme istekleri',
+          () => _payoutService.getPayoutRequests(userId),
+          <Map<String, dynamic>>[],
+        ),
+        orDefault(
+          'Bekleyen istekler',
+          () => _payoutService.getPendingPayoutRequestsTotal(userId),
+          0.0,
+        ),
+      ]);
+      if (!mounted || seq != _loadSeq) return;
 
-      debugPrint('🔵 [_loadDashboardData] Toplam ödenen sorgulanıyor...');
-      try {
-        _totalPaid = await _payoutService.getTotalPaidAmount(shopId);
-        debugPrint('🔵 [_loadDashboardData] Toplam ödenen: $_totalPaid');
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Toplam ödenen HATASI: $e');
-        _totalPaid = 0;
-      }
-
-      // Toplam görüntülenme + beğeni (satıcı paneli yeni özellik)
-      debugPrint('🔵 [_loadDashboardData] Toplam görüntülenme sorgulanıyor...');
-      var totalViews = 0;
-      try {
-        totalViews = await _analyticsService.getShopTotalViews(shopId);
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Toplam görüntülenme HATASI: $e');
-      }
-      debugPrint('🔵 [_loadDashboardData] Toplam beğeni sorgulanıyor...');
-      var totalFavorites = 0;
-      try {
-        totalFavorites = await _analyticsService.getShopTotalFavorites(shopId);
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Toplam beğeni HATASI: $e');
-      }
-
-      // Değişkenleri ata
-      final adminCredit = (_revenueSummary?['admin_credit'] as num?)?.toDouble() ?? 0;
-      final commissionDebt = (_revenueSummary?['commission_debt'] as num?)?.toDouble() ?? 0;
-      final cashRevenue = (_revenueSummary?['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
-      final onlineRevenue = (_revenueSummary?['online_payment_revenue'] as num?)?.toDouble() ?? 0;
-      debugPrint('🔵 [_loadDashboardData] Hesaplanan değerler: adminCredit=$adminCredit, commissionDebt=$commissionDebt, cashRevenue=$cashRevenue, onlineRevenue=$onlineRevenue');
-
-      // Ödeme isteklerini yükle
-      debugPrint('🔵 [_loadDashboardData] Ödeme istekleri sorgulanıyor...');
-      try {
-        _payoutRequests = await _payoutService.getPayoutRequests(userId);
-        debugPrint('🔵 [_loadDashboardData] Ödeme istekleri: ${_payoutRequests.length} adet');
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Ödeme istekleri HATASI: $e');
-        _payoutRequests = [];
-      }
-
-      // Bekleyen ödeme isteklerinin toplam tutarını hesapla
-      debugPrint('🔵 [_loadDashboardData] Bekleyen istekler toplamı sorgulanıyor...');
-      try {
-        _pendingRequestsTotal = await _payoutService.getPendingPayoutRequestsTotal(userId);
-        debugPrint('🔵 [_loadDashboardData] Bekleyen istekler toplamı: $_pendingRequestsTotal');
-      } catch (e) {
-        debugPrint('🔴 [_loadDashboardData] Bekleyen istekler HATASI: $e');
-        _pendingRequestsTotal = 0;
-      }
-
+      final revenueSummary = results[4] as Map<String, dynamic>;
+      final pendingPayout = results[5] as double;
+      final pendingRequestsTotal = results[10] as double;
       // Kullanılabilir ödeme tutarı
-      _availablePayout = _pendingPayout - _pendingRequestsTotal;
-      if (_availablePayout < 0) _availablePayout = 0;
-      debugPrint('🔵 [_loadDashboardData] Kullanılabilir ödeme: $_availablePayout');
+      final availablePayout = pendingPayout - pendingRequestsTotal;
 
-      if (!mounted) return;
       setState(() {
         _stats = {
           'hasShop': true,
-          'ordersCount': (ordersResult as List).length,
-          'productsCount': (productsResult as List).length,
+          'ordersCount': results[0] as int,
+          'productsCount': results[1] as int,
         };
-        // Gelir değerlerini setState içinde atayarak UI'ın güncellenmesini sağlıyoruz.
-        _adminCredit = adminCredit;
-        _commissionDebt = commissionDebt;
-        _cashPaymentRevenue = cashRevenue;
-        _onlinePaymentRevenue = onlineRevenue;
-        _revenueSummary = _revenueSummary;
-        _pendingPayout = _pendingPayout;
-        _totalPaid = _totalPaid;
-        _payoutRequests = _payoutRequests;
-        _pendingRequestsTotal = _pendingRequestsTotal;
-        _availablePayout = _availablePayout;
-        _recentOrders = List<Map<String, dynamic>>.from(orders);
-        _topProducts = List<Map<String, dynamic>>.from(products);
-        _totalViews = totalViews;
-        _totalFavorites = totalFavorites;
+        _recentOrders = List<Map<String, dynamic>>.from(results[2] as List);
+        _topProducts = List<Map<String, dynamic>>.from(results[3] as List);
+        _revenueSummary = revenueSummary;
+        _adminCredit =
+            (revenueSummary['admin_credit'] as num?)?.toDouble() ?? 0;
+        _commissionDebt =
+            (revenueSummary['commission_debt'] as num?)?.toDouble() ?? 0;
+        _cashPaymentRevenue =
+            (revenueSummary['cash_payment_revenue'] as num?)?.toDouble() ?? 0;
+        _onlinePaymentRevenue =
+            (revenueSummary['online_payment_revenue'] as num?)?.toDouble() ??
+            0;
+        _pendingPayout = pendingPayout;
+        _totalPaid = results[6] as double;
+        _totalViews = results[7] as int;
+        _totalFavorites = results[8] as int;
+        _payoutRequests = results[9] as List<Map<String, dynamic>>;
+        _pendingRequestsTotal = pendingRequestsTotal;
+        _availablePayout = availablePayout < 0 ? 0 : availablePayout;
         _isLoading = false;
       });
       debugPrint('🟢 [_loadDashboardData] BAŞARIYLA TAMAMLANDI');
     } catch (e, stack) {
       debugPrint('🔴 [_loadDashboardData] CATCH BLOĞU - HATA: $e');
       debugPrint('🔴 [_loadDashboardData] STACK TRACE: $stack');
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && seq == _loadSeq) setState(() => _isLoading = false);
     }
   }
 
-  /// Sekmenin kendi iç [Navigator]'ı varsa (Ürünler/Siparişler/Diğer) ve
-  /// içinde geri gidebileceği bir sayfa varsa önce onu kapatır; yoksa `false`
-  /// döner ki sistem geri tuşu paneli normal şekilde kapatabilsin.
-  Future<bool> _maybePopActiveTab() async {
-    final key = switch (_navIndex) {
-      1 => _productsNavKey,
-      2 => _ordersNavKey,
-      4 => _moreNavKey,
-      _ => null,
-    };
-    final navState = key?.currentState;
-    if (navState != null && navState.canPop()) {
-      navState.pop();
-      return true;
+  /// Görünen sekmenin kendi iç [Navigator]'ı (Ürünler/Siparişler/Diğer);
+  /// diğer sekmelerde null. Gizli sekmede açık kalan sayfa geriyi yutmaz.
+  NavigatorState? get _activeTabNavigator => switch (_navIndex) {
+    1 => _productsNavKey.currentState,
+    2 => _ordersNavKey.currentState,
+    4 => _moreNavKey.currentState,
+    _ => null,
+  };
+
+  /// Geri (üstteki ok / Android geri tuşu). Önce görünen sekmenin kendi
+  /// yığını kullanır: iç sayfayı kapatır ya da o sayfanın kendi PopScope'u
+  /// işler (ör. Ürünler'de çoklu seçimden çıkma). Kullanmazsa panel kapanır.
+  ///
+  /// Paneli kapatmak için `maybePop` ÇAĞRILMAZ: bu PopScope `canPop: false`
+  /// olduğundan maybePop yine bu işleyiciyi tetikliyordu; bu sonsuz döngü
+  /// uygulamayı tamamen donduruyordu (Görev 1.5).
+  Future<void> _handleBack() async {
+    // Yan menü açıksa geri onu kapatır. (PopScope canPop:false olduğundan
+    // menünün kendi "geri ile kapan" kaydı çalışmaz; kapatmak bize düşer.)
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && scaffold.isEndDrawerOpen) {
+      scaffold.closeEndDrawer();
+      return;
     }
-    return false;
+    final tab = _activeTabNavigator;
+    if (tab != null && await tab.maybePop()) return;
+    if (!mounted) return;
+    // Bu arada üstte başka bir sayfa/diyalog açıldıysa ona dokunma.
+    if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;
+    // Girişten sonra panel kök sayfa olarak açılır; kökte pop boş yığın
+    // (siyah ekran) bırakırdı, bu yüzden ana sayfaya döner.
+    AppNavigator.popOrGo(context, '/');
   }
 
   @override
@@ -291,12 +295,13 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        if (await _maybePopActiveTab()) return;
-        if (mounted) Navigator.of(context).maybePop();
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _handleBack();
       },
       child: Scaffold(
+      key: _scaffoldKey,
+      // Sağdan açılır: soldaki geri oku yerinde kalsın.
+      endDrawer: showNav ? _buildSideMenu() : null,
       appBar: AppBar(
         title: const Text('Satıcı Paneli'),
         actions: [
@@ -325,13 +330,23 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               );
             },
           ),
+          if (showNav)
+            IconButton(
+              icon: const Icon(Icons.menu),
+              tooltip: 'Menü',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+            ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : !hasShop
               ? _buildNoShopView()
-              : _buildShell(),
+              : SellerPanelInfo(
+                  shopInfo: _shopInfo,
+                  isAcceptingOrders: _isAcceptingOrders,
+                  child: _buildShell(),
+                ),
       bottomNavigationBar: showNav
           ? SellerBottomNav(
               currentIndex: _navIndex,
@@ -379,6 +394,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               onAnnouncementAction: _handleAnnouncementAction,
               onOpenProducts: () => _onNavTap(1),
               onRefresh: _loadDashboardData,
+              onCompleteShopInfo: _openShopSettingsForContact,
             );
           case 1:
             return Navigator(
@@ -427,6 +443,66 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
   }
 
   void _onNavTap(int index) => setState(() => _navIndex = index);
+
+  /// Yan menünün üstündeki panel bölümleri — alt bardaki sekmelerle aynı sıra.
+  static const _sideMenuSections = [
+    SellerMenuSection(icon: Icons.dashboard_outlined, label: 'Genel Bakış'),
+    SellerMenuSection(icon: Icons.inventory_2_outlined, label: 'Ürünler'),
+    SellerMenuSection(icon: Icons.shopping_bag_outlined, label: 'Siparişler'),
+    SellerMenuSection(icon: Icons.payments_outlined, label: 'Ödemeler'),
+    SellerMenuSection(icon: Icons.more_horiz, label: 'Diğer'),
+  ];
+
+  /// Sağdan açılan yan menü (Görev 2.4): "Diğer" sekmesiyle AYNI menü, üstte
+  /// panel bölümleri. Alt bar yerinde kalır; menü her sekmeden erişim sağlar.
+  Widget _buildSideMenu() {
+    final width = math.min(MediaQuery.sizeOf(context).width * 0.88, 380.0);
+    return Drawer(
+      width: width,
+      backgroundColor: const Color(0xFFF6F5FA),
+      child: SafeArea(
+        child: SellerMenu(
+          shopInfo: _shopInfo,
+          isAcceptingOrders: _isAcceptingOrders,
+          content: SellerMenuContent.forShop(
+            shopInfo: _shopInfo,
+            onManageCategories: _showCategoryManagement,
+          ),
+          sections: _sideMenuSections,
+          currentSection: _navIndex,
+          onSection: (index) {
+            _scaffoldKey.currentState?.closeEndDrawer();
+            _onNavTap(index);
+          },
+          onOpen: (_, entry) => _openFromSideMenu(entry),
+        ),
+      ),
+    );
+  }
+
+  /// Yan menüden seçilen araç "Diğer" sekmesinin iç yığınında açılır: alt bar
+  /// görünür kalır ve geri önce o sayfayı kapatır — sekmeden açılmışla aynı.
+  void _openFromSideMenu(SellerMenuEntry entry) {
+    _scaffoldKey.currentState?.closeEndDrawer();
+    if (entry.page == null) {
+      entry.action?.call(context);
+      return;
+    }
+    setState(() => _navIndex = 4);
+    // "Diğer" sekmesi ilk kez açılıyorsa iç Navigator'ı bu karede kurulur.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = _moreNavKey.currentState;
+      if (!mounted || navigator == null) return;
+      navigator.popUntil((route) => route.isFirst);
+      openSellerMenuEntry(
+        context: context,
+        navigator: navigator,
+        entry: entry,
+        onReturnRefresh: _loadDashboardData,
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
 
   void _showCategoryManagement() async {
     final userId = _supabase.auth.currentUser?.id;
@@ -1040,131 +1116,226 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     }
   }
 
+  /// Mağaza oluştur (Görev 3.7): telefon ve haritadan konum ZORUNLU —
+  /// sunucu da bunlarsız mağaza açılmasını reddeder.
   void _showCreateShopDialog() {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
+    final phoneController = TextEditingController();
     final primary = Theme.of(context).colorScheme.primary;
+    double? latitude;
+    double? longitude;
+    String? address;
+    String? phoneError;
+    var saving = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Mağaza Oluştur'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Mağaza Adı',
-                  border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Mağaza Oluştur'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Mağaza Adı',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Açıklama',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Açıklama',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
                 ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: 'Telefon *',
+                    hintText: '0532 123 45 67',
+                    prefixIcon: const Icon(Icons.phone),
+                    border: const OutlineInputBorder(),
+                    errorText: phoneError,
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Mağazanız oluşturulduktan sonra admin onayı bekleyecektir.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange.shade900,
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final result = await Navigator.of(dialogContext).push<Address>(
+                            MaterialPageRoute(
+                              builder: (_) => AddressPickerScreen(
+                                initialLatitude: latitude,
+                                initialLongitude: longitude,
+                                warningBanner:
+                                    'Lütfen dükkanınızın gerçek konumunu işaretleyin. Müşteriler ve kurye, siparişleri bu noktaya göre bulur.',
+                              ),
+                            ),
+                          );
+                          final lat = result?.latitude;
+                          final lng = result?.longitude;
+                          if (lat == null || lng == null) return;
+                          setDialogState(() {
+                            latitude = lat;
+                            longitude = lng;
+                            address = result!.fullAddress;
+                          });
+                        },
+                  icon: Icon(
+                    latitude == null ? Icons.map_outlined : Icons.check_circle,
+                    color: latitude == null ? null : Colors.green.shade700,
+                  ),
+                  label: Text(latitude == null ? 'Haritadan Konum Seç *' : 'Konum seçildi — değiştir'),
+                ),
+                if (latitude == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Konum zorunlu: kurye ve müşteri mağazanı bu noktaya göre bulur.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Mağazanız oluşturulduktan sonra admin onayı bekleyecektir.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange.shade900,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primary,
-              foregroundColor: Colors.white,
+              ],
             ),
-            onPressed: () async {
-              final name = nameController.text.trim();
-              final description = descriptionController.text.trim();
-
-              if (name.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Mağaza adı gerekli')),
-                );
-                return;
-              }
-
-              try {
-                final userId = Supabase.instance.client.auth.currentUser?.id;
-                if (userId == null) throw Exception('Kullanıcı bulunamadı');
-
-                await Supabase.instance.client.from('shops').insert({
-                  'owner_id': userId,
-                  'name': name,
-                  'slug': name.toLowerCase().replaceAll(' ', '-'),
-                  'description': description.isEmpty ? null : description,
-                  'is_active': true,
-                  'is_approved': false, // Admin onayı bekleyecek
-                  'is_verified': false,
-                  'commission_rate': 10.0,
-                  'min_order_amount': 0.0,
-                  'delivery_fee': 0.0,
-                });
-
-                  // ignore: use_build_context_synchronously
-                if (mounted) {
-                  final messenger = ScaffoldMessenger.of(context);
-                  Navigator.pop(context);
-                  messenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('Mağaza oluşturuldu! Admin onayı bekleniyor...'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                  setState(() {
-                    _loadDashboardData();
-                  });
-                }
-              } catch (e) {
-                debugPrint('Mağaza oluşturulurken hata: $e');
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Hata: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Oluştur'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('İptal'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final name = nameController.text.trim();
+                      final description = descriptionController.text.trim();
+                      final phone = phoneController.text.trim();
+
+                      if (name.isEmpty) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(content: Text('Mağaza adı gerekli')),
+                        );
+                        return;
+                      }
+                      final phoneMessage = ShopContactRequirements.phoneError(phone);
+                      if (phoneMessage != null) {
+                        setDialogState(() => phoneError = phoneMessage);
+                        return;
+                      }
+                      if (latitude == null || longitude == null) {
+                        setDialogState(() => phoneError = null);
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(content: Text('Mağaza konumunu haritadan seçin')),
+                        );
+                        return;
+                      }
+                      setDialogState(() {
+                        phoneError = null;
+                        saving = true;
+                      });
+
+                      try {
+                        final userId = Supabase.instance.client.auth.currentUser?.id;
+                        if (userId == null) throw Exception('Kullanıcı bulunamadı');
+
+                        await Supabase.instance.client.from('shops').insert({
+                          'owner_id': userId,
+                          'name': name,
+                          'slug': name.toLowerCase().replaceAll(' ', '-'),
+                          'description': description.isEmpty ? null : description,
+                          'phone': phone,
+                          'latitude': latitude,
+                          'longitude': longitude,
+                          'address': address,
+                          'is_active': true,
+                          'is_approved': false, // Admin onayı bekleyecek
+                          'is_verified': false,
+                          'commission_rate': 10.0,
+                          'min_order_amount': 0.0,
+                          'delivery_fee': 0.0,
+                        });
+
+                        if (!mounted) return;
+                        Navigator.pop(dialogContext);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Mağaza oluşturuldu! Admin onayı bekleniyor...'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                        _loadDashboardData();
+                      } catch (e) {
+                        debugPrint('Mağaza oluşturulurken hata: $e');
+                        setDialogState(() => saving = false);
+                        final hinted = e is PostgrestException
+                            ? ShopContactRequirements.messageForHint(e.hint)
+                            : null;
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          SnackBar(
+                            content: Text(hinted ?? 'Hata: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Oluştur'),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// Eksik telefon/konum şeridinden: mağaza ayarları, dönünce panel tazelenir.
+  Future<void> _openShopSettingsForContact() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ShopSettingsScreen()),
+    );
+    if (mounted) await _loadDashboardData();
   }
 
   Future<void> _toggleAcceptingOrders(bool value) async {

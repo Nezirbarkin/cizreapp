@@ -356,6 +356,32 @@ class SehiriciFakeBackend {
         ]);
       }
     }
+    // Toplu durak silme (Görev 3.10): durakları ve hat satırlarındaki
+    // karşılıklarını çıkarır, sırayı 0..n-1 yeniden numaralar.
+    if (path.endsWith('/rpc/admin_delete_sehirici_stops')) {
+      final ids = ((body as Map)['p_ids'] as List).map((e) => e.toString()).toSet();
+      final before = stops.length;
+      stops.removeWhere((s) => ids.contains(s['id']));
+      final affected = <Map<String, dynamic>>[];
+      for (final line in lines) {
+        final rows = (line['sehirici_line_stops'] as List).cast<Map<String, dynamic>>();
+        final kept = rows.where((r) => !ids.contains(r['stop_id'])).toList()
+          ..sort((a, b) => (a['stop_order'] as int).compareTo(b['stop_order'] as int));
+        if (kept.length != rows.length) {
+          for (var i = 0; i < kept.length; i++) {
+            kept[i] = {...kept[i], 'stop_order': i};
+          }
+          line['sehirici_line_stops'] = kept;
+          affected.add({
+            'id': line['id'],
+            'code': line['code'],
+            'name': line['name'],
+            'remaining_stops': kept.length,
+          });
+        }
+      }
+      return _json(request, {'deleted': before - stops.length, 'affected_lines': affected});
+    }
     // İkon kaydı yeni kimliği döndürür (istemci "as String" ile okur).
     if (path.endsWith('/rpc/admin_upsert_sehirici_marker_icon')) {
       return _json(request, 'ic-new');

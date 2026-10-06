@@ -182,7 +182,14 @@ void main() {
         LeaderboardStat.okeyMatches.settingKey,
         'leaderboard_stat_okey_matches',
       );
-      expect(LeaderboardStat.values.length, 15);
+      // 15 genel/günlük + 10 kişisel (Görev 4.4).
+      expect(LeaderboardStat.values.length, 25);
+      expect(
+        LeaderboardStat.values
+            .where((s) => s.group == LeaderboardStatGroup.personal)
+            .length,
+        10,
+      );
       // Her sayaç bir gruba aittir; "active_today" günlük grupta.
       expect(LeaderboardStat.activeToday.group, LeaderboardStatGroup.today);
       expect(LeaderboardStat.members.group, LeaderboardStatGroup.general);
@@ -234,6 +241,8 @@ void main() {
         [
           'stats',
           'stats_today',
+          'my_stats',
+          'records',
           'new_members',
           'top_followed',
           'top_liked_posts',

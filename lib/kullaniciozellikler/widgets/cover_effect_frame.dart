@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/profile_feature.dart';
 import '../services/profile_feature_service.dart';
 import 'creature_painters.dart';
+import 'feature_effect_ticker.dart';
 import 'renderer_registry.dart';
 
 /// Mevcut kapak fotoğrafı tasarımını değiştirmeden üzerine atanmış kapak
@@ -23,65 +24,69 @@ class CoverEffectFrame extends StatefulWidget {
   State<CoverEffectFrame> createState() => _CoverEffectFrameState();
 }
 
+ProfileFeature? _coverEffectOf(List<ProfileFeature>? features) =>
+    (features ?? const <ProfileFeature>[])
+        .where((item) => item.kind == ProfileFeatureKind.coverEffect)
+        .firstOrNull;
+
 class _CoverEffectFrameState extends State<CoverEffectFrame>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with
+        SingleTickerProviderStateMixin,
+        FeatureEffectTickerMixin<CoverEffectFrame> {
   late Future<List<ProfileFeature>> _future;
+
+  @override
+  Duration get effectLoopDuration => const Duration(seconds: 6);
+
+  @override
+  bool needsEffectTicker(List<ProfileFeature> features) =>
+      _coverEffectOf(features) != null;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 6),
-    )..repeat();
-    _future = ProfileFeatureService().getUserFeatures(widget.userId);
+    _future = loadFeaturesAndSyncTicker(widget.userId);
   }
 
   @override
   void didUpdateWidget(covariant CoverEffectFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
-      _future = ProfileFeatureService().getUserFeatures(widget.userId);
+      _future = loadFeaturesAndSyncTicker(widget.userId);
     }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ProfileFeature>>(
       future: _future,
+      initialData: ProfileFeatureService.peekUserFeatures(widget.userId),
       builder: (context, snapshot) {
-        final effect = (snapshot.data ?? const <ProfileFeature>[])
-            .where((item) => item.kind == ProfileFeatureKind.coverEffect)
-            .firstOrNull;
-        if (effect == null) return widget.child;
-        return AnimatedBuilder(
-          animation: _controller,
-          child: widget.child,
-          builder: (context, child) => Stack(
-            fit: StackFit.passthrough,
-            children: [
-              if (child != null) child,
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: RepaintBoundary(
-                    child: CustomPaint(
+        final effect = _coverEffectOf(snapshot.data);
+        final controller = effectController;
+        if (effect == null || controller == null) return widget.child;
+        // Kapak fotoğrafı her karede yeniden kurulmaz; yalnız efekt katmanı
+        // (kendi RepaintBoundary'si içinde) yeniden boyanır.
+        return Stack(
+          fit: StackFit.passthrough,
+          children: [
+            widget.child,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: controller,
+                    builder: (context, _) => CustomPaint(
                       painter: _CoverEffectPainter(
                         feature: effect,
-                        progress: _controller.value,
+                        progress: controller.value,
                       ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );

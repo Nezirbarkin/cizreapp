@@ -75,6 +75,11 @@ class Post {
   // kullanır; bu alan yalnızca eski satırları temsil eder ve görselin
   // kaybolmaması için fromJson'de images'a katılır.
   final String? imageUrl;
+
+  /// Fotoğrafların çerçeve oranı (DB: posts.image_aspect_ratio; genişlik /
+  /// yükseklik). Akış kartı ve detay ekranı fotoğrafı bu oranda çizer
+  /// (bkz. feedImageAspect). NULL = bilinmiyor (eski gönderi) → kare.
+  final double? imageAspectRatio;
   // Arka planli metin gonderileri (DB: posts.background). Yalnizca gorselsiz
   // gonderilerde anlamlidir; kimlik lib/core/widgets/text_background.dart
   // paletine bakar. NULL veya taninmayan kimlik = SADE metin gonderisi.
@@ -113,6 +118,7 @@ class Post {
     this.content,
     this.images = const [],
     this.imageUrl,
+    this.imageAspectRatio,
     this.background,
     this.music,
     this.location,
@@ -140,6 +146,7 @@ class Post {
     String? content,
     List<String>? images,
     String? imageUrl,
+    double? imageAspectRatio,
     String? background,
     AttachedMusic? music,
     String? location,
@@ -166,6 +173,7 @@ class Post {
       content: content ?? this.content,
       images: images ?? this.images,
       imageUrl: imageUrl ?? this.imageUrl,
+      imageAspectRatio: imageAspectRatio ?? this.imageAspectRatio,
       background: background ?? this.background,
       music: music ?? this.music,
       location: location ?? this.location,
@@ -195,6 +203,7 @@ class Post {
       'content': content,
       'images': images,
       if (imageUrl != null) 'image_url': imageUrl,
+      if (imageAspectRatio != null) 'image_aspect_ratio': imageAspectRatio,
       if (background != null) 'background': background,
       if (music != null) 'music': music!.toJson(),
       'location': location,
@@ -268,6 +277,7 @@ class Post {
       content: json['content'] as String?,
       images: images,
       imageUrl: imageUrl,
+      imageAspectRatio: (json['image_aspect_ratio'] as num?)?.toDouble(),
       // Gorselli gonderide arka plan cizilmez; DB'de eski bir deger kalmis
       // olsa bile burada dusurulur ki feed/izgara tutarli olsun.
       background: images.isEmpty ? json['background'] as String? : null,
@@ -451,6 +461,19 @@ class Story {
   // Video için thumbnail URL, yoksa video URL
   String get displayUrl => isVideo && thumbnailUrl != null ? thumbnailUrl! : imageUrl;
 
+  /// Yazar adı da kullanıcı adı da gelmemiş mi (profil birleştirmesi
+  /// olmadan çekilen hikaye). Görüntüleyici bunları tek sorguda tamamlar.
+  bool get isMissingAuthor =>
+      (fullName?.trim().isEmpty ?? true) && (username?.trim().isEmpty ?? true);
+
+  /// Başlıkta gösterilecek ad: ad soyad, yoksa kullanıcı adı.
+  String get authorDisplayName {
+    final name = fullName?.trim() ?? '';
+    if (name.isNotEmpty) return name;
+    final handle = username?.trim() ?? '';
+    return handle.isNotEmpty ? handle : 'Kullanıcı';
+  }
+
   Story copyWith({
     String? id,
     String? userId,
@@ -523,6 +546,10 @@ class Story {
   }
 
   factory Story.fromJson(Map<String, dynamic> json) {
+    // Yazar bilgisi düz alanlarla ya da `profiles!stories_user_id_fkey(...)`
+    // birleştirmesiyle iç içe gelebilir (bkz. StoryService.selectWithAuthor).
+    final nested = json['profiles'];
+    final Map<dynamic, dynamic> author = nested is Map ? nested : const {};
     return Story(
       id: json['id'] as String,
       userId: json['user_id'] as String,
@@ -543,9 +570,10 @@ class Story {
       isPinned: json['is_pinned'] as bool? ?? false,
       adminPinned: json['admin_pinned'] as bool? ?? false,
       // Profil bilgileri - varsa al
-      username: json['username'] as String?,
-      fullName: json['full_name'] as String?,
-      avatarUrl: json['avatar_url'] as String?,
+      username: json['username'] as String? ?? author['username'] as String?,
+      fullName: json['full_name'] as String? ?? author['full_name'] as String?,
+      avatarUrl:
+          json['avatar_url'] as String? ?? author['avatar_url'] as String?,
     );
   }
 }

@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/navigation/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../widgets/auth_shell.dart';
 
@@ -318,7 +319,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       });
       return;
     }
-    Navigator.of(context).pop();
+    // Ekran derin bağlantıyla yığının tek sayfası olarak açılmış olabilir;
+    // o durumda `pop()` Navigator'ı boşaltıp ekranı siyah bırakırdı.
+    AppNavigator.popOrGo(context, '/login');
   }
 
   String _getTitle() {

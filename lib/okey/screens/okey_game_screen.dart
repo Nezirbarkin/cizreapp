@@ -310,13 +310,34 @@ class _OkeyGameViewState extends State<_OkeyGameView>
     super.dispose();
   }
 
+  /// Uygulama gerçekten arka plana gitti mi (paused/hidden)? Yalnızca
+  /// `inactive` olup dönmek (bildirim perdesi, izin penceresi, gelen arama
+  /// şeridi) bağlantıyı koparmaz.
+  bool _wasInBackground = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Uygulama arka plandan döndüğünde (veya bağlantı kopup geldiğinde)
-    // durum TAMAMEN veritabanından yeniden okunur — kaçırılan realtime
-    // olaylarına güvenilmez. Böylece oyuna kaldığı yerden devam edilir.
-    if (state == AppLifecycleState.resumed && mounted) {
-      context.read<OkeyGameProvider>().reconnect();
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _wasInBackground = true;
+      case AppLifecycleState.resumed:
+        if (!mounted) return;
+        final provider = context.read<OkeyGameProvider>();
+        if (_wasInBackground) {
+          // Arka plandan dönüş: bağlantı koptu (supabase_flutter soketi
+          // arka planda kapatır). Kanallar yeniden kurulur ve durum TAMAMEN
+          // veritabanından okunur — kaçırılan olaylara güvenilmez.
+          _wasInBackground = false;
+          provider.reconnect();
+        } else {
+          // Kısa kesinti: kanallar yerinde, yeniden kurmak yalnızca olay
+          // boşluğu yaratırdı. Masayı bir kez okumak yeter.
+          provider.refresh(silent: true);
+        }
+      case AppLifecycleState.inactive:
+        break;
     }
   }
 
@@ -572,394 +593,406 @@ class _OkeyGameViewState extends State<_OkeyGameView>
     // görünürdü.
     return ValueListenableBuilder<OkeyTableTheme>(
       valueListenable: OkeyTableThemePrefs.instance.current,
-      builder: (context, _, __) => Scaffold(
-        backgroundColor: OkeyColors.tableBackground,
-        // ÇİP YAĞMURU en dışta: masanın üstüne biner ama SafeArea'nın içine
-        // hapsolmaz — çipler ekranın tepesinden, çentiğin de üstünden düşer.
-        body: OkeyCoinRain(
-          child: Stack(
-            children: [
-              // Sıcak "oda" hissi — saf dekor, dokunma olaylarını hiç yutmaz.
-              const Positioned.fill(
-                child: IgnorePointer(child: OkeyRoomBackdrop()),
-              ),
-              SafeArea(
-                key: _tableKey,
-                // Yerleşimin TAMAMI OkeyTableScaffold'a aittir (saf, test edilebilir).
-                // Ölçüler oradaki iç LayoutBuilder ile, bantların ALTINDA kalan
-                // gerçek alandan hesaplanır; bant yüksekliği hakkında tahmin yapılmaz.
-                child: OkeyTableScaffold(
-                  // HATA BANDI — lobideki/oda ekranındaki hata kartıyla AYNI dil.
-                  // Eskiden düz kırmızı bir şeritti; masaya ait olmayan, sistem
-                  // uyarısı gibi duran tek öğeydi.
-                  errorBanner: provider.error == null
-                      ? null
-                      : Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xE68E2430),
-                              borderRadius: BorderRadius.circular(
-                                OkeyUI.radiusSm,
+      // Masadan açılan diyalog/alt sayfalar TASARIMIN Material temasını
+      // alsın (bkz. OkeyThemed); masa ise her tasarımda koyudur, durum
+      // çubuğuna dokunulmaz.
+      builder: (context, _, __) => OkeyThemed(
+        applyOverlayStyle: false,
+        child: Scaffold(
+          backgroundColor: OkeyColors.tableBackground,
+          // ÇİP YAĞMURU en dışta: masanın üstüne biner ama SafeArea'nın içine
+          // hapsolmaz — çipler ekranın tepesinden, çentiğin de üstünden düşer.
+          body: OkeyCoinRain(
+            child: Stack(
+              children: [
+                // Sıcak "oda" hissi — saf dekor, dokunma olaylarını hiç yutmaz.
+                const Positioned.fill(
+                  child: IgnorePointer(child: OkeyRoomBackdrop()),
+                ),
+                SafeArea(
+                  key: _tableKey,
+                  // Yerleşimin TAMAMI OkeyTableScaffold'a aittir (saf, test edilebilir).
+                  // Ölçüler oradaki iç LayoutBuilder ile, bantların ALTINDA kalan
+                  // gerçek alandan hesaplanır; bant yüksekliği hakkında tahmin yapılmaz.
+                  child: OkeyTableScaffold(
+                    // HATA BANDI — lobideki/oda ekranındaki hata kartıyla AYNI dil.
+                    // Eskiden düz kırmızı bir şeritti; masaya ait olmayan, sistem
+                    // uyarısı gibi duran tek öğeydi.
+                    errorBanner: provider.error == null
+                        ? null
+                        : Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
                               ),
-                              border: Border.all(
-                                color: const Color(0x8AFF8A9B),
+                              decoration: BoxDecoration(
+                                color: const Color(0xE68E2430),
+                                borderRadius: BorderRadius.circular(
+                                  OkeyUI.radiusSm,
+                                ),
+                                border: Border.all(
+                                  color: const Color(0x8AFF8A9B),
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x73000000),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 3),
+                                  ),
+                                ],
                               ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x73000000),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  size: 15,
-                                  color: Color(0xFFFFD9DE),
-                                ),
-                                const SizedBox(width: 7),
-                                Flexible(
-                                  child: Text(
-                                    provider.error!,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Color(0xFFFFECEF),
-                                      fontSize: 11,
-                                      height: 1.25,
-                                      fontWeight: FontWeight.w600,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline,
+                                    size: 15,
+                                    color: Color(0xFFFFD9DE),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Flexible(
+                                    child: Text(
+                                      provider.error!,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Color(0xFFFFECEF),
+                                        fontSize: 11,
+                                        height: 1.25,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                  // DÖRT OYUNCU MASANIN DÖRT KENARINDA: karşıdaki üstte, soldaki
-                  // solda (ıskartasından taş çekilen oyuncu), sağdaki sağda, ben
-                  // altta. Yön, OkeySeating'in hesabıyla birebir aynı — masa
-                  // görsel olarak da oyunun döndüğü yönde döner.
-                  seatAcross: (context, m) => withSeatBadges(
-                    seatBox(
+                    // DÖRT OYUNCU MASANIN DÖRT KENARINDA: karşıdaki üstte, soldaki
+                    // solda (ıskartasından taş çekilen oyuncu), sağdaki sağda, ben
+                    // altta. Yön, OkeySeating'in hesabıyla birebir aynı — masa
+                    // görsel olarak da oyunun döndüğü yönde döner.
+                    seatAcross: (context, m) => withSeatBadges(
+                      seatBox(
+                        acrossSeat,
+                        m,
+                        side: OkeySeatSide.top,
+                        parts: OkeySeatParts.identity,
+                      ),
                       acrossSeat,
                       m,
                       side: OkeySeatSide.top,
-                      parts: OkeySeatParts.identity,
                     ),
-                    acrossSeat,
-                    m,
-                    side: OkeySeatSide.top,
-                  ),
-                  seatLeft: (context, m) => withSeatBadges(
-                    seatBox(
+                    seatLeft: (context, m) => withSeatBadges(
+                      seatBox(
+                        leftSeat,
+                        m,
+                        side: OkeySeatSide.left,
+                        parts: OkeySeatParts.identity,
+                      ),
                       leftSeat,
                       m,
                       side: OkeySeatSide.left,
-                      parts: OkeySeatParts.identity,
                     ),
-                    leftSeat,
-                    m,
-                    side: OkeySeatSide.left,
-                  ),
-                  seatRight: (context, m) => withSeatBadges(
-                    seatBox(
+                    seatRight: (context, m) => withSeatBadges(
+                      seatBox(
+                        rightSeat,
+                        m,
+                        side: OkeySeatSide.right,
+                        parts: OkeySeatParts.identity,
+                      ),
                       rightSeat,
                       m,
                       side: OkeySeatSide.right,
-                      parts: OkeySeatParts.identity,
                     ),
-                    rightSeat,
-                    m,
-                    side: OkeySeatSide.right,
-                  ),
-                  seatMine: (context, m) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      withSeatBadges(
-                        seatBox(
+                    seatMine: (context, m) => Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        withSeatBadges(
+                          seatBox(
+                            mySeat,
+                            m,
+                            isMe: true,
+                            side: OkeySeatSide.bottom,
+                            parts: OkeySeatParts.identity,
+                          ),
                           mySeat,
                           m,
-                          isMe: true,
                           side: OkeySeatSide.bottom,
-                          parts: OkeySeatParts.identity,
                         ),
+                        const SizedBox(width: 6),
+                        // CEZA PUANIM — plakanın yanında, ucu plakaya bakan bir
+                        // balon. Skor plakanın İÇİNDEyken masadaki dört sayaçtan
+                        // biri gibi okunuyordu; oysa bu sayı elin sonunu belirler.
+                        OkeyScoreBubble(
+                          score: match.scores[mySeat] ?? 0,
+                          // İŞLEK TAŞ ATMA / OKEY ATMA / KULLANILMAYAN YANDAN
+                          // ÇEKME cezası anında burada belirir (kullanıcı isteği:
+                          // "oyuncu işlek attığında puanına göster"). Kırmızı
+                          // yanıp sönme (bkz. _MistakeFlash) hatayı DUYURUR, bu
+                          // sayı ise bedelini yazar.
+                          pendingPenalty: provider.myPenaltyPoints,
+                          height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
+                        ),
+                        const SizedBox(width: 5),
+                        // AÇIK PUANIM — barajı geçtim mi sorusunun cevabı.
+                        //
+                        // Cezanın YANINDA ama ayrı bir rozette duruyor: ikisi de
+                        // "puan" ama zıt yönde okunur (ceza düşük iyidir, açık puan
+                        // yüksek). Aynı balonun içine iki sayı koymak, elin
+                        // ortasında hangi sayının hangisi olduğunu düşündürürdü.
+                        _MyOpenPoints(
+                          // AÇILMADAN ÖNCE: ELİMDEKİ puan (ıstakada duran perlerin
+                          // toplamı). AÇILDIKTAN SONRA: MASAYA koyduğum puan.
+                          //
+                          // Eskiden ikisinde de masa puanı yazıyordu; el açılmadan
+                          // masada hiçbir şeyim olmadığı için rozet elin başından
+                          // sonuna "0/101" gösteriyordu. Kullanıcının "mevcut puan
+                          // gösterilmiyor" dediği tam olarak buydu: barajın
+                          // neresinde olduğumu söylemesi gereken sayı, hep sıfırdı.
+                          points: provider.isOpeningDone
+                              ? provider.openPointsOf(mySeat)
+                              : provider.openingCandidatePoints,
+                          required: provider.requiredMinPoints,
+                          isOpen: provider.isOpeningDone,
+                          height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
+                        ),
+                        // TUR ŞERİDİ — turun neresindeyim.
+                        //
+                        // Sıra bende değilken hiçbir adım yanmaz; şerit yine
+                        // de KALIR. Kaybolsaydı, sıra bana her geldiğinde
+                        // konsolun genişliği değişir, plakam yerinden oynardı.
+                        if (!provider.isSpectating) ...[
+                          const SizedBox(width: 6),
+                          OkeyPhaseRail(
+                            step: _phaseStep(provider),
+                            height: (m.consoleHeight * 0.40).clamp(12.0, 20.0),
+                          ),
+                        ],
+                      ],
+                    ),
+                    // MASANIN DÖRT KÖŞESİ = DÖRT ISKARTA. Her ıskarta, onu ATAN ile
+                    // onu ALAN oyuncunun ARASINDAKİ köşede durur:
+                    //   sol alt  → solumdakinin attığı  (BEN çekerim, yeşil)
+                    //   sağ alt  → benim attığım        (sağımdaki çeker, mavi)
+                    //   sağ üst  → sağımdakinin attığı
+                    //   sol üst  → karşımdakinin attığı
+                    // Yerleşimin kendisi oyunun yönünü anlatır.
+                    cornerDiscardTopLeft: (context, m) => KeyedSubtree(
+                      key: _discardKeys[acrossSeat],
+                      child: seatBox(
+                        acrossSeat,
+                        m,
+                        side: OkeySeatSide.left,
+                        parts: OkeySeatParts.discard,
+                      ),
+                    ),
+                    cornerDiscardBottomLeft: (context, m) => KeyedSubtree(
+                      key: _discardKeys[leftSeat],
+                      child: seatBox(
+                        leftSeat,
+                        m,
+                        side: OkeySeatSide.left,
+                        parts: OkeySeatParts.discard,
+                      ),
+                    ),
+                    cornerDiscardTopRight: (context, m) => KeyedSubtree(
+                      key: _discardKeys[rightSeat],
+                      child: seatBox(
+                        rightSeat,
+                        m,
+                        side: OkeySeatSide.right,
+                        parts: OkeySeatParts.discard,
+                      ),
+                    ),
+                    myDiscard: (context, m) => KeyedSubtree(
+                      key: _discardKeys[mySeat],
+                      child: seatBox(
                         mySeat,
                         m,
-                        side: OkeySeatSide.bottom,
+                        isMe: true,
+                        side: OkeySeatSide.right,
+                        parts: OkeySeatParts.discard,
                       ),
-                      const SizedBox(width: 6),
-                      // CEZA PUANIM — plakanın yanında, ucu plakaya bakan bir
-                      // balon. Skor plakanın İÇİNDEyken masadaki dört sayaçtan
-                      // biri gibi okunuyordu; oysa bu sayı elin sonunu belirler.
-                      OkeyScoreBubble(
-                        score: match.scores[mySeat] ?? 0,
-                        // İŞLEK TAŞ ATMA / OKEY ATMA / KULLANILMAYAN YANDAN
-                        // ÇEKME cezası anında burada belirir (kullanıcı isteği:
-                        // "oyuncu işlek attığında puanına göster"). Kırmızı
-                        // yanıp sönme (bkz. _MistakeFlash) hatayı DUYURUR, bu
-                        // sayı ise bedelini yazar.
-                        pendingPenalty: provider.myPenaltyPoints,
-                        height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
-                      ),
-                      const SizedBox(width: 5),
-                      // AÇIK PUANIM — barajı geçtim mi sorusunun cevabı.
-                      //
-                      // Cezanın YANINDA ama ayrı bir rozette duruyor: ikisi de
-                      // "puan" ama zıt yönde okunur (ceza düşük iyidir, açık puan
-                      // yüksek). Aynı balonun içine iki sayı koymak, elin
-                      // ortasında hangi sayının hangisi olduğunu düşündürürdü.
-                      _MyOpenPoints(
-                        // AÇILMADAN ÖNCE: ELİMDEKİ puan (ıstakada duran perlerin
-                        // toplamı). AÇILDIKTAN SONRA: MASAYA koyduğum puan.
-                        //
-                        // Eskiden ikisinde de masa puanı yazıyordu; el açılmadan
-                        // masada hiçbir şeyim olmadığı için rozet elin başından
-                        // sonuna "0/101" gösteriyordu. Kullanıcının "mevcut puan
-                        // gösterilmiyor" dediği tam olarak buydu: barajın
-                        // neresinde olduğumu söylemesi gereken sayı, hep sıfırdı.
-                        points: provider.isOpeningDone
-                            ? provider.openPointsOf(mySeat)
-                            : provider.openingCandidatePoints,
-                        required: provider.requiredMinPoints,
-                        isOpen: provider.isOpeningDone,
-                        height: (m.consoleHeight * 0.52).clamp(16.0, 28.0),
-                      ),
-                      // TUR ŞERİDİ — turun neresindeyim.
-                      //
-                      // Sıra bende değilken hiçbir adım yanmaz; şerit yine
-                      // de KALIR. Kaybolsaydı, sıra bana her geldiğinde
-                      // konsolun genişliği değişir, plakam yerinden oynardı.
-                      if (!provider.isSpectating) ...[
-                        const SizedBox(width: 6),
-                        OkeyPhaseRail(
-                          step: _phaseStep(provider),
-                          height: (m.consoleHeight * 0.40).clamp(12.0, 20.0),
-                        ),
-                      ],
-                    ],
-                  ),
-                  // MASANIN DÖRT KÖŞESİ = DÖRT ISKARTA. Her ıskarta, onu ATAN ile
-                  // onu ALAN oyuncunun ARASINDAKİ köşede durur:
-                  //   sol alt  → solumdakinin attığı  (BEN çekerim, yeşil)
-                  //   sağ alt  → benim attığım        (sağımdaki çeker, mavi)
-                  //   sağ üst  → sağımdakinin attığı
-                  //   sol üst  → karşımdakinin attığı
-                  // Yerleşimin kendisi oyunun yönünü anlatır.
-                  cornerDiscardTopLeft: (context, m) => KeyedSubtree(
-                    key: _discardKeys[acrossSeat],
-                    child: seatBox(
-                      acrossSeat,
-                      m,
-                      side: OkeySeatSide.left,
-                      parts: OkeySeatParts.discard,
                     ),
-                  ),
-                  cornerDiscardBottomLeft: (context, m) => KeyedSubtree(
-                    key: _discardKeys[leftSeat],
-                    child: seatBox(
-                      leftSeat,
-                      m,
-                      side: OkeySeatSide.left,
-                      parts: OkeySeatParts.discard,
-                    ),
-                  ),
-                  cornerDiscardTopRight: (context, m) => KeyedSubtree(
-                    key: _discardKeys[rightSeat],
-                    child: seatBox(
-                      rightSeat,
-                      m,
-                      side: OkeySeatSide.right,
-                      parts: OkeySeatParts.discard,
-                    ),
-                  ),
-                  myDiscard: (context, m) => KeyedSubtree(
-                    key: _discardKeys[mySeat],
-                    child: seatBox(
-                      mySeat,
-                      m,
-                      isMe: true,
-                      side: OkeySeatSide.right,
-                      parts: OkeySeatParts.discard,
-                    ),
-                  ),
-                  // BİLGİ SÜTUNU: gösterge → okey → deste (dikey).
-                  // ÇAPA SÜTUNA DEĞİL DESTEYE: uçan taş destenin kendisinden
-                  // çıksın (bkz. OkeyIndicatorWidget.deckKey).
-                  island: (context, m) => OkeyIndicatorWidget(
-                    deckKey: _deckKey,
-                    vertical: true,
-                    indicatorTile: match.indicatorTile,
-                    // Okey taşı sunucudan geliyor; oyuncu göstergeden zihninden
-                    // türetmek zorunda kalmasın diye açıkça gösterilir
-                    // (özellikle 13 → 1 sarmasında sık hata kaynağıydı).
-                    okeyTile: match.okeyTile,
-                    deckRemaining: match.deckRemaining,
-                    isMyTurn: provider.isMyTurn,
-                    onTapDeck: provider.canDraw ? provider.drawFromDeck : null,
-                    canDragFromDeck: provider.canDraw,
-                    tileWidth: m.islandTileWidth,
-                  ),
-                  // AÇILAN PERLER — TEK ALAN, keçenin tüm genişliği. Ayrı bir
-                  // "çiftler" bölmesi yok: boş dururken bile yer tutuyordu ve
-                  // gerçek bir masada öyle bir bölge bulunmaz
-                  // (bkz. OkeyTableScaffold.melds).
-                  // SERİ ve GRUPLAR geniş tablaya, ÇİFTLER dar tablaya gider.
-                  // Ayrım kozmetik değil: çiftlere taş İŞLENEMEZ, dolayısıyla
-                  // aynı tablada dururken oyuncu her taş için "bu çift miydi"
-                  // diye eleme yapmak zorunda kalıyordu.
-                  melds: (context, m) => KeyedSubtree(
-                    key: _meldsKey,
-                    child: OkeyBoardWidget(
-                      melds: provider.seriesMelds,
+                    // BİLGİ SÜTUNU: gösterge → okey → deste (dikey).
+                    // ÇAPA SÜTUNA DEĞİL DESTEYE: uçan taş destenin kendisinden
+                    // çıksın (bkz. OkeyIndicatorWidget.deckKey).
+                    island: (context, m) => OkeyIndicatorWidget(
+                      deckKey: _deckKey,
+                      vertical: true,
+                      indicatorTile: match.indicatorTile,
+                      // Okey taşı sunucudan geliyor; oyuncu göstergeden zihninden
+                      // türetmek zorunda kalmasın diye açıkça gösterilir
+                      // (özellikle 13 → 1 sarmasında sık hata kaynağıydı).
                       okeyTile: match.okeyTile,
-                      canTapMelds: provider.canAddSelectedToMeld,
-                      onTapMeld: provider.addSelectedTileToMeld,
-                      onTileDroppedOnMeld: provider.canActOnHand
-                          ? provider.addSlotTileToMeld
+                      deckRemaining: match.deckRemaining,
+                      isMyTurn: provider.isMyTurn,
+                      onTapDeck: provider.canDraw
+                          ? provider.drawFromDeck
                           : null,
-                      onDragEnd: provider.endDrag,
+                      canDragFromDeck: provider.canDraw,
+                      tileWidth: m.islandTileWidth,
+                    ),
+                    // AÇILAN PERLER — TEK ALAN, keçenin tüm genişliği. Ayrı bir
+                    // "çiftler" bölmesi yok: boş dururken bile yer tutuyordu ve
+                    // gerçek bir masada öyle bir bölge bulunmaz
+                    // (bkz. OkeyTableScaffold.melds).
+                    // SERİ ve GRUPLAR geniş tablaya, ÇİFTLER dar tablaya gider.
+                    // Ayrım kozmetik değil: çiftlere taş İŞLENEMEZ, dolayısıyla
+                    // aynı tablada dururken oyuncu her taş için "bu çift miydi"
+                    // diye eleme yapmak zorunda kalıyordu.
+                    melds: (context, m) => KeyedSubtree(
+                      key: _meldsKey,
+                      child: OkeyBoardWidget(
+                        melds: provider.seriesMelds,
+                        okeyTile: match.okeyTile,
+                        canTapMelds: provider.canAddSelectedToMeld,
+                        onTapMeld: provider.addSelectedTileToMeld,
+                        onTileDroppedOnMeld: provider.canActOnHand
+                            ? provider.addSlotTileToMeld
+                            : null,
+                        onDragEnd: provider.endDrag,
+                        tileWidth: m.meldTileWidth,
+                        tileHeight: m.meldTileHeight,
+                      ),
+                    ),
+                    pairsBoard: (context, m) => OkeyBoardWidget(
+                      melds: provider.pairMelds,
+                      okeyTile: match.okeyTile,
                       tileWidth: m.meldTileWidth,
                       tileHeight: m.meldTileHeight,
                     ),
-                  ),
-                  pairsBoard: (context, m) => OkeyBoardWidget(
-                    melds: provider.pairMelds,
-                    okeyTile: match.okeyTile,
-                    tileWidth: m.meldTileWidth,
-                    tileHeight: m.meldTileHeight,
-                  ),
-                  bottomExtra: (context, m) => provider.isSpectating
-                      ? const SizedBox.shrink()
-                      : _BottomExtra(provider: provider),
-                  modeBadges: _ModeBadges(provider: provider, match: match),
-                  topLeading: const _TopLeading(),
-                  topControls: _TopRightControls(provider: provider),
-                  // DİZME ARAÇLARI — ISTAKANIN SOL UCUNDA, ALT ALTA.
-                  //
-                  // v4'te iki uçta birer taneydiler; sağ uç v5'te hamle
-                  // dock'una verildi. İkisi aynı işi yapıyor (ıstakayı
-                  // yeniden dizmek) ve ikisi de geri alınabilir — aynı
-                  // başlıkta durmaları, "bunlar hamle değil araçtır" ayrımını
-                  // dock'a karşı net biçimde çiziyor.
-                  //
-                  // Üstlerindeki minik taşlar (1·2·3 / 5·5) etiketten önce
-                  // okunur; bu yüzden düğme yarıya inince de anlaşılır kalıyor.
-                  rackCapStart: provider.isSpectating
-                      ? null
-                      : (context, m) => Column(
-                          // STRETCH ŞART: Column varsayılanı `center`, o zaman
-                          // düğme kendi doğal genişliğine çeker ve başlığın
-                          // sağında ıstakayla arasında boşluk kalır.
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: OkeyDizCapButton.series(
-                                active:
-                                    provider.sortMode ==
+                    bottomExtra: (context, m) => provider.isSpectating
+                        ? const SizedBox.shrink()
+                        : _BottomExtra(provider: provider),
+                    modeBadges: _ModeBadges(provider: provider, match: match),
+                    topLeading: const _TopLeading(),
+                    topControls: _TopRightControls(provider: provider),
+                    // DİZME ARAÇLARI — ISTAKANIN SOL UCUNDA, ALT ALTA.
+                    //
+                    // v4'te iki uçta birer taneydiler; sağ uç v5'te hamle
+                    // dock'una verildi. İkisi aynı işi yapıyor (ıstakayı
+                    // yeniden dizmek) ve ikisi de geri alınabilir — aynı
+                    // başlıkta durmaları, "bunlar hamle değil araçtır" ayrımını
+                    // dock'a karşı net biçimde çiziyor.
+                    //
+                    // Üstlerindeki minik taşlar (1·2·3 / 5·5) etiketten önce
+                    // okunur; bu yüzden düğme yarıya inince de anlaşılır kalıyor.
+                    rackCapStart: provider.isSpectating
+                        ? null
+                        : (context, m) => Column(
+                            // STRETCH ŞART: Column varsayılanı `center`, o zaman
+                            // düğme kendi doğal genişliğine çeker ve başlığın
+                            // sağında ıstakayla arasında boşluk kalır.
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: OkeyDizCapButton.series(
+                                  active:
+                                      provider.sortMode ==
+                                      OkeyRackSortMode.series,
+                                  onPressed: () => provider.setSortMode(
                                     OkeyRackSortMode.series,
-                                onPressed: () => provider.setSortMode(
-                                  OkeyRackSortMode.series,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: OkeyTableMetrics.rackCapGap),
-                            Expanded(
-                              child: OkeyDizCapButton.pairs(
-                                active:
-                                    provider.sortMode == OkeyRackSortMode.pairs,
-                                onPressed: () => provider.setSortMode(
-                                  OkeyRackSortMode.pairs,
+                              const SizedBox(
+                                height: OkeyTableMetrics.rackCapGap,
+                              ),
+                              Expanded(
+                                child: OkeyDizCapButton.pairs(
+                                  active:
+                                      provider.sortMode ==
+                                      OkeyRackSortMode.pairs,
+                                  onPressed: () => provider.setSortMode(
+                                    OkeyRackSortMode.pairs,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                  // HAMLE DOCK'U — ıstakanın sağ ucunda, baş parmağın altında.
-                  // Aşamaya göre TAMAMEN değişir: çekme aşamasında tek büyük
-                  // "TAŞ ÇEK", sonra AÇ / İŞLE / TAŞI AT.
-                  actionDock: provider.isSpectating
-                      ? null
-                      : (context, m) => _buildActionDock(context, provider),
-                  // ISTAKA — iki dizme düğmesinin arasındaki tüm genişlik.
-                  // Genişlik ve ortalama artık OkeyTableScaffold'un işi; burada
-                  // yalnızca ahşap gövde ile taş satırları kurulur.
-                  rack: (context, m) => provider.isSpectating
-                      ? _SpectatorBar(provider: provider)
-                      : OkeyRackPanel(
-                          rack: OkeyRackBarWidget(
-                            metrics: m,
-                            showChrome: false,
-                            slots: provider.rackSlots,
-                            selectedIndices: provider.selectedIndices,
-                            canSelect: provider.canActOnHand,
-                            onTap: provider.toggleTileSelection,
-                            onMove: provider.moveTileToSlot,
-                            onDragStart: provider.beginDrag,
-                            onDragEnd: provider.endDrag,
-                            onDrawDropped: (source, toSlot) =>
-                                source == OkeyDragSource.deck
-                                ? provider.drawFromDeck(toSlot: toSlot)
-                                : provider.drawFromDiscard(toSlot: toSlot),
-                            processableIndices: provider.processableTileIndices,
-                            meldableIndices: provider.meldableTileIndices,
-                            riskyIndices: provider.riskyDiscardIndices,
-                            completeMeldSlots: provider.completeMeldSlots,
-                            // Perlerin son taşından sonra boşluk bırakılır ki hangi
-                            // taşların aynı pere ait olduğu gözle ayırt edilsin.
-                            groupEndSlots: provider.groupEndSlots,
-                            hiddenOkeySlots: provider.hiddenOkeySlots,
-                            onDoubleTap: provider.toggleOkeyReveal,
+                            ],
                           ),
-                        ),
-                ),
-              ),
-              // HATA UYARISI: işlek bir taş yanlışlıkla ıskartaya atıldığında
-              // kısa bir kırmızı yanıp-sönme. En üstte durur ama dokunma
-              // olaylarını hiç yutmaz.
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: _MistakeFlash(tick: provider.discardMistakeTick),
-                ),
-              ),
-              // ANONS BANDI: "Seri açıldı" / "Çift açıldı" / "… son üç taş".
-              // Anons SESLİ okunur (bkz. OkeySoundService.speak); bu bant onun
-              // yazılı eşi — ses kapalıyken ya da cihazda Türkçe konuşma motoru
-              // yokken bilgi kaybolmasın diye.
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: OkeyAnnouncementBanner(
-                    listenable: provider.announcement,
+                    // HAMLE DOCK'U — ıstakanın sağ ucunda, baş parmağın altında.
+                    // Aşamaya göre TAMAMEN değişir: çekme aşamasında tek büyük
+                    // "TAŞ ÇEK", sonra AÇ / İŞLE / TAŞI AT.
+                    actionDock: provider.isSpectating
+                        ? null
+                        : (context, m) => _buildActionDock(context, provider),
+                    // ISTAKA — iki dizme düğmesinin arasındaki tüm genişlik.
+                    // Genişlik ve ortalama artık OkeyTableScaffold'un işi; burada
+                    // yalnızca ahşap gövde ile taş satırları kurulur.
+                    rack: (context, m) => provider.isSpectating
+                        ? _SpectatorBar(provider: provider)
+                        : OkeyRackPanel(
+                            rack: OkeyRackBarWidget(
+                              metrics: m,
+                              showChrome: false,
+                              slots: provider.rackSlots,
+                              selectedIndices: provider.selectedIndices,
+                              canSelect: provider.canActOnHand,
+                              onTap: provider.toggleTileSelection,
+                              onMove: provider.moveTileToSlot,
+                              onDragStart: provider.beginDrag,
+                              onDragEnd: provider.endDrag,
+                              onDrawDropped: (source, toSlot) =>
+                                  source == OkeyDragSource.deck
+                                  ? provider.drawFromDeck(toSlot: toSlot)
+                                  : provider.drawFromDiscard(toSlot: toSlot),
+                              processableIndices:
+                                  provider.processableTileIndices,
+                              meldableIndices: provider.meldableTileIndices,
+                              riskyIndices: provider.riskyDiscardIndices,
+                              completeMeldSlots: provider.completeMeldSlots,
+                              // Perlerin son taşından sonra boşluk bırakılır ki hangi
+                              // taşların aynı pere ait olduğu gözle ayırt edilsin.
+                              groupEndSlots: provider.groupEndSlots,
+                              hiddenOkeySlots: provider.hiddenOkeySlots,
+                              onDoubleTap: provider.toggleOkeyReveal,
+                            ),
+                          ),
                   ),
                 ),
-              ),
-              // UÇAN TAŞ — hangi taşın nereden nereye gittiğini GÖSTERİR
-              // (kullanıcı isteği, 2026-09-06). Masanın ÜSTÜNDE ama dokunmayı
-              // yutmayan bir katman; çapaları gerçek RenderBox'lardan okur.
-              Positioned.fill(
-                child: OkeyMoveFlightOverlay(
-                  move: provider.lastMove,
-                  mySeatNo: provider.mySeatNo,
-                  tileWidth: OkeyTableMetrics.from(
-                    BoxConstraints.tight(MediaQuery.sizeOf(context)),
-                  ).discardTileWidth,
-                  resolve: (anchor, seatNo) => switch (anchor) {
-                    OkeyAnchor.deck => _anchorRect(_deckKey),
-                    OkeyAnchor.melds => _anchorRect(_meldsKey),
-                    OkeyAnchor.discard => _anchorRect(_discardKeys[seatNo]),
-                    OkeyAnchor.seat => _anchorRect(_seatKeys[seatNo]),
-                  },
+                // HATA UYARISI: işlek bir taş yanlışlıkla ıskartaya atıldığında
+                // kısa bir kırmızı yanıp-sönme. En üstte durur ama dokunma
+                // olaylarını hiç yutmaz.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: _MistakeFlash(tick: provider.discardMistakeTick),
+                  ),
                 ),
-              ),
-            ],
+                // ANONS BANDI: "Seri açıldı" / "Çift açıldı" / "… son üç taş".
+                // Anons SESLİ okunur (bkz. OkeySoundService.speak); bu bant onun
+                // yazılı eşi — ses kapalıyken ya da cihazda Türkçe konuşma motoru
+                // yokken bilgi kaybolmasın diye.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: OkeyAnnouncementBanner(
+                      listenable: provider.announcement,
+                    ),
+                  ),
+                ),
+                // UÇAN TAŞ — hangi taşın nereden nereye gittiğini GÖSTERİR
+                // (kullanıcı isteği, 2026-09-06). Masanın ÜSTÜNDE ama dokunmayı
+                // yutmayan bir katman; çapaları gerçek RenderBox'lardan okur.
+                Positioned.fill(
+                  child: OkeyMoveFlightOverlay(
+                    move: provider.lastMove,
+                    mySeatNo: provider.mySeatNo,
+                    tileWidth: OkeyTableMetrics.from(
+                      BoxConstraints.tight(MediaQuery.sizeOf(context)),
+                    ).discardTileWidth,
+                    resolve: (anchor, seatNo) => switch (anchor) {
+                      OkeyAnchor.deck => _anchorRect(_deckKey),
+                      OkeyAnchor.melds => _anchorRect(_meldsKey),
+                      OkeyAnchor.discard => _anchorRect(_discardKeys[seatNo]),
+                      OkeyAnchor.seat => _anchorRect(_seatKeys[seatNo]),
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1009,7 +1042,7 @@ class _OkeyGameViewState extends State<_OkeyGameView>
         backgroundColor: OkeyUI.cardFill,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
-          side: const BorderSide(color: OkeyUI.cardBorder),
+          side: BorderSide(color: OkeyUI.cardBorder),
         ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -1025,10 +1058,10 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                     gradient: LinearGradient(
                       colors: iWon
                           ? OkeyUI.goldGradient
-                          : [const Color(0xFF1B7562), const Color(0xFF0F4A45)],
+                          : OkeyUI.heroGradient.take(2).toList(),
                     ),
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(18),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(OkeyUI.radiusLg - 2),
                     ),
                   ),
                   child: Column(
@@ -1036,14 +1069,14 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                       Icon(
                         iWon ? Icons.emoji_events : Icons.flag,
                         size: 34,
-                        color: iWon ? Colors.black87 : Colors.white70,
+                        color: iWon ? OkeyUI.onGold : OkeyUI.onHeroDim,
                       ),
                       const SizedBox(height: 4),
                       Text(
                         iWon ? 'ELİ SEN KAZANDIN' : 'El Bitti',
                         style: OkeyUI.display(
                           size: 20,
-                          color: iWon ? OkeyUI.onGold : OkeyUI.text,
+                          color: iWon ? OkeyUI.onGold : OkeyUI.onHero,
                         ).copyWith(letterSpacing: 0.6),
                       ),
                       if (match != null)
@@ -1056,7 +1089,9 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 11,
-                              color: iWon ? Colors.black54 : Colors.white60,
+                              color: iWon
+                                  ? OkeyUI.onGold.withValues(alpha: 0.65)
+                                  : OkeyUI.onHeroDim,
                             ),
                           ),
                         ),
@@ -1066,12 +1101,9 @@ class _OkeyGameViewState extends State<_OkeyGameView>
 
                 // SKOR LİSTESİ
                 if (match == null)
-                  const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text(
-                      'Sonuç alınamadı.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text('Sonuç alınamadı.', style: OkeyUI.body),
                   )
                 else
                   Padding(
@@ -1096,22 +1128,22 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                           decoration: BoxDecoration(
                             color: isMe
                                 ? OkeyUI.brass.withValues(alpha: 0.14)
-                                : Colors.white.withValues(alpha: 0.05),
+                                : OkeyUI.wash,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: isWinner
                                   ? OkeyUI.brass
                                   : (isMe
                                         ? OkeyUI.brass.withValues(alpha: 0.4)
-                                        : Colors.white12),
+                                        : OkeyUI.cardBorder),
                             ),
                           ),
                           child: Row(
                             children: [
                               Text(
                                 '${i + 1}',
-                                style: const TextStyle(
-                                  color: Colors.white38,
+                                style: TextStyle(
+                                  color: OkeyUI.textFaint,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -1119,7 +1151,7 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                               const SizedBox(width: 8),
                               CircleAvatar(
                                 radius: 15,
-                                backgroundColor: Colors.white12,
+                                backgroundColor: OkeyUI.avatarFill,
                                 // Botun fotoğrafı da çizilir ve fotoğrafsız
                                 // bot robot ikonuyla değil, herkesle aynı
                                 // kişi ikonuyla görünür.
@@ -1127,16 +1159,16 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                     ? null
                                     : NetworkImage(s!.avatarUrl!),
                                 child: (s == null)
-                                    ? const Icon(
+                                    ? Icon(
                                         Icons.person_off,
                                         size: 14,
-                                        color: Colors.white38,
+                                        color: OkeyUI.textFaint,
                                       )
                                     : (s.avatarUrl == null
-                                          ? const Icon(
+                                          ? Icon(
                                               Icons.person,
                                               size: 14,
-                                              color: Colors.white70,
+                                              color: OkeyUI.avatarIcon,
                                             )
                                           : null),
                               ),
@@ -1150,8 +1182,8 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: isWinner
-                                        ? OkeyUI.brass
-                                        : Colors.white,
+                                        ? OkeyUI.accentInk
+                                        : OkeyUI.text,
                                     fontWeight: isMe
                                         ? FontWeight.bold
                                         : FontWeight.w500,
@@ -1160,20 +1192,20 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                 ),
                               ),
                               if (isWinner)
-                                const Padding(
+                                Padding(
                                   padding: EdgeInsets.only(right: 6),
                                   child: Icon(
                                     Icons.emoji_events,
                                     size: 15,
-                                    color: OkeyUI.brass,
+                                    color: OkeyUI.accentInk,
                                   ),
                                 ),
                               Text(
                                 '${match.scores[seatNo] ?? 0}',
                                 style: TextStyle(
                                   color: isWinner
-                                      ? OkeyUI.brass
-                                      : Colors.white70,
+                                      ? OkeyUI.accentInk
+                                      : OkeyUI.textDim,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
                                 ),
@@ -1198,11 +1230,11 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                     ),
                   ),
 
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
                     'Düşük puan iyidir — skorlar cezadır.',
-                    style: TextStyle(color: Colors.white30, fontSize: 10),
+                    style: TextStyle(color: OkeyUI.textFaint, fontSize: 10),
                   ),
                 ),
 
@@ -1666,7 +1698,7 @@ class _SpectatorChip extends StatelessWidget {
         backgroundColor: OkeyUI.cardFill,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OkeyUI.radius),
-          side: const BorderSide(color: OkeyUI.cardBorder),
+          side: BorderSide(color: OkeyUI.cardBorder),
         ),
         title: Text('Masayı izleyenler (${list.length})', style: OkeyUI.title),
         content: SizedBox(
@@ -1681,7 +1713,7 @@ class _SpectatorChip extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
                   radius: 15,
-                  backgroundColor: Colors.white12,
+                  backgroundColor: OkeyUI.avatarFill,
                   backgroundImage: s.avatarUrl == null
                       ? null
                       : NetworkImage(s.avatarUrl!),
@@ -1690,12 +1722,12 @@ class _SpectatorChip extends StatelessWidget {
                       : Icon(
                           s.isGuest ? Icons.person_outline : Icons.person,
                           size: 15,
-                          color: Colors.white54,
+                          color: OkeyUI.avatarIcon,
                         ),
                 ),
                 title: Text(s.displayName, style: OkeyUI.body),
                 subtitle: s.isGuest
-                    ? const Text('Misafir', style: OkeyUI.caption)
+                    ? Text('Misafir', style: OkeyUI.caption)
                     : null,
               );
             },
@@ -1906,9 +1938,9 @@ class _BottomExtra extends StatelessWidget {
         backgroundColor: OkeyUI.cardFill,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OkeyUI.radius),
-          side: const BorderSide(color: OkeyUI.cardBorder),
+          side: BorderSide(color: OkeyUI.cardBorder),
         ),
-        title: const Text('Çifte gidiyorum', style: OkeyUI.title),
+        title: Text('Çifte gidiyorum', style: OkeyUI.title),
         content: Text(
           'Bu karar bu el için GERİ ALINAMAZ.\n\n'
           '• ${p.requiredMinPairs} çift toplarsan çiftle açabilirsin.\n'

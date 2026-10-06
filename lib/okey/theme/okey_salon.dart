@@ -82,9 +82,10 @@ class OkeyChipsPill extends StatelessWidget {
       height: 38,
       padding: EdgeInsets.fromLTRB(10, 0, onTap == null ? 12 : 5, 0),
       decoration: BoxDecoration(
-        color: const Color(0x99120C09),
+        color: OkeyUI.pillFill,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: const Color(0x80E4B04C)),
+        border: Border.all(color: OkeyUI.pillBorder),
+        boxShadow: OkeyUI.isLight ? OkeyUI.cardShadow : null,
       ),
       child: FittedBox(
         fit: BoxFit.scaleDown,
@@ -103,14 +104,18 @@ class OkeyChipsPill extends StatelessWidget {
               Container(
                 width: 28,
                 height: 28,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE4B04C),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: OkeyUI.goldGradient,
+                  ),
                   shape: BoxShape.circle,
                 ),
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    const Icon(Icons.add, size: 17, color: OkeyUI.onGold),
+                    Icon(Icons.add, size: 17, color: OkeyUI.onGold),
                     if (showDot)
                       const Positioned(
                         right: 3,
@@ -165,9 +170,9 @@ class OkeySeatMini extends StatelessWidget {
           height: dot,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: filled ? const Color(0xFFE4B04C) : Colors.transparent,
+            color: filled ? OkeyUI.brass : Colors.transparent,
             border: Border.all(
-              color: filled ? const Color(0xFFE4B04C) : const Color(0x73F5EBD8),
+              color: filled ? OkeyUI.brass : OkeyUI.seatEmpty,
               width: 2,
             ),
           ),
@@ -188,11 +193,8 @@ class OkeySeatMini extends StatelessWidget {
                 height: size * 0.66,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFF17705F),
-                  border: Border.all(
-                    color: const Color(0xFF5B3A22),
-                    width: size * 0.06,
-                  ),
+                  color: OkeyUI.miniFelt,
+                  border: Border.all(color: OkeyUI.miniRim, width: size * 0.06),
                 ),
               ),
             ),
@@ -235,9 +237,18 @@ class OkeyBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0D0806),
+      decoration: BoxDecoration(
+        color: OkeyUI.navFill,
         border: Border(top: BorderSide(color: OkeyUI.cardBorder)),
+        boxShadow: OkeyUI.isLight
+            ? [
+                BoxShadow(
+                  color: OkeyUI.shadow,
+                  blurRadius: 16,
+                  offset: const Offset(0, -4),
+                ),
+              ]
+            : null,
       ),
       child: SafeArea(
         top: false,
@@ -261,7 +272,9 @@ class OkeyBottomNav extends StatelessWidget {
                             height: 28,
                             decoration: BoxDecoration(
                               color: it.selected
-                                  ? const Color(0x33E4B04C)
+                                  ? OkeyUI.brass.withValues(
+                                      alpha: OkeyUI.isLight ? 0.14 : 0.2,
+                                    )
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(14),
                             ),

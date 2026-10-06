@@ -471,8 +471,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       if (mounted) {
         _showMessage('Hesabınız başarıyla silindi');
 
-        // Root navigator key ile güvenli çıkış + misafir ana ekrana dönüş.
-        await AppNavigator.signOutAndReset('/');
+        // Merkezi çıkış akışı → Giriş ekranı (bkz. AppNavigator).
+        await AppNavigator.signOutAndReset();
       }
     } catch (e) {
       if (mounted) {

@@ -204,15 +204,15 @@ class _OkeyProfileSheetState extends State<OkeyProfileSheet> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [const Color(0xFF2B2018), OkeyUI.cardFill],
+            colors: [OkeyUI.cardFillRaised, OkeyUI.cardFill],
           ),
           borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
           border: Border.all(color: OkeyUI.cardBorder),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-              color: Color(0x99000000),
+              color: OkeyUI.isLight ? OkeyUI.shadow : const Color(0x99000000),
               blurRadius: 24,
-              offset: Offset(0, 8),
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -365,22 +365,22 @@ class _Header extends StatelessWidget {
                   height: face,
                   child: avatarUrl == null
                       ? Container(
-                          color: const Color(0xFF1F1811),
-                          child: const Icon(
+                          color: OkeyUI.avatarFill,
+                          child: Icon(
                             Icons.person,
                             size: 40,
-                            color: Color(0xFF9FD9CF),
+                            color: OkeyUI.avatarIcon,
                           ),
                         )
                       : Image.network(
                           avatarUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Container(
-                            color: const Color(0xFF1F1811),
-                            child: const Icon(
+                            color: OkeyUI.avatarFill,
+                            child: Icon(
                               Icons.person,
                               size: 40,
-                              color: Color(0xFF9FD9CF),
+                              color: OkeyUI.avatarIcon,
                             ),
                           ),
                         ),
@@ -395,14 +395,14 @@ class _Header extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: OkeyColors.screenBackground,
+                      color: OkeyUI.cardFill,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: OkeyUI.brass),
                     ),
                     child: Text(
                       card!.winRateLabel,
                       style: TextStyle(
-                        color: OkeyUI.brass,
+                        color: OkeyUI.accentInk,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
                       ),
@@ -421,7 +421,7 @@ class _Header extends StatelessWidget {
           style: OkeyUI.titleLg,
         ),
         if (card?.isSelf == true)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(top: 2),
             child: Text('Sen', style: OkeyUI.caption),
           ),
@@ -452,7 +452,7 @@ class _WinRingPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6
-        ..color = const Color(0x24FFFFFF),
+        ..color = OkeyUI.text.withValues(alpha: 0.14),
     );
 
     if (rate <= 0) return;
@@ -465,8 +465,12 @@ class _WinRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..strokeWidth = 6
-        ..shader = const SweepGradient(
-          colors: [Color(0xFFFFD54F), Color(0xFFB9F6CA), Color(0xFFFFD54F)],
+        ..shader = SweepGradient(
+          colors: [
+            OkeyUI.brass,
+            OkeyUI.signal(const Color(0xFFB9F6CA)),
+            OkeyUI.brass,
+          ],
         ).createShader(rect),
     );
   }
@@ -489,7 +493,7 @@ class _SocialRow extends StatelessWidget {
           Text(
             '$value',
             maxLines: 1,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w900,
               color: OkeyUI.text,
@@ -530,28 +534,28 @@ class _StatsGrid extends StatelessWidget {
         icon: Icons.sports_esports,
         label: 'Toplam maç',
         value: '${card.matchesPlayed}',
-        color: const Color(0xFF80D8FF),
+        color: OkeyUI.signal(const Color(0xFF80D8FF)),
         compact: compact,
       ),
       _StatBox(
         icon: Icons.emoji_events,
         label: 'Kazanılan',
         value: '${card.matchesWon}',
-        color: const Color(0xFFB9F6CA),
+        color: OkeyUI.signal(const Color(0xFFB9F6CA)),
         compact: compact,
       ),
       _StatBox(
         icon: Icons.trending_down,
         label: 'Kaybedilen',
         value: '${card.matchesLost}',
-        color: const Color(0xFFFF8A80),
+        color: OkeyUI.signal(const Color(0xFFFF8A80)),
         compact: compact,
       ),
       _StatBox(
         icon: Icons.military_tech,
         label: 'En iyi skor',
         value: card.bestMatchScore?.toString() ?? '—',
-        color: const Color(0xFFE1BEE7),
+        color: OkeyUI.signal(const Color(0xFFE1BEE7)),
         compact: compact,
       ),
     ];
@@ -631,7 +635,7 @@ class _StatBox extends StatelessWidget {
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w900,
                     color: OkeyUI.text,
@@ -665,20 +669,20 @@ class _PointsBar extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: OkeyUI.goldGradient),
+        gradient: LinearGradient(colors: OkeyUI.goldGradient),
         borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.stars, size: 18, color: OkeyUI.onGold),
+          Icon(Icons.stars, size: 18, color: OkeyUI.onGold),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               '$points okey puanı',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 color: OkeyUI.onGold,
                 fontSize: 15,
                 fontWeight: FontWeight.w900,
@@ -755,13 +759,9 @@ class _FollowButton extends StatelessWidget {
         // bitmiştir, geri alma ikincil bir seçenektir ve dolu altın bir
         // düğme kadar bağırmamalıdır.
         style: FilledButton.styleFrom(
-          backgroundColor: active
-              ? const Color(0x1FFFFFFF)
-              : OkeyUI.brass,
+          backgroundColor: active ? OkeyUI.wash : OkeyUI.brass,
           foregroundColor: active ? OkeyUI.text : OkeyUI.onGold,
-          side: active
-              ? const BorderSide(color: OkeyUI.cardBorder)
-              : BorderSide.none,
+          side: active ? BorderSide(color: OkeyUI.cardBorder) : BorderSide.none,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(OkeyUI.radiusSm),

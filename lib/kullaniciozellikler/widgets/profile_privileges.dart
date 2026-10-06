@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/profile_feature.dart';
 import '../services/profile_feature_service.dart';
 import 'creature_painters.dart';
+import 'feature_effect_ticker.dart';
 import 'feature_icon_registry.dart';
 
 /// Profilin arkasına/üstüne prosedürel efekt katmanı ekler. Katalogdaki yüzlerce
@@ -24,54 +25,56 @@ class ProfilePrivilegesOverlay extends StatefulWidget {
       _ProfilePrivilegesOverlayState();
 }
 
+List<ProfileFeature> _profileEffectsOf(List<ProfileFeature>? features) =>
+    (features ?? const <ProfileFeature>[])
+        .where((feature) => feature.kind == ProfileFeatureKind.effect)
+        .take(3)
+        .toList(growable: false);
+
 class _ProfilePrivilegesOverlayState extends State<ProfilePrivilegesOverlay>
-    with SingleTickerProviderStateMixin {
-  final _service = ProfileFeatureService();
-  late final AnimationController _controller;
+    with
+        SingleTickerProviderStateMixin,
+        FeatureEffectTickerMixin<ProfilePrivilegesOverlay> {
   late Future<List<ProfileFeature>> _future;
+
+  @override
+  Duration get effectLoopDuration => const Duration(seconds: 8);
+
+  @override
+  bool needsEffectTicker(List<ProfileFeature> features) =>
+      _profileEffectsOf(features).isNotEmpty;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 8),
-    )..repeat();
-    _future = _service.getUserFeatures(widget.userId);
+    _future = loadFeaturesAndSyncTicker(widget.userId);
   }
 
   @override
   void didUpdateWidget(covariant ProfilePrivilegesOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
-      _future = _service.getUserFeatures(widget.userId);
+      _future = loadFeaturesAndSyncTicker(widget.userId);
     }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ProfileFeature>>(
       future: _future,
+      initialData: ProfileFeatureService.peekUserFeatures(widget.userId),
       builder: (context, snapshot) {
-        final effects = (snapshot.data ?? const <ProfileFeature>[])
-            .where((feature) => feature.kind == ProfileFeatureKind.effect)
-            .take(3)
-            .toList(growable: false);
-        if (effects.isEmpty) return widget.child;
+        final effects = _profileEffectsOf(snapshot.data);
+        final controller = effectController;
+        if (effects.isEmpty || controller == null) return widget.child;
 
         final blink = effects.any((effect) => effect.rendererKey == 'blink');
         return AnimatedBuilder(
-          animation: _controller,
+          animation: controller,
           child: widget.child,
           builder: (context, child) {
             final pulse = blink
-                ? 0.94 + math.sin(_controller.value * math.pi * 2) * 0.06
+                ? 0.94 + math.sin(controller.value * math.pi * 2) * 0.06
                 : 1.0;
             return Stack(
               fit: StackFit.expand,
@@ -82,7 +85,7 @@ class _ProfilePrivilegesOverlayState extends State<ProfilePrivilegesOverlay>
                     child: CustomPaint(
                       painter: _ProfileEffectPainter(
                         effects: effects,
-                        progress: _controller.value,
+                        progress: controller.value,
                       ),
                     ),
                   ),
@@ -112,6 +115,8 @@ class ProfilePrivilegeBadges extends StatelessWidget {
   Widget build(BuildContext context) {
     return FutureBuilder<List<ProfileFeature>>(
       future: ProfileFeatureService().getUserFeatures(userId),
+      // Önbellek doluysa (akış ön-yüklemesi) ilk karede doğru çizilir.
+      initialData: ProfileFeatureService.peekUserFeatures(userId),
       builder: (context, snapshot) {
         final features = (snapshot.data ?? const <ProfileFeature>[])
             .where(
@@ -216,20 +221,54 @@ class AnimatedPrivilegeIcon extends StatefulWidget {
 
 class _AnimatedPrivilegeIconState extends State<AnimatedPrivilegeIcon>
     with SingleTickerProviderStateMixin {
+  /// İkon göründüğünde kaç tur oynar. Sonsuz değil: akışta tek bir hareketli
+  /// ikon bile uygulamayı hiç boşta bırakmıyor, Keşfet boştayken saniyede
+  /// ~120 kare çizdiriyordu (profile ölçümü 2026-10-06). Kart yeniden
+  /// göründüğünde ya da ikona dokunulup bilgi penceresi açıldığında yeniden
+  /// oynar.
+  static const _loops = 3;
+
   late final AnimationController _controller;
+  bool _started = false;
 
   @override
   void initState() {
     super.initState();
     final speed = widget.feature.configDouble('speed', 1).clamp(0.3, 3.0);
-    _controller =
-        AnimationController(
-          vsync: this,
-          duration: Duration(milliseconds: (1900 / speed).round()),
-        )..repeat(
-          reverse: widget.feature.configString('motion', 'rotate') != 'rotate',
-        );
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: (1900 / speed).round()),
+    );
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    final motion = widget.feature.configString('motion', 'rotate');
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = _restValue(motion);
+      return;
+    }
+    final rotate = motion == 'rotate';
+    // Dönme tek yönde tam tur (0→1); diğer hareketler gidip gelir (her yön
+    // bir sayım). Bitince ikon doğal pozunda durur.
+    _controller
+        .repeat(reverse: !rotate, count: rotate ? _loops : _loops * 2)
+        .whenCompleteOrCancel(() {
+          if (mounted && !_controller.isAnimating) {
+            _controller.value = _restValue(motion);
+          }
+        });
+  }
+
+  /// Animasyon durduğunda ikonun düz/normal boyutta göründüğü değer.
+  static double _restValue(String motion) => switch (motion) {
+    'pulse' => (1 - 0.82) / 0.28, // ölçek 1.0
+    'swing' => 0.5, // açı 0
+    _ => 0, // dönme: 0 tur, zıplama: yerde
+  };
 
   @override
   void dispose() {

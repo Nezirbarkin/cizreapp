@@ -1,0 +1,501 @@
+# Hırdavat — 500 ürün. Biçim: Ad | arama kelimeleri | görsel tarifi (İngilizce, üretim için)
+Çekiç | pençeli çekiç, el aleti, marangoz | claw hammer with steel head and black rubber grip
+Balyoz | balyoz, kırıcı, ağır çekiç | sledgehammer with long wooden handle
+Lastik Tokmak | tokmak, plastik çekiç, fayans | rubber mallet with black head and wooden handle
+Kombine Pense | pense, el aleti, elektrikçi | combination pliers with red insulated handles
+Kargaburun Pense | kargaburun, uzun uçlu pense | long nose pliers with insulated handles
+Yan Keski | yan keski, kablo kesici | diagonal side cutting pliers
+Kerpeten | kerpeten, çivi sökme | carpenter's pincers
+Su Pompa Pensesi | papağan pense, ayarlı pense, tesisat | adjustable groove joint water pump pliers
+Kilitli Pense | kilitli pense, grip | locking grip pliers
+Kablo Soyma Pensesi | kablo soyucu, elektrik | wire stripper pliers
+Pabuç Sıkma Pensesi | kablo pabucu, sıkma pensesi | crimping tool for cable terminals
+Segman Pensesi | segman, pense | circlip pliers
+Fayans Kerpeteni | fayans pensesi, seramik | tile nipper pliers
+Pense Seti | pense takımı, 3'lü set | set of three pliers
+Düz Tornavida | tornavida, düz uçlu | flathead screwdriver with yellow handle
+Yıldız Tornavida | tornavida, yıldız uçlu, phillips | phillips screwdriver
+Tornavida Seti | tornavida takımı, set | screwdriver set in a plastic stand
+Kontrol Kalemi | kontrol kalemi, voltaj, elektrik | voltage tester screwdriver pen
+Hassas Tornavida Seti | saatçi tornavidası, gözlükçü | precision screwdriver set in a case
+Cırcırlı Tornavida | cırcır, uç seti, tornavida | ratcheting screwdriver with bit set
+Alyan Anahtar Seti | alyan, allen, imbus | hex key allen wrench set
+T Kollu Alyan Seti | t alyan, allen | T-handle hex key set
+Torx Anahtar Seti | torx, yıldız alyan | torx key wrench set
+Kombine Anahtar Seti | anahtar takımı, açık ağız, yıldız | combination wrench set in a roll pouch
+Açık Ağız Anahtar | çatal anahtar, anahtar | double open end wrench
+Yıldız Anahtar | yıldız anahtar, kapalı anahtar | double box end ring wrench
+Kurbağacık Anahtar | ayarlı anahtar, İngiliz anahtarı | adjustable wrench
+Boru Anahtarı | boru anahtarı, tesisat | red pipe wrench
+Lokma Takımı | lokma seti, cırcır kolu | socket wrench set in a carrying case
+Cırcır Kolu | cırcır, lokma kolu | ratchet handle for sockets
+Tork Anahtarı | tork anahtarı, oto | torque wrench
+Bijon Anahtarı | bijon, araç, lastik | four-way cross lug wrench
+Buji Anahtarı | buji, oto | spark plug socket wrench
+Yağ Filtre Anahtarı | filtre anahtarı, oto | oil filter wrench
+El Testeresi | testere, ahşap | wood hand saw
+Demir Testeresi | demir testere, metal kesme | hacksaw with red frame
+Kıl Testere | kıl testere, kontrplak | coping saw
+Gönye Kutusu | gönye kutusu, kesim, testere | plastic miter box with hand saw
+Budama Testeresi | budama, bahçe testeresi, katlanır | folding pruning saw
+Maket Bıçağı | falçata, kesici | retractable utility knife
+Maket Bıçağı Yedeği | falçata ucu, yedek bıçak | pack of snap-off utility knife blades
+Halı Bıçağı | kancalı bıçak, halı | hook blade carpet knife
+Çakı | çakı, katlanır bıçak | folding pocket knife
+Çok Amaçlı Pense | multitool, çakı | multitool pliers folded
+Sac Makası | sac makası, metal makası | aviation tin snips
+Çok Amaçlı Makas | makas, ağır iş | heavy duty utility scissors
+Kesme Kalemi | keski, murç | cold chisel
+Ağaç Oyma Keskisi | iskarpela, keski, marangoz | wood chisel with wooden handle
+El Rendesi | rende, marangoz | hand plane woodworking
+Metal Eğe | eğe, metal | flat metal file
+Ahşap Törpü | törpü, raspa | wood rasp
+F Tipi İşkence | işkence, kıskaç, sıkıştırma | F-clamp bar clamp
+Mengene | mengene, tezgah | bench vise
+Çalışma Tezgahı | tezgah, atölye | sturdy workbench
+İnşaat Malası | mala, sıva, inşaat | brick trowel
+Dişli Fayans Malası | dişli mala, fayans, seramik | notched tile trowel
+Sıva Malası | sıva malası, perdah | plastering trowel
+Spatula | spatula, macun, alçı | putty knife spatula
+Raspa | raspa, kazıyıcı, boya kazıma | paint scraper
+Levye | levye, kırıcı, sökme | crowbar pry bar
+Kazma | kazma, toprak | pickaxe with wooden handle
+Kürek | kürek, inşaat | steel shovel with wooden handle
+Bel Küreği | bel, bahçe çatalı | garden digging fork
+Çapa | çapa, bahçe | garden hoe
+Tırmık | tırmık, yaprak | garden rake
+Balta | balta, odun | axe with wooden handle
+Satır | satır, odun kırma | hatchet
+Tırpan | tırpan, ot biçme | scythe
+Orak | orak, ot | sickle
+Kar Küreği | kar küreği | plastic snow shovel
+Sokak Süpürgesi | saplı fırça, süpürge | push broom
+Çekpas | çekpas, su çekme | floor squeegee
+Manuel Fayans Kesici | fayans kesici, seramik | manual tile cutter
+Cam Kesici | cam kesme, elmas | glass cutter tool
+Perçin Tabancası | perçin, pop perçin | hand riveter tool
+Zımba Tabancası | zımba, tel zımba, döşeme | manual staple gun
+Silikon Tabancası | silikon tabancası, kartuş | caulking gun
+Pafta Takımı | pafta, kılavuz, diş açma | tap and die set in a case
+Nokta Zımbası | nokta, zımba, markalama | center punch
+Pim Zımbası Seti | pim sökücü, zımba | pin punch set
+Tel Fırça | tel fırça, pas, temizlik | wire brush with wooden handle
+Boru Kesici | boru kesme, bakır boru | pipe cutter tool
+PVC Boru Makası | boru makası, plastik boru | PVC pipe cutting scissors
+Boru Bükme Aleti | boru bükme, bakır | pipe bender tool
+Gres Pompası | gres, yağlama | grease gun
+Takım Çantası | alet çantası, takım kutusu | plastic toolbox with handle
+Ev Tamir Takım Seti | alet seti, ev tamir | household tool kit in a case
+Alet Kemeri | alet kemeri, bel çantası | tool belt pouch
+Teleskopik Mıknatıs | mıknatıs, vida tutucu | telescopic magnetic pickup tool
+Kablo Çekme Yayı | kablo çekme, elektrik | fish tape cable puller
+Akülü Vidalama Makinesi | şarjlı matkap, vidalama | cordless drill driver with battery
+Darbeli Matkap | matkap, darbeli, beton | corded hammer drill
+Kırıcı Delici | kırıcı delici, hilti, beton | SDS rotary hammer drill
+Avuç Taşlama | spiral, taşlama, 115 mm | small angle grinder
+Büyük Taşlama | spiral, taşlama, 230 mm | large angle grinder
+Dekupaj Testere | dekupaj, ahşap kesme | electric jigsaw
+Daire Testere | sunta kesme, daire testere | circular saw
+Kılıç Testere | tilki kuyruğu, kılıç testere | reciprocating saw
+Gönye Kesme Makinesi | gönye, ahşap kesme | compound miter saw
+Titreşimli Zımpara | zımpara makinesi | orbital sheet sander
+Eksantrik Zımpara | eksantrik, zımpara | random orbital sander
+Elektrikli Planya | planya, elektrikli rende | electric hand planer
+Freze Makinesi | freze, router, ağaç | wood router
+Sıcak Hava Tabancası | sıcak hava, boya sökme | heat gun
+Sıcak Silikon Tabancası | mum silikon, hobi | hot glue gun
+Havya | havya, lehim | soldering iron
+Lehim Teli | lehim, havya | soldering wire spool
+Lehim Pastası | lehim pastası, flux | tin of soldering flux paste
+Kaynak Makinesi | inverter kaynak, elektrot | inverter welding machine
+Kaynak Elektrodu | elektrot, kaynak çubuğu | pack of welding electrodes
+Gazaltı Kaynak Teli | gazaltı teli, MIG | MIG welding wire spool
+Kaynak Maskesi | kaynak maskesi, otomatik | auto darkening welding helmet
+Kaynak Eldiveni | kaynak eldiveni, deri | leather welding gloves
+Çapak Çekici | kaynak çekici, çapak | welding chipping hammer
+Pürmüz | pürmüz, hamlaç | butane blow torch
+Gaz Kartuşu | kartuş, bütan | butane gas canister
+Kompresör | hava kompresörü | air compressor with tank
+Hava Hortumu | kompresör hortumu | coiled air hose
+Lastik Şişirme Tabancası | şişirme, manometre | tire inflator gun with gauge
+Havalı Boya Tabancası | boya tabancası, havalı | air spray paint gun
+Elektrikli Boya Tabancası | boya püskürtme | electric paint sprayer
+Basınçlı Yıkama Makinesi | yıkama makinesi, oto yıkama | pressure washer
+Islak Kuru Süpürge | sanayi süpürgesi | wet and dry shop vacuum
+Akülü Somun Sıkma | somun sıkma, bijon | cordless impact wrench
+Çivi Tabancası | çivi çakma | nail gun
+Mermer Kesme Makinesi | mermer kesme, seramik | tile and marble cutter power tool
+Harç Karıştırıcı | mikser, boya karıştırma | paint and mortar mixer drill
+Elektrikli Kırıcı | kırıcı, beton kırma | demolition hammer
+Taş Motoru | bileme, taş motoru | bench grinder
+Matkap Mandreni | mandren, anahtarlı | drill chuck with key
+Yedek Akü Bataryası | batarya, akü | power tool battery pack
+Lazer Metre | lazer metre, mesafe ölçer | laser distance meter
+Çapraz Çizgi Lazer | lazer terazi, hizalama | cross line laser level
+Dijital Multimetre | multimetre, ölçü aleti | digital multimeter
+Pens Ampermetre | pens ampermetre | digital clamp meter
+Şarjlı El Feneri | el feneri, şarjlı, led | rechargeable LED flashlight
+Kafa Lambası | kafa feneri, led | LED headlamp
+LED Projektör | projektör, aydınlatma | LED floodlight
+Seyyar Çalışma Lambası | seyyar lamba | portable work light
+Jeneratör | jeneratör, benzinli | portable gasoline generator
+Akü Şarj Cihazı | akü şarj, araç | car battery charger
+Akü Takviye Kablosu | takviye kablosu, akü | jumper cables
+Çekme Halatı | çekme halatı, araç | tow strap
+Lastik Tamir Kiti | lastik tamir, fitil | tire repair kit
+Motorlu Testere | ağaç kesme, zincirli testere | chainsaw
+Çim Biçme Makinesi | çim biçme, bahçe | lawn mower
+Motorlu Tırpan | tırpan, çim | brush cutter string trimmer
+Yaprak Üfleme Makinesi | üfleyici, yaprak | leaf blower
+Matkap Ucu Seti | matkap ucu, metal, HSS | HSS drill bit set in a case
+Beton Matkap Ucu | beton ucu, vidia | masonry drill bit
+Seramik Matkap Ucu | seramik ucu, cam | tile and glass drill bit
+SDS Kırıcı Ucu | sivri uç, keski, hilti | SDS chisel bit
+Ahşap Matkap Ucu | ahşap ucu, yassı uç | wood spade drill bits
+Panç Seti | delik testere, panç | hole saw set
+Vidalama Ucu Seti | bits, uç seti | screwdriver bit set
+Metal Kesme Taşı | kesme diski, metal | metal cutting disc
+Taşlama Taşı | taşlama diski | grinding disc
+Elmas Kesme Diski | elmas disk, beton, fayans | diamond cutting blade
+Flap Disk | flap disk, zımpara | flap disc
+Çanak Tel Fırça | taşlama fırçası, tel | cup wire brush for grinder
+Zımpara Kağıdı | zımpara, su zımparası | sandpaper sheets
+Zımpara Süngeri | zımpara süngeri | sanding sponge block
+Zımpara Takozu | zımpara takozu | hand sanding block
+Saplı Alçı Zımparası | alçı zımparası, saplı | pole sander for drywall
+Dekupaj Bıçağı | dekupaj bıçağı | pack of jigsaw blades
+Daire Testere Bıçağı | testere bıçağı | circular saw blade
+Freze Ucu Seti | freze uçları | router bit set
+Polisaj Keçesi | polisaj, cila | polishing pad
+Ahşap Vidası | vida, ağaç vidası | wood screws
+Sunta Vidası | sunta vidası, mobilya | chipboard screws
+Alçıpan Vidası | alçıpan vidası, siyah | black drywall screws
+Matkap Uçlu Vida | akıllı vida, sac vidası | self drilling screws
+Trapez Vida | trapez vida, çatı | roofing screws with washers
+Civata | civata, cıvata | hex bolts
+Somun | somun | hex nuts
+Pul | pul, rondela | flat washers
+Yaylı Pul | yaylı pul | spring lock washers
+Kelebek Somun | kelebek somun | wing nuts
+Fiberli Somun | fiberli somun | nylon insert lock nuts
+Saplama | diş çubuk, saplama | threaded rod
+Trifon Vida | trifon, kombi | lag screws
+Plastik Dübel | dübel, plastik | plastic wall plugs
+Çelik Dübel | çelik dübel, ağır yük | steel expansion anchor bolts
+Alçıpan Dübeli | alçıpan dübeli, kelebek | drywall anchors
+Çakmalı Dübel | çakma dübel, çivili | hammer drive anchors
+Kimyasal Dübel | kimyasal ankraj | chemical anchor cartridge
+İnşaat Çivisi | çivi, inşaat | steel nails
+Beton Çivisi | çelik çivi, beton | hardened concrete nails
+Başsız Çivi | ince çivi, mobilya | finishing nails
+Zımba Teli | zımba teli, tel | staples for staple gun
+Pop Perçin | perçin, alüminyum | aluminum pop rivets
+Kanca Vida | kanca vida, askı | screw hooks
+Halka Vida | halka vida, göz vida | eye screws
+Mapa | mapa, dübelli kanca | eye bolt
+Kablo Bağı | cırt kelepçe, plastik kelepçe | cable zip ties
+Hortum Kelepçesi | kelepçe, hortum | hose clamps
+Boru Kelepçesi | boru kelepçesi, tesisat | pipe clamp brackets
+Kablo Kroşesi | kroşe, kablo tutucu | cable clips with nails
+Köşebent | köşe bağlantı, L demir | metal corner brackets
+Delikli Lama | lama, bağlantı | perforated metal mending plates
+Raf Konsolu | raf ayağı, konsol | shelf brackets
+Raf Rayı | raf rayı, duvar rafı | wall shelf track rail
+Raf Pimi | raf pimi, dolap | shelf support pins
+Minifix Bağlantı | minifix, mobilya | furniture cam lock fittings
+Vida Dübel Seti | vida seti, dübel seti | assorted screws and wall plugs kit box
+Şerit Metre | metre, şerit | tape measure
+Çelik Cetvel | cetvel, metal | steel ruler
+Gönye | gönye, açı | carpenter's square
+Su Terazisi | terazi, su terazisi | aluminum spirit level
+Mastar | mastar, alüminyum | aluminum screed straight edge
+Dijital Kumpas | kumpas, dijital | digital caliper
+Marangoz Kalemi | kalem, marangoz | carpenter pencil
+Çırpı İpi | çırpı, tebeşir ipi | chalk line reel
+Şakul | şakul, çekül | plumb bob
+Açı Ölçer | açı ölçer, iletki | angle finder protractor
+Nem Ölçer | nem ölçer, rutubet | moisture meter
+Duvar Dedektörü | dedektör, kablo bulucu | wall stud and cable detector
+Endüstriyel Markör | markör, işaretleme | permanent marker pens
+Lavabo Bataryası | batarya, musluk, lavabo | chrome basin mixer faucet
+Fotoselli Batarya | fotoselli, sensörlü musluk | sensor touchless faucet
+Mutfak Bataryası | eviye bataryası, mutfak | kitchen sink mixer tap
+Banyo Bataryası | duş bataryası, küvet | bath shower mixer
+Duş Başlığı | duş başlığı, el duşu | handheld shower head
+Duş Hortumu | spiral, duş hortumu | flexible shower hose
+Tepe Duş Seti | tepe duşu, duş seti | rain shower column set
+Bahçe Musluğu | musluk, pirinç | brass garden tap
+Ara Musluk | ara vana, ara musluk | chrome angle valve
+Küresel Vana | vana, küresel | brass ball valve
+Çekvalf | çekvalf, geri dönüşsüz | brass check valve
+Spiral Bağlantı Hortumu | flex hortum, bağlantı | braided flexible hose connector
+Rekor | rekor, bağlantı | brass union fitting
+PPRC Dirsek | dirsek, PPRC | PPR pipe elbow fitting
+PPRC Te | te, PPRC | PPR tee fitting
+Manşon | manşon, ek parça | pipe coupling fitting
+PPRC Boru | temiz su borusu, PPRC | white PPR water pipe
+PVC Pis Su Borusu | PVC boru, gider | grey PVC drain pipe
+PVC Dirsek | pis su dirseği | grey PVC drain elbow
+Kolektör | kolektör, dağıtıcı | brass water manifold
+Boru İzolasyonu | boru köpüğü, yalıtım | pipe foam insulation tube
+Lavabo Sifonu | sifon, lavabo | sink siphon trap
+Eviye Sifonu | eviye sifonu, mutfak | kitchen sink drain trap
+Yer Süzgeci | süzgeç, banyo gideri | stainless steel floor drain
+Lavabo Süzgeci | lavabo tıkacı, pop up | pop up basin drain plug
+Lavabo | lavabo, seramik | white ceramic washbasin
+Klozet | klozet, tuvalet | white ceramic toilet
+Hela Taşı | alaturka tuvalet | white ceramic squat toilet pan
+Duş Teknesi | duş teknesi | white shower tray
+Klozet Kapağı | klozet kapağı, yavaş kapanan | toilet seat with lid
+Rezervuar İç Takımı | rezervuar takımı, şamandıra | toilet cistern fill valve set
+Plastik Rezervuar | rezervuar, sıva üstü | white plastic toilet cistern
+Taharet Musluğu | taharet, bide | bidet tap
+Klozet Montaj Seti | klozet vidası, montaj | toilet fixing kit
+Teflon Bant | teflon, sızdırmazlık | PTFE thread seal tape
+Tesisat Keteni | keten, sızdırmazlık | plumbing hemp
+Sıvı Conta | sıvı conta, sızdırmazlık | liquid gasket sealant tube
+Conta Seti | conta, lastik conta | rubber washer gasket assortment
+Hidrofor | hidrofor, su pompası | water booster pump
+Dalgıç Pompa | dalgıç pompa, su tahliye | submersible water pump
+Su Sayacı | su saati, sayaç | water meter
+Basınç Düşürücü | basınç düşürücü, regülatör | pressure reducing valve
+Su Deposu | su deposu, tank | plastic water storage tank
+Depo Şamandırası | şamandıra, depo | float valve for water tank
+Radyatör Vanası | petek vanası, kalorifer | radiator valve
+Panel Radyatör | petek, radyatör | white panel radiator
+Havlupan | havlupan, banyo | chrome towel radiator
+Petek Purjör Anahtarı | purjör, kalorifer | radiator bleed key
+Lavabo Açıcı Pompa | pompa, tıkanıklık | rubber plunger
+Gider Açma Yayı | lağım yayı, spiral | drain cleaning snake spiral
+Rögar Kapağı | rögar, menhol | cast iron manhole cover
+Yağmur Izgarası | ızgara, gider | drainage channel grate
+Bahçe Hortumu | hortum, sulama | green garden hose
+Hortum Makarası | hortum makarası | garden hose reel
+Hortum Rakoru | rakor, hortum bağlantı | quick connect hose fittings
+Sulama Tabancası | sulama tabancası | garden spray gun nozzle
+Çim Fıskiyesi | fıskiye, sprinkler | lawn sprinkler
+Damla Sulama Seti | damla sulama | drip irrigation kit
+Şeffaf Hortum | seviye hortumu, şeffaf | clear vinyl tubing roll
+Perlatör | musluk ucu, perlatör | faucet aerator
+NYA Kablo | kablo, tek damar | single core electrical wire roll
+TTR Kablo | ttr kablo, çok damarlı | flexible multi-core cable roll
+Uzatma Kablosu | uzatma, grup priz | power strip extension socket
+Makaralı Uzatma Kablosu | makara kablo | cable reel extension
+Akım Korumalı Grup Priz | akım korumalı, grup priz | surge protected power strip
+Üçlü Priz Çoğaltıcı | üçlü priz, çoğaltıcı | three way plug adapter
+Akıllı Priz | wifi priz, akıllı ev | smart wifi plug
+Zaman Ayarlı Priz | timer, zaman saati | plug-in timer socket
+Topraklı Priz | priz, topraklı | white wall socket outlet
+Sıva Üstü Priz | sıva üstü | surface mounted socket
+Lamba Anahtarı | elektrik anahtarı | white light switch
+Komütatör | komütatör, ikili anahtar | white double light switch
+Dimmer | dimmer, ışık ayarı | dimmer switch
+Fiş | fiş, topraklı fiş | electrical plug
+Otomatik Sigorta | otomat, sigorta | miniature circuit breaker
+Kaçak Akım Rölesi | kaçak akım, rcd | residual current device breaker
+Sigorta Kutusu | sigorta kutusu, pano | electrical distribution box
+Cam Sigorta | cam sigorta, buşon | glass fuses assortment
+Buat | buat, ek kutusu | electrical junction box
+Su Geçirmez Buat | su geçirmez kutu | waterproof junction box
+Klemens | klemens, bağlantı | terminal block connectors
+Hızlı Klemens | wago, kollu klemens | lever wire connectors
+Kablo Pabucu | pabuç | cable lug terminals
+İzole Bant | izole bant, elektrik bandı | black electrical insulation tape
+Makaron | makaron, ısıyla daralan | heat shrink tubing assortment
+Kablo Kanalı | kanal, kablo kanalı | white PVC cable trunking
+Spiral Kablo Toplayıcı | spiral, kablo düzenleyici | spiral cable wrap
+Spiral Elektrik Borusu | spiral boru, gergi | corrugated electrical conduit
+Duy | duy, lamba duyu | E27 lamp holder socket
+LED Ampul | ampul, led | LED light bulb
+Mum Ampul | mum ampul, e14 | candle LED bulb
+Spot Ampul | spot, GU10 | GU10 LED spot bulb
+Bant Armatür | floresan, armatür, led bant | LED batten tube light fixture
+LED Panel | led panel, sıva altı | square LED panel light
+Plafonyer | plafonyer, tavan lambası | round ceiling light fixture
+Sensörlü Lamba | sensörlü, hareket | motion sensor LED light
+Hareket Sensörü | sensör, tavan sensörü | ceiling motion sensor
+Acil Aydınlatma Armatürü | acil durum lambası, çıkış | emergency exit light
+Duvar Apliği | aplik | wall sconce lamp
+Şerit LED | şerit led, led şerit | LED strip light reel
+LED Adaptörü | led trafo, adaptör | LED power supply adapter
+Solar Bahçe Lambası | güneş enerjili lamba | solar garden stake light
+Fotosel | fotosel, alacakaranlık | photocell light sensor switch
+Kablosuz Kapı Zili | zil, kablosuz zil | wireless doorbell
+Boya Rulosu | rulo, boya rulosu | paint roller
+Boya Fırçası | fırça, boya fırçası | flat paint brush
+Kestirme Fırçası | kestirme, köşe fırçası | angled sash paint brush
+Badana Fırçası | badana, kireç | wide whitewash brush
+Boya Teknesi | rulo teknesi | paint roller tray
+Rulo Uzatma Sapı | teleskopik sap | telescopic extension pole for roller
+Maskeleme Bandı | kağıt bant, maskeleme | masking tape roll
+Örtü Naylonu | naylon örtü, koruma | plastic drop cloth sheet
+Sıva Filesi | file, sıva, fileli | fiberglass mesh roll
+Saten Alçı | alçı, saten | bag of satin plaster
+Hazır Sıva | sıva, hazır | bag of ready mix plaster
+Kireç | kireç, badana | bag of hydrated lime
+Tavan Boyası | tavan boyası, beyaz | bucket of white ceiling paint
+İç Cephe Boyası | iç cephe, plastik boya | bucket of interior wall paint
+Dış Cephe Boyası | dış cephe | bucket of exterior paint
+Astar Boya | astar, tutucu | bucket of primer
+Sentetik Yağlı Boya | yağlı boya, metal | can of synthetic enamel paint
+Antipas | antipas, pas önleyici | can of anti-rust primer
+Sprey Boya | sprey boya | spray paint can
+Galvaniz Sprey | çinko sprey | zinc galvanizing spray can
+Ahşap Verniği | vernik, ahşap | can of wood varnish
+Ahşap Koruyucu | emprenye, ahşap | can of wood stain preservative
+Tiner | tiner, inceltici | metal can of paint thinner
+Duvar Macunu | macun, tamir | tub of wall filler putty
+Cam Macunu | cam macunu | tub of glazing putty
+Akrilik Mastik | mastik, derz | acrylic sealant cartridge
+Derz Dolgu | derz, fayans | bag of tile grout
+Seramik Yapıştırıcısı | seramik yapıştırıcı | bag of tile adhesive
+Su Yalıtım Malzemesi | su yalıtım, izolasyon | bucket of waterproofing coating
+Köşe Profili | köşe profil, alçı | metal plaster corner bead
+Fayans Artısı | artı, fayans aralık | tile spacer crosses
+Fayans Tesviye Klipsi | tesviye sistemi | tile leveling clips and wedges
+Şeffaf Silikon | silikon, şeffaf | clear silicone sealant cartridge
+Beyaz Silikon | beyaz silikon, banyo | white silicone sealant cartridge
+Poliüretan Köpük | köpük, montaj köpüğü | polyurethane foam spray can
+Köpük Tabancası | köpük tabancası | foam gun
+Japon Yapıştırıcı | japon, hızlı yapıştırıcı | small tube of super glue
+Sıvı Çivi | montaj yapıştırıcısı | construction adhesive cartridge
+Kontak Yapıştırıcı | kontak, ayakkabı | tube of contact cement
+Epoksi Yapıştırıcı | epoksi, iki bileşenli | two part epoxy adhesive syringe
+Ahşap Tutkalı | tutkal, beyaz tutkal | bottle of white wood glue
+Çift Taraflı Bant | çift taraflı, köpük bant | double sided foam tape
+Koli Bandı | koli bandı, ambalaj | packing tape roll
+Tamir Bandı | tamir bandı, gri | silver duct tape roll
+Su Tamir Bandı | sızdırmazlık bandı | waterproof sealing tape roll
+Alüminyum Bant | alüminyum folyo bant | aluminum foil tape roll
+Kapı Pencere Fitili | fitil, izolasyon | self adhesive weather strip roll
+Kapı Altı Rüzgarlığı | rüzgarlık, kapı altı | door draft stopper strip
+Pas Sökücü Sprey | pas sökücü, yağlayıcı | multi purpose lubricant spray can
+Kontak Temizleyici Sprey | elektrik kontak | electrical contact cleaner spray can
+Silikon Sprey | silikon yağlayıcı | silicone lubricant spray can
+Makine Yağı | makine yağı, yağdanlık | oil can with spout
+Gres Yağı | gres, yağ | tub of grease
+İç Kapı Kolu | kapı kolu, iç kapı | chrome door handle
+Gömme Kilit | kapı kilidi, iç kapı | mortise door lock
+Çelik Kapı Kilidi | çelik kapı, kilit | steel door lock body
+Barel | barel, silindir | door lock cylinder with keys
+Şifreli Kapı Kilidi | dijital kilit, şifreli | digital keypad door lock
+Asma Kilit | asma kilit | brass padlock
+Şifreli Asma Kilit | şifreli kilit | combination padlock
+Kapı Dürbünü | dürbün, kapı | door peephole viewer
+Kapı Stoperi | kapı tamponu, stoper | door stopper
+Hidrolik Kapı Kapatıcı | kapı yayı, hidrolik | hydraulic door closer
+Kapı Menteşesi | menteşe | steel door hinge
+Frenli Menteşe | mobilya menteşesi, frenli | soft close cabinet hinge
+Çekmece Rayı | çekmece rayı, teleskopik | ball bearing drawer slides
+Mobilya Kulpu | kulp, dolap kulpu | cabinet pull handle
+Düğme Kulp | düğme kulp | cabinet knob
+Gömme Kulp | gömme kulp, sürgülü kapı | recessed flush pull handle
+Ayarlı Mobilya Ayağı | mobilya ayağı | adjustable furniture leg
+Döner Tekerlek | tekerlek, mobilya | swivel caster wheel
+Kapı Sürgüsü | sürgü | barrel bolt door latch
+Kapı Zinciri | güvenlik zinciri | door chain guard
+Mıknatıslı Dolap Kilidi | dolap mıknatısı | magnetic cabinet catch
+PVC Pencere Kolu | pencere kolu, PVC | white PVC window handle
+Sürgülü Kapı Rayı | sürgülü kapı, ray | sliding door track hardware
+Dolap Askı Borusu | dolap borusu, elbise | wardrobe rail tube
+Keçe Ped | keçe, mobilya altı | felt furniture pads
+Kapı Eşiği | eşik, alüminyum | aluminum door threshold
+Posta Kutusu | posta kutusu | metal mailbox
+Çelik Para Kasası | kasa, çelik kasa | small steel safe
+Budama Makası | budama, bağ makası | pruning shears
+Çit Makası | çit makası | hedge shears
+Dal Kesme Makası | dal makası, uzun saplı | long handled loppers
+Bahçe Eldiveni | eldiven, bahçe | gardening gloves
+Fide Küreği | el küreği, saksı | hand trowel garden
+El Çapası | çapalama, el çapası | hand cultivator
+El Arabası | el arabası, inşaat | wheelbarrow
+İlaçlama Pompası | ilaçlama, pompalı | garden pressure sprayer
+Bahçe Sulama Kabı | sulama kabı | metal watering can
+Plastik Saksı | saksı | plastic flower pot
+Saksı Toprağı | torf, toprak | bag of potting soil
+Bitki Gübresi | gübre, bitki besini | bag of fertilizer
+Çim Tohumu | çim tohumu | bag of grass seed
+Çiçek Tohumu | tohum, çiçek | flower seed packets
+Fide Viyolü | viyol, fide tepsisi | plastic seedling tray
+Bahçe Kazığı | kazık, bambu | bamboo garden stakes
+Sera Naylonu | sera naylonu | greenhouse plastic film roll
+Gölge Filesi | gölgelik, file | shade net roll
+Bahçe Tel Çit | tel çit, kafes teli | roll of wire mesh fencing
+Dikenli Tel | dikenli tel | barbed wire roll
+İş Eldiveni | eldiven, iş eldiveni | work gloves
+Nitril Eldiven | nitril, dayanıklı eldiven | nitrile coated work gloves
+Koruyucu Gözlük | gözlük, iş gözlüğü | safety goggles
+Toz Maskesi | maske, toz maskesi | dust mask respirator
+Gaz Maskesi | boya maskesi, filtreli | half face respirator mask
+Baret | baret, kask | yellow hard hat
+Kulak Koruyucu | kulaklık, gürültü | ear muffs hearing protection
+İş Ayakkabısı | çelik burun, iş ayakkabısı | steel toe safety boots
+Reflektörlü Yelek | ikaz yeleği, reflektör | high visibility safety vest
+Paraşüt Tipi Emniyet Kemeri | emniyet kemeri, yüksekte çalışma | full body safety harness
+Yüz Siperliği | siperlik, yüz koruyucu | face shield
+İş Tulumu | tulum, iş elbisesi | work overalls
+Yağmurluk | yağmurluk, iş | rain poncho
+Dizlik | dizlik, fayans | knee pads
+Yangın Söndürücü | yangın tüpü | red fire extinguisher
+İlk Yardım Çantası | ilk yardım | first aid kit
+İkaz Şeridi | şerit, ikaz bandı | barrier warning tape roll
+Trafik Konisi | duba, koni | traffic cone
+Uyarı Levhası | uyarı tabelası, iş güvenliği | safety warning sign
+Alüminyum Merdiven | merdiven, alüminyum | aluminum step ladder
+Teleskopik Merdiven | katlanır merdiven | telescopic ladder
+Basamaklı Tabure | tabure merdiven | two step stool ladder
+Yük Taşıma Arabası | yük arabası | hand truck dolly
+Platform Taşıma Arabası | taşıma arabası | flat platform trolley
+Tekerlekli Takım Dolabı | takım arabası | rolling tool cabinet
+Organizer Kutu | organizer, vida kutusu | small parts organizer box
+Çelik Raf Ünitesi | raf, metal raf | metal shelving unit
+Halat | halat, ip | coil of rope
+Zincir | zincir | steel chain
+Çelik Halat | çelik halat | steel wire rope coil
+Liftin | gergi, liftin | turnbuckle
+Halat Klipsi | halat kilidi | wire rope clips
+Spanzet | spanzet, yük bağlama | ratchet tie down strap
+Ahtapot Lastik | lastik ahtapot, bagaj | bungee cords
+S Kanca | s kanca, askı | S hooks
+Karabina | karabina, kilitli | steel carabiner
+Palanga | makara, palanga | pulley block
+Hidrolik Kriko | kriko, araç | hydraulic bottle jack
+Branda | branda, örtü | blue tarpaulin
+Bağ Teli | bağ teli, tavlı tel | binding wire coil
+Galvaniz Tel | galvaniz tel | galvanized wire coil
+Duvar Kancası | duvar askısı, kanca | wall hooks
+Bisiklet Askısı | bisiklet askısı | wall bike hook
+Resim Askı Seti | resim kancası | picture hanging hooks kit
+Neodyum Mıknatıs | mıknatıs | neodymium magnets
+Banyo Aspiratörü | aspiratör, fan | bathroom exhaust fan
+Havalandırma Menfezi | menfez, ızgara | ventilation grille
+Soba Borusu | soba borusu, baca | stove pipe
+Çimento | çimento, torba | bag of cement
+Tuğla | tuğla | red clay brick
+Briket | briket | concrete block
+Gazbeton | ytong, gazbeton | aerated concrete block
+Alçıpan Levha | alçıpan | gypsum board sheet
+OSB Levha | osb | OSB board sheet
+Kontrplak | kontrplak | plywood sheet
+Strafor Levha | strafor, EPS, ısı yalıtım | EPS insulation board
+Taşyünü Levha | taşyünü, yalıtım | rockwool insulation slab
+Bitümlü Membran | membran, su yalıtımı | roll of bitumen membrane
+Yağmur Oluğu | oluk, yağmur | PVC rain gutter
+Kiremit | kiremit, çatı | clay roof tile
+İnşaat Demiri | demir, nervürlü | bundle of steel rebar
+Hasır Çelik | çelik hasır | steel mesh panel
+Kutu Profil | kutu profil, demir | steel square tube
+Alçıpan Profili | c profil, u profil | metal drywall profiles
+Galvaniz Sac | galvaniz sac | galvanized steel sheet
+Trapez Sac | trapez sac, çatı | corrugated roofing sheet
+Polikarbon Levha | polikarbon | polycarbonate sheet
+Naylon Rulo | şeffaf naylon | clear plastic sheeting roll
+Seramik Karo | seramik, yer karosu | ceramic floor tile
+Laminat Parke | parke, laminat | laminate flooring planks
+Süpürgelik | süpürgelik | skirting board
+Parke Altı Şilte | şilte, parke altı | foam underlay roll
+İnşaat Kovası | harç kovası, kova | black construction bucket
+Harç Teknesi | harç teknesi | mortar mixing tub
+Kartonpiyer | kartonpiyer, tavan süsü | white polystyrene crown molding
+Duvar Kağıdı | duvar kağıdı | roll of patterned wallpaper
+Duvar Kağıdı Tutkalı | tutkal, duvar kağıdı | box of wallpaper paste

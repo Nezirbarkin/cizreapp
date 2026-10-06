@@ -4,6 +4,7 @@ import '../../../core/models/post_model.dart';
 import '../../../core/widgets/text_background.dart';
 import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
+import '../models/post_image_format.dart';
 import 'heart_animation_overlay.dart';
 import 'post_image_carousel.dart';
 import '../../music/music.dart';
@@ -171,231 +172,248 @@ class SocialPostCard extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 8, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ---------------------------------------------- başlık satırı
-                  Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 8, 0),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      PrivilegedAvatar(
-                        userId: post.userId,
-                        username: username,
-                        avatarUrl: avatarUrl,
-                        radius: 22,
-                        // Kullanıcı ikon/tikleri avatarın altında tekrar
-                        // edilmez; başlıkta ismin yanında tek kez gösterilir.
-                        showSocialPrivileges: false,
-                        onTap: onAuthorTap,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: onAuthorTap,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 2,
-                                crossAxisAlignment: WrapCrossAlignment.center,
+                      // ---------------------------------------------- başlık satırı
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          PrivilegedAvatar(
+                            userId: post.userId,
+                            username: username,
+                            avatarUrl: avatarUrl,
+                            radius: 22,
+                            // Kullanıcı ikon/tikleri avatarın altında tekrar
+                            // edilmez; başlıkta ismin yanında tek kez gösterilir.
+                            showSocialPrivileges: false,
+                            onTap: onAuthorTap,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: onAuthorTap,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    fullName,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 15,
-                                      color: Color(0xFF11181C),
-                                    ),
-                                    softWrap: true,
+                                  Wrap(
+                                    spacing: 4,
+                                    runSpacing: 2,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        fullName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15,
+                                          color: Color(0xFF11181C),
+                                        ),
+                                        softWrap: true,
+                                      ),
+                                      if (showPrivilegeBadges)
+                                        ProfilePrivilegeBadges(
+                                          userId: post.userId,
+                                          maximum: 3,
+                                        ),
+                                      if (isVerified)
+                                        const Icon(
+                                          Icons.verified,
+                                          size: 15,
+                                          color: Color(0xFF1DA1F2),
+                                        ),
+                                    ],
                                   ),
-                                  if (showPrivilegeBadges)
-                                    ProfilePrivilegeBadges(
-                                      userId: post.userId,
-                                      maximum: 3,
-                                    ),
-                                  if (isVerified)
-                                    const Icon(
-                                      Icons.verified,
-                                      size: 15,
-                                      color: Color(0xFF1DA1F2),
-                                    ),
+                                  const SizedBox(height: 3),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 3,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        '@$username',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      Text(
+                                        '· ${formatSocialPostDate(post.createdAt)}',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                      if (authorRole.isStaff)
+                                        _PostChip(
+                                          label: authorRole.displayLabel,
+                                          color: authorRoleColor(authorRole),
+                                        ),
+                                      if (post.adminPinned)
+                                        _PostChip(
+                                          label: 'Sabit',
+                                          color: Colors.amber.shade700,
+                                          icon: Icons.push_pin,
+                                        ),
+                                    ],
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 3),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 3,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(
-                                    '@$username',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: Colors.grey.shade600,
-                                    ),
+                            ),
+                          ),
+                          if (trailing != null) trailing!,
+                        ],
+                      ),
+
+                      // -------------------------------------------------- içerik
+                      // Arka plan seçilmiş metin gönderisi paylaşıldığı
+                      // kompozisyonla çizilir; seçilmemişse SADE metin.
+                      if (post.content != null &&
+                          post.content!.isNotEmpty &&
+                          postBackground != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(2, 10, 8, 0),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: AspectRatio(
+                              aspectRatio: 4 / 3,
+                              child: TextBackgroundCanvas(
+                                background: postBackground,
+                                text: post.content!,
+                                maxLines: 10,
+                                padding: const EdgeInsets.all(22),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (post.content != null && post.content!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(2, 6, 8, 0),
+                          child: Text(
+                            post.content!,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              color: Color(0xFF1F2933),
+                              height: 1.42,
+                            ),
+                            maxLines: 8,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+
+                      // -------------------------------------------------- müzik
+                      // OTOMATİK ÇALMAZ. Akış kaydırılırken kendiliğinden ses
+                      // çıkaran bir kart hem veri harcar hem de kullanıcının
+                      // sessiz sandığı ortamda sesi açar; rozet yalnızca
+                      // dokunulunca çalar ve tüm kartlar tek oynatıcıyı paylaşır.
+                      if (post.music != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(2, 10, 8, 0),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FeedMusicPill(music: post.music!),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // ----------------------------------------------- görsel
+                // Görev 2.8: fotoğraf kartın TAM genişliğinde (kenar
+                // boşluksuz) ve gönderinin çerçeve oranında çizilir; oran
+                // bilinmiyorsa kare. Eskiden iç boşluklu, 240 px'lik basık
+                // bir şeritti.
+                if (post.images.isNotEmpty && post.images.first.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: PostImageCarousel(
+                      imageUrls: post.images,
+                      aspectRatio: feedImageAspect(post.imageAspectRatio),
+                      onTap: onTap,
+                    ),
+                  ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ------------------------------------------------- konum
+                      if (post.location != null && post.location!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10, left: 2),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_rounded,
+                                size: 15,
+                                color: Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  post.location!,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: Colors.grey.shade600,
                                   ),
-                                  Text(
-                                    '· ${formatSocialPostDate(post.createdAt)}',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: Colors.grey.shade500,
-                                    ),
-                                  ),
-                                  if (authorRole.isStaff)
-                                    _PostChip(
-                                      label: authorRole.displayLabel,
-                                      color: authorRoleColor(authorRole),
-                                    ),
-                                  if (post.adminPinned)
-                                    _PostChip(
-                                      label: 'Sabit',
-                                      color: Colors.amber.shade700,
-                                      icon: Icons.push_pin,
-                                    ),
-                                ],
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      if (trailing != null) trailing!,
-                    ],
-                  ),
 
-                  // -------------------------------------------------- içerik
-                  // Arka plan seçilmiş metin gönderisi paylaşıldığı
-                  // kompozisyonla çizilir; seçilmemişse SADE metin.
-                  if (post.content != null &&
-                      post.content!.isNotEmpty &&
-                      postBackground != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(2, 10, 8, 0),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: AspectRatio(
-                          aspectRatio: 4 / 3,
-                          child: TextBackgroundCanvas(
-                            background: postBackground,
-                            text: post.content!,
-                            maxLines: 10,
-                            padding: const EdgeInsets.all(22),
-                          ),
-                        ),
-                      ),
-                    )
-                  else if (post.content != null && post.content!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(2, 6, 8, 0),
-                      child: Text(
-                        post.content!,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: Color(0xFF1F2933),
-                          height: 1.42,
-                        ),
-                        maxLines: 8,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+                      const SizedBox(height: 6),
+                      Divider(height: 14, color: Colors.grey.shade200),
 
-                  // -------------------------------------------------- müzik
-                  // OTOMATİK ÇALMAZ. Akış kaydırılırken kendiliğinden ses
-                  // çıkaran bir kart hem veri harcar hem de kullanıcının
-                  // sessiz sandığı ortamda sesi açar; rozet yalnızca
-                  // dokunulunca çalar ve tüm kartlar tek oynatıcıyı paylaşır.
-                  if (post.music != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(2, 10, 8, 0),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: FeedMusicPill(music: post.music!),
-                      ),
-                    ),
-
-                  // ------------------------------------------------- görsel
-                  if (post.images.isNotEmpty && post.images.first.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12, right: 6),
-                      // PostImageCarousel kendi ClipRRect'ini uyguluyor.
-                      child: PostImageCarousel(
-                        imageUrls: post.images,
-                        onTap: onTap,
-                      ),
-                    ),
-
-                  // ------------------------------------------------- konum
-                  if (post.location != null && post.location!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10, left: 2),
-                      child: Row(
+                      // ------------------------------------------ aksiyon satırı
+                      Row(
                         children: [
-                          Icon(
-                            Icons.location_on_rounded,
-                            size: 15,
-                            color: Colors.grey.shade500,
+                          _ActionButton(
+                            icon: isLiked
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            count: post.likesCount,
+                            onTap: onLike,
+                            color: const Color(0xFFE0245E),
+                            isActive: isLiked,
                           ),
                           const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              post.location!,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.grey.shade600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
+                          _ActionButton(
+                            icon: Icons.mode_comment_outlined,
+                            count: post.commentsCount,
+                            onTap: onComment,
+                            color: const Color(0xFF1D9BF0),
+                          ),
+                          const SizedBox(width: 4),
+                          _ActionButton(
+                            icon: Icons.send_outlined,
+                            count: null,
+                            onTap: onSend,
+                            color: const Color(0xFF17BF63),
+                          ),
+                          const Spacer(),
+                          _ActionButton(
+                            icon: isSaved
+                                ? Icons.bookmark
+                                : Icons.bookmark_border,
+                            count: null,
+                            onTap: onSave,
+                            color: const Color(0xFFF59E0B),
+                            isActive: isSaved,
                           ),
                         ],
                       ),
-                    ),
-
-                  const SizedBox(height: 6),
-                  Divider(height: 14, color: Colors.grey.shade200),
-
-                  // ------------------------------------------ aksiyon satırı
-                  Row(
-                    children: [
-                      _ActionButton(
-                        icon: isLiked
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        count: post.likesCount,
-                        onTap: onLike,
-                        color: const Color(0xFFE0245E),
-                        isActive: isLiked,
-                      ),
-                      const SizedBox(width: 4),
-                      _ActionButton(
-                        icon: Icons.mode_comment_outlined,
-                        count: post.commentsCount,
-                        onTap: onComment,
-                        color: const Color(0xFF1D9BF0),
-                      ),
-                      const SizedBox(width: 4),
-                      _ActionButton(
-                        icon: Icons.send_outlined,
-                        count: null,
-                        onTap: onSend,
-                        color: const Color(0xFF17BF63),
-                      ),
-                      const Spacer(),
-                      _ActionButton(
-                        icon: isSaved
-                            ? Icons.bookmark
-                            : Icons.bookmark_border,
-                        count: null,
-                        onTap: onSave,
-                        color: const Color(0xFFF59E0B),
-                        isActive: isSaved,
-                      ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
             if (isPinnedByOwner)
               Positioned(

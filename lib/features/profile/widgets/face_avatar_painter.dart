@@ -1,23 +1,24 @@
-// Avatar çizim motoru: FaceAvatarConfig'teki parametrik tarifleri (spec)
-// yarı-gerçekçi bir portreye çevirir.
+// Avatar çizim motoru (Bitmoji tarzı): FaceAvatarConfig'teki parametrik
+// tarifleri (spec) sevimli ama kişiye benzeyen bir portreye çevirir.
 //
-// Görsel varlık (PNG/SVG) yoktur; her şey Canvas'ta gradyan, yumuşak gölge,
-// bezier eğrileri ve tek tek çizilen kıl/tel katmanlarıyla üretilir. Bu yüzden
-// katalog büyütmek (yeni saç/kaş/göz stili) dosya eklemek değil, tek satır
-// spec eklemek demektir.
+// Görsel varlık (PNG/SVG) yoktur; her şey Canvas'ta düz renk, ışığın tersinde
+// "cel" gölge ve her parçanın kendi renginin koyusuyla çizilen ince konturla
+// üretilir. Katalog büyütmek (yeni saç/kaş/göz stili) dosya eklemek değil, tek
+// satır spec eklemek demektir.
 //
 // Parçalar (`part`) tek kitaplığı paylaşır, böylece ortak geometri/renk
 // (`_Rig`) ve yardımcılar her yerden kullanılabilir:
-//   face_avatar/rig.dart       geometri, renk paleti, çizim yardımcıları
-//   face_avatar/body.dart      arka plan, boyun/omuz, kıyafetler
-//   face_avatar/skin.dart      kafa, kulak, cilt gölgeleri, çil/ben, yaş çizgileri
-//   face_avatar/features.dart  kaş, göz, burun, dudak
-//   face_avatar/hair.dart      saç (arka + ön), kapalı saç/başörtüsü
-//   face_avatar/beard.dart     sakal, bıyık, favori
-//   face_avatar/wear.dart      gözlük, başlık, takı
+//   face_avatar/rig.dart        geometri, renk paleti, çizim yardımcıları
+//   face_avatar/body.dart       arka plan, boyun/omuz, kıyafetler
+//   face_avatar/skin.dart       kafa, kulak, yüz gölgeleri, çil/ben, yaş çizgileri
+//   face_avatar/features.dart   kaş, göz, burun, dudak
+//   face_avatar/hair.dart       saç (arka + ön kütle, kâkül, uzun tutamlar)
+//   face_avatar/hair_ties.dart  topuz/kuyruk/örgü, başörtüsü/türban/bandana
+//   face_avatar/beard.dart      sakal, bıyık, favori
+//   face_avatar/wear.dart       gözlük, başlık, takı
 //
-// Kalite: `detailed: false` küçük önizlemeler içindir (bulanıklık, tel tel
-// saç/kıl ve doku katmanları atlanır).
+// Kalite: `detailed: false` küçük önizlemeler içindir (bulanıklık ve ince doku
+// katmanları atlanır, kontur biraz kalınlaşır).
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -98,6 +99,7 @@ class FaceAvatarPainter extends CustomPainter {
     _paintClothing(canvas, rig);
     _paintEars(canvas, rig);
     _paintHead(canvas, rig);
+    _paintHeadOutline(canvas, rig);
     _paintFaceShading(canvas, rig);
     _paintBrows(canvas, rig);
     _paintEyes(canvas, rig);
@@ -124,6 +126,22 @@ class FaceAvatarPainter extends CustomPainter {
       oldDelegate.blink != blink ||
       oldDelegate.sway != sway ||
       oldDelegate.bob != bob;
+}
+
+/// Editör küçük resimlerinin yakınlaşacağı noktalar (200x200 tuvalde).
+/// Çizim motorunun geometrisiyle birlikte güncellenir.
+abstract final class FaceAvatarFocus {
+  static const Offset hair = Offset(100, 68);
+  static const Offset brows = Offset(100, 84);
+  static const Offset eyes = Offset(100, 94);
+  static const Offset nose = Offset(100, 110);
+  static const Offset lips = Offset(100, 126);
+  static const Offset beard = Offset(100, 126);
+  static const Offset glasses = Offset(100, 94);
+  static const Offset headwear = Offset(100, 50);
+  static const Offset jewelry = Offset(100, 132);
+  static const Offset detail = Offset(100, 106);
+  static const Offset clothing = Offset(100, 172);
 }
 
 /// Canlı önizleme: yuvarlak çerçeve içinde avatar.

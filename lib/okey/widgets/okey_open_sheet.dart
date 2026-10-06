@@ -53,12 +53,14 @@ abstract final class OkeyOpenSheet {
               decoration: BoxDecoration(
                 color: OkeyUI.cardFillRaised,
                 borderRadius: BorderRadius.circular(OkeyUI.radiusLg),
-                border: Border.all(color: const Color(0x57E4B04C)),
-                boxShadow: const [
+                border: Border.all(color: OkeyUI.brass.withValues(alpha: 0.34)),
+                boxShadow: [
                   BoxShadow(
-                    color: Color(0xBF000000),
+                    color: OkeyUI.isLight
+                        ? OkeyUI.shadow
+                        : const Color(0xBF000000),
                     blurRadius: 30,
-                    offset: Offset(0, 14),
+                    offset: const Offset(0, 14),
                   ),
                 ],
               ),
@@ -74,7 +76,7 @@ abstract final class OkeyOpenSheet {
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => Navigator.of(context).pop(),
-                        child: const SizedBox(
+                        child: SizedBox(
                           width: 40,
                           height: 40,
                           child: Icon(
@@ -109,7 +111,7 @@ abstract final class OkeyOpenSheet {
                                 ? 'Baraj geçildi'
                                 : '${requiredPoints - points} puan kaldı',
                             style: OkeyUI.caption.copyWith(
-                              color: OkeyUI.brass,
+                              color: OkeyUI.accentInk,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -210,7 +212,7 @@ class _OpenChoice extends StatelessWidget {
         decoration: BoxDecoration(
           color: ready ? null : OkeyUI.cardFill,
           gradient: ready
-              ? const LinearGradient(
+              ? LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: OkeyUI.goldGradient,
@@ -221,9 +223,7 @@ class _OpenChoice extends StatelessWidget {
             color: ready ? const Color(0x00000000) : OkeyUI.cardBorder,
           ),
           boxShadow: ready
-              ? const [
-                  BoxShadow(color: Color(0xFF9A6A17), offset: Offset(0, 3)),
-                ]
+              ? [BoxShadow(color: OkeyUI.goldEdge, offset: const Offset(0, 3))]
               : null,
         ),
         child: Column(

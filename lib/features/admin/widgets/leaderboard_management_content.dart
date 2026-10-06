@@ -419,6 +419,7 @@ class _LeaderboardManagementContentState
         const SizedBox(height: 10),
         for (final board in LeaderboardBoard.values.where((b) => b.isStats))
           ..._statSection(settings, board),
+        ..._recordSection(settings),
         const SizedBox(height: 10),
         _sectionTitle('Listelerden gizlenenler (${_hidden.length})'),
         _hiddenSection(),
@@ -434,7 +435,18 @@ class _LeaderboardManagementContentState
     LeaderboardBoard card,
   ) {
     final cardOn = settings.isBoardEnabled(card);
-    final isToday = card.statGroup == LeaderboardStatGroup.today;
+    final hint = switch (card.statGroup) {
+      LeaderboardStatGroup.today =>
+        '"Ziyaretçi" bugün (İstanbul saati) iz bırakan herkestir, '
+            'misafirler dahil. Hesap açmadan ve misafir oturumu '
+            'başlatmadan gezenler izlenmez.',
+      LeaderboardStatGroup.personal =>
+        'Her kullanıcı yalnız KENDİ sayılarını görür; misafir (üyesiz) '
+            'hesaplara bu kart gösterilmez.',
+      _ =>
+        '"Sipariş" tamamlanan fiziksel ve dijital siparişlerdir. '
+            '"Toplam üye" misafirleri (üyesiz) saymaz.',
+    };
     return [
       _sectionTitle('${card.title} kartındaki sayılar'),
       Padding(
@@ -442,12 +454,7 @@ class _LeaderboardManagementContentState
         child: Text(
           !cardOn
               ? '"${card.title}" kartı kapalı; açılınca bu sayılar görünür.'
-              : (isToday
-                    ? '"Ziyaretçi" bugün (İstanbul saati) iz bırakan herkestir, '
-                          'misafirler dahil. Hesap açmadan ve misafir oturumu '
-                          'başlatmadan gezenler izlenmez.'
-                    : '"Sipariş" tamamlanan fiziksel ve dijital siparişlerdir. '
-                          '"Toplam üye" misafirleri (üyesiz) saymaz.'),
+              : hint,
           style: const TextStyle(
             fontSize: 12,
             color: AdminUi.muted,
@@ -507,6 +514,85 @@ class _LeaderboardManagementContentState
         return 'Yayındaki gönderiler.';
       case LeaderboardStat.okeyMatches:
         return 'Bitmiş 101 Okey maçları (botlarla oynananlar dahil).';
+      case LeaderboardStat.myDays:
+        return 'Kayıt olduğu günden bu yana geçen gün.';
+      case LeaderboardStat.myPosts:
+        return 'Yayındaki gönderileri.';
+      case LeaderboardStat.myLikes:
+        return 'Gönderilerine gelen toplam beğeni.';
+      case LeaderboardStat.myPostViews:
+        return 'Gönderilerinin görüntülenmesi (kendi bakışları hariç).';
+      case LeaderboardStat.myFollowers:
+        return 'Takipçi sayısı.';
+      case LeaderboardStat.myFollowing:
+        return 'Takip ettiği kişi sayısı.';
+      case LeaderboardStat.myOrders:
+        return 'Müşteri olarak tamamlanan fiziksel + dijital siparişleri.';
+      case LeaderboardStat.myLogins:
+        return 'Giriş sayısı (eylem günlüğü 90 gün saklanır).';
+      case LeaderboardStat.myOkeyMatches:
+        return 'Oynadığı 101 Okey maçı.';
+      case LeaderboardStat.myOkeyWins:
+        return 'Kazandığı 101 Okey maçı.';
+    }
+  }
+
+  /// "Rekor Skorlar" kartının rekor anahtarları (Görev 4.4).
+  List<Widget> _recordSection(LeaderboardSettings settings) {
+    final cardOn = settings.isBoardEnabled(LeaderboardBoard.records);
+    return [
+      _sectionTitle('${LeaderboardBoard.records.title} kartındaki rekorlar'),
+      Padding(
+        padding: const EdgeInsets.only(left: 4, right: 4, bottom: 10),
+        child: Text(
+          !cardOn
+              ? '"${LeaderboardBoard.records.title}" kartı kapalı; açılınca bu rekorlar görünür.'
+              : 'Tüm zamanların rekorları; gün İstanbul saatine göre sayılır. Kişi ve '
+                    'gönderi rekorları botları, gizli hesapları ve liderlikten '
+                    'gizlenenleri atlar; verisi olmayan rekor gösterilmez.',
+          style: const TextStyle(
+            fontSize: 12,
+            color: AdminUi.muted,
+            height: 1.4,
+          ),
+        ),
+      ),
+      for (final record in LeaderboardRecord.values)
+        _switchTile(
+          busyKey: record.settingKey,
+          icon: record.icon,
+          color: record.color,
+          title: record.label,
+          subtitle: _recordHint(record),
+          value: settings.isRecordEnabled(record),
+          dimmed: !settings.enabled || !cardOn,
+          onChanged: (v) => _apply(
+            record.settingKey,
+            () => LeaderboardService.setRecordEnabled(record, v),
+          ),
+        ),
+      const SizedBox(height: 10),
+    ];
+  }
+
+  String _recordHint(LeaderboardRecord record) {
+    switch (record) {
+      case LeaderboardRecord.busiestDay:
+        return 'En çok kişinin iz bıraktığı gün (misafirler dahil, bot hariç).';
+      case LeaderboardRecord.signupDay:
+        return 'En çok yeni üyenin katıldığı gün (misafirler hariç).';
+      case LeaderboardRecord.ordersDay:
+        return 'En çok siparişin tamamlandığı gün (fiziksel + dijital).';
+      case LeaderboardRecord.postsDay:
+        return 'En çok gönderinin paylaşıldığı gün.';
+      case LeaderboardRecord.oldestMember:
+        return 'En uzun süredir üye olan kişi (yönetici hesapları hariç).';
+      case LeaderboardRecord.topPostLikes:
+        return 'Tüm zamanların en çok beğenilen gönderisi.';
+      case LeaderboardRecord.livePeak:
+        return 'En çok eş zamanlı izleyiciye ulaşan canlı yayın.';
+      case LeaderboardRecord.firstPost:
+        return 'Uygulamada paylaşılan ilk gönderi.';
     }
   }
 

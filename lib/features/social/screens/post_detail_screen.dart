@@ -12,6 +12,7 @@ import '../../../core/widgets/mention_autocomplete_field.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../../../core/widgets/text_background.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../models/post_image_format.dart';
 import '../services/post_service.dart';
 import '../services/post_report_service.dart';
 import 'post_likes_screen.dart';
@@ -19,6 +20,7 @@ import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
+import '../../../core/utils/image_url.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final Post post;
@@ -791,10 +793,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       child: _buildCommentWithMentions(widget.post.content!),
                     ),
 
-                  // Images
+                  // Images — gönderinin çerçeve oranında, tam genişlikte
+                  // (akış kartıyla aynı görüntü; Görev 2.8). Eskiden sabit
+                  // 300 px yüksekliğe kırpılıyordu.
                   if (widget.post.images.isNotEmpty)
-                    SizedBox(
-                      height: 300,
+                    AspectRatio(
+                      aspectRatio: feedImageAspect(widget.post.imageAspectRatio),
                       child: Stack(
                         children: [
                           PageView.builder(
@@ -998,7 +1002,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               leading: CircleAvatar(
                                 radius: row.isReply ? 13 : 16,
                                 backgroundImage: avatarUrl != null
-                                    ? NetworkImage(avatarUrl)
+                                    ? avatarImage(avatarUrl)
                                     : null,
                                 child: avatarUrl == null
                                     ? Text(

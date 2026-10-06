@@ -15,6 +15,8 @@ export 'screens/okey_lobby_screen.dart';
 export 'screens/okey_room_screen.dart';
 export 'services/okey_game_service.dart';
 export 'services/okey_sound_service.dart';
+export 'services/okey_module_service.dart';
+export 'widgets/okey_module_gate.dart';
 export 'services/okey_guest_auth.dart';
 export 'services/okey_invite_service.dart';
 export 'services/okey_realtime_service.dart';

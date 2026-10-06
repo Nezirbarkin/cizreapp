@@ -189,20 +189,20 @@ class _ErrorCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(OkeyUI.gap),
       decoration: BoxDecoration(
-        color: const Color(0x338E2430),
+        color: OkeyUI.dangerFill.withValues(alpha: OkeyUI.isLight ? 1 : 0.35),
         borderRadius: BorderRadius.circular(OkeyUI.radiusSm),
-        border: Border.all(color: const Color(0x66FF8A9B)),
+        border: Border.all(color: OkeyUI.dangerBorder),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, size: 18, color: Color(0xFFFF8A9B)),
+          Icon(Icons.error_outline, size: 18, color: OkeyUI.errorText),
           const SizedBox(width: OkeyUI.gapSm),
           Expanded(
             child: Text(
               message,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: OkeyUI.body.copyWith(color: const Color(0xFFFFD9DE)),
+              style: OkeyUI.body.copyWith(color: OkeyUI.dangerText),
             ),
           ),
         ],
@@ -231,7 +231,9 @@ class _StatusCard extends StatelessWidget {
           Icon(
             starting ? Icons.play_circle_fill : Icons.hourglass_top,
             size: 26,
-            color: starting ? const Color(0xFFB9F6CA) : OkeyUI.brass,
+            color: starting
+                ? OkeyUI.signal(const Color(0xFFB9F6CA))
+                : OkeyUI.brass,
           ),
           const SizedBox(width: OkeyUI.gap),
           Expanded(
@@ -281,9 +283,9 @@ class _InviteFriendCard extends StatelessWidget {
           showOkeyInviteSheet(context, roomId: roomId, joinCode: joinCode),
       child: Row(
         children: [
-          Icon(Icons.person_add_alt_1, size: 22, color: OkeyUI.brass),
+          Icon(Icons.person_add_alt_1, size: 22, color: OkeyUI.accentInk),
           const SizedBox(width: OkeyUI.gap),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -296,7 +298,7 @@ class _InviteFriendCard extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, size: 20, color: OkeyUI.textFaint),
+          Icon(Icons.chevron_right, size: 20, color: OkeyUI.textFaint),
         ],
       ),
     );
@@ -321,9 +323,9 @@ class _JoinCodeCard extends StatelessWidget {
       },
       child: Row(
         children: [
-          Icon(Icons.vpn_key, size: 18, color: OkeyUI.brass),
+          Icon(Icons.vpn_key, size: 18, color: OkeyUI.accentInk),
           const SizedBox(width: OkeyUI.gapSm),
-          const Text('Davet kodu', style: OkeyUI.body),
+          Text('Davet kodu', style: OkeyUI.body),
           const SizedBox(width: OkeyUI.gap),
           // Kod esner ve gerekirse küçülür: sabit 2px harf aralığıyla uzun
           // bir kod dar ekranda satırı taşırabilirdi.
@@ -335,7 +337,7 @@ class _JoinCodeCard extends StatelessWidget {
                 code,
                 maxLines: 1,
                 style: TextStyle(
-                  color: OkeyUI.brass,
+                  color: OkeyUI.accentInk,
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
                   letterSpacing: 2,
@@ -343,7 +345,7 @@ class _JoinCodeCard extends StatelessWidget {
               ),
             ),
           ),
-          const Icon(Icons.copy, size: 16, color: OkeyUI.textFaint),
+          Icon(Icons.copy, size: 16, color: OkeyUI.textFaint),
         ],
       ),
     );
@@ -396,7 +398,7 @@ class _RulesCard extends StatelessWidget {
               value:
                   '${room.tableStake} puan  '
                   '(${room.entryFee} × ${room.totalHands} el)',
-              valueColor: OkeyUI.brass,
+              valueColor: OkeyUI.accentInk,
             ),
         ],
       ),

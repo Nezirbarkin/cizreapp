@@ -57,6 +57,18 @@ enum OkeyBackdropPattern {
 
   /// Modern nokta ızgarası — ince, soğuk tonlu düzenli noktalar.
   grid,
+
+  /// İznik çinisi — sekiz köşeli yıldız ve aralarındaki haç (İznik Çini).
+  star,
+
+  /// Saray kemeri — iç içe geçen ogee kafes (Osmanlı Saray).
+  ogee,
+
+  /// Petek — neon çizgili altıgen ızgara (Gece Neon).
+  hex,
+
+  /// Ege dalgası — kıyıya vuran üst üste dalga kavisleri (Ege Gündüz).
+  waves,
 }
 
 @immutable
@@ -543,13 +555,333 @@ class OkeyTableTheme {
     pairedRackStyleKey: 'grafit',
   );
 
+  // ===========================================================================
+  // TASARIM PAKETLERİYLE GELEN MASALAR (2026-10-05, bkz. OkeyDesign)
+  // ===========================================================================
+
+  /// İZNİK ÇİNİ — kobalt sırlı masa, porselen beyazı taşlar, sekiz köşeli
+  /// yıldız örgüsü. Taşlar bilerek SOĞUK beyaz: fildişi kobaltın üstünde
+  /// kirli sarı okunuyordu.
+  static const cini = OkeyTableTheme(
+    key: 'cini',
+    label: 'İznik Çini',
+    description: 'Kobalt sır, porselen taş',
+    tableBackground: Color(0xFF0F2C66),
+    screenBackground: Color(0xFF0C2456),
+    surfaceDark: Color(0xFF081A40),
+    surfaceWarm: Color(0xFF141C33),
+    tileIvoryLight: Color(0xFFFFFFFF),
+    tileIvoryDark: Color(0xFFEAF0F8),
+    accentGold: Color(0xFFF2C94C),
+    completeMeldGold: Color(0xFFFFC233),
+    avatarRing: Color(0xFF3FC1C9),
+    railGradient: [
+      Color(0xFFE9EEF7),
+      Color(0xFFC9D3E6),
+      Color(0xFF8E9DBD),
+      Color(0xFF5B6A8E),
+    ],
+    railGradientStops: [0.0, 0.22, 0.68, 1.0],
+    railGrainLight: Color(0x30FFFFFF),
+    railGrainDark: Color(0x401A2A4A),
+    railGrainOpacity: 0.3,
+    feltHighlight: Color(0xFF2F64C4),
+    feltCenter: Color(0xFF2556AD),
+    feltMid: Color(0xFF1C4389),
+    feltDeep: Color(0xFF143267),
+    feltRim: Color(0xFF0B2148),
+    damaskDeep: Color(0xFF0D2558),
+    damaskMid: Color(0xFF1A438F),
+    damaskLight: Color(0xFF2A5FBF),
+    damaskGrainShadow: Color(0xFF061535),
+    damaskGrainLight: Color(0xFFBFD8FF),
+    damaskVignette: Color(0xFF030C22),
+    meldBayTop: Color(0xD1061535),
+    meldBayBottom: Color(0xC40E2A5E),
+    backdropPattern: OkeyBackdropPattern.star,
+    rackBoxBack: Color(0xFF8E9DBD),
+    rackBoxCap: Color(0xFFAFBCD6),
+    rackBoxTop: [Color(0xFFF4F7FC), Color(0xFFCAD5E8)],
+    rackBoxFront: [Color(0xFFE3EAF5), Color(0xFF9AA9C7)],
+    rackBoxGroove: Color(0x8A1A2A4A),
+    rackBoxEdgeBright: Color(0x8AFFFFFF),
+    rackBoxEdgeDim: Color(0x4DFFFFFF),
+    hudFill: Color(0xD4071A3F),
+    hudBadgeFill: Color(0xC2061636),
+    hudBorder: Color(0x33D6E6FF),
+    hudText: Color(0xFFEFF5FF),
+    hudTextDim: Color(0x9EE3EEFF),
+    hudTextFaint: Color(0x6BE3EEFF),
+    actionFill: Color(0xE6082050),
+    actionBorder: Color(0x5CBFD8FF),
+    actionDisabledFill: Color(0x8A06183D),
+    actionDisabledBorder: Color(0x24FFFFFF),
+    actionDisabledText: Color(0x70FFFFFF),
+    actionReady: [Color(0xFFFFDB6E), Color(0xFFE8A92A)],
+    actionWinning: [Color(0xFFFFEBA6), Color(0xFFFFB300)],
+    onGold: Color(0xFF1A1A2E),
+    v3Surface: Color(0xF0071A3F),
+    v3SurfaceRaised: Color(0xFF123272),
+    v3Border: Color(0x40D6E6FF),
+    v3BorderStrong: Color(0x66D6E6FF),
+    v3SurfaceDisabled: Color(0x9E06163A),
+    v3BorderDisabled: Color(0x1FFFFFFF),
+    v3Text: Color(0xFFF1F6FF),
+    v3TextDim: Color(0xB8E3EEFF),
+    v3TextFaint: Color(0x73E3EEFF),
+    v3TextDisabled: Color(0x5CFFFFFF),
+    v3Gold: [Color(0xFFFFDB6E), Color(0xFFE8A92A)],
+    v3OnGold: Color(0xFF1A1A2E),
+    v3GoldGlow: Color(0x59FFC233),
+    v3GoldBright: [Color(0xFFFFEBA6), Color(0xFFFFB300)],
+    pairedRackStyleKey: 'kobalt',
+  );
+
+  /// OSMANLI SARAY — patlıcan moru kadife, abanoz ıstaka, varak altın kemer
+  /// kafes. Zeminin "açık damarı" bilerek ALTIN: desen süsleme gibi okunsun.
+  static const saray = OkeyTableTheme(
+    key: 'saray',
+    label: 'Saray',
+    description: 'Mor kadife, abanoz ve altın',
+    tableBackground: Color(0xFF2A1238),
+    screenBackground: Color(0xFF22102E),
+    surfaceDark: Color(0xFF160A1F),
+    surfaceWarm: Color(0xFF2A1A0E),
+    tileIvoryLight: Color(0xFFFFFBF0),
+    tileIvoryDark: Color(0xFFF1E6D0),
+    accentGold: Color(0xFFF1C75B),
+    completeMeldGold: Color(0xFFFFC233),
+    avatarRing: Color(0xFFE9C25B),
+    railGradient: [
+      Color(0xFF5A4232),
+      Color(0xFF3A2A20),
+      Color(0xFF22170F),
+      Color(0xFF120B07),
+    ],
+    railGradientStops: [0.0, 0.22, 0.68, 1.0],
+    railGrainLight: Color(0x30F3D27A),
+    railGrainDark: Color(0x40050302),
+    railGrainOpacity: 0.8,
+    feltHighlight: Color(0xFF6A3590),
+    feltCenter: Color(0xFF57287A),
+    feltMid: Color(0xFF431D5F),
+    feltDeep: Color(0xFF321548),
+    feltRim: Color(0xFF1E0B2D),
+    damaskDeep: Color(0xFF261033),
+    damaskMid: Color(0xFF431D5C),
+    damaskLight: Color(0xFF5E2C80),
+    damaskGrainShadow: Color(0xFF14071C),
+    damaskGrainLight: Color(0xFFF3D27A),
+    damaskVignette: Color(0xFF0C0412),
+    meldBayTop: Color(0xD114071C),
+    meldBayBottom: Color(0xC42C123D),
+    backdropPattern: OkeyBackdropPattern.ogee,
+    rackBoxBack: Color(0xFF1E1410),
+    rackBoxCap: Color(0xFF2C1E16),
+    rackBoxTop: [Color(0xFF5A4232), Color(0xFF2E2018)],
+    rackBoxFront: [Color(0xFF4A3628), Color(0xFF1E140E)],
+    rackBoxGroove: Color(0x8A0A0604),
+    rackBoxEdgeBright: Color(0x8AF3D27A),
+    rackBoxEdgeDim: Color(0x4DF3D27A),
+    hudFill: Color(0xD4180A22),
+    hudBadgeFill: Color(0xC2140820),
+    hudBorder: Color(0x33F3D27A),
+    hudText: Color(0xFFFFF4E4),
+    hudTextDim: Color(0x9EFFEBD0),
+    hudTextFaint: Color(0x6BFFEBD0),
+    actionFill: Color(0xE61E0D2A),
+    actionBorder: Color(0x5CF3D27A),
+    actionDisabledFill: Color(0x8A160A20),
+    actionDisabledBorder: Color(0x24FFFFFF),
+    actionDisabledText: Color(0x70FFFFFF),
+    actionReady: [Color(0xFFFFE08A), Color(0xFFDDA332)],
+    actionWinning: [Color(0xFFFFF0B8), Color(0xFFFFB300)],
+    onGold: Color(0xFF2A1A05),
+    v3Surface: Color(0xF0180A22),
+    v3SurfaceRaised: Color(0xFF34184A),
+    v3Border: Color(0x40F3D27A),
+    v3BorderStrong: Color(0x66F3D27A),
+    v3SurfaceDisabled: Color(0x9E14081E),
+    v3BorderDisabled: Color(0x1FFFFFFF),
+    v3Text: Color(0xFFFFF6EA),
+    v3TextDim: Color(0xB8FFEBD0),
+    v3TextFaint: Color(0x73FFEBD0),
+    v3TextDisabled: Color(0x5CFFFFFF),
+    v3Gold: [Color(0xFFFFE08A), Color(0xFFDDA332)],
+    v3OnGold: Color(0xFF2A1A05),
+    v3GoldGlow: Color(0x59FFB300),
+    v3GoldBright: [Color(0xFFFFF0B8), Color(0xFFFFB300)],
+    pairedRackStyleKey: 'abanoz',
+  );
+
+  /// GECE NEON — mürdüm gece, camgöbeği petek ızgara, akrilik ıstaka.
+  /// "Yapılabilir hamle" rengi burada altın değil camgöbeği→eflatun: temanın
+  /// tek parlak tonu neon olmalı, aksi halde altın düğme ekranda yabancı kalır.
+  static const neon = OkeyTableTheme(
+    key: 'neon',
+    label: 'Neon',
+    description: 'Petek ızgara, camgöbeği ışık',
+    tableBackground: Color(0xFF0B0820),
+    screenBackground: Color(0xFF0A071C),
+    surfaceDark: Color(0xFF050311),
+    surfaceWarm: Color(0xFF120E26),
+    tileIvoryLight: Color(0xFFF8F7FF),
+    tileIvoryDark: Color(0xFFE6E3F5),
+    accentGold: Color(0xFF35E8FF),
+    completeMeldGold: Color(0xFFFFD25A),
+    avatarRing: Color(0xFFFF5ED8),
+    railGradient: [
+      Color(0xFF3A3560),
+      Color(0xFF26214A),
+      Color(0xFF171333),
+      Color(0xFF0B0920),
+    ],
+    railGradientStops: [0.0, 0.22, 0.68, 1.0],
+    railGrainLight: Color(0x30B9A8FF),
+    railGrainDark: Color(0x40050311),
+    railGrainOpacity: 0.2,
+    feltHighlight: Color(0xFF2B2370),
+    feltCenter: Color(0xFF221B5C),
+    feltMid: Color(0xFF191447),
+    feltDeep: Color(0xFF120E33),
+    feltRim: Color(0xFF0A081F),
+    damaskDeep: Color(0xFF07051A),
+    damaskMid: Color(0xFF140F3A),
+    damaskLight: Color(0xFF241A5E),
+    damaskGrainShadow: Color(0xFF02010A),
+    damaskGrainLight: Color(0xFF35E8FF),
+    damaskVignette: Color(0xFF000000),
+    meldBayTop: Color(0xD103020F),
+    meldBayBottom: Color(0xC40F0B2E),
+    backdropPattern: OkeyBackdropPattern.hex,
+    rackBoxBack: Color(0xFF120E26),
+    rackBoxCap: Color(0xFF1A1536),
+    rackBoxTop: [Color(0xFF2E2858), Color(0xFF16122E)],
+    rackBoxFront: [Color(0xFF241F48), Color(0xFF0E0B20)],
+    rackBoxGroove: Color(0x8A000000),
+    rackBoxEdgeBright: Color(0x8A35E8FF),
+    rackBoxEdgeDim: Color(0x4D35E8FF),
+    hudFill: Color(0xD40A0720),
+    hudBadgeFill: Color(0xC208061A),
+    hudBorder: Color(0x4D7C5CFF),
+    hudText: Color(0xFFF2EEFF),
+    hudTextDim: Color(0x9EE2DCFF),
+    hudTextFaint: Color(0x6BE2DCFF),
+    actionFill: Color(0xE60E0A2A),
+    actionBorder: Color(0x8035E8FF),
+    actionDisabledFill: Color(0x8A0A0720),
+    actionDisabledBorder: Color(0x24FFFFFF),
+    actionDisabledText: Color(0x70FFFFFF),
+    actionReady: [Color(0xFF5CF6FF), Color(0xFF8F7BFF)],
+    actionWinning: [Color(0xFFB8FBFF), Color(0xFFFF7BE0)],
+    onGold: Color(0xFF07051C),
+    v3Surface: Color(0xF00A0720),
+    v3SurfaceRaised: Color(0xFF1D1747),
+    v3Border: Color(0x4D7C5CFF),
+    v3BorderStrong: Color(0x8035E8FF),
+    v3SurfaceDisabled: Color(0x9E08061A),
+    v3BorderDisabled: Color(0x1FFFFFFF),
+    v3Text: Color(0xFFF2EEFF),
+    v3TextDim: Color(0xB8E2DCFF),
+    v3TextFaint: Color(0x73E2DCFF),
+    v3TextDisabled: Color(0x5CFFFFFF),
+    v3Gold: [Color(0xFF5CF6FF), Color(0xFF8F7BFF)],
+    v3OnGold: Color(0xFF07051C),
+    v3GoldGlow: Color(0x5935E8FF),
+    v3GoldBright: [Color(0xFFB8FBFF), Color(0xFFFF7BE0)],
+    pairedRackStyleKey: 'neon',
+  );
+
+  /// EGE — derin deniz camı, zeytin ıstaka, dalga kavisleri; vurgu gün
+  /// batımı şeftalisi.
+  static const ege = OkeyTableTheme(
+    key: 'ege',
+    label: 'Ege',
+    description: 'Deniz camı, zeytin ıstaka',
+    tableBackground: Color(0xFF0B4A55),
+    screenBackground: Color(0xFF093F49),
+    surfaceDark: Color(0xFF062C33),
+    surfaceWarm: Color(0xFF2A2214),
+    tileIvoryLight: Color(0xFFFFFDF7),
+    tileIvoryDark: Color(0xFFF3ECDD),
+    accentGold: Color(0xFFFFB86B),
+    completeMeldGold: Color(0xFFFFC233),
+    avatarRing: Color(0xFFF2D4A0),
+    railGradient: [
+      Color(0xFFC9B27A),
+      Color(0xFFA48C55),
+      Color(0xFF6E5C33),
+      Color(0xFF473B1F),
+    ],
+    railGradientStops: [0.0, 0.22, 0.68, 1.0],
+    railGrainLight: Color(0x33FFF0C8),
+    railGrainDark: Color(0x402E2410),
+    railGrainOpacity: 1.0,
+    feltHighlight: Color(0xFF1E8C99),
+    feltCenter: Color(0xFF187A86),
+    feltMid: Color(0xFF12636E),
+    feltDeep: Color(0xFF0D4B54),
+    feltRim: Color(0xFF07343B),
+    damaskDeep: Color(0xFF073C46),
+    damaskMid: Color(0xFF0F6170),
+    damaskLight: Color(0xFF1A8494),
+    damaskGrainShadow: Color(0xFF032830),
+    damaskGrainLight: Color(0xFFBDF2F4),
+    damaskVignette: Color(0xFF021A20),
+    meldBayTop: Color(0xD1032830),
+    meldBayBottom: Color(0xC40A4A56),
+    backdropPattern: OkeyBackdropPattern.waves,
+    rackBoxBack: Color(0xFF5A4A26),
+    rackBoxCap: Color(0xFF7A6634),
+    rackBoxTop: [Color(0xFFE8D5A0), Color(0xFFB89E5E)],
+    rackBoxFront: [Color(0xFFD6BF85), Color(0xFF8A733F)],
+    rackBoxGroove: Color(0x8A2E2410),
+    rackBoxEdgeBright: Color(0x8AFFF0C8),
+    rackBoxEdgeDim: Color(0x4DFFF0C8),
+    hudFill: Color(0xD4042A31),
+    hudBadgeFill: Color(0xC2032229),
+    hudBorder: Color(0x33E6FFFB),
+    hudText: Color(0xFFF1FBFA),
+    hudTextDim: Color(0x9EE0F7F5),
+    hudTextFaint: Color(0x6BE0F7F5),
+    actionFill: Color(0xE6053640),
+    actionBorder: Color(0x5CBDF2F4),
+    actionDisabledFill: Color(0x8A042830),
+    actionDisabledBorder: Color(0x24FFFFFF),
+    actionDisabledText: Color(0x70FFFFFF),
+    actionReady: [Color(0xFFFFD08A), Color(0xFFF08A4B)],
+    actionWinning: [Color(0xFFFFE6B8), Color(0xFFFFA33A)],
+    onGold: Color(0xFF2B1206),
+    v3Surface: Color(0xF0042A31),
+    v3SurfaceRaised: Color(0xFF0F5562),
+    v3Border: Color(0x40E6FFFB),
+    v3BorderStrong: Color(0x66E6FFFB),
+    v3SurfaceDisabled: Color(0x9E03242A),
+    v3BorderDisabled: Color(0x1FFFFFFF),
+    v3Text: Color(0xFFF1FBFA),
+    v3TextDim: Color(0xB8E0F7F5),
+    v3TextFaint: Color(0x73E0F7F5),
+    v3TextDisabled: Color(0x5CFFFFFF),
+    v3Gold: [Color(0xFFFFD08A), Color(0xFFF08A4B)],
+    v3OnGold: Color(0xFF2B1206),
+    v3GoldGlow: Color(0x59FFA33A),
+    v3GoldBright: [Color(0xFFFFE6B8), Color(0xFFFFA33A)],
+    pairedRackStyleKey: 'zeytin',
+  );
+
   /// Ayarlar ekranında GÖSTERİLDİKLERİ sıra.
   static const List<OkeyTableTheme> all = [
     kahvehane,
     yesilCuha,
     kirmiziKadife,
     geceModu,
+    cini,
+    saray,
+    neon,
+    ege,
   ];
+
+  static bool isKnown(String? key) => all.any((t) => t.key == key);
 
   static OkeyTableTheme byKey(String? key) {
     for (final t in all) {
@@ -565,6 +897,13 @@ class OkeyTableTheme {
 /// değil KULLANICININ tercihi, sunucuya gitmez, tüm okey ekranlarında
 /// geçerlidir. `OkeyColors`/`OkeyV3` bu tek örneği okuyarak "canlı sabit"
 /// davranışı sağlar.
+///
+/// ## İki katman: tasarımın masası + oyuncunun seçimi (2026-10-05)
+///
+/// Etkin tema = oyuncu elle bir masa seçtiyse VE yönetici oyuncu seçimine
+/// izin veriyorsa o masa; aksi halde aktif TASARIMIN masası (bkz.
+/// `OkeyDesign.tableThemeKey`, [applyDesignDefault]). Oyuncunun seçimi
+/// yönetici kilidi açıkken SİLİNMEZ — kilit kalkınca geri gelir.
 class OkeyTableThemePrefs {
   static const _prefsKey = 'okey_table_theme';
 
@@ -578,16 +917,49 @@ class OkeyTableThemePrefs {
 
   bool _loaded = false;
 
+  /// Oyuncunun elle seçtiği masa (yoksa null).
+  String? _userKey;
+
+  /// Aktif tasarımın masası.
+  String _designKey = OkeyTableTheme.kahvehane.key;
+
+  bool _userChoiceAllowed = true;
+
+  /// Oyuncu bu cihazda masayı elle seçti mi.
+  bool get hasUserChoice => _userKey != null;
+
+  /// Yönetici oyuncunun masa seçmesine izin veriyor mu.
+  bool get userChoiceAllowed => _userChoiceAllowed;
+
+  /// Aktif tasarımın önerdiği masa.
+  OkeyTableTheme get designDefault => OkeyTableTheme.byKey(_designKey);
+
   /// Kayıtlı tercihi okur. ASLA hata fırlatmaz — okunamazsa varsayılan kalır.
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      current.value = OkeyTableTheme.byKey(prefs.getString(_prefsKey));
+      final stored = prefs.getString(_prefsKey);
+      _userKey = OkeyTableTheme.isKnown(stored) ? stored : null;
     } catch (_) {
       // tercih okunamadıysa varsayılan tema kullanılır
     }
+    _recompute();
+  }
+
+  /// Aktif tasarım değişti (bkz. OkeyDesignPrefs).
+  void applyDesignDefault(String key, {required bool userChoiceAllowed}) {
+    _designKey = key;
+    _userChoiceAllowed = userChoiceAllowed;
+    _recompute();
+  }
+
+  void _recompute() {
+    final userKey = _userKey;
+    current.value = _userChoiceAllowed && userKey != null
+        ? OkeyTableTheme.byKey(userKey)
+        : OkeyTableTheme.byKey(_designKey);
   }
 
   /// Tema seçilir VE eşleşen ıstaka ahşabı da önerilir.
@@ -596,12 +968,16 @@ class OkeyTableThemePrefs {
   /// kullanıcı ıstakasını zaten elle özelleştirmişse onu ezmemek için
   /// (bkz. OkeyTableThemePicker: kullanıcı daha önce takozunu değiştirdiyse
   /// sorulmadan üzerine yazılmaz).
+  ///
+  /// Yönetici oyuncu seçimini kapattıysa hiçbir şey yapmaz (seçiciler o
+  /// durumda zaten kilitli çizilir).
   Future<void> select(
     OkeyTableTheme theme, {
     bool alsoPairRackStyle = true,
   }) async {
-    if (current.value.key != theme.key) {
-      current.value = theme;
+    if (!_userChoiceAllowed) return;
+    if (_userKey != theme.key) {
+      _userKey = theme.key;
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_prefsKey, theme.key);
@@ -609,10 +985,23 @@ class OkeyTableThemePrefs {
         // kaydedilemezse seçim bu oturum boyunca geçerli kalır
       }
     }
+    _recompute();
     if (alsoPairRackStyle) {
       await OkeyRackStylePrefs.instance.select(
         OkeyRackStyle.byKey(theme.pairedRackStyleKey),
       );
+    }
+  }
+
+  /// Oyuncunun masa seçimini kaldırır → tasarımın masasına döner.
+  Future<void> clearUserChoice() async {
+    _userKey = null;
+    _recompute();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+    } catch (_) {
+      // yoksayılır
     }
   }
 }
