@@ -371,33 +371,41 @@ class AdminEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sığmadığında kayar: kısa bir alanda (açık klavye, üstte uzun başlık) ya
+    // da uzun bir hata metniyle sabit Column alttan taşıyordu (admin Loglar:
+    // "A RenderFlex overflowed by 81 pixels on the bottom"). LayoutBuilder
+    // değil: diyaloglarda da kullanılıyor ve onlar intrinsic ölçü sorar.
+    // primary:false — dıştaki listenin PrimaryScrollController'ına bağlanmasın.
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 54, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AdminUi.ink,
-              ),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 6),
+      child: SingleChildScrollView(
+        primary: false,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 54, color: Colors.grey.shade400),
+              const SizedBox(height: 12),
               Text(
-                subtitle!,
+                title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: AdminUi.muted),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AdminUi.ink,
+                ),
               ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  subtitle!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13, color: AdminUi.muted),
+                ),
+              ],
+              if (action != null) ...[const SizedBox(height: 16), action!],
             ],
-            if (action != null) ...[const SizedBox(height: 16), action!],
-          ],
+          ),
         ),
       ),
     );

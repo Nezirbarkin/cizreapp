@@ -710,7 +710,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               action: SnackBarAction(
                 label: 'Tekrar Dene',
                 textColor: Colors.white,
-                onPressed: _saveProfile,
+                // Snackbar ekrandan çıkıldıktan sonra da basılabilir; o anda
+                // _saveProfile ölü State'te setState/context kullanırdı.
+                onPressed: () {
+                  if (mounted) _saveProfile();
+                },
               ),
             ),
           );

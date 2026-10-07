@@ -36,6 +36,9 @@ class _FollowListScreenState extends State<FollowListScreen> {
   }
 
   Future<void> _loadUsers() async {
+    // Takip işlemlerinden sonra await ardından da çağrılıyor; ekran o arada
+    // kapanmış olabilir (admin Loglar: "setState() called after dispose()").
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -132,11 +135,13 @@ class _FollowListScreenState extends State<FollowListScreen> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _users = users;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Liste yüklenirken hata: $e';
         _isLoading = false;

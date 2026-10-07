@@ -90,9 +90,30 @@ class NotificationService {
     }
   }
 
+  // Okunmamış sayı: aynı anda gelen çağrılar tek isteği paylaşır.
+  // Ana kabuk, Ana Sayfa ve Keşfet açılışta aynı sayıyı ayrı ayrı istiyordu
+  // (cihaz ölçümü 2026-10-06: Keşfet açılışında aynı sorgu 2 kez). Ömür kısa
+  // tutulur ve okundu/silme işlemleri önbelleği temizler — sayı bayatlamaz.
+  static final Map<String, Future<int>> _unreadInFlight = {};
+  static final Map<String, (int, DateTime)> _unreadCache = {};
+  static const _unreadTtl = Duration(seconds: 2);
+
+  static void _invalidateUnreadCount() => _unreadCache.clear();
+
   // Okunmamış bildirim sayısını getir
   // Not: Pending reviews ayrıca PendingReviewChecker ile gösteriliyor, buraya dahil edilmiyor
-  Future<int> getUnreadCount(String userId) async {
+  Future<int> getUnreadCount(String userId) {
+    final cached = _unreadCache[userId];
+    if (cached != null && DateTime.now().difference(cached.$2) < _unreadTtl) {
+      return Future.value(cached.$1);
+    }
+    return _unreadInFlight[userId] ??= _fetchUnreadCount(userId).then((count) {
+      _unreadCache[userId] = (count, DateTime.now());
+      return count;
+    }).whenComplete(() => _unreadInFlight.remove(userId));
+  }
+
+  Future<int> _fetchUnreadCount(String userId) async {
     final client = _supabase;
     if (client == null) return 0;
 
@@ -116,6 +137,7 @@ class NotificationService {
 
   // Bildirimi okundu olarak işaretle
   Future<void> markAsRead(String notificationId) async {
+    _invalidateUnreadCount();
     final client = _supabase;
     if (client == null) {
       throw Exception('Supabase başlatılmadı');
@@ -133,6 +155,7 @@ class NotificationService {
 
   // Tüm bildirimleri okundu olarak işaretle
   Future<void> markAllAsRead(String userId) async {
+    _invalidateUnreadCount();
     final client = _supabase;
     if (client == null) {
       throw Exception('Supabase başlatılmadı');
@@ -151,6 +174,7 @@ class NotificationService {
 
   // Bildirim sil
   Future<void> deleteNotification(String notificationId) async {
+    _invalidateUnreadCount();
     final client = _supabase;
     if (client == null) {
       throw Exception('Supabase başlatılmadı');

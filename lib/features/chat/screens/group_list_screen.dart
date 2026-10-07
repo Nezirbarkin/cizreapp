@@ -38,14 +38,17 @@ class _GroupListScreenState extends State<GroupListScreen> {
     // Soğuk başlangıçta oturum token'ı henüz yenilenmemişse ilk sorgu
     // sessizce boş dönebiliyor; token yenilendiğinde/oturum netleştiğinde
     // listeyi tekrar çekerek "grup bazen görünmüyor" durumunu önle.
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
-      state,
-    ) {
-      if (state.event == AuthChangeEvent.tokenRefreshed ||
-          state.event == AuthChangeEvent.signedIn) {
-        _loadGroups();
-      }
-    });
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      (state) {
+        if (state.event == AuthChangeEvent.tokenRefreshed ||
+            state.event == AuthChangeEvent.signedIn) {
+          _loadGroups();
+        }
+      },
+      // Oturum yenileme ağ hatası akışa addError ile gelir; onError olmadan
+      // "Uncaught async error" olarak loglanıyordu (bkz. main.dart).
+      onError: (Object e) => debugPrint('Auth akışı hatası (gruplar): $e'),
+    );
   }
 
   @override

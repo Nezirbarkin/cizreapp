@@ -190,6 +190,9 @@ class _MyProfileFeaturesScreenState extends State<MyProfileFeaturesScreen>
       'UNAUTHORIZED' => 'Oturumun sona ermiş. Lütfen tekrar giriş yap.',
       _ => 'Satın alma başarısız. Lütfen tekrar dene.',
     };
+    // Navigator şimdi yakalanır: snackbar eylemi bu ekrandan çıkıldıktan
+    // sonra da basılabilir ve o anda context ölüdür.
+    final navigator = Navigator.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -198,16 +201,19 @@ class _MyProfileFeaturesScreenState extends State<MyProfileFeaturesScreen>
             ? SnackBarAction(
                 label: 'PUAN KAZAN',
                 textColor: Colors.white,
-                onPressed: _openWallet,
+                onPressed: () => _pushWallet(navigator),
               )
             : null,
       ),
     );
   }
 
-  void _openWallet() => Navigator.of(
-    context,
-  ).push(MaterialPageRoute(builder: (_) => const WalletScreen()));
+  void _openWallet() => _pushWallet(Navigator.of(context));
+
+  void _pushWallet(NavigatorState navigator) {
+    if (!navigator.mounted) return;
+    navigator.push(MaterialPageRoute(builder: (_) => const WalletScreen()));
+  }
 
   // ---------------------------------------------------------------------------
   // Görünüm

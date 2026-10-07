@@ -515,6 +515,10 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
       );
       debugPrint('🏪 SHOP DETAIL: globalOrdersEnabled: $_globalOrdersEnabled');
 
+      // Yükleme sürerken geri basılırsa ekran kapanmış olur; korumasız
+      // setState admin Loglar'da "setState() called after dispose()" (debug)
+      // ve "Null check operator used on a null value" (release) veriyordu.
+      if (!mounted) return;
       setState(() {
         _shop = shop;
         _products = products;
@@ -530,16 +534,15 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
       _resolveShopDistance();
     } catch (e) {
       debugPrint('❌ SHOP DETAIL: Hata: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Dükkan bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}',
-            ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Dükkan bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}',
           ),
-        );
-      }
+        ),
+      );
     }
   }
 

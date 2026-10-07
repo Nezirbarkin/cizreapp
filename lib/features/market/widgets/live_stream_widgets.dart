@@ -526,9 +526,17 @@ class _LiveSubscribeButtonState extends State<LiveSubscribeButton> {
 
   Future<void> _toggle() async {
     if (_isGuest) {
+      // Navigator şimdi yakalanır: snackbar eylemi bu widget kapandıktan
+      // sonra da basılabilir ve o anda context ölüdür.
+      final navigator = Navigator.of(context);
       _snack(
         'Yayın bildirimi almak için giriş yapmalısın',
-        action: SnackBarAction(label: 'Giriş Yap', onPressed: () => Navigator.of(context).pushNamed('/login')),
+        action: SnackBarAction(
+          label: 'Giriş Yap',
+          onPressed: () {
+            if (navigator.mounted) navigator.pushNamed('/login');
+          },
+        ),
       );
       return;
     }

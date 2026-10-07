@@ -1796,6 +1796,10 @@ extension on _AdminDashboardScreenState {
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         value: selectedOwnerId,
+                        // Uzun bir ad seçilince seçili öğe satırı diyalogdan
+                        // taşıyordu (admin Loglar: "RenderFlex overflowed by
+                        // 57 pixels on the right"); alan genişliğine sığdırılır.
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Dükkan Sahibi *',
                           border: OutlineInputBorder(),
@@ -1806,6 +1810,8 @@ extension on _AdminDashboardScreenState {
                             value: user['id'] as String,
                             child: Text(
                               user['full_name'] ?? user['username'] ?? '-',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           );
                         }).toList(),
@@ -2126,6 +2132,8 @@ extension on _AdminDashboardScreenState {
                         ),
                       DropdownButtonFormField<String>(
                         value: selectedOwnerId,
+                        // Uzun ad taşmasın (bkz. dükkan ekleme diyaloğu).
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Dükkan Sahibi *',
                           border: OutlineInputBorder(),
@@ -2136,6 +2144,8 @@ extension on _AdminDashboardScreenState {
                             value: user['id'] as String,
                             child: Text(
                               user['full_name'] ?? user['username'] ?? '-',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           );
                         }).toList(),

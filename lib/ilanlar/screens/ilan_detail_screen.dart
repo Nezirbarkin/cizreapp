@@ -388,7 +388,11 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
     try {
       final until = await _service.extendMyIlan(ilan.id);
       if (!mounted) return;
-      setState(() => _future = _service.getById(widget.ilanId));
+      // Blok gövde: ok gövdeli atama Future döndürür ve debug'da setState
+      // "callback argument returned a Future" fırlatıp yenilemeyi atlardı.
+      setState(() {
+        _future = _service.getById(widget.ilanId);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

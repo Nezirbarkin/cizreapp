@@ -288,12 +288,20 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
   }
 
   void _askLogin() {
+    // Navigator şimdi yakalanır: snackbar eylemi yayından çıkıldıktan sonra
+    // da basılabilir ve o anda context ölüdür.
+    final navigator = Navigator.of(context);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: const Text('Yorum yapmak için giriş yapmalısın'),
-          action: SnackBarAction(label: 'Giriş Yap', onPressed: () => Navigator.of(context).pushNamed('/login')),
+          action: SnackBarAction(
+            label: 'Giriş Yap',
+            onPressed: () {
+              if (navigator.mounted) navigator.pushNamed('/login');
+            },
+          ),
         ),
       );
   }

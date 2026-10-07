@@ -42,7 +42,12 @@ class _ProfileBackgroundPickerSheetState extends State<ProfileBackgroundPickerSh
   String? _category;
 
   void _retry() {
-    setState(() => _future = widget.service.fetchPresets(forceRefresh: true));
+    // Blok gövde: `() => _future = ...` atamanın değeri olan Future'ı döndürür;
+    // debug'da setState "callback argument returned a Future" fırlatır ve
+    // "Tekrar dene" sessizce hiçbir şey yapmazdı.
+    setState(() {
+      _future = widget.service.fetchPresets(forceRefresh: true);
+    });
   }
 
   @override

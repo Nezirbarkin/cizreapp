@@ -121,12 +121,6 @@ class _SehiriciLineDetailScreenState extends State<SehiriciLineDetailScreen> {
           // (slivers salt List<Widget>'tır) ama çalışma zamanında "RenderViewport
           // expected a child of type RenderSliver but received a child of type
           // RenderErrorBox" ile çöker.
-          // DİKKAT: CustomScrollView.slivers'taki her öğe bir Sliver ÜRETMELİ.
-          // SehiriciSectionHeader sıradan bir kutu widget'ı (Padding/Row) —
-          // sarmalanmadan buraya konursa derleme zamanında yakalanmaz
-          // (slivers salt List<Widget>'tır) ama çalışma zamanında "RenderViewport
-          // expected a child of type RenderSliver but received a child of type
-          // RenderErrorBox" ile çöker.
           SliverToBoxAdapter(
             child: SehiriciSectionHeader(
               title: 'Duraklar ve Tahmini Varış',

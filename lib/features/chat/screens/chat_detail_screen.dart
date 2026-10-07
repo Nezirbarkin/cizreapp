@@ -23,6 +23,7 @@ import 'chat_location_viewer_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../../ilanlar/screens/ilan_detail_screen.dart';
+import '../../../core/utils/image_url.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String conversationId;
@@ -873,7 +874,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 backgroundImage:
                     widget.otherUserAvatar != null &&
                         widget.otherUserAvatar!.isNotEmpty
-                    ? NetworkImage(widget.otherUserAvatar!)
+                    ? avatarImage(widget.otherUserAvatar!)
                     : null,
                 child:
                     widget.otherUserAvatar == null ||

@@ -1662,88 +1662,92 @@ extension on _AdminDashboardScreenState {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Sipariş Durumunu Değiştir'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Sipariş #${(order['id'] as String?)?.substring(0, 8) ?? '-'}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Text('Yeni durum seçin:'),
-              const SizedBox(height: 12),
-              _buildStatusOption(
-                status: 'pending',
-                label: 'Beklemede',
-                icon: Icons.access_time,
-                color: Colors.orange,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'pending'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'confirmed',
-                label: 'Onaylandı',
-                icon: Icons.check_circle_outline,
-                color: Colors.blue,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'confirmed'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'preparing',
-                label: 'Hazırlanıyor',
-                icon: Icons.restaurant_menu,
-                color: Colors.purple,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'preparing'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'ready',
-                label: 'Hazır',
-                icon: Icons.inventory_2,
-                color: Colors.teal,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'ready'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'on_the_way',
-                label: 'Yolda',
-                icon: Icons.two_wheeler,
-                color: Colors.indigo,
-                selectedStatus: selectedStatus,
-                onTap: () =>
-                    setDialogState(() => selectedStatus = 'on_the_way'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'delivered',
-                label: 'Teslim Edildi',
-                icon: Icons.task_alt,
-                color: Colors.green,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'delivered'),
-              ),
-              const SizedBox(height: 8),
-              _buildStatusOption(
-                status: 'cancelled',
-                label: 'İptal Edildi',
-                icon: Icons.cancel,
-                color: Colors.red,
-                selectedStatus: selectedStatus,
-                onTap: () => setDialogState(() => selectedStatus = 'cancelled'),
-              ),
-            ],
+          // Yedi seçenek küçük ekranda sığmıyordu (admin Loglar: "RenderFlex
+          // overflowed by 14 pixels on the bottom"); içerik kayar.
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sipariş #${(order['id'] as String?)?.substring(0, 8) ?? '-'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                const Text('Yeni durum seçin:'),
+                const SizedBox(height: 12),
+                _buildStatusOption(
+                  status: 'pending',
+                  label: 'Beklemede',
+                  icon: Icons.access_time,
+                  color: Colors.orange,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'pending'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'confirmed',
+                  label: 'Onaylandı',
+                  icon: Icons.check_circle_outline,
+                  color: Colors.blue,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'confirmed'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'preparing',
+                  label: 'Hazırlanıyor',
+                  icon: Icons.restaurant_menu,
+                  color: Colors.purple,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'preparing'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'ready',
+                  label: 'Hazır',
+                  icon: Icons.inventory_2,
+                  color: Colors.teal,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'ready'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'on_the_way',
+                  label: 'Yolda',
+                  icon: Icons.two_wheeler,
+                  color: Colors.indigo,
+                  selectedStatus: selectedStatus,
+                  onTap: () =>
+                      setDialogState(() => selectedStatus = 'on_the_way'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'delivered',
+                  label: 'Teslim Edildi',
+                  icon: Icons.task_alt,
+                  color: Colors.green,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'delivered'),
+                ),
+                const SizedBox(height: 8),
+                _buildStatusOption(
+                  status: 'cancelled',
+                  label: 'İptal Edildi',
+                  icon: Icons.cancel,
+                  color: Colors.red,
+                  selectedStatus: selectedStatus,
+                  onTap: () => setDialogState(() => selectedStatus = 'cancelled'),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('İptal'),
             ),
             ElevatedButton(
@@ -1754,6 +1758,10 @@ extension on _AdminDashboardScreenState {
                   return;
                 }
 
+                // Bağlamlar await'ten ÖNCE yakalanır: güncelleme sürerken
+                // diyalog kapatılabilir (bkz. _showDeleteOrderDialog).
+                final messenger = ScaffoldMessenger.of(context);
+                final dialogNavigator = Navigator.of(dialogContext);
                 try {
                   debugPrint(
                     '📝 Sipariş durumu güncelleniyor: ${order['id']} -> $selectedStatus',
@@ -1766,28 +1774,26 @@ extension on _AdminDashboardScreenState {
 
                   debugPrint('✅ Sipariş durumu başarıyla güncellendi');
 
+                  if (dialogContext.mounted) dialogNavigator.pop();
                   if (mounted) {
-                    Navigator.pop(context);
                     setState(() => order['status'] = selectedStatus);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Sipariş durumu güncellendi: $selectedStatus',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
                   }
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Sipariş durumu güncellendi: $selectedStatus',
+                      ),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
                 } catch (e) {
                   debugPrint('❌ Sipariş güncellenirken hata: $e');
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Sipariş güncellenirken hata: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Sipariş güncellenirken hata: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                 }
               },
               child: const Text('Güncelle'),
@@ -2045,7 +2051,7 @@ extension on _AdminDashboardScreenState {
   void _showDeleteOrderDialog(Map<String, dynamic> order) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Siparişi Sil'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2083,7 +2089,7 @@ extension on _AdminDashboardScreenState {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('İptal'),
           ),
           ElevatedButton(
@@ -2092,6 +2098,12 @@ extension on _AdminDashboardScreenState {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
+              // Bağlamlar await'ten ÖNCE yakalanır: silme sürerken diyalog
+              // kapatılabilir ve ölü diyalog context'iyle Navigator /
+              // ScaffoldMessenger aramak "Looking up a deactivated widget's
+              // ancestor is unsafe" veriyordu (admin Loglar).
+              final messenger = ScaffoldMessenger.of(context);
+              final dialogNavigator = Navigator.of(dialogContext);
               try {
                 final orderId = order['id'];
                 debugPrint('Siparis siliniyor: $orderId');
@@ -2125,72 +2137,63 @@ extension on _AdminDashboardScreenState {
                 debugPrint('Siparis silme sonucu: $result');
 
                 if (result.isEmpty) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Siparis silinemedi. Yetkiniz olmayabilir.',
-                        ),
-                        backgroundColor: Colors.red,
-                        duration: Duration(seconds: 3),
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Siparis silinemedi. Yetkiniz olmayabilir.',
                       ),
-                    );
-                  }
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
                   return;
                 }
 
                 debugPrint('Siparis silme basarili: $result');
 
-                if (mounted) {
-                  Navigator.pop(context);
-                  setState(() {});
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Siparis basariyla silindi'),
-                      backgroundColor: Colors.green,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                }
+                if (dialogContext.mounted) dialogNavigator.pop();
+                if (mounted) setState(() {});
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Siparis basariyla silindi'),
+                    backgroundColor: Colors.green,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
               } on PostgrestException catch (e) {
                 debugPrint('PostgreSQL Hatasi: ${e.message}');
                 debugPrint('Hata kodu: ${e.code}');
                 debugPrint('Detay: ${e.details}');
 
-                if (mounted) {
-                  String errorMessage = 'Bilinmeyen hata';
+                String errorMessage = 'Bilinmeyen hata';
 
-                  if (e.code == '42501' || e.message.contains('policy')) {
-                    errorMessage =
-                        'Yetkilendirme hatasi. Admin oldugunuzu kontrol edin.';
-                  } else if (e.code == '23503') {
-                    errorMessage = 'Siparis iliskili verilere sahip';
-                  } else {
-                    errorMessage = e.message;
-                  }
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Hata: $errorMessage'),
-                      backgroundColor: Colors.red,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
+                if (e.code == '42501' || e.message.contains('policy')) {
+                  errorMessage =
+                      'Yetkilendirme hatasi. Admin oldugunuzu kontrol edin.';
+                } else if (e.code == '23503') {
+                  errorMessage = 'Siparis iliskili verilere sahip';
+                } else {
+                  errorMessage = e.message;
                 }
+
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Hata: $errorMessage'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
               } catch (e, stackTrace) {
                 debugPrint('Siparis silinirken hata: $e');
                 debugPrint('Stack trace: $stackTrace');
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Hata: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                }
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Hata: ${e.toString()}'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
               }
             },
             child: const Text('Sil'),

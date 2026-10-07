@@ -556,6 +556,10 @@ extension on _AdminDashboardScreenState {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: selectedShopId,
+                      // Uzun mağaza/kategori adı seçili satırı diyalogdan
+                      // taşırıyordu (admin Loglar: "RenderFlex overflowed by
+                      // 21 pixels on the right").
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Satıcı/Mağaza',
                         border: OutlineInputBorder(),
@@ -563,7 +567,11 @@ extension on _AdminDashboardScreenState {
                       items: shops.map((shop) {
                         return DropdownMenuItem(
                           value: shop['id'] as String,
-                          child: Text(shop['name'] ?? '-'),
+                          child: Text(
+                            shop['name'] ?? '-',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (value) {
@@ -573,6 +581,7 @@ extension on _AdminDashboardScreenState {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: selectedCategoryId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Kategori',
                         border: OutlineInputBorder(),
@@ -580,7 +589,11 @@ extension on _AdminDashboardScreenState {
                       items: categories.map((category) {
                         return DropdownMenuItem(
                           value: category['id'] as String,
-                          child: Text(category['name'] ?? '-'),
+                          child: Text(
+                            category['name'] ?? '-',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (value) {
@@ -788,6 +801,10 @@ extension on _AdminDashboardScreenState {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: selectedShopId,
+                      // Uzun mağaza/kategori adı seçili satırı diyalogdan
+                      // taşırıyordu (admin Loglar: "RenderFlex overflowed by
+                      // 21 pixels on the right").
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Satıcı/Mağaza',
                         border: OutlineInputBorder(),
@@ -795,7 +812,11 @@ extension on _AdminDashboardScreenState {
                       items: shops.map((shop) {
                         return DropdownMenuItem(
                           value: shop['id'] as String,
-                          child: Text(shop['name'] ?? '-'),
+                          child: Text(
+                            shop['name'] ?? '-',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (value) {
@@ -805,6 +826,7 @@ extension on _AdminDashboardScreenState {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: selectedCategoryId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Kategori',
                         border: OutlineInputBorder(),
@@ -812,7 +834,11 @@ extension on _AdminDashboardScreenState {
                       items: categories.map((category) {
                         return DropdownMenuItem(
                           value: category['id'] as String,
-                          child: Text(category['name'] ?? '-'),
+                          child: Text(
+                            category['name'] ?? '-',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (value) {

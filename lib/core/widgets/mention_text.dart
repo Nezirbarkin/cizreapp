@@ -135,6 +135,17 @@ class _MentionAutocompleteState extends State<MentionAutocomplete> {
     final text = widget.controller.text;
     final cursorPos = widget.controller.selection.baseOffset;
 
+    // İmleç yoksa (-1: `clear()`/`text =` ataması) ya da en baştaysa (0)
+    // solunda @ olamaz; negatif başlangıçla `lastIndexOf` RangeError
+    // fırlatıyordu (admin Loglar: "Not in inclusive range 0..N: -1").
+    if (cursorPos <= 0 || cursorPos > text.length) {
+      setState(() {
+        _showSuggestions = false;
+        _suggestions = [];
+      });
+      return;
+    }
+
     // Son @ işaretinden sonraki metni bul
     final lastAtIndex = text.lastIndexOf('@', cursorPos - 1);
 
@@ -168,7 +179,12 @@ class _MentionAutocompleteState extends State<MentionAutocomplete> {
 
   void _selectMention(String username, String userId) {
     final text = widget.controller.text;
-    final cursorPos = widget.controller.selection.baseOffset;
+    final baseOffset = widget.controller.selection.baseOffset;
+    // İmleç bilinmiyorsa metnin sonu kabul edilir.
+    final cursorPos = baseOffset < 0 || baseOffset > text.length
+        ? text.length
+        : baseOffset;
+    if (cursorPos == 0) return;
 
     // Son @ işaretini bul
     final lastAtIndex = text.lastIndexOf('@', cursorPos - 1);
@@ -178,9 +194,14 @@ class _MentionAutocompleteState extends State<MentionAutocomplete> {
       final newText =
           '${text.substring(0, lastAtIndex)}@$username ${text.substring(cursorPos)}';
 
-      widget.controller.text = newText;
-      widget.controller.selection =
-          TextSelection.collapsed(offset: lastAtIndex + username.length + 2);
+      // Metin ve imleç TEK güncellemeyle: önce `text =` atanınca seçim -1'e
+      // düşüp dinleyici o ara durumda RangeError fırlatıyordu.
+      widget.controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(
+          offset: lastAtIndex + username.length + 2,
+        ),
+      );
 
       widget.onMentionSelected?.call(username, userId);
 

@@ -180,6 +180,9 @@ class SehiriciFullStoryCard extends StatelessWidget {
                   interactive: false,
                   showCouriers: false,
                   borderRadius: 0,
+                  // Ana sayfa önizlemesi: tam harita motoru yerine statik
+                  // bitmap (bkz. SehiriciLiveMap.liteMode).
+                  liteMode: true,
                 ),
               ),
               // Gradient overlay (üstten)

@@ -808,14 +808,24 @@ class _Shimmer extends StatefulWidget {
 
 class _ShimmerState extends State<_Shimmer>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2800),
-  );
+  // TEMBEL (`late final _c = ...`) DEĞİL, initState'te kurulur (bkz. _BarState).
+  // animate=false ile açılıp hiç güncellenmeyen bir parıltıda denetleyiciye
+  // ilk kez dispose() içinde dokunuluyordu; o anda yaratılan Ticker,
+  // TickerMode'u devre dışı kalmış bağlamdan aradığı için "Looking up a
+  // deactivated widget's ancestor is unsafe" fırlatıyordu. Daha kötüsü:
+  // dispose'taki istisna Flutter'ın o karedeki söküm döngüsünü (finalizeTree)
+  // yarıda kesiyor, ekranın Scaffold'u ScaffoldMessenger'da "zombi" kayıt
+  // olarak kalıyor ve debug'da sonraki HER showSnackBar aynı hatayı veriyordu
+  // (admin Loglar'da onlarca farklı ekrana dağılmış kayıtlar).
+  late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2800),
+    );
     if (widget.animate) _c.repeat();
   }
 

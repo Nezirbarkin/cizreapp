@@ -106,15 +106,20 @@ class PushNotificationService {
       // atlanır ve profiles.fcm_token NULL kalır -> push HİÇ gelmez.
       // signedIn olayında token'ı tekrar kaydederek bunu garanti altına alıyoruz.
       if (!kIsWeb) {
-        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-          final event = data.event;
-          if (event == AuthChangeEvent.signedIn ||
-              event == AuthChangeEvent.tokenRefreshed ||
-              event == AuthChangeEvent.userUpdated) {
-            debugPrint('🔐 Auth olayı ($event) - FCM token güncelleniyor');
-            updateTokenAfterLogin();
-          }
-        });
+        Supabase.instance.client.auth.onAuthStateChange.listen(
+          (data) {
+            final event = data.event;
+            if (event == AuthChangeEvent.signedIn ||
+                event == AuthChangeEvent.tokenRefreshed ||
+                event == AuthChangeEvent.userUpdated) {
+              debugPrint('🔐 Auth olayı ($event) - FCM token güncelleniyor');
+              updateTokenAfterLogin();
+            }
+          },
+          // Oturum yenileme ağ hatası akışa addError ile gelir; onError
+          // olmadan "Uncaught async error" olarak loglanıyordu (bkz. main.dart).
+          onError: (Object e) => debugPrint('Auth akışı hatası (FCM): $e'),
+        );
       }
 
       debugPrint('✅ Firebase Messaging initialize edildi');

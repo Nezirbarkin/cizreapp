@@ -210,14 +210,22 @@ class ChatService {
 
       return Conversation.fromMap(convWithProfile);
     } catch (e, stackTrace) {
-      AppLogger.error(
-        'Error getting/creating conversation',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      final isDuplicate =
+          e.toString().contains('duplicate key') ||
+          e.toString().contains('23505');
+      // Aynı konuşmayı eşzamanlı açan iki istek (çift dokunma, karşı tarafın
+      // aynı anda yazması) zararsız bir yarış: satır zaten var, aşağıda
+      // okunup devam ediliyor. Eskiden bu durum da önce "hata" olarak
+      // loglanıyor ve admin Loglar'a düşüyordu; artık yalnız kurtarılamazsa.
+      if (!isDuplicate) {
+        AppLogger.error(
+          'Error getting/creating conversation',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
 
-      if (e.toString().contains('duplicate key') ||
-          e.toString().contains('23505')) {
+      if (isDuplicate) {
         try {
           final existingConv = await _supabase
               .from('conversations')
@@ -245,6 +253,12 @@ class ChatService {
             return Conversation.fromMap(convWithProfile);
           }
         } catch (_) {}
+        // Çakışma vardı ama satır yine okunamadı: bu gerçek bir hata.
+        AppLogger.error(
+          'Error getting/creating conversation',
+          error: e,
+          stackTrace: stackTrace,
+        );
       }
 
       return null;

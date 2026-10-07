@@ -24,8 +24,16 @@ abstract final class ChatPalette {
   static const Color failed = Color(0xFFD64545);
   static const Color dayPill = Color(0xE6FFFFFF);
   static const Color dayPillText = Color(0xFF5C5670);
+  /// Balonun altında 1 px'lik keskin, yarı saydam gölge çizgisi.
+  ///
+  /// PERFORMANS: eskiden `blurRadius: 1.5` idi. Balon özel (kuyruklu) bir yol
+  /// olduğundan Impeller her balonun bulanık gölgesini ayrı bir ekran dışı
+  /// katmanda iki geçişli bulanıklaştırmayla çiziyordu: ~15 balonlu bir
+  /// konuşmada kare başına ~22 ms GPU kodlama, kaydırırken karelerin
+  /// çoğu 33 ms'yi aşıyordu (cihaz ölçümü 2026-10-07). Bulanıklık 0 iken
+  /// gölge sıradan bir dolgu olarak çizilir.
   static const List<BoxShadow> bubbleShadow = [
-    BoxShadow(color: Color(0x1A000000), blurRadius: 1.5, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x14000000), offset: Offset(0, 1)),
   ];
 }
 

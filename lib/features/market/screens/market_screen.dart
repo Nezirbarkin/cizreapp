@@ -68,6 +68,7 @@ import '../../leaderboard/leaderboard.dart';
 import '../../leaderboard/leaderboard_navigator.dart';
 import '../../social/widgets/follow_suggestions_section.dart';
 import '../../../core/utils/image_url.dart';
+import '../services/home_snapshot_cache.dart';
 // import '../../news/widgets/news_section_widget.dart';
 
 class MarketScreen extends StatefulWidget {
@@ -152,6 +153,11 @@ class _MarketScreenState extends State<MarketScreen> {
   int _animationTransitionDurationMs = 700;
 
   bool _isLoading = true;
+
+  /// Ekrandaki veri, ağdan değil cihazdaki son kopyadan mı geliyor?
+  /// (bkz. [HomeSnapshotCache] — soğuk açılışta anında görüntü.)
+  bool _showingSnapshot = false;
+
   // ignore: unused_field
   String? _selectedCategoryId;
   bool _isStoriesCompact = false;
@@ -382,10 +388,85 @@ class _MarketScreenState extends State<MarketScreen> {
     if (mounted) setState(() => _hideCourierIcon = hideCourierIcon);
   }
 
+  /// Ana sayfanın kullandığı uygulama ayarları — saklı kopyayla birlikte
+  /// tutulur ki düzen (limitler, slogan) taze veri gelince zıplamasın.
+  Map<String, dynamic> _homeSettingsMap() => {
+    'global_orders_enabled': _globalOrdersEnabled,
+    'app_slogan': _appSlogan,
+    'anim_primary_ms': _animationPrimaryDurationMs,
+    'anim_secondary_ms': _animationSecondaryDurationMs,
+    'anim_transition_ms': _animationTransitionDurationMs,
+    'home_category_limit': _homeCategoryLimit,
+    'home_news_limit': _homeNewsLimit,
+    'home_shop_limit': _homeShopLimit,
+  };
+
+  void _applyHomeSettingsMap(Map<String, dynamic> m) {
+    _globalOrdersEnabled =
+        m['global_orders_enabled'] as bool? ?? _globalOrdersEnabled;
+    _appSlogan = m['app_slogan'] as String? ?? _appSlogan;
+    _animationPrimaryDurationMs =
+        (m['anim_primary_ms'] as num?)?.toInt() ?? _animationPrimaryDurationMs;
+    _animationSecondaryDurationMs =
+        (m['anim_secondary_ms'] as num?)?.toInt() ??
+        _animationSecondaryDurationMs;
+    _animationTransitionDurationMs =
+        (m['anim_transition_ms'] as num?)?.toInt() ??
+        _animationTransitionDurationMs;
+    _homeCategoryLimit =
+        (m['home_category_limit'] as num?)?.toInt() ?? _homeCategoryLimit;
+    final newsLimit =
+        (m['home_news_limit'] as num?)?.toInt() ?? _homeNewsLimit;
+    if (newsLimit != _homeNewsLimit) {
+      _homeNewsLimit = newsLimit;
+      _newsFuture = null;
+    }
+    _homeShopLimit = (m['home_shop_limit'] as num?)?.toInt() ?? _homeShopLimit;
+  }
+
+  /// Soğuk açılış: ağ yanıtı gelene kadar son başarılı ana sayfa verisini
+  /// gösterir. Ağ bu arada yetiştiyse bayat veri hiç gösterilmez.
+  Future<void> _showSnapshotWhileLoading(String? userId) async {
+    final snap = await HomeSnapshotCache.read(userId);
+    if (snap == null || !mounted || !_isLoading) return;
+    setState(() {
+      _applyHomeSettingsMap(snap.settings);
+      _categories = snap.categories;
+      _shops = snap.shops;
+      _discountedProducts = snap.discountedProducts;
+      _categoryShopCounts = snap.categoryShopCounts;
+      _deals = snap.deals;
+      _isLoading = false;
+      _showingSnapshot = true;
+    });
+  }
+
+  /// Saklı kopya ekrandayken gelen taze listeyi ekrandaki sıraya göre dizer
+  /// (kartlar yer değiştirip zıplamasın); yeni ürünler karıştırılıp sona
+  /// eklenir, artık olmayanlar düşer.
+  static List<Product> _keepVisibleOrder(
+    List<Product> visible,
+    List<Product> fresh,
+  ) {
+    final byId = {for (final p in fresh) p.id: p};
+    final ordered = <Product>[
+      for (final p in visible)
+        if (byId.remove(p.id) case final Product updated) updated,
+    ];
+    return ordered..addAll(byId.values.toList()..shuffle());
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+    final userId = Supabase.instance.client.auth.currentUser?.id;
 
     try {
+      // Ekranda henüz hiçbir şey yokken (soğuk açılış) cihazdaki son kopya
+      // ağ isteklerini BEKLEMEDEN gösterilir; ağ yanıtı gelince yerine konur.
+      if (_shops.isEmpty && _categories.isEmpty && _discountedProducts.isEmpty) {
+        unawaited(_showSnapshotWhileLoading(userId));
+      }
+
       // ⚡ iOS PERFORMANCE: Tüm bağımsız veri yükleme işlemlerini PARALEL yap
       final results = await Future.wait([
         // 1. Uygulama ayarları (AppAboutService — bellek cache'li). Global
@@ -439,12 +520,21 @@ class _MarketScreenState extends State<MarketScreen> {
         _newsFuture = null;
       }
 
+      // Saklı kopya ekrandayken ağ başarısız olduysa (çevrimdışı: her sorgu
+      // boş liste döner) ekrandaki içeriği silme.
+      if (_showingSnapshot && categories.isEmpty && shops.isEmpty) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
       // Her yenilemede farklı sıralama için ürünler karıştırılır; sponsorlar
       // en üstte: admin sabitlemesi, sonra İndirimdekiler vitrininde ücretli
-      // öne çıkanlar (Görev 3.2).
-      discountedProducts.shuffle();
+      // öne çıkanlar (Görev 3.2). Saklı kopya ekrandaysa karıştırılmaz,
+      // ekrandaki sıra korunur.
       final orderedDiscounted = SponsorOrdering.products(
-        discountedProducts,
+        _showingSnapshot
+            ? _keepVisibleOrder(_discountedProducts, discountedProducts)
+            : (discountedProducts..shuffle()),
         SponsorPlacement.productDiscount,
       );
       // Dükkanlar karıştırılmaz: sponsorlar en üstte (admin sabitlemesi, sonra
@@ -455,6 +545,7 @@ class _MarketScreenState extends State<MarketScreen> {
         restOrder: (a, b) => b.createdAt.compareTo(a.createdAt),
       );
 
+      if (!mounted) return;
       setState(() {
         _categories = categories;
         _shops = orderedShops;
@@ -463,7 +554,26 @@ class _MarketScreenState extends State<MarketScreen> {
         _categoryShopCounts = categoryShopCounts;
         _deals = deals;
         _isLoading = false;
+        _showingSnapshot = false;
       });
+
+      // Bir sonraki soğuk açılış için sakla (yalnız gerçek veri geldiyse).
+      if (categories.isNotEmpty && shops.isNotEmpty) {
+        unawaited(
+          HomeSnapshotCache.write(
+            userId,
+            HomeSnapshot(
+              categories: categories,
+              shops: orderedShops,
+              discountedProducts: orderedDiscounted,
+              categoryShopCounts: categoryShopCounts,
+              deals: deals,
+              settings: _homeSettingsMap(),
+              savedAt: DateTime.now(),
+            ),
+          ),
+        );
+      }
 
       // Kritik olmayan bölümler (kupon rozetleri, "Son Gönderiler") ilk
       // render'ı bloklamasın, arka planda ayrı yüklenir.

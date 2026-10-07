@@ -73,20 +73,24 @@ class OkeyLobbyProvider with ChangeNotifier {
       } catch (_) {
         // Temizlik başarısız olsa da lobi yüklenmeye devam eder.
       }
-      _rooms = await _service.listOpenRooms();
-      _activeRoom = await _service.getMyActiveRoom();
-      try {
-        _liveRooms = await _service.listLiveRooms();
-      } catch (_) {
+      // Temizlikten sonraki dört liste birbirinden bağımsız: AYNI ANDA iste.
+      // Eskiden art arda bekleniyordu (lobi ~1,5 sn; cihaz ölçümü
+      // 2026-10-06). Açık masalar / aktif masam hatası eskisi gibi lobi
+      // hatasıdır; izlenebilir masalar ve davetler birer EK'tir.
+      final results = await Future.wait<Object?>([
+        _service.listOpenRooms(),
+        _service.getMyActiveRoom(),
         // İzlenebilir masa listesi bir EK'tir; alınamazsa lobi yine çalışır.
-        _liveRooms = const [];
-      }
-      try {
-        _pendingInvites = await _invites.myInvites();
-      } catch (_) {
+        _service.listLiveRooms().catchError((Object _) => const <OkeyRoom>[]),
         // Davet listesi de bir EK'tir (misafir oturumda hiç gelmez).
-        _pendingInvites = const [];
-      }
+        _invites.myInvites().catchError(
+          (Object _) => const <OkeyRoomInvite>[],
+        ),
+      ]);
+      _rooms = results[0] as List<OkeyRoom>;
+      _activeRoom = results[1] as OkeyRoom?;
+      _liveRooms = results[2] as List<OkeyRoom>;
+      _pendingInvites = results[3] as List<OkeyRoomInvite>;
     } catch (e) {
       _error = 'Odalar yüklenemedi: $e';
     } finally {

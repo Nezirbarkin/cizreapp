@@ -469,21 +469,31 @@ extension on _AdminDashboardScreenState {
 
   // --- _buildInfoRow ---
   Widget _buildInfoRow(String label, String value, Color valueColor) {
+    // İki yazı da esnek: uzun bir değer (IP listesi, e-posta) eskiden satırı
+    // sağdan taşırıyordu (admin Loglar: "RenderFlex overflowed by 110 pixels
+    // on the right"); şimdi kendi yarısında alt satıra geçer.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-              color: valueColor,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: valueColor,
+              ),
             ),
           ),
         ],

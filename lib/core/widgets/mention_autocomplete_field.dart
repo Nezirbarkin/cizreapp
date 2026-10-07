@@ -58,8 +58,18 @@ class _MentionAutocompleteFieldState extends State<MentionAutocompleteField> {
 
     debugPrint('🔍 Text changed: "$text", cursorPos: $cursorPos');
 
-    // Son @ işaretinden sonraki metni bul
-    final lastAtIndex = text.lastIndexOf('@', cursorPos);
+    // İmleç yoksa (alan odakta değil, `clear()` ya da `text =` ataması) baseOffset
+    // -1 gelir; `lastIndexOf('@', -1)` RangeError fırlatıyordu (admin Loglar:
+    // "Invalid value: Not in inclusive range 0..10: -1").
+    if (cursorPos <= 0 || cursorPos > text.length) {
+      _hideSuggestions();
+      return;
+    }
+
+    // İmlecin SOLUNDAKİ son @ işaretini bul. `cursorPos`'tan aranırsa imleç
+    // tam @'nin önündeyken o @ bulunur ve aşağıdaki substring(start > end)
+    // patlardı.
+    final lastAtIndex = text.lastIndexOf('@', cursorPos - 1);
 
     debugPrint('📍 Last @ index: $lastAtIndex');
 
@@ -260,19 +270,30 @@ class _MentionAutocompleteFieldState extends State<MentionAutocompleteField> {
 
   void _selectMention(String username, String userId) {
     final text = widget.controller.text;
-    final cursorPos = widget.controller.selection.baseOffset;
+    final baseOffset = widget.controller.selection.baseOffset;
+    // İmleç bilinmiyorsa metnin sonu kabul edilir.
+    final cursorPos = baseOffset < 0 || baseOffset > text.length
+        ? text.length
+        : baseOffset;
+    if (cursorPos == 0) return;
 
-    // Son @ işaretini bul
-    final lastAtIndex = text.lastIndexOf('@', cursorPos);
+    // İmlecin solundaki son @ işaretini bul
+    final lastAtIndex = text.lastIndexOf('@', cursorPos - 1);
 
     if (lastAtIndex != -1) {
       // @ işaretinden sonraki metni username ile değiştir
       final newText =
           '${text.substring(0, lastAtIndex)}@$username ${text.substring(cursorPos)}';
 
-      widget.controller.text = newText;
-      widget.controller.selection =
-          TextSelection.collapsed(offset: lastAtIndex + username.length + 2);
+      // Metin ve imleç TEK güncellemeyle atanır. Eskiden önce `text =`
+      // atanıyordu; bu seçimi -1'e düşürüp dinleyiciyi o ara durumda
+      // tetikliyor, her bahsetme seçiminde RangeError fırlatıyordu.
+      widget.controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(
+          offset: lastAtIndex + username.length + 2,
+        ),
+      );
 
       _hideSuggestions();
 

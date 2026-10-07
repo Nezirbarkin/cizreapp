@@ -122,7 +122,15 @@ class FaceAvatarAnalyzer {
       debugPrint('❌ Yüz analizi başarısız, varsayılan öneriyle devam ediliyor: $e\n$st');
       return FaceAnalysis.notFound('Yüz ölçülemedi, varsayılan avatar gösteriliyor. Yeniden çekebilirsin.');
     } finally {
-      await detector?.close();
+      // close() de bir kanal çağrısıdır: eklenti kayıtlı değilse (ör. yeni
+      // eklentiyle sıcak yeniden başlatma) MissingPluginException fırlatır,
+      // finally'den kaçar ve yukarıdaki dostça sonucu ezerek "Uncaught async
+      // error" olarak düşerdi (admin Loglar).
+      try {
+        await detector?.close();
+      } catch (e) {
+        debugPrint('Yüz algılayıcı kapatılamadı: $e');
+      }
     }
   }
 }

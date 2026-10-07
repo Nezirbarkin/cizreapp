@@ -103,18 +103,21 @@ class _CategoryShopsScreenState extends State<CategoryShopsScreen> {
         SponsorPlacement.shopCategory,
         restOrder: (a, b) => b.createdAt.compareTo(a.createdAt),
       );
+      // Yükleme sürerken geri basılırsa ekran kapanmış olur; korumasız
+      // setState admin Loglar'da "setState() called after dispose()" (debug)
+      // ve "Null check operator used on a null value" (release) veriyordu.
+      if (!mounted) return;
       setState(() {
         _shops = ordered;
         _isLoading = false;
       });
       _loadCoupons(shops);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Dükkanlar yüklenirken hata: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dükkanlar yüklenirken hata: $e')),
+      );
     }
   }
 

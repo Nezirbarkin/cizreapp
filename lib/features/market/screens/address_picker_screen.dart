@@ -463,6 +463,8 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         final lat = (location['lat'] as num).toDouble();
         final lng = (location['lng'] as num).toDouble();
 
+        // Arama sürerken geri basılmış olabilir (iki ağ turu bekleniyor).
+        if (!mounted) return;
         setState(() {
           _selectedLatitude = lat;
           _selectedLongitude = lng;

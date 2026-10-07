@@ -459,7 +459,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         final userId = Supabase.instance.client.auth.currentUser?.id;
         final exploreBlocked = index == 3 && !_exploreIsPublic;
         if (userId == null && (exploreBlocked || index == 4)) {
-          // Misafir kullanıcı keşfet veya profile tıkladı
+          // Misafir kullanıcı keşfet veya profile tıkladı. Navigator şimdi
+          // yakalanır: snackbar eylemi bu ekran kapandıktan sonra da
+          // basılabilir ve o anda context ölüdür.
+          final navigator = Navigator.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -470,7 +473,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               action: SnackBarAction(
                 label: 'Giriş Yap',
                 onPressed: () {
-                  Navigator.of(context).pushNamed('/login');
+                  if (navigator.mounted) navigator.pushNamed('/login');
                 },
               ),
               duration: const Duration(seconds: 4),
@@ -712,13 +715,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) {
+        final navigator = Navigator.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Sepete eklemek için giriş yapmanız gerekiyor'),
             action: SnackBarAction(
               label: 'Giriş Yap',
               onPressed: () {
-                Navigator.of(context).pushNamed('/login');
+                if (navigator.mounted) navigator.pushNamed('/login');
               },
             ),
             duration: const Duration(seconds: 4),

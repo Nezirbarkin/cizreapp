@@ -114,6 +114,14 @@ class SehiriciLiveMap extends StatefulWidget {
   /// Köşe yuvarlaklığı; tam ekranda 0 verilir.
   final double borderRadius;
 
+  /// Android'de Google Maps "lite mode": harita sürekli çalışan bir GL
+  /// yüzeyi yerine statik bir bitmap olarak çizilir (işaretçi/çizgi/halka
+  /// yine görünür, hareket yok). Yalnız dokunuşa kapalı önizleme kartları
+  /// için — ana sayfadaki Şehiriçi kartı uygulama açılır açılmaz tam bir
+  /// harita motoru çalıştırıyordu. Lite modda araç nabız animasyonu kapalıdır
+  /// (her halka güncellemesi bitmap'i baştan çizdirir). iOS/web'de yok sayılır.
+  final bool liteMode;
+
   const SehiriciLiveMap({
     super.key,
     required this.lines,
@@ -135,6 +143,7 @@ class SehiriciLiveMap extends StatefulWidget {
     this.onHighlightChanged,
     this.overlayPadding = EdgeInsets.zero,
     this.borderRadius = 18,
+    this.liteMode = false,
   });
 
   @override
@@ -1297,6 +1306,8 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
 
   /// Bir aracı pulse kümesine ekler. İdempotent'tir.
   void _startPulseAnimation(String tripId, Color pulseColor) {
+    // Lite modda harita statik bitmap: her halka güncellemesi baştan çizim.
+    if (widget.liteMode) return;
     _pulseColors[tripId] = pulseColor;
     if (!_pulseController.isAnimating) {
       _pulseController.repeat();
@@ -2312,7 +2323,8 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
                     markers: _markers,
                     polylines: _polylines,
                     circles: _circles,
-                    trafficEnabled: traffic,
+                    trafficEnabled: traffic && !widget.liteMode,
+                    liteModeEnabled: widget.liteMode,
                     zoomControlsEnabled: false,
                     myLocationButtonEnabled: false,
                     compassEnabled: false,

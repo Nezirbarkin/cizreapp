@@ -138,9 +138,12 @@ class _WatchAdEarnCardState extends State<WatchAdEarnCard> {
 
   @override
   void dispose() {
-    // Askıda kalan SnackBar, animasyonu biterken deactivated ağaca dokunup
-    // hata fırlatmasın diye kart yok edilmeden önce kaldırılır.
-    _messenger?.removeCurrentSnackBar();
+    // SnackBar burada KALDIRILMAZ. Eskiden `_messenger?.removeCurrentSnackBar()`
+    // vardı: dispose, ağaç kilitliyken (söküm sırasında) çalışır ve
+    // ScaffoldMessenger'ı yeniden çizdirmeye kalkınca "setState() or
+    // markNeedsBuild() called when widget tree was locked" fırlatıyordu (admin
+    // Loglar); üstelik o an ekrandaki alakasız bir SnackBar'ı da silebiliyordu.
+    // SnackBar kök ScaffoldMessenger'da yaşar, kartın ömrüne bağlı değildir.
     _adService.dispose();
     super.dispose();
   }

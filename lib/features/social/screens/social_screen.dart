@@ -393,12 +393,19 @@ class _SocialScreenState extends State<SocialScreen> {
   /// true dönerse çağıran işleme devam ETMEMELİDİR.
   bool _blockGuest() {
     if (!_isGuest) return false;
+    // Snackbar kök ScaffoldMessenger'da yaşar; "Giriş Yap"a bu ekran
+    // kapandıktan sonra da basılabilir. O anda State.context ölüdür ve
+    // `Navigator.of(context)` release'te "Null check operator used on a null
+    // value" veriyordu (admin Loglar) — Navigator burada yakalanır.
+    final navigator = Navigator.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Bu özellik için giriş yapmalısınız'),
         action: SnackBarAction(
           label: 'Giriş Yap',
-          onPressed: () => Navigator.of(context).pushNamed('/login'),
+          onPressed: () {
+            if (navigator.mounted) navigator.pushNamed('/login');
+          },
         ),
         duration: const Duration(seconds: 4),
       ),

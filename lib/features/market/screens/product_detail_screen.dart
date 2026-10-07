@@ -253,6 +253,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       final shop = results[0] as Shop?;
       final globalEnabled = results[1] as bool;
 
+      // Ürün yüklenirken geri basılırsa ekran kapanmış olur; korumasız
+      // setState admin Loglar'da "setState() called after dispose()" (debug)
+      // ve "Null check operator used on a null value" (release) veriyordu.
+      if (!mounted) return;
       setState(() {
         _product = product;
         _shop = shop;
@@ -286,16 +290,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _selectedColor = product.colors.first;
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Ürün bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}',
-            ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ürün bilgileri yüklenirken bir sorun oluştu. ${AppErrorHandler.handleError(e)}',
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -314,17 +317,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       final isAdded = await favoritesProvider.toggleProductFavorite(
         widget.productId,
       );
+      if (!mounted) return;
       setState(() => _isFavorite = isAdded);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              isAdded ? 'Favorilere eklendi' : 'Favorilerden çıkarıldı',
-            ),
-            duration: const Duration(seconds: 1),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isAdded ? 'Favorilere eklendi' : 'Favorilerden çıkarıldı',
           ),
-        );
-      }
+          duration: const Duration(seconds: 1),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -602,10 +604,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       }
 
       if (mounted) {
+        final navigator = Navigator.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$_quantity adet ${_product!.name} sepete eklendi'),
-            action: SnackBarAction(label: 'Sepete Git', onPressed: _goToCart),
+            action: SnackBarAction(
+              label: 'Sepete Git',
+              onPressed: () => _openCart(navigator),
+            ),
           ),
         );
       }
@@ -618,12 +624,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
-  void _goToCart() {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+  void _goToCart() => _openCart(Navigator.of(context));
 
-    Navigator.push(
-      context,
+  /// Snackbar'daki "Sepete Git" ürün ekranı kapandıktan SONRA da basılabilir
+  /// (snackbar kök ScaffoldMessenger'da yaşar). O anda bu State'in context'i
+  /// ölüdür ve `Navigator.push(context, ...)` release'te "Null check operator
+  /// used on a null value" veriyordu; Navigator snackbar gösterilirken
+  /// yakalanır.
+  void _openCart(NavigatorState navigator) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || !navigator.mounted) return;
+
+    navigator.push(
       MaterialPageRoute(
         builder: (context) => ChangeNotifierProvider(
           create: (_) => CartProvider(userId),

@@ -658,33 +658,39 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
                   alignment: Alignment.topRight,
                   child: Padding(
                     padding: const EdgeInsets.only(right: 8, top: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        LiveRoundButton(
-                          icon: Icons.cameraswitch_outlined,
-                          tooltip: 'Kamerayı çevir',
-                          onPressed: _cameraOff ? null : () => _engine.switchCamera(),
-                        ),
-                        LiveRoundButton(
-                          icon: _micMuted ? Icons.mic_off : Icons.mic,
-                          tooltip: _micMuted ? 'Mikrofonu aç' : 'Mikrofonu kapat',
-                          active: _micMuted,
-                          onPressed: _toggleMic,
-                        ),
-                        LiveRoundButton(
-                          icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
-                          tooltip: _cameraOff ? 'Kamerayı aç' : 'Kamerayı kapat',
-                          active: _cameraOff,
-                          onPressed: _toggleCamera,
-                        ),
-                        if (live && !_isUserStream)
+                    // Kurulum panelinde klavye açılınca (ya da sohbet listesi
+                    // büyüyünce) bu alan düğmelerden kısa kalıyor; sabit Column
+                    // alttan taşıyordu (admin Loglar: "RenderFlex overflowed by
+                    // 41 pixels on the bottom"). Sığmazsa kayar.
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           LiveRoundButton(
-                            icon: Icons.shopping_bag_outlined,
-                            tooltip: 'Ürün göster',
-                            onPressed: _openProducts,
+                            icon: Icons.cameraswitch_outlined,
+                            tooltip: 'Kamerayı çevir',
+                            onPressed: _cameraOff ? null : () => _engine.switchCamera(),
                           ),
-                      ],
+                          LiveRoundButton(
+                            icon: _micMuted ? Icons.mic_off : Icons.mic,
+                            tooltip: _micMuted ? 'Mikrofonu aç' : 'Mikrofonu kapat',
+                            active: _micMuted,
+                            onPressed: _toggleMic,
+                          ),
+                          LiveRoundButton(
+                            icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
+                            tooltip: _cameraOff ? 'Kamerayı aç' : 'Kamerayı kapat',
+                            active: _cameraOff,
+                            onPressed: _toggleCamera,
+                          ),
+                          if (live && !_isUserStream)
+                            LiveRoundButton(
+                              icon: Icons.shopping_bag_outlined,
+                              tooltip: 'Ürün göster',
+                              onPressed: _openProducts,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

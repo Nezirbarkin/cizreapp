@@ -443,16 +443,21 @@ class _IlanFormScreenState extends State<IlanFormScreen> {
         final insufficientBalance = error.toString().contains(
           'Yetersiz bakiye',
         );
+        // Navigator şimdi yakalanır: snackbar eylemi formdan çıkıldıktan
+        // sonra da basılabilir ve o anda context ölüdür.
+        final navigator = Navigator.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(IlanUi.friendlyError(error)),
             action: insufficientBalance
                 ? SnackBarAction(
                     label: 'Bakiye Yükle',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const TopupScreen()),
-                    ),
+                    onPressed: () {
+                      if (!navigator.mounted) return;
+                      navigator.push(
+                        MaterialPageRoute(builder: (_) => const TopupScreen()),
+                      );
+                    },
                   )
                 : null,
           ),

@@ -261,11 +261,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           if (!autoSendTriggered && verificationId == null && !isSending) {
             autoSendTriggered = true;
             WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!context.mounted) return;
               setDialogState(() => isSending = true);
               try {
                 final result = await _verificationService.sendVerificationCode(
                   codeType: 'order_verification',
                 );
+                // Kod gelene kadar diyalog "İptal" ile kapatılmış olabilir;
+                // ölü StatefulBuilder'da setDialogState admin Loglar'da
+                // "setState() called after dispose()" veriyordu.
+                if (!context.mounted) return;
                 setDialogState(() {
                   verificationId = result['verification_id'];
                   expiresInSeconds = result['expires_in_seconds'] ?? 300;
@@ -274,24 +279,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   // Kodu al ve ekranda göster
                   displayedCode = result['code']?.toString();
                 });
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(result['message'] ?? 'Kod bildirim olarak gönderildi'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result['message'] ?? 'Kod bildirim olarak gönderildi'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               } catch (e) {
+                if (!context.mounted) return;
                 setDialogState(() => isSending = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(e.userMessage),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(e.userMessage),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             });
           }
@@ -400,6 +402,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               final result = await _verificationService.sendVerificationCode(
                                 codeType: 'order_verification',
                               );
+                              if (!context.mounted) return;
                               setDialogState(() {
                                 verificationId = result['verification_id'];
                                 expiresInSeconds = result['expires_in_seconds'] ?? 300;
@@ -408,24 +411,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 // Yeni kodu al ve ekranda göster
                                 displayedCode = result['code']?.toString();
                               });
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(result['message'] ?? 'Kod gönderildi'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(result['message'] ?? 'Kod gönderildi'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
                             } catch (e) {
+                              if (!context.mounted) return;
                               setDialogState(() => isSending = false);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(e.userMessage),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(e.userMessage),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
                             }
                           },
                     icon: isSending
@@ -484,26 +484,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               );
                             }
                           } else {
+                            if (!context.mounted) return;
                             setDialogState(() => isVerifying = false);
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(result['message'] ?? 'Kod hatalı'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          }
-                        } catch (e) {
-                          setDialogState(() => isVerifying = false);
-                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Doğrulama hatası: $e'),
+                                content: Text(result['message'] ?? 'Kod hatalı'),
                                 backgroundColor: Colors.red,
                               ),
                             );
                           }
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          setDialogState(() => isVerifying = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Doğrulama hatası: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
                         }
                       },
                 child: isVerifying

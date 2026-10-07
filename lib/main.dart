@@ -593,7 +593,13 @@ class _CizreAppState extends State<CizreApp> {
           );
         });
       }
-    });
+    },
+      // gotrue, oturum yenileme ağ yüzünden düşünce (çevrimdışı, DNS,
+      // bağlantı sıfırlandı) hatayı BU akışa addError ile basar ve kendisi
+      // yeniden dener. onError olmayan dinleyicide bu "Uncaught async error:
+      // AuthRetryableFetchException" olarak admin Loglar'a düşüyordu.
+      onError: (Object e) => debugPrint('Auth akışı hatası (yeniden denenecek): $e'),
+    );
     }
   }
 

@@ -98,6 +98,10 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> _loadConversations() async {
+    // Sohbet detayından dönüşte (Navigator.push'un future'ı) bu ekran çoktan
+    // kapanmış olabilir. Bakılmazsa aşağıdaki ilk setState release'te "Null
+    // check operator used on a null value" olarak patlıyordu (admin Loglar).
+    if (!mounted) return;
     // Ekranda liste varken spinner gösterilmez: eskisi yerinde kalır, yenisi
     // gelince değişir.
     if (_conversations.isEmpty && !_isLoading) {
