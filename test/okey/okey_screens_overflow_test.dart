@@ -234,6 +234,62 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    // MASA İZLEYİCİ ŞERİDİ (okey_game_screen.dart `_SpectatorBar`) düzeninin
+    // birebir iskeleti: `FittedBox > Row(min)` içindeki düğmeler SINIRSIZ
+    // genişlik alır. Varsayılan `expand: true` düğmeyi
+    // `SizedBox(width: double.infinity)` ile sarar ve 8 ayrı istisna üretir
+    // ("BoxConstraints forces an infinite width", "RenderBox was not laid
+    // out", "Cannot hit test a render box with no size") — admin Loglar >
+    // Son Hatalar'da izleyici olarak masaya giren herkesin kaydı. Şeritteki
+    // iki düğme `expand: false` vermek ZORUNDADIR.
+    testWidgets('OkeyButton(expand: false) — FittedBox içindeki Row’da '
+        '(izleyici şeridi) hatasız kurulur', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 400,
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('MASAYI İZLİYORSUN'),
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        height: 30,
+                        child: OkeyButton(
+                          label: 'HEDİYE',
+                          icon: Icons.card_giftcard,
+                          expand: false,
+                          onPressed: () {},
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 30,
+                        child: OkeyButton(
+                          label: 'AYRIL',
+                          tone: OkeyButtonTone.ghost,
+                          expand: false,
+                          onPressed: () {},
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('HEDİYE'), findsOneWidget);
+      expect(find.text('AYRIL'), findsOneWidget);
+    });
+
     testWidgets('OkeyRow — uzun etiket + uzun değer taşmaz', (tester) async {
       await pumpInNarrowBox(
         tester,

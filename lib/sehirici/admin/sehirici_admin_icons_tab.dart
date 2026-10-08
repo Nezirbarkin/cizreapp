@@ -48,119 +48,136 @@ class _SehiriciAdminIconsTabState extends State<SehiriciAdminIconsTab> {
         final vehicles = c.icons.where((i) => i.isVehicle).length;
         final stops = c.icons.where((i) => i.isStop).length;
 
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Column(
-                children: [
-                  SehiriciSegmented<SehiriciIconKind>(
-                    selected: _kind,
-                    onChanged: (k) => setState(() => _kind = k),
-                    items: [
-                      (
-                        value: SehiriciIconKind.vehicle,
-                        label: 'Araçlar · $vehicles',
-                        icon: Icons.directions_bus_rounded,
-                      ),
-                      (
-                        value: SehiriciIconKind.stop,
-                        label: 'Duraklar · $stops',
-                        icon: Icons.signpost_rounded,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AdminUi.brandSoft,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+        // Kısa ekranda (yatay telefon) başlık + bilgi kutusu + düğme ızgaraya
+        // yer bırakmıyor, sütun alttan taşıyordu (admin Loglar: "RenderFlex
+        // overflowed by 49 pixels on the bottom"). Başlık alanın en fazla
+        // %60'ını alır; sığmazsa kendi içinde kayar.
+        return LayoutBuilder(
+          builder: (context, box) => Column(
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: box.hasBoundedHeight
+                      ? box.maxHeight * 0.6
+                      : double.infinity,
+                ),
+                child: SingleChildScrollView(
+                  // Alttaki ızgarayla aynı PrimaryScrollController'a bağlanmasın.
+                  primary: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Column(
                       children: [
-                        Icon(Icons.info_outline_rounded,
-                            size: 18, color: AdminUi.brand),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _kind == SehiriciIconKind.vehicle
-                                ? 'Her hat bir araç türü seçer; haritada o türün '
-                                    'ikonu, hattın renginde ve gittiği yöne '
-                                    'dönük görünür. Bir ikona dokunup hazır '
-                                    'çizimi değiştirebilir veya kendi görselinizi '
-                                    'yükleyebilirsiniz.'
-                                : 'Haritadaki tüm duraklar varsayılan durak '
-                                    'ikonuyla çizilir. Bir ikonu "Haritada bunu '
-                                    'kullan" ile seçebilir, kendi görselinizi '
-                                    'yükleyebilirsiniz.',
-                            style: TextStyle(
-                                fontSize: 12.5, color: AdminUi.brand, height: 1.35),
+                        SehiriciSegmented<SehiriciIconKind>(
+                          selected: _kind,
+                          onChanged: (k) => setState(() => _kind = k),
+                          items: [
+                            (
+                              value: SehiriciIconKind.vehicle,
+                              label: 'Araçlar · $vehicles',
+                              icon: Icons.directions_bus_rounded,
+                            ),
+                            (
+                              value: SehiriciIconKind.stop,
+                              label: 'Duraklar · $stops',
+                              icon: Icons.signpost_rounded,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AdminUi.brandSoft,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline_rounded,
+                                  size: 18, color: AdminUi.brand),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _kind == SehiriciIconKind.vehicle
+                                      ? 'Her hat bir araç türü seçer; haritada o türün '
+                                          'ikonu, hattın renginde ve gittiği yöne '
+                                          'dönük görünür. Bir ikona dokunup hazır '
+                                          'çizimi değiştirebilir veya kendi görselinizi '
+                                          'yükleyebilirsiniz.'
+                                      : 'Haritadaki tüm duraklar varsayılan durak '
+                                          'ikonuyla çizilir. Bir ikonu "Haritada bunu '
+                                          'kullan" ile seçebilir, kendi görselinizi '
+                                          'yükleyebilirsiniz.',
+                                  style: TextStyle(
+                                      fontSize: 12.5, color: AdminUi.brand, height: 1.35),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => _open(),
+                            icon: const Icon(Icons.add_rounded, size: 20),
+                            label: Text(_kind == SehiriciIconKind.vehicle
+                                ? 'Yeni araç türü / ikon ekle'
+                                : 'Yeni durak ikonu ekle'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AdminUi.brand,
+                              minimumSize: const Size.fromHeight(48),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () => _open(),
-                      icon: const Icon(Icons.add_rounded, size: 20),
-                      label: Text(_kind == SehiriciIconKind.vehicle
-                          ? 'Yeni araç türü / ikon ekle'
-                          : 'Yeni durak ikonu ekle'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AdminUi.brand,
-                        minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-            Expanded(
-              child: SehiriciAsyncBody(
-                loading: c.loadingIcons && c.icons.isEmpty,
-                error: c.iconsError != null && c.icons.isEmpty
-                    ? c.iconsError
-                    : null,
-                onRetry: c.reloadIcons,
-                child: RefreshIndicator(
-                  onRefresh: c.reloadIcons,
-                  child: LayoutBuilder(
-                    builder: (context, box) {
-                      final columns = (box.maxWidth / 176).floor().clamp(2, 6);
-                      return GridView.builder(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: columns,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          mainAxisExtent: 214,
-                        ),
-                        itemCount: icons.length,
-                        itemBuilder: (context, i) => _IconCard(
-                          icon: icons[i],
-                          usedBy: icons[i].isVehicle
-                              ? c.lines
-                                  .where((l) => l.vehicleKey == icons[i].key)
-                                  .toList()
-                              : const [],
-                          sampleColor: _sampleColor(i),
-                          onTap: () => _open(icon: icons[i]),
-                        ),
-                      );
-                    },
+              Expanded(
+                child: SehiriciAsyncBody(
+                  loading: c.loadingIcons && c.icons.isEmpty,
+                  error: c.iconsError != null && c.icons.isEmpty
+                      ? c.iconsError
+                      : null,
+                  onRetry: c.reloadIcons,
+                  child: RefreshIndicator(
+                    onRefresh: c.reloadIcons,
+                    child: LayoutBuilder(
+                      builder: (context, box) {
+                        final columns = (box.maxWidth / 176).floor().clamp(2, 6);
+                        return GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 12,
+                            mainAxisExtent: 214,
+                          ),
+                          itemCount: icons.length,
+                          itemBuilder: (context, i) => _IconCard(
+                            icon: icons[i],
+                            usedBy: icons[i].isVehicle
+                                ? c.lines
+                                    .where((l) => l.vehicleKey == icons[i].key)
+                                    .toList()
+                                : const [],
+                            sampleColor: _sampleColor(i),
+                            onTap: () => _open(icon: icons[i]),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

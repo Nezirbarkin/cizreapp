@@ -270,134 +270,154 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
     final visible = _visible;
     final usage = c.linesByStop;
     final unlinked = c.unlinkedStops.length;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-          child: Column(
-            children: [
-              SehiriciSearchField(
-                controller: _search,
-                hint: 'Durak adı, kod veya adres ara',
-                onChanged: (v) => setState(() => _query = v),
-              ),
-              const SizedBox(height: 10),
-              if (_selecting)
-                _selectionBar(visible)
-              else
-              Row(
+    // Arama alanına odaklanınca klavye listeye yer bırakmıyor, sütun alttan
+    // taşıyordu (admin Loglar: "RenderFlex overflowed by 3.0 pixels on the
+    // bottom"). Üst kısım alanın en fazla %60'ını alır; sığmazsa kayar.
+    return LayoutBuilder(
+      builder: (context, box) => Column(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: box.hasBoundedHeight
+                  ? box.maxHeight * 0.6
+                  : double.infinity,
+            ),
+            child: SingleChildScrollView(
+              // Alttaki listeyle aynı PrimaryScrollController'a bağlanmasın.
+              primary: false,
+              child: Column(
                 children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _edit(),
-                      icon: const Icon(Icons.add_location_alt_rounded, size: 20),
-                      label: const Text('Yeni Durak'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AdminUi.brand,
-                        minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                    child: Column(
+                      children: [
+                        SehiriciSearchField(
+                          controller: _search,
+                          hint: 'Durak adı, kod veya adres ara',
+                          onChanged: (v) => setState(() => _query = v),
+                        ),
+                        const SizedBox(height: 10),
+                        if (_selecting)
+                          _selectionBar(visible)
+                        else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () => _edit(),
+                                icon: const Icon(Icons.add_location_alt_rounded, size: 20),
+                                label: const Text('Yeni Durak'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AdminUi.brand,
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _bulkSaving ? null : _addFromMap,
+                                icon: _bulkSaving
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.touch_app_rounded, size: 20),
+                                label: const Text('Haritadan çoklu'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AdminUi.brand,
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _bulkSaving ? null : _addFromMap,
-                      icon: _bulkSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.touch_app_rounded, size: 20),
-                      label: const Text('Haritadan çoklu'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AdminUi.brand,
-                        minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: AdminChipBar<_StopFilter>(
+                      selected: _filter,
+                      onSelected: (f) => setState(() => _filter = f),
+                      items: [
+                        (value: _StopFilter.all, label: 'Tümü', icon: null, count: c.stops.length),
+                        (
+                          value: _StopFilter.linked,
+                          label: 'Hatta bağlı',
+                          icon: null,
+                          count: c.stops.length - unlinked
+                        ),
+                        (
+                          value: _StopFilter.unlinked,
+                          label: 'Bağsız',
+                          icon: Icons.link_off_rounded,
+                          count: unlinked
+                        ),
+                        (
+                          value: _StopFilter.inactive,
+                          label: 'Pasif',
+                          icon: null,
+                          count: c.stops.where((s) => !s.isActive).length
+                        ),
+                      ],
+                    ),
+                        ),
+                        if (!_selecting && c.stops.isNotEmpty)
+                          TextButton.icon(
+                            onPressed: () => _startSelection(),
+                            icon: const Icon(Icons.checklist_rounded, size: 18),
+                            label: const Text('Seç'),
+                          ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: AdminChipBar<_StopFilter>(
-            selected: _filter,
-            onSelected: (f) => setState(() => _filter = f),
-            items: [
-              (value: _StopFilter.all, label: 'Tümü', icon: null, count: c.stops.length),
-              (
-                value: _StopFilter.linked,
-                label: 'Hatta bağlı',
-                icon: null,
-                count: c.stops.length - unlinked
-              ),
-              (
-                value: _StopFilter.unlinked,
-                label: 'Bağsız',
-                icon: Icons.link_off_rounded,
-                count: unlinked
-              ),
-              (
-                value: _StopFilter.inactive,
-                label: 'Pasif',
-                icon: null,
-                count: c.stops.where((s) => !s.isActive).length
-              ),
-            ],
-          ),
-              ),
-              if (!_selecting && c.stops.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () => _startSelection(),
-                  icon: const Icon(Icons.checklist_rounded, size: 18),
-                  label: const Text('Seç'),
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: visible.isEmpty
-              ? AdminEmpty(
-                  icon: Icons.signpost_outlined,
-                  title: c.stops.isEmpty ? 'Henüz durak yok' : 'Sonuç bulunamadı',
-                  subtitle: c.stops.isEmpty
-                      ? 'Durakları tek tek ekleyin ya da haritaya dokunarak '
-                          'güzergâh üzerinde dizin.'
-                      : 'Arama veya filtreyi değiştirin.',
-                )
-              : RefreshIndicator(
-                  onRefresh: c.reloadCityData,
-                  child: ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
-                    itemCount: visible.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, i) {
-                      final stop = visible[i];
-                      final lines = usage[stop.id] ?? const <SehiriciLine>[];
-                      return _StopCard(
-                        stop: stop,
-                        lines: lines,
-                        selecting: _selecting,
-                        selected: _selected.contains(stop.id),
-                        onTap: _selecting ? () => _toggle(stop.id) : () => _edit(stop),
-                        onLongPress: _selecting ? null : () => _startSelection(stop.id),
-                      );
-                    },
+          Expanded(
+            child: visible.isEmpty
+                ? AdminEmpty(
+                    icon: Icons.signpost_outlined,
+                    title: c.stops.isEmpty ? 'Henüz durak yok' : 'Sonuç bulunamadı',
+                    subtitle: c.stops.isEmpty
+                        ? 'Durakları tek tek ekleyin ya da haritaya dokunarak '
+                            'güzergâh üzerinde dizin.'
+                        : 'Arama veya filtreyi değiştirin.',
+                  )
+                : RefreshIndicator(
+                    onRefresh: c.reloadCityData,
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final stop = visible[i];
+                        final lines = usage[stop.id] ?? const <SehiriciLine>[];
+                        return _StopCard(
+                          stop: stop,
+                          lines: lines,
+                          selecting: _selecting,
+                          selected: _selected.contains(stop.id),
+                          onTap: _selecting ? () => _toggle(stop.id) : () => _edit(stop),
+                          onLongPress: _selecting ? null : () => _startSelection(stop.id),
+                        );
+                      },
+                    ),
                   ),
-                ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }

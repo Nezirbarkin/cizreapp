@@ -581,7 +581,8 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                         child: OutlinedButton.icon(
                           onPressed: () async {
                             final uploadedUrl = await _pickAndUploadImage();
-                            if (uploadedUrl != null) {
+                            // Yükleme sürerken diyalog kapatılmış olabilir.
+                            if (uploadedUrl != null && context.mounted) {
                               setDialogState(() => imageUrl = uploadedUrl);
                             }
                           },
@@ -766,7 +767,7 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                               result = await _showCategorySelectionDialog();
                             }
                             
-                            if (result != null) {
+                            if (result != null && context.mounted) {
                               final id = result['id'] ?? '';
                               final name = result['name'] ?? '';
                               setDialogState(() {
@@ -873,6 +874,13 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                   return;
                 }
 
+                // Bağlamlar await'ten ÖNCE yakalanır: buradaki `context`
+                // diyaloğun kendisidir. Eskiden diyalog kapatıldıktan sonra
+                // `await _loadDeals()` beklenip aynı (artık ölü) context'le
+                // snackbar gösteriliyordu → "Looking up a deactivated widget's
+                // ancestor is unsafe" (admin Loglar).
+                final messenger = ScaffoldMessenger.of(context);
+                final dialogNavigator = Navigator.of(context);
                 try {
                   final dealData = {
                     'title': titleController.text.trim(),
@@ -894,22 +902,17 @@ class _DailyDealsContentState extends State<DailyDealsContent> {
                     // Mevcut fırsatı güncelle
                     await _dealService.updateDeal(deal.id, dealData);
                   }
-                  if (mounted) {
-                    // ignore: use_build_context_synchronously
-                    Navigator.pop(context);
-                    await _loadDeals();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(deal == null ? 'Fırsat eklendi' : 'Fırsat güncellendi'),
-                      ),
-                    );
-                  }
+                  if (context.mounted) dialogNavigator.pop();
+                  if (mounted) await _loadDeals();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(deal == null ? 'Fırsat eklendi' : 'Fırsat güncellendi'),
+                    ),
+                  );
                 } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Hata: $e')),
-                    );
-                  }
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Hata: $e')),
+                  );
                 }
               },
               child: Text(deal == null ? 'Ekle' : 'Güncelle'),

@@ -1584,11 +1584,17 @@ class _SpectatorBar extends StatelessWidget {
                 // İZLEYİCİ DE HEDİYE GÖNDERİR (kullanıcı isteği: "seyirci ya
                 // da normal oyuncu"). İzleyicinin masada yapabileceği tek
                 // eylem bu olduğu için düğme burada, en görünür yerde durur.
+                // expand:false ŞART: FittedBox içindeki Row çocuklarına
+                // sınırsız genişlik verir; varsayılan expand=true düğmeyi
+                // SizedBox(width: infinity) ile sarıp "BoxConstraints forces
+                // an infinite width" + "RenderBox was not laid out" zinciri
+                // üretiyordu (admin Loglar, izleyici olarak masaya girince).
                 SizedBox(
                   height: 30,
                   child: OkeyButton(
                     label: 'HEDİYE',
                     icon: Icons.card_giftcard,
+                    expand: false,
                     onPressed: () => showOkeyGiftSheet(context, provider),
                   ),
                 ),
@@ -1598,6 +1604,7 @@ class _SpectatorBar extends StatelessWidget {
                   child: OkeyButton(
                     label: 'AYRIL',
                     tone: OkeyButtonTone.ghost,
+                    expand: false,
                     onPressed: () =>
                         Navigator.of(context).popUntil((r) => r.isFirst),
                   ),

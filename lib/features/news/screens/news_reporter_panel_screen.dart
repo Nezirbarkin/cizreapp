@@ -70,6 +70,9 @@ class _NewsReporterPanelScreenState extends State<NewsReporterPanelScreen> {
   }
 
   Future<void> _loadData() async {
+    // Düzenleme/silme dönüşünde await ardından da çağrılıyor; ekran o arada
+    // kapanmış olabilir (admin Loglar: "setState() called after dispose()").
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
@@ -79,6 +82,7 @@ class _NewsReporterPanelScreenState extends State<NewsReporterPanelScreen> {
         _newsService.getInstitutions(),
       ]);
 
+      if (!mounted) return;
       setState(() {
         _myNews = results[0] as List<NewsModel>;
         _categories = results[1] as List<NewsCategoryModel>;
@@ -86,12 +90,11 @@ class _NewsReporterPanelScreenState extends State<NewsReporterPanelScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('❌ Veri yükleme hatası: $e')));
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('❌ Veri yükleme hatası: $e')));
     }
   }
 

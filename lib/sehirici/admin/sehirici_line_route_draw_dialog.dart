@@ -1158,26 +1158,38 @@ class _EmptyHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.touch_app_rounded, size: 32, color: AdminUi.muted),
-          SizedBox(height: 8),
-          Text(
-            'Henüz nokta yok',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+    // Nokta listesi alanı kısa ekranda ipucundan kısa kalıyordu; sabit Column
+    // alttan taşıyordu (admin Loglar: "RenderFlex overflowed by 21 pixels on
+    // the bottom"). Sığmazsa kayar, sığarsa eskisi gibi dikeyde ortalanır.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: constraints.hasBoundedHeight
+                ? (constraints.maxHeight - 40).clamp(0.0, double.infinity)
+                : 0,
           ),
-          SizedBox(height: 6),
-          Text(
-            '• Haritaya dokunarak nokta ekleyin\n'
-            '• "Duraklardan" ile hat duraklarını gerçek yolla bağlayın\n'
-            '• "Son seferden" ile son tamamlanan seferin GPS izini getirin',
-            style: TextStyle(color: AdminUi.muted, fontSize: 12.5, height: 1.45),
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.touch_app_rounded, size: 32, color: AdminUi.muted),
+              SizedBox(height: 8),
+              Text(
+                'Henüz nokta yok',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+              ),
+              SizedBox(height: 6),
+              Text(
+                '• Haritaya dokunarak nokta ekleyin\n'
+                '• "Duraklardan" ile hat duraklarını gerçek yolla bağlayın\n'
+                '• "Son seferden" ile son tamamlanan seferin GPS izini getirin',
+                style: TextStyle(color: AdminUi.muted, fontSize: 12.5, height: 1.45),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
