@@ -19,6 +19,20 @@ void main() {
       );
     });
 
+    test('e-posta doğrulama yönlendirmesi sosyal girişi ezmez', () {
+      final source = File(
+        'lib/main.dart',
+      ).readAsStringSync().replaceAll('\r\n', '\n');
+
+      expect(
+        source,
+        contains('if (isJustConfirmed && !isSocialAuthUser(session.user))'),
+        reason:
+            'Yeni Google/Apple hesabında email_confirmed_at de "şimdi"dir; '
+            'koruma kalkarsa /main yönlendirmesi kullanıcı adı ekranını siler.',
+      );
+    });
+
     test('yerel Auth e-posta OTP uzunluğu 6 olarak sabittir', () {
       final config = File('supabase/config.toml').readAsStringSync().replaceAll('\r\n', '\n');
 

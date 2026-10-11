@@ -24,6 +24,18 @@ Future<bool> needsUsernameSetup() async {
   }
 }
 
+/// Hesap Google/Apple gibi bir sosyal sağlayıcıyla mı açıldı?
+///
+/// main.dart'taki "e-posta az önce doğrulandı → /main" yönlendirmesi bununla
+/// sosyal girişleri dışarıda bırakır: sağlayıcı e-postayı doğrulanmış
+/// bildirdiği için yeni bir Google/Apple hesabında `email_confirmed_at` de
+/// "şimdi"dir ve o yönlendirme, giriş/kayıt ekranının az önce açtığı
+/// [ChooseUsernameScreen]'i yığınla birlikte siliyordu.
+bool isSocialAuthUser(User user) {
+  final provider = user.appMetadata['provider'];
+  return provider is String && provider != 'email' && provider != 'phone';
+}
+
 /// Google/Apple ile kaydolan kullanıcıya, gerçek bir kullanıcı adı seçene
 /// kadar uygulamanın geri kalanını açmayan zorunlu ara ekran.
 class ChooseUsernameScreen extends StatefulWidget {

@@ -511,7 +511,11 @@ class _CizreAppState extends State<CizreApp> {
             
             print('⏰ Time since confirmation: ${now.difference(confirmedAt).inSeconds}s');
             
-            if (isJustConfirmed) {
+            // Sosyal (Google/Apple) girişte yönlendirme giriş/kayıt ekranına
+            // aittir: yeni hesapta email_confirmed_at de "şimdi" olduğundan
+            // bu blok 800 ms sonra yığını silip /main'e gidiyor, kullanıcı
+            // adı seçme ekranı hiç görünmeden uygulama açılıyordu.
+            if (isJustConfirmed && !isSocialAuthUser(session.user)) {
               print('✅ Email just confirmed!');
               
               // Web'de profil URL'si varsa ana sayfaya yönlendirme

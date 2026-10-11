@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show User;
 
 /// Google/Apple kaydından sonra zorunlu kullanıcı adı adımı. Bu ekran
 /// tamamlanmadan ana uygulamaya dönülemediği için buradaki iki davranış
@@ -120,5 +121,29 @@ void main() {
 
     expect(find.text('Kullanıcı adı seç'), findsOneWidget);
     expect(find.byType(Placeholder), findsNothing);
+  });
+
+  // main.dart'taki "e-posta az önce doğrulandı → /main" yönlendirmesi bu
+  // ayrıma dayanır; yanlış sonuç verirse yeni Google/Apple kaydında kullanıcı
+  // adı ekranı 800 ms sonra yığından silinir.
+  group('isSocialAuthUser', () {
+    User userWith(Map<String, dynamic> appMetadata) => User(
+      id: '00000000-0000-0000-0000-000000000001',
+      appMetadata: appMetadata,
+      userMetadata: const <String, dynamic>{},
+      aud: 'authenticated',
+      createdAt: '2026-10-11T13:35:56Z',
+    );
+
+    test('Google ve Apple hesapları sosyal giriştir', () {
+      expect(isSocialAuthUser(userWith({'provider': 'google'})), isTrue);
+      expect(isSocialAuthUser(userWith({'provider': 'apple'})), isTrue);
+    });
+
+    test('e-posta/telefon hesabı ve sağlayıcısı bilinmeyen oturum değildir', () {
+      expect(isSocialAuthUser(userWith({'provider': 'email'})), isFalse);
+      expect(isSocialAuthUser(userWith({'provider': 'phone'})), isFalse);
+      expect(isSocialAuthUser(userWith(const <String, dynamic>{})), isFalse);
+    });
   });
 }
