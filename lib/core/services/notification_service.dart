@@ -107,10 +107,16 @@ class NotificationService {
     if (cached != null && DateTime.now().difference(cached.$2) < _unreadTtl) {
       return Future.value(cached.$1);
     }
+    // whenComplete gövdesi blok OLMALI: `=> map.remove(..)` haritadaki
+    // future'ın KENDİSİNİ döndürür, whenComplete de dönen future'ı bekler →
+    // future kendini bekler, hiç tamamlanmaz (Bildirimler ekranı sonsuz
+    // dönüyordu).
     return _unreadInFlight[userId] ??= _fetchUnreadCount(userId).then((count) {
       _unreadCache[userId] = (count, DateTime.now());
       return count;
-    }).whenComplete(() => _unreadInFlight.remove(userId));
+    }).whenComplete(() {
+      _unreadInFlight.remove(userId);
+    });
   }
 
   Future<int> _fetchUnreadCount(String userId) async {
