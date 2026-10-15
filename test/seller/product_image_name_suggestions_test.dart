@@ -15,6 +15,7 @@ import '../helpers/test_fonts.dart';
 
 /// Ürün formu: satıcı ürün adını yazınca görsel kütüphanesinden öneri gelir
 /// (adın kelimelerinden biri yeter), dokununca ana resim olarak eklenir.
+/// Ad boşken kütüphaneden seçilen görselin adı ürün adına yazılır.
 
 class _MemoryAsyncStorage extends GotrueAsyncStorage {
   final Map<String, String> _items = {};
@@ -112,6 +113,9 @@ Future<void> _pumpForm(WidgetTester tester, {Product? product}) async {
 
 Finder _nameField() => find.widgetWithText(TextFormField, 'Ürün Adı *');
 
+String _nameText(WidgetTester tester) =>
+    tester.widget<TextFormField>(_nameField()).controller!.text;
+
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -176,6 +180,8 @@ void main() {
       find.text('"Salkım Domates" görseli ana resim olarak eklendi'),
       findsOneWidget,
     );
+    // Satıcının yazdığı ad korunur.
+    expect(_nameText(tester), 'Salkım Domates 1 kg');
     // Görsel eklendi: öneri şeridi kalkar.
     expect(find.text('Kütüphanede hazır görsel var'), findsNothing);
 
@@ -202,6 +208,37 @@ void main() {
     expect(last['p_query'], 'Domates');
     expect(last['p_match_any'], isFalse);
     expect(last['p_limit'], 60);
+  });
+
+  testWidgets('ad boşken kütüphaneden seçilen görselin adı ürün adına yazılır', (
+    tester,
+  ) async {
+    await _pumpForm(tester);
+    expect(_nameText(tester), isEmpty);
+
+    await tester.tap(find.text('Kütüphaneden Seç'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Görsel Kütüphanesi'), findsOneWidget);
+
+    await tester.tap(find.text('Salkım Domates'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(find.text('Görsel Kütüphanesi'), findsNothing);
+    expect(find.text('1/5'), findsOneWidget);
+    expect(_nameText(tester), 'Salkım Domates');
+    expect(
+      find.text('"Salkım Domates" ürün adı ve görseli eklendi'),
+      findsOneWidget,
+    );
+
+    // Yazılan ad için öneri araması yapılmaz; şerit çıkmaz.
+    final calls = _searchCalls().length;
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(_searchCalls().length, calls);
+    expect(find.text('Kütüphanede hazır görsel var'), findsNothing);
+    await tester.pump(const Duration(seconds: 3)); // SnackBar kapanır
   });
 
   testWidgets('düzenlemede mevcut ad için öneri istenmez', (tester) async {

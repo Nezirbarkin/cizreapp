@@ -65,6 +65,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -266,14 +267,20 @@ class Supabase:
         h = self._headers(headers)
         if raw is None and body is not None:
             h.setdefault("Content-Type", "application/json")
-        req = urllib.request.Request(self.url + path, data=data, method=method, headers=h)
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                text = r.read().decode("utf-8")
-                return json.loads(text) if text.strip() else None
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:300]
-            raise RuntimeError(f"HTTP {e.code}: {detail}") from None
+        # Storage yogunlukta kisa sureligine 429 "too_many_connections" donuyor
+        # (970/1410'luk yuklemelerde 14-21 gorsel); bekleyip yeniden denenir.
+        for attempt in range(5):
+            req = urllib.request.Request(self.url + path, data=data, method=method, headers=h)
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    text = r.read().decode("utf-8")
+                    return json.loads(text) if text.strip() else None
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", "replace")[:300]
+                if e.code in (429, 502, 503, 504) and attempt < 4:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                raise RuntimeError(f"HTTP {e.code}: {detail}") from None
 
     def rest_all(self, table, query):
         rows, offset = [], 0

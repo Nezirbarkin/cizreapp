@@ -580,13 +580,22 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     }
     if (_images.any((e) => e.url == preset.imageUrl)) return;
     final isMain = _images.isEmpty;
+    // Ad boşsa kütüphanedeki ad yazılır; satıcının yazdığı ad korunur.
+    final fillName = _nameController.text.trim().isEmpty;
     setState(() => _images.add(_ProductImageEntry.url(preset.imageUrl)));
+    if (fillName) {
+      // Dinleyici bu ad için kütüphanede yeniden öneri aramasın.
+      _suggestedFor = preset.name.trim();
+      _nameController.text = preset.name;
+    }
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(
-            isMain
+            fillName
+                ? '"${preset.name}" ürün adı ve görseli eklendi'
+                : isMain
                 ? '"${preset.name}" görseli ana resim olarak eklendi'
                 : '"${preset.name}" görseli eklendi',
           ),
