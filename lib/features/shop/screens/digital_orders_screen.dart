@@ -224,7 +224,7 @@ class _DigitalOrdersContentState extends State<DigitalOrdersContent>
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  order.status.label,
+                                  order.statusLabel,
                                   style: TextStyle(
                                     color: statusColor,
                                     fontWeight: FontWeight.bold,
@@ -271,8 +271,12 @@ class _DigitalOrdersContentState extends State<DigitalOrdersContent>
                             runSpacing: 8,
                             children: [
                               _InfoChip(
-                                icon: Icons.format_list_numbered,
-                                label: '${order.quantity} adet',
+                                icon: order.isManualDelivery
+                                    ? Icons.inventory_2_outlined
+                                    : Icons.format_list_numbered,
+                                label: order.isManualDelivery
+                                    ? 'Paket · satıcı teslim eder'
+                                    : '${order.quantity} adet',
                               ),
                               _InfoChip(
                                 icon: Icons.payments_outlined,

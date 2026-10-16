@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../../../core/models/digital_order_model.dart';
 import '../../../core/services/smm_service.dart';
+import '../../../core/widgets/package_order_status_dialog.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 import '../widgets/common/seller_section_card.dart';
@@ -66,7 +67,18 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
     }
   }
 
+  /// Paket siparişi: teslim edildi / iptal (tam iade).
+  Future<void> _closePackageOrder(DigitalOrder order) async {
+    final changed = await closePackageOrderFlow(
+      context,
+      order: order,
+      service: _smmService,
+    );
+    if (changed && mounted) await _loadOrders();
+  }
+
   Future<void> _showManualStatusDialog(DigitalOrder order) async {
+    if (order.isManualDelivery) return _closePackageOrder(order);
     if (order.status == DigitalOrderStatus.canceled ||
         order.status == DigitalOrderStatus.refunded ||
         order.status == DigitalOrderStatus.failed) {
@@ -227,9 +239,12 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              order.status.label,
-                              style: const TextStyle(
+                              order.statusLabel,
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
+                                color: order.awaitingSellerDelivery
+                                    ? Colors.orange.shade800
+                                    : null,
                               ),
                             ),
                             IconButton(
@@ -246,60 +261,125 @@ class _SellerDigitalOrdersScreenState extends State<SellerDigitalOrdersScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              order.targetUrl,
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.tag,
-                                  size: 16,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                            if (order.isManualDelivery) ...[
+                              // Paket: satıcı teslimi bu linke/kullanıcı adına
+                              // elle yapar, kopyalayabilsin.
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      order.targetUrl,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade700,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                if (order.externalOrderId != null)
                                   IconButton(
                                     icon: const Icon(Icons.copy, size: 18),
-                                    onPressed: () => _copyToClipboard(
-                                      order.externalOrderId!,
-                                    ),
-                                    tooltip: 'Kopyala',
+                                    onPressed: () =>
+                                        _copyToClipboard(order.targetUrl),
+                                    tooltip: 'Linki kopyala',
                                   ),
-                              ],
-                            ),
-                            Text(
-                              'Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                            if (order.startCount != null ||
-                                order.remains != null) ...[
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: 16,
+                                    color: Colors.teal.shade700,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Paket · teslimi siz yaparsınız',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.teal.shade800,
+                                    ),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 4),
                               Text(
-                                [
-                                  if (order.startCount != null)
-                                    'Başlangıç: ${order.startCount}',
-                                  if (order.remains != null)
-                                    'Kalan: ${order.remains}',
-                                ].join(' • '),
+                                'Ödeme: ${order.paymentCompositionLabel}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              if (order.awaitingSellerDelivery) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () =>
+                                            _closePackageOrder(order),
+                                        icon: const Icon(
+                                          Icons.check_circle_outline,
+                                          size: 18,
+                                        ),
+                                        label: const Text('Teslim / İptal'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ] else ...[
+                              Text(
+                                order.targetUrl,
                                 style: TextStyle(
-                                  fontSize: 12,
                                   color: Colors.grey.shade600,
+                                  fontSize: 13,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.tag,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Gerçek Sipariş ID: ${order.externalOrderId ?? 'Henüz iletilmedi'}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (order.externalOrderId != null)
+                                    IconButton(
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      onPressed: () => _copyToClipboard(
+                                        order.externalOrderId!,
+                                      ),
+                                      tooltip: 'Kopyala',
+                                    ),
+                                ],
+                              ),
+                              Text(
+                                'Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              if (order.startCount != null ||
+                                  order.remains != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  [
+                                    if (order.startCount != null)
+                                      'Başlangıç: ${order.startCount}',
+                                    if (order.remains != null)
+                                      'Kalan: ${order.remains}',
+                                  ].join(' • '),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ],
                             if (order.sellerCredited &&
                                 order.netSellerAmount != null) ...[

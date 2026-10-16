@@ -20,6 +20,11 @@ import '../services/shop_review_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/screens/orders_screen.dart';
 import '../../seller/screens/seller_orders_screen.dart';
+import '../../seller/screens/seller_digital_orders_screen.dart';
+import '../../seller/screens/products_screen.dart';
+import '../../seller/screens/seller_return_requests_screen.dart';
+import '../../admin/widgets/return_requests_tab_widget.dart';
+import 'my_return_requests_screen.dart';
 import '../../../okey/screens/okey_lobby_screen.dart';
 import '../../../okey/screens/okey_room_screen.dart';
 import '../../../okey/widgets/okey_module_gate.dart';
@@ -548,6 +553,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
+      case 'seller_new_digital_order':
+        // Paket siparişi satıcının elle teslimini bekliyor.
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const SellerDigitalOrdersScreen()));
+        }
+        break;
+
+      case 'seller_product_out_of_stock':
+        // Ürünün stoğu siparişlerle 0'a indi - satıcı ürünlerine git.
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen()));
+        }
+        break;
+
+      case 'digital_order_status':
+        // Paket teslim edildi / iptal edildi - alıcının dijital siparişleri.
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const OrdersScreen(showDigital: true)));
+        }
+        break;
+
       // Sepetteki ürün indirime girdi (Görev 3.3) / fiyat alarmı: ürünü aç.
       case 'cart_price_drop':
       case 'price_drop':
@@ -615,6 +641,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
             ),
           );
+        }
+        break;
+
+      // İade akışı: müşteri talebi → yönetici onayı → satıcı teslim alır.
+      case 'return_request':
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminReturnRequestsScreen()));
+        }
+        break;
+
+      case 'return_approved_seller':
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const SellerReturnRequestsScreen()));
+        }
+        break;
+
+      case 'return_approved':
+      case 'return_rejected':
+      case 'return_completed':
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyReturnRequestsScreen()));
         }
         break;
 
@@ -825,6 +872,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.local_shipping;
       case 'new_order':
         return Icons.shopping_bag;
+      case 'seller_new_digital_order':
+        return Icons.inventory_2;
+      case 'seller_product_out_of_stock':
+        return Icons.remove_shopping_cart_outlined;
+      case 'digital_order_status':
+        return Icons.smart_toy_outlined;
       case 'shop':
         return Icons.store;
       case 'shop_review':
@@ -836,6 +889,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.star_rate;
       case 'admin_notification':
         return Icons.campaign_rounded;
+      case 'return_request':
+      case 'return_approved_seller':
+        return Icons.assignment_return;
+      case 'return_approved':
+        return Icons.account_balance_wallet;
+      case 'return_rejected':
+        return Icons.assignment_late_outlined;
+      case 'return_completed':
+        return Icons.task_alt;
       case 'cart_price_drop':
         return Icons.local_offer;
       case 'price_drop':
@@ -883,7 +945,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'order_status':
         return Colors.teal;
       case 'new_order':
+      case 'seller_new_digital_order':
         return Colors.green.shade700;
+      case 'seller_product_out_of_stock':
+        return Colors.red.shade600;
+      case 'digital_order_status':
+        return Colors.teal;
       case 'shop_review':
         return Colors.orange;
       case 'shop_review_reply':
@@ -895,6 +962,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.amber;
       case 'admin_notification':
         return Colors.blue;
+      case 'return_request':
+      case 'return_approved_seller':
+        return Colors.orange;
+      case 'return_approved':
+      case 'return_completed':
+        return Colors.green;
+      case 'return_rejected':
+        return Colors.red;
       case 'okey_invite':
       case 'okey_invite_accepted':
         return Colors.amber;

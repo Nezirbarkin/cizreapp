@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/cart_model.dart';
 import '../../../core/models/coupon_model.dart';
+import '../../../core/models/product_model.dart';
 
 class CartService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -79,12 +80,31 @@ class CartService {
       // Stok kontrolü - üründeki mevcut stok miktarını al
       final productResponse = await _supabase
           .from('products')
-          .select('stock_quantity, is_available')
+          .select(
+            'stock_quantity, is_available, product_type, stock_unlimited, '
+            'max_order_quantity',
+          )
           .eq('id', productId)
           .single();
 
       final isAvailable = productResponse['is_available'] as bool? ?? true;
       final stockQuantity = (productResponse['stock_quantity'] as num?)?.toInt();
+      // Satıcının sipariş başına sınırı; stok girilmediyse (sınırsız) en
+      // fazla 2. Stok girildiyse müşteri stok kadar ekleyebilir.
+      int? maxPerOrder;
+      if (productResponse['product_type'] != 'digital') {
+        final sellerMax =
+            (productResponse['max_order_quantity'] as num?)?.toInt();
+        maxPerOrder = (sellerMax != null && sellerMax > 0) ? sellerMax : null;
+        final unlimited =
+            productResponse['stock_unlimited'] == true ||
+            (stockQuantity ?? 0) >= Product.unlimitedStockValue;
+        if (unlimited &&
+            (maxPerOrder == null ||
+                maxPerOrder > Product.unlimitedStockMaxPerOrder)) {
+          maxPerOrder = Product.unlimitedStockMaxPerOrder;
+        }
+      }
 
       if (!isAvailable) {
         throw Exception('Bu ürün şu anda satışta değil');
@@ -127,6 +147,9 @@ class CartService {
       if (existingItem != null) {
         // Varsa miktarı artır
         final newQuantity = existingItem.quantity + quantity;
+        if (maxPerOrder != null && newQuantity > maxPerOrder) {
+          throw Exception('Bu üründen en fazla $maxPerOrder adet alınabilir');
+        }
         if (stockQuantity != null && newQuantity > stockQuantity) {
           throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
         }
@@ -140,6 +163,9 @@ class CartService {
         return updated;
       }
 
+      if (maxPerOrder != null && quantity > maxPerOrder) {
+        throw Exception('Bu üründen en fazla $maxPerOrder adet alınabilir');
+      }
       if (stockQuantity != null && quantity > stockQuantity) {
         throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
       }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../market/screens/live_host_screen.dart';
 import '../../../market/widgets/shop_card.dart';
+import '../../screens/bulk_digital_import_screen.dart';
+import '../../screens/bulk_product_upload_screen.dart';
 import '../../screens/coupons_screen.dart';
 import '../../screens/seller_digital_orders_screen.dart';
 import '../../screens/seller_flash_sales_screen.dart';
@@ -200,6 +202,16 @@ class SellerMenuContent {
               color: const Color(0xFF7E57C2),
               action: (_) => onManageCategories(),
             ),
+            SellerMenuEntry(
+              id: 'bulk_upload',
+              icon: Icons.table_view_rounded,
+              title: 'Toplu Ürün Yükle',
+              subtitle: 'Excel/CSV ile ürün ekle, fiyat ve stok güncelle',
+              color: const Color(0xFF16A34A),
+              page: (_) => const BulkProductUploadScreen(),
+              refreshOnReturn: true,
+              requiresShop: true,
+            ),
           ],
         ),
         (
@@ -212,6 +224,16 @@ class SellerMenuContent {
               subtitle: 'Sağlayıcı ve servis ayarları',
               color: const Color(0xFF5C6BC0),
               page: (_) => const SmmProviderSettingsScreen(),
+            ),
+            SellerMenuEntry(
+              id: 'bulk_digital',
+              icon: Icons.bolt_rounded,
+              title: 'Toplu Dijital Ürün',
+              subtitle: 'Sağlayıcı servislerini toplu ürüne çevir',
+              color: const Color(0xFF7C3AED),
+              page: (_) => const BulkDigitalImportScreen(),
+              refreshOnReturn: true,
+              requiresShop: true,
             ),
             SellerMenuEntry(
               id: 'digital_orders',

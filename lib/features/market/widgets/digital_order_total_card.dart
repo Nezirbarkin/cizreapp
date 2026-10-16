@@ -17,9 +17,24 @@ class DigitalOrderTotalCard extends StatelessWidget {
     this.maxQuantity = 0,
     this.pointsEligible = false,
     this.maxPointsCoveragePercent = 100,
-  });
+  }) : packagePrice = null;
+
+  /// Paket (sabit fiyat) ürünü: adet her zaman 1, toplam = paket fiyatı.
+  const DigitalOrderTotalCard.package({
+    super.key,
+    required double price,
+    this.pointsEligible = false,
+    this.maxPointsCoveragePercent = 100,
+  }) : packagePrice = price,
+       pricePer1000 = null,
+       quantity = 1,
+       minQuantity = 1,
+       maxQuantity = 1;
 
   final double? pricePer1000;
+
+  /// null değilse kart paket modundadır.
+  final double? packagePrice;
   final int quantity;
   final int minQuantity;
 
@@ -34,7 +49,13 @@ class DigitalOrderTotalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final quote = _inRange
+    final quote = packagePrice != null
+        ? DigitalOrderPricing.quotePackage(
+            price: packagePrice,
+            pointsEligible: pointsEligible,
+            maxPointsCoveragePercent: maxPointsCoveragePercent,
+          )
+        : _inRange
         ? DigitalOrderPricing.quote(
             pricePer1000: pricePer1000,
             quantity: quantity,
@@ -90,6 +111,9 @@ class DigitalOrderTotalCard extends StatelessWidget {
   }
 
   String _detail(DigitalOrderQuote? quote) {
+    if (packagePrice != null) {
+      return quote == null ? 'Fiyat bilgisi yok' : '1 paket · teslimi satıcı elle yapar';
+    }
     if (quote != null) {
       return '$quantity adet × ${DigitalOrderPricing.formatTry(quote.pricePer1000Cents)} / 1000 adet';
     }

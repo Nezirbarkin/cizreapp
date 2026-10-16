@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/models/product_model.dart';
 import '../../../core/services/contact_lookup_service.dart';
 
 /// Admin - Dükkan Detay Ekranı
@@ -1327,7 +1328,7 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          inStock ? 'Stok: $stockQty' : 'Stok Yok',
+                          inStock ? 'Stok: ${Product.stockLabelFor(stockQty)}' : 'Stok Yok',
                           style: TextStyle(
                             fontSize: 12,
                             color: inStock ? Colors.green.shade700 : Colors.red.shade700,

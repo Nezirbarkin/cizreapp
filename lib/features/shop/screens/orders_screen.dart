@@ -6,10 +6,14 @@ import '../../../core/models/order_model.dart';
 import '../services/order_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 import '../../market/services/shop_review_service.dart';
+import '../../market/screens/my_return_requests_screen.dart';
 import 'digital_orders_screen.dart' show DigitalOrdersContent;
 
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({super.key});
+  const OrdersScreen({super.key, this.showDigital = false});
+
+  /// true = "Dijital Siparişlerim" sekmesiyle aç (dijital sipariş bildirimi).
+  final bool showDigital;
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -39,7 +43,11 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    _sectionController = TabController(length: 2, vsync: this);
+    _sectionController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.showDigital ? 1 : 0,
+    );
     _tabController = TabController(length: _statuses.length + 1, vsync: this);
     _loadOrders();
   }
@@ -211,6 +219,16 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
       appBar: AppBar(
         title: const Text('Siparişlerim'),
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'İade Taleplerim',
+            icon: const Icon(Icons.assignment_return_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MyReturnRequestsScreen()),
+            ),
+          ),
+        ],
         bottom: TabBar(
           controller: _sectionController,
           tabs: const [

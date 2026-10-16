@@ -1197,7 +1197,9 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Net kazanç: ₺${(order.sellerNetAmount ?? (order.totalAmount - order.totalAdminEarnings)).toStringAsFixed(2)} (komisyon: ₺${order.totalAdminEarnings.toStringAsFixed(2)})',
+                                  'Net kazanç: ₺${(order.sellerNetAmount ?? (order.totalAmount - order.sellerTotalDeductions)).toStringAsFixed(2)} '
+                                  '(komisyon: ₺${(order.adminCommission ?? 0).toStringAsFixed(2)}'
+                                  '${order.sellerDeliveryCharge > 0 ? ', ücretsiz teslimat bedeli: ₺${order.sellerDeliveryCharge.toStringAsFixed(2)}' : ''})',
                                   style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w600, fontSize: 13),
                                 ),
                               ),

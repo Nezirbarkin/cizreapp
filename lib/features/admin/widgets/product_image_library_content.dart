@@ -25,6 +25,10 @@ import 'admin_ui.dart';
 /// ve toplu yayına alır / pasife çeker / siler. Klasörler "Klasörler"
 /// sayfasından eklenir, sıralanır, kapatılır (kapalı klasörün görselleri
 /// satıcılara gösterilmez).
+///
+/// Kütüphane binlerce görsel olduğu için istemciye inmez: süzme, arama,
+/// sıralama ve sayaçlar sunucuda (`admin_product_image_presets_page`), ızgara
+/// kaydırdıkça sayfa sayfa yüklenir. Açılış = bir sayfa + kütüphane özeti.
 class ProductImageLibraryContent extends StatefulWidget {
   const ProductImageLibraryContent({
     super.key,
@@ -43,29 +47,13 @@ class ProductImageLibraryContent extends StatefulWidget {
       _ProductImageLibraryContentState();
 }
 
-enum _StatusFilter { all, active, passive }
-
-enum _Sort { order, newest }
-
 /// Klasör süzgecinde "tüm klasörler" ve "klasörsüz" değerleri (diğerleri
 /// klasör id'si).
 const String _allFolders = '';
 const String _unfiled = '-';
 
-/// Türkçe harfleri sadeleştirip küçültür: "Çiğ Köfte" ile "cig kofte" eşleşsin.
-const Map<String, String> _trFold = {
-  'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g', //
-  'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
-};
-
-String _fold(String s) {
-  final b = StringBuffer();
-  for (final r in s.runes) {
-    final ch = String.fromCharCode(r);
-    b.write(_trFold[ch] ?? ch.toLowerCase());
-  }
-  return b.toString();
-}
+/// Düzenleme sayfasının "silindi" sonucu (kaydedince güncel görsel döner).
+const String _deletedResult = 'deleted';
 
 String _cleanError(Object e) =>
     e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
@@ -75,29 +63,88 @@ class _ProductImageLibraryContentState
   late final ProductImagePresetService _service =
       widget.service ?? ProductImagePresetService();
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scroll = ScrollController();
 
-  List<ProductImagePreset> _all = [];
-  List<ProductImageFolder> _folders = [];
+  /// Arama kutusu yazmanın durmasını bu kadar bekler (her harfte istek
+  /// gitmesin).
+  static const Duration _searchDelay = Duration(milliseconds: 275);
+
+  /// Listenin sonuna bu kadar piksel kala sonraki sayfa istenir (~4–5 sıra).
+  /// Yükleme ızgaranın ön yükleme alanına (cacheExtent) değil kaydırma yerine
+  /// bakar: açılışta geniş ekranda da yalnız bir sayfa iner.
+  static const double _loadAhead = 1000;
+
+  /// Aynı süzgeç yenilenirken en fazla bu kadar satır yeniden istenir
+  /// (sunucunun üst sınırı).
+  static const int _maxReload = 500;
+
+  /// Yüklenmiş sayfalar: süzgece uyan sıralı listenin BAŞI.
+  List<ProductImagePreset> _items = const [];
+
+  /// Süzgece uyan toplam (sunucudan); `_items`'tan fazlaysa sonraki sayfa var.
+  int _total = 0;
+
+  /// Kütüphanenin tamamının sayaçları (klasör çipleri, durum kutuları);
+  /// açılışta ve her değişiklikten sonra sunucudan tazelenir.
+  ProductImageLibrarySummary _summary = const ProductImageLibrarySummary();
+  bool _summaryLoaded = false;
+
   bool _loading = true;
+  bool _refreshing = false;
+  bool _loadingMore = false;
+  bool _loadMoreScheduled = false;
   String? _error;
+  String? _pageError;
+
+  /// Arama kutusundaki metin (anında) ve sunucuya giden arama (bekleyişten
+  /// sonra).
   String _query = '';
+  String _search = '';
+  Timer? _searchTimer;
+
   String _folderFilter = _allFolders;
-  _StatusFilter _filter = _StatusFilter.all;
-  _Sort _sort = _Sort.order;
+  ProductImageAdminStatus _filter = ProductImageAdminStatus.all;
+  ProductImageAdminSort _sort = ProductImageAdminSort.order;
   final Set<String> _selected = {};
   bool _busy = false;
+  bool _selectingAll = false;
+
+  /// Her yeni ilk sayfa isteğinde artar; eski süzgecin yanıtı atılır.
+  int _listGen = 0;
+
+  /// Sonraki sayfa isteğinin kuşağı: yerel değişiklik (silme, taşıma)
+  /// ofseti kaydırdığı için süren sayfa isteği geçersiz sayılır.
+  int _pageGen = 0;
+
+  /// Yalnız en son sayaç tazelemesinin yanıtı uygulanır.
+  int _countsGen = 0;
 
   bool get _selecting => _selected.isNotEmpty;
+
+  bool get _hasMore => _items.length < _total;
+
+  ProductImageAdminQuery get _currentQuery => ProductImageAdminQuery(
+    folderId: _folderFilter == _allFolders || _folderFilter == _unfiled
+        ? null
+        : _folderFilter,
+    unfiled: _folderFilter == _unfiled,
+    status: _filter,
+    search: _search,
+    sort: _sort,
+  );
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _scroll.addListener(_maybeLoadMore);
+    _reload();
   }
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _searchController.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -105,91 +152,272 @@ class _ProductImageLibraryContentState
   // Veri
   // -------------------------------------------------------------------------
 
-  Future<void> _load({bool silent = false}) async {
-    if (!silent) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
+  /// Süzgecin ilk sayfasını ister.
+  ///
+  /// [keep] true ise aynı süzgeç yenileniyor (aşağı çekme; ekleme, düzenleme,
+  /// klasör değişikliğinden sonra): eldeki kadar satır yeniden istenir ki
+  /// kaydırma yeri korunsun, özet de tazelenir, hata olursa liste bozulmaz.
+  /// false ise süzgeç değişti: tek sayfa.
+  Future<void> _reload({bool keep = false}) async {
+    final gen = ++_listGen;
+    _pageGen++;
+    _countsGen++;
+    final withSummary = keep || !_summaryLoaded;
+    final limit = keep
+        ? _items.length.clamp(
+            ProductImagePresetService.adminPageSize,
+            _maxReload,
+          )
+        : ProductImagePresetService.adminPageSize;
+    setState(() {
+      _loadingMore = false;
+      _pageError = null;
+      if (!_loading) _refreshing = true;
+      if (!keep) _error = null;
+    });
     try {
-      final results = await Future.wait<Object>([
-        _service.getAllPresetsForAdmin(),
-        _service.getFolders(),
-      ]);
-      if (!mounted) return;
-      final list = results[0] as List<ProductImagePreset>;
-      final folders = results[1] as List<ProductImageFolder>;
-      final ids = {for (final p in list) p.id};
+      final page = await _service.getAdminPage(
+        _currentQuery,
+        limit: limit,
+        withSummary: withSummary,
+      );
+      if (!mounted || gen != _listGen) return;
+      // Yeni süzgecin listesi baştan gösterilir.
+      if (!keep && _scroll.hasClients) _scroll.jumpTo(0);
+      var folderGone = false;
       setState(() {
-        _all = list;
-        _folders = folders;
+        _items = page.items;
+        _total = page.total;
         _loading = false;
+        _refreshing = false;
         _error = null;
-        _selected.removeWhere((id) => !ids.contains(id));
-        // Süzülen klasör silindiyse tüm klasörlere dön.
-        if (_folderFilter != _allFolders &&
-            _folderFilter != _unfiled &&
-            !folders.any((f) => f.id == _folderFilter)) {
-          _folderFilter = _allFolders;
-        }
+        if (page.summary != null) folderGone = _applySummary(page.summary!);
+      });
+      if (folderGone) await _reload();
+    } catch (e) {
+      if (!mounted || gen != _listGen) return;
+      final quiet = keep && _summaryLoaded;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        // Yenilemede eldeki liste bozulmasın.
+        if (!quiet) _error = _cleanError(e);
+      });
+      if (quiet) _snack(_cleanError(e), error: true);
+    }
+  }
+
+  /// Özeti uygular (setState içinde). Süzülen klasör artık yoksa (silindi)
+  /// tüm klasörlere döner ve true döndürür: çağıran o listeyi istemeli.
+  bool _applySummary(ProductImageLibrarySummary summary) {
+    _summary = summary;
+    _summaryLoaded = true;
+    if (_folderFilter != _allFolders &&
+        _folderFilter != _unfiled &&
+        !summary.folders.any((f) => f.id == _folderFilter)) {
+      _folderFilter = _allFolders;
+      return true;
+    }
+    return false;
+  }
+
+  /// Değişiklikten sonra sayaçlar (özet + süzgece uyan toplam) sunucudan
+  /// tazelenir; yüklü liste yerelde zaten güncel.
+  Future<void> _refreshCounts() async {
+    final gen = ++_countsGen;
+    final listGen = _listGen;
+    try {
+      final page = await _service.getAdminPage(
+        _currentQuery,
+        limit: 0,
+        withSummary: true,
+      );
+      if (!mounted || gen != _countsGen) return;
+      var folderGone = false;
+      setState(() {
+        if (listGen == _listGen) _total = page.total;
+        if (page.summary != null) folderGone = _applySummary(page.summary!);
+      });
+      if (folderGone) await _reload();
+    } catch (_) {
+      // Sayaçlar bir sonraki yenilemede düzelir; eldeki liste bozulmasın.
+    }
+  }
+
+  /// Kare çizildikten sonra kaydırma yerine bakılır (liste ekranı
+  /// doldurmuyorsa ya da işlem bitip ızgara yeniden kurulduysa).
+  void _scheduleLoadMore() {
+    if (_loadMoreScheduled || !_hasMore || _pageError != null) return;
+    _loadMoreScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMoreScheduled = false;
+      if (mounted) _maybeLoadMore();
+    });
+  }
+
+  /// Listenin sonuna [_loadAhead]'den az kaldıysa sonraki sayfa istenir.
+  void _maybeLoadMore() {
+    if (!_hasMore) return;
+    if (_scroll.hasClients) {
+      final pos = _scroll.position;
+      if (pos.hasContentDimensions && pos.extentAfter > _loadAhead) return;
+    }
+    _loadMore();
+  }
+
+  /// Sonraki sayfa. Toplu işlem sürerken istenmez: sunucu henüz eski
+  /// durumdayken yerelde çıkarılan görseller yeniden gelirdi (işlem bitince
+  /// ızgara yeniden kurulur ve istek o zaman gider).
+  Future<void> _loadMore() async {
+    if (!_hasMore ||
+        _loading ||
+        _refreshing ||
+        _loadingMore ||
+        _busy ||
+        _pageError != null ||
+        _error != null) {
+      return;
+    }
+    final listGen = _listGen;
+    final pageGen = _pageGen;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await _service.getAdminPage(
+        _currentQuery,
+        offset: _items.length,
+      );
+      if (!mounted || listGen != _listGen || pageGen != _pageGen) return;
+      final have = {for (final p in _items) p.id};
+      final fresh = page.items.where((p) => !have.contains(p.id)).toList();
+      setState(() {
+        _items = [..._items, ...fresh];
+        // Sunucu listesi arada kaydıysa (başka cihazdan ekleme) yalnız
+        // eldeki satırlar gelebilir; ilerleme yoksa durulur ki istek döngüsü
+        // olmasın (aşağı çekince tazelenir).
+        _total = fresh.isEmpty ? _items.length : page.total;
+        _loadingMore = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || listGen != _listGen || pageGen != _pageGen) return;
       setState(() {
-        _loading = false;
-        // Sessiz yenilemede eldeki liste bozulmasın.
-        if (!silent || _all.isEmpty) _error = _cleanError(e);
+        _loadingMore = false;
+        _pageError = _cleanError(e);
       });
     }
   }
 
-  /// Yalnız klasör süzgeci uygulanmış liste (durum sayaçları bunu sayar).
-  List<ProductImagePreset> get _inFolder => switch (_folderFilter) {
-    _allFolders => _all,
-    _unfiled => _all.where((p) => p.folderId == null).toList(),
-    final id => _all.where((p) => p.folderId == id).toList(),
+  /// Süzgeç, sıralama ya da arama değişti: ilk sayfa istenir. Bekleyen arama
+  /// metni de hemen uygulanır.
+  void _setQuery(VoidCallback change) {
+    _searchTimer?.cancel();
+    final before = _currentQuery;
+    change();
+    _search = _query.trim();
+    if (_currentQuery == before) {
+      setState(() {});
+      return;
+    }
+    _reload();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _query = value);
+    _searchTimer?.cancel();
+    _searchTimer = Timer(_searchDelay, () {
+      if (mounted) _setQuery(() {});
+    });
+  }
+
+  /// Süren sonraki sayfa isteğini geçersiz kılar (setState içinde): yerel
+  /// değişiklik ofseti kaydırır, sayfa yeniden istenir.
+  void _dropPendingPage() {
+    _pageGen++;
+    _loadingMore = false;
+  }
+
+  bool _matchesFilter(ProductImagePreset p) {
+    final inFolder = switch (_folderFilter) {
+      _allFolders => true,
+      _unfiled => p.folderId == null,
+      final id => p.folderId == id,
+    };
+    final inStatus = switch (_filter) {
+      ProductImageAdminStatus.all => true,
+      ProductImageAdminStatus.active => p.isActive,
+      ProductImageAdminStatus.passive => !p.isActive,
+    };
+    return inFolder && inStatus;
+  }
+
+  /// Yüklü listede [ids]'e [change] uygulanır (null = silindi; setState
+  /// içinde). Süzgece artık uymayanlar listeden çıkar, toplam o kadar azalır.
+  /// Ad değişikliği aramayla yeniden karşılaştırılmaz (yeni düzenlenen görsel
+  /// gözden kaybolmasın).
+  void _applyLocal(
+    Set<String> ids,
+    ProductImagePreset? Function(ProductImagePreset p) change,
+  ) {
+    final next = <ProductImagePreset>[];
+    for (final p in _items) {
+      if (!ids.contains(p.id)) {
+        next.add(p);
+        continue;
+      }
+      final changed = change(p);
+      if (changed != null && _matchesFilter(changed)) next.add(changed);
+    }
+    _total -= _items.length - next.length;
+    _items = next;
+  }
+
+  bool _allLoaded(Set<String> ids) {
+    var n = 0;
+    for (final p in _items) {
+      if (ids.contains(p.id)) n++;
+    }
+    return n == ids.length;
+  }
+
+  /// İşlemden sonra: etkilenenlerin hepsi yüklüyse yerel liste doğru, yalnız
+  /// sayaçlar tazelenir. Yüklenmemiş görsel de etkilendiyse ("süzgece
+  /// uyanların tümü" seçimi) ya da işlem yarıda kaldıysa (toplu işlem parça
+  /// parça gider) liste de sunucudan yeniden istenir.
+  Future<void> _syncAfterChange({required bool listExact}) =>
+      listExact ? _refreshCounts() : _reload(keep: true);
+
+  /// Klasör başına görsel sayısı (tüm durumlar); null anahtarı = klasörsüz.
+  Map<String?, ({int all, int active})> get _folderCounts => {
+    for (final f in _summary.folders)
+      f.id: (all: f.imageCount, active: f.activeImageCount),
+    null: (all: _summary.unfiledCount, active: _summary.unfiledActiveCount),
   };
+
+  /// Seçili klasör kapsamındaki sayılar (durum kutuları; aramadan bağımsız).
+  ({int all, int active}) get _scopeCounts {
+    switch (_folderFilter) {
+      case _allFolders:
+        return (all: _summary.totalCount, active: _summary.activeCount);
+      case _unfiled:
+        return (
+          all: _summary.unfiledCount,
+          active: _summary.unfiledActiveCount,
+        );
+    }
+    for (final f in _summary.folders) {
+      if (f.id == _folderFilter) {
+        return (all: f.imageCount, active: f.activeImageCount);
+      }
+    }
+    return (all: 0, active: 0);
+  }
 
   String? _folderName(String? id) {
     if (id == null) return null;
-    for (final f in _folders) {
+    for (final f in _summary.folders) {
       if (f.id == id) return f.name;
     }
     return null;
   }
-
-  /// Klasör başına görsel sayısı (tüm durumlar); null anahtarı = klasörsüz.
-  /// Yerel listeden sayılır ki taşıma/silme sonrası anında doğru olsun.
-  Map<String?, ({int all, int active})> get _folderCounts {
-    final all = <String?, int>{};
-    final active = <String?, int>{};
-    for (final p in _all) {
-      all[p.folderId] = (all[p.folderId] ?? 0) + 1;
-      if (p.isActive) active[p.folderId] = (active[p.folderId] ?? 0) + 1;
-    }
-    return {
-      for (final k in all.keys) k: (all: all[k]!, active: active[k] ?? 0),
-    };
-  }
-
-  List<ProductImagePreset> get _visible {
-    final q = _fold(_query.trim());
-    final list = _inFolder.where((p) {
-      if (_filter == _StatusFilter.active && !p.isActive) return false;
-      if (_filter == _StatusFilter.passive && p.isActive) return false;
-      if (q.isEmpty) return true;
-      return _fold(p.name).contains(q) ||
-          _fold(p.description ?? '').contains(q);
-    }).toList();
-    if (_sort == _Sort.newest) {
-      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    }
-    return list;
-  }
-
-  int get _nextOrder =>
-      _all.isEmpty ? 1 : _all.map((p) => p.displayOrder).reduce(math.max) + 1;
 
   void _snack(String message, {bool error = false}) {
     if (!mounted) return;
@@ -247,8 +475,8 @@ class _ProductImageLibraryContentState
       builder: (_) => _AddImagesSheet(
         service: _service,
         scrapeService: widget.scrapeService,
-        startOrder: _nextOrder,
-        folders: _folders,
+        startOrder: _summary.maxDisplayOrder + 1,
+        folders: _summary.folders,
         // Bir klasör süzülüyorsa yeni görseller oraya eklenir.
         initialFolderId:
             _folderFilter == _allFolders || _folderFilter == _unfiled
@@ -259,11 +487,11 @@ class _ProductImageLibraryContentState
     if (saved != null && saved > 0) {
       _snack('$saved görsel kütüphaneye eklendi');
     }
-    if (saved != null) await _load(silent: true);
+    if (saved != null && mounted) await _reload(keep: true);
   }
 
   Future<void> _openEdit(ProductImagePreset preset) async {
-    final result = await showModalBottomSheet<String>(
+    final result = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -272,12 +500,21 @@ class _ProductImageLibraryContentState
       builder: (_) => _EditPresetSheet(
         preset: preset,
         service: _service,
-        folders: _folders,
+        folders: _summary.folders,
       ),
     );
-    if (result == null) return;
-    _snack(result == 'deleted' ? 'Görsel silindi' : 'Görsel güncellendi');
-    await _load(silent: true);
+    if (result == null || !mounted) return;
+    final deleted = result == _deletedResult;
+    setState(() {
+      _dropPendingPage();
+      // Sıra numarası/adı değiştiyse yeni yerini bir sonraki yenilemede alır.
+      _applyLocal({
+        preset.id,
+      }, (_) => result is ProductImagePreset ? result : null);
+      if (deleted) _selected.remove(preset.id);
+    });
+    _snack(deleted ? 'Görsel silindi' : 'Görsel güncellendi');
+    await _refreshCounts();
   }
 
   Future<void> _openFolders() async {
@@ -289,16 +526,17 @@ class _ProductImageLibraryContentState
       constraints: const BoxConstraints(maxWidth: 560),
       builder: (_) => _FoldersSheet(
         service: _service,
-        folders: _folders,
+        folders: _summary.folders,
         counts: _folderCounts,
       ),
     );
-    if (changed == true) await _load(silent: true);
+    if (changed == true && mounted) await _reload(keep: true);
   }
 
-  Future<void> _move(List<ProductImagePreset> items) async {
-    if (items.isEmpty || _busy) return;
-    final current = items.map((p) => p.folderId).toSet();
+  Future<void> _move(Set<String> ids) async {
+    if (ids.isEmpty || _busy) return;
+    final known = _items.where((p) => ids.contains(p.id)).toList();
+    final allLoaded = known.length == ids.length;
     final picked = await showModalBottomSheet<_FolderChoice>(
       context: context,
       isScrollControlled: true,
@@ -307,100 +545,130 @@ class _ProductImageLibraryContentState
       constraints: const BoxConstraints(maxWidth: 480),
       builder: (_) => _FolderPickerSheet(
         service: _service,
-        folders: _folders,
-        count: items.length,
-        current: current,
+        folders: _summary.folders,
+        count: ids.length,
+        // Yüklenmemiş görsellerin klasörü bilinmez: "şu anki" işaretlenmez.
+        current: allLoaded
+            ? {for (final p in known) p.folderId}
+            : const <String?>{},
       ),
     );
     if (picked == null || !mounted) return;
 
     final target = picked.folderId;
-    final ids = items.map((p) => p.id).toSet();
-    final before = _all;
+    final beforeItems = _items;
+    final beforeTotal = _total;
+    var ok = false;
     setState(() {
       _busy = true;
-      if (picked.created != null) _folders = [..._folders, picked.created!];
-      _all = [
-        for (final p in _all) ids.contains(p.id) ? p.withFolder(target) : p,
-      ];
+      _dropPendingPage();
+      if (picked.created != null) {
+        _summary = _summary.copyWith(
+          folders: [..._summary.folders, picked.created!],
+        );
+      }
+      // İyimser güncelleme: arayüz anında değişsin, hata olursa geri alınır.
+      _applyLocal(ids, (p) => p.withFolder(target));
     });
     try {
       await _service.moveToFolder(ids.toList(), target);
+      ok = true;
       if (!mounted) return;
       _selected.clear();
       final where = target == null
           ? 'klasörsüz bırakıldı'
           : '"${_folderName(target) ?? 'klasör'}" klasörüne taşındı';
-      _snack(
-        items.length == 1 ? 'Görsel $where' : '${items.length} görsel $where',
-      );
+      _snack(ids.length == 1 ? 'Görsel $where' : '${ids.length} görsel $where');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _all = before);
+      setState(() {
+        _items = beforeItems;
+        _total = beforeTotal;
+      });
       _snack(_cleanError(e), error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    // Yeni klasör oluşturulduysa sıra/sayılar sunucudan tazelensin.
-    if (picked.created != null) await _load(silent: true);
+    if (mounted) await _syncAfterChange(listExact: ok && allLoaded);
   }
 
-  Future<void> _setActive(List<ProductImagePreset> items, bool active) async {
-    if (items.isEmpty || _busy) return;
-    final ids = items.map((p) => p.id).toSet();
-    final before = _all;
+  Future<void> _setActive(Set<String> ids, bool active) async {
+    if (ids.isEmpty || _busy) return;
+    final allLoaded = _allLoaded(ids);
+    final beforeItems = _items;
+    final beforeTotal = _total;
+    var ok = false;
     setState(() {
       _busy = true;
+      _dropPendingPage();
       // İyimser güncelleme: arayüz anında değişsin, hata olursa geri alınır.
-      _all = [
-        for (final p in _all)
-          ids.contains(p.id) ? p.copyWith(isActive: active) : p,
-      ];
+      _applyLocal(ids, (p) => p.copyWith(isActive: active));
     });
     try {
       await _service.setActive(ids.toList(), active);
+      ok = true;
       if (!mounted) return;
       _snack(
-        items.length == 1
+        ids.length == 1
             ? (active ? 'Görsel yayına alındı' : 'Görsel pasife alındı')
-            : '${items.length} görsel ${active ? 'yayına alındı' : 'pasife alındı'}',
+            : '${ids.length} görsel ${active ? 'yayına alındı' : 'pasife alındı'}',
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _all = before);
+      setState(() {
+        _items = beforeItems;
+        _total = beforeTotal;
+      });
       _snack(_cleanError(e), error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (mounted) await _syncAfterChange(listExact: ok && allLoaded);
   }
 
-  Future<void> _delete(List<ProductImagePreset> items) async {
-    if (items.isEmpty || _busy) return;
-    final single = items.length == 1;
+  Future<void> _delete(Set<String> ids) async {
+    if (ids.isEmpty || _busy) return;
+    final known = _items.where((p) => ids.contains(p.id)).toList();
+    final allLoaded = known.length == ids.length;
+    final single = ids.length == 1;
     final ok = await _confirm(
       title: single
           ? 'Görsel silinsin mi?'
-          : '${items.length} görsel silinsin mi?',
-      message: single
-          ? '"${items.first.name}" kütüphaneden kalıcı olarak kaldırılır. '
+          : '${ids.length} görsel silinsin mi?',
+      message: single && known.isNotEmpty
+          ? '"${known.first.name}" kütüphaneden kalıcı olarak kaldırılır. '
                 'Bu görseli daha önce seçmiş ürünler etkilenmez.'
           : 'Seçili görseller kütüphaneden kalıcı olarak kaldırılır. '
                 'Bunları daha önce seçmiş ürünler etkilenmez.',
       confirmLabel: 'Sil',
     );
-    if (!ok || !mounted) return;
-    setState(() => _busy = true);
+    if (!ok || !mounted || _busy) return;
+
+    final beforeItems = _items;
+    final beforeTotal = _total;
+    var done = false;
+    setState(() {
+      _busy = true;
+      _dropPendingPage();
+      _applyLocal(ids, (_) => null);
+    });
     try {
-      await _service.deletePresets(items.map((p) => p.id).toList());
+      await _service.deletePresets(ids.toList());
+      done = true;
       if (!mounted) return;
-      _selected.clear();
-      _snack(single ? 'Görsel silindi' : '${items.length} görsel silindi');
-      await _load(silent: true);
+      _selected.removeAll(ids);
+      _snack(single ? 'Görsel silindi' : '${ids.length} görsel silindi');
     } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _items = beforeItems;
+        _total = beforeTotal;
+      });
       _snack(_cleanError(e), error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (mounted) await _syncAfterChange(listExact: done && allLoaded);
   }
 
   void _toggleSelect(String id) {
@@ -409,8 +677,29 @@ class _ProductImageLibraryContentState
     });
   }
 
-  List<ProductImagePreset> get _selectedItems =>
-      _all.where((p) => _selected.contains(p.id)).toList();
+  /// "Süzgece uyanların tümünü seç": yalnız yüklü sayfalar değil, klasör /
+  /// durum / arama süzgecine uyan TÜM görseller seçilir; yüklenmemişlerin
+  /// yalnız kimlikleri sunucudan gelir. Hepsi zaten yüklüyse istek gitmez.
+  /// Sonuç gelmeden süzgeç değişirse yok sayılır.
+  Future<void> _selectAllMatching() async {
+    if (_selectingAll) return;
+    if (!_hasMore) {
+      setState(() => _selected.addAll(_items.map((p) => p.id)));
+      return;
+    }
+    final listGen = _listGen;
+    setState(() => _selectingAll = true);
+    try {
+      final ids = await _service.getAdminPresetIds(_currentQuery);
+      if (!mounted || listGen != _listGen) return;
+      setState(() => _selected.addAll(ids));
+      _snack('Süzgece uyan ${ids.length} görselin tümü seçildi');
+    } catch (e) {
+      _snack(_cleanError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _selectingAll = false);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Arayüz
@@ -456,9 +745,7 @@ class _ProductImageLibraryContentState
   }
 
   Widget _buildHeader(bool compact) {
-    final scoped = _inFolder;
-    final active = scoped.where((p) => p.isActive).length;
-    final passive = scoped.length - active;
+    final scope = _scopeCounts;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -536,10 +823,11 @@ class _ProductImageLibraryContentState
                 child: _FilterStat(
                   icon: Icons.grid_view_rounded,
                   label: 'Tümü',
-                  value: scoped.length,
+                  value: scope.all,
                   color: AdminUi.brand,
-                  selected: _filter == _StatusFilter.all,
-                  onTap: () => setState(() => _filter = _StatusFilter.all),
+                  selected: _filter == ProductImageAdminStatus.all,
+                  onTap: () =>
+                      _setQuery(() => _filter = ProductImageAdminStatus.all),
                 ),
               ),
               const SizedBox(width: 8),
@@ -547,10 +835,11 @@ class _ProductImageLibraryContentState
                 child: _FilterStat(
                   icon: Icons.visibility_rounded,
                   label: 'Yayında',
-                  value: active,
+                  value: scope.active,
                   color: Colors.green.shade600,
-                  selected: _filter == _StatusFilter.active,
-                  onTap: () => setState(() => _filter = _StatusFilter.active),
+                  selected: _filter == ProductImageAdminStatus.active,
+                  onTap: () =>
+                      _setQuery(() => _filter = ProductImageAdminStatus.active),
                 ),
               ),
               const SizedBox(width: 8),
@@ -558,10 +847,12 @@ class _ProductImageLibraryContentState
                 child: _FilterStat(
                   icon: Icons.visibility_off_rounded,
                   label: 'Pasif',
-                  value: passive,
+                  value: scope.all - scope.active,
                   color: Colors.blueGrey.shade500,
-                  selected: _filter == _StatusFilter.passive,
-                  onTap: () => setState(() => _filter = _StatusFilter.passive),
+                  selected: _filter == ProductImageAdminStatus.passive,
+                  onTap: () => _setQuery(
+                    () => _filter = ProductImageAdminStatus.passive,
+                  ),
                 ),
               ),
             ],
@@ -572,7 +863,8 @@ class _ProductImageLibraryContentState
               Expanded(
                 child: TextField(
                   controller: _searchController,
-                  onChanged: (v) => setState(() => _query = v),
+                  onChanged: _onSearchChanged,
+                  onSubmitted: (_) => _setQuery(() {}),
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
                     hintText: 'Görsel adı veya arama kelimesi ara',
@@ -588,7 +880,7 @@ class _ProductImageLibraryContentState
                             tooltip: 'Temizle',
                             onPressed: () {
                               _searchController.clear();
-                              setState(() => _query = '');
+                              _setQuery(() => _query = '');
                             },
                           ),
                     filled: true,
@@ -607,20 +899,20 @@ class _ProductImageLibraryContentState
                 ),
               ),
               const SizedBox(width: 8),
-              PopupMenuButton<_Sort>(
+              PopupMenuButton<ProductImageAdminSort>(
                 tooltip: 'Sırala',
                 initialValue: _sort,
-                onSelected: (v) => setState(() => _sort = v),
+                onSelected: (v) => _setQuery(() => _sort = v),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
                 itemBuilder: (_) => const [
                   PopupMenuItem(
-                    value: _Sort.order,
+                    value: ProductImageAdminSort.order,
                     child: Text('Sıra numarasına göre'),
                   ),
                   PopupMenuItem(
-                    value: _Sort.newest,
+                    value: ProductImageAdminSort.newest,
                     child: Text('En yeni önce'),
                   ),
                 ],
@@ -648,29 +940,28 @@ class _ProductImageLibraryContentState
   /// Klasör çipleri (tümü / her klasör / klasörsüz) + klasör yönetimi.
   /// Dar ekranda yönetim düğmesi yalnız simgedir ki çiplere yer kalsın.
   Widget _buildFolderBar(bool compact) {
-    final counts = _folderCounts;
-    final unfiled = counts[null]?.all ?? 0;
+    final unfiled = _summary.unfiledCount;
     return Row(
       children: [
         Expanded(
           child: AdminChipBar<String>(
             selected: _folderFilter,
-            onSelected: (v) => setState(() => _folderFilter = v),
+            onSelected: (v) => _setQuery(() => _folderFilter = v),
             items: [
               (
                 value: _allFolders,
                 label: 'Tüm klasörler',
                 icon: Icons.folder_copy_rounded,
-                count: _all.length,
+                count: _summary.totalCount,
               ),
-              for (final f in _folders)
+              for (final f in _summary.folders)
                 (
                   value: f.id,
                   label: f.isActive ? f.name : '${f.name} (kapalı)',
                   icon: f.isActive
                       ? Icons.folder_rounded
                       : Icons.visibility_off_rounded,
-                  count: counts[f.id]?.all ?? 0,
+                  count: f.imageCount,
                 ),
               if (unfiled > 0 || _folderFilter == _unfiled)
                 (
@@ -720,8 +1011,7 @@ class _ProductImageLibraryContentState
   }
 
   Widget _buildSelectionBar() {
-    final items = _selectedItems;
-    final visible = _visible;
+    final locked = _busy || _selectingAll;
     return AdminCard(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       color: AdminUi.brandSoft,
@@ -746,20 +1036,26 @@ class _ProductImageLibraryContentState
             ),
           ),
           IconButton(
-            tooltip: 'Görünenlerin tümünü seç',
-            icon: const Icon(Icons.select_all_rounded),
-            onPressed: () =>
-                setState(() => _selected.addAll(visible.map((p) => p.id))),
+            // Yalnız yüklü sayfalar değil, süzgece uyan TÜM görseller.
+            tooltip: 'Süzgece uyanların tümünü seç',
+            icon: _selectingAll
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : const Icon(Icons.select_all_rounded),
+            onPressed: locked ? null : _selectAllMatching,
           ),
           IconButton(
             tooltip: 'Klasöre taşı',
             icon: Icon(Icons.drive_file_move_outline, color: AdminUi.brand),
-            onPressed: _busy ? null : () => _move(items),
+            onPressed: locked ? null : () => _move({..._selected}),
           ),
           IconButton(
             tooltip: 'Yayına al',
             icon: Icon(Icons.visibility_rounded, color: Colors.green.shade700),
-            onPressed: _busy ? null : () => _setActive(items, true),
+            onPressed: locked ? null : () => _setActive({..._selected}, true),
           ),
           IconButton(
             tooltip: 'Pasife al',
@@ -767,7 +1063,7 @@ class _ProductImageLibraryContentState
               Icons.visibility_off_rounded,
               color: Colors.blueGrey.shade600,
             ),
-            onPressed: _busy ? null : () => _setActive(items, false),
+            onPressed: locked ? null : () => _setActive({..._selected}, false),
           ),
           IconButton(
             tooltip: 'Sil',
@@ -775,7 +1071,7 @@ class _ProductImageLibraryContentState
               Icons.delete_outline_rounded,
               color: Colors.red.shade600,
             ),
-            onPressed: _busy ? null : () => _delete(items),
+            onPressed: locked ? null : () => _delete({..._selected}),
           ),
         ],
       ),
@@ -791,14 +1087,14 @@ class _ProductImageLibraryContentState
         title: 'Görseller yüklenemedi',
         subtitle: _error,
         action: OutlinedButton.icon(
-          onPressed: _load,
+          onPressed: _reload,
           icon: const Icon(Icons.refresh_rounded),
           label: const Text('Tekrar dene'),
         ),
       );
     }
 
-    if (_all.isEmpty) {
+    if (_summary.totalCount == 0 && _total == 0 && !_refreshing) {
       return AdminEmpty(
         icon: Icons.photo_library_outlined,
         title: 'Henüz görsel eklenmedi',
@@ -814,9 +1110,15 @@ class _ProductImageLibraryContentState
       );
     }
 
-    final visible = _visible;
-    if (visible.isEmpty) {
-      if (_inFolder.isEmpty && _folderFilter != _unfiled) {
+    if (_items.isEmpty) {
+      // Yeni süzgecin ilk sayfası ya da (yerel çıkarmalardan sonra) sonraki
+      // sayfa bekleniyor.
+      if (_refreshing) return _buildSkeleton();
+      if (_hasMore) {
+        _scheduleLoadMore();
+        return _buildFooter();
+      }
+      if (_scopeCounts.all == 0 && _folderFilter != _unfiled) {
         return AdminEmpty(
           icon: Icons.folder_open_rounded,
           title: 'Bu klasörde henüz görsel yok',
@@ -838,9 +1140,9 @@ class _ProductImageLibraryContentState
         action: TextButton(
           onPressed: () {
             _searchController.clear();
-            setState(() {
+            _setQuery(() {
               _query = '';
-              _filter = _StatusFilter.all;
+              _filter = ProductImageAdminStatus.all;
               _folderFilter = _allFolders;
             });
           },
@@ -849,48 +1151,118 @@ class _ProductImageLibraryContentState
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () => _load(silent: true),
-      child: GridView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 190,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.8,
+    final items = _items;
+    _scheduleLoadMore();
+    return Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: () => _reload(keep: true),
+          child: CustomScrollView(
+            controller: _scroll,
+            physics: const AlwaysScrollableScrollPhysics(),
+            // Görseller ekrana girmeden ~bir ekran önce yüklenmeye başlar.
+            cacheExtent: 900,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 190,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.8,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final p = items[i];
+                    return _PresetTile(
+                      key: ValueKey(p.id),
+                      preset: p,
+                      // Tek klasöre bakarken her kartta klasör adı tekrar
+                      // etmesin.
+                      folderName: _folderFilter == _allFolders
+                          ? _folderName(p.folderId)
+                          : null,
+                      selected: _selected.contains(p.id),
+                      selecting: _selecting,
+                      onTap: () =>
+                          _selecting ? _toggleSelect(p.id) : _openEdit(p),
+                      onLongPress: () => _toggleSelect(p.id),
+                      onMenu: (v) {
+                        switch (v) {
+                          case 'edit':
+                            _openEdit(p);
+                          case 'move':
+                            _move({p.id});
+                          case 'toggle':
+                            _setActive({p.id}, !p.isActive);
+                          case 'select':
+                            _toggleSelect(p.id);
+                          case 'delete':
+                            _delete({p.id});
+                        }
+                      },
+                    );
+                  }, childCount: items.length),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                sliver: SliverToBoxAdapter(child: _buildFooter()),
+              ),
+            ],
+          ),
         ),
-        itemCount: visible.length,
-        itemBuilder: (context, i) {
-          final p = visible[i];
-          return _PresetTile(
-            key: ValueKey(p.id),
-            preset: p,
-            // Tek klasöre bakarken her kartta klasör adı tekrar etmesin.
-            folderName: _folderFilter == _allFolders
-                ? _folderName(p.folderId)
-                : null,
-            selected: _selected.contains(p.id),
-            selecting: _selecting,
-            onTap: () => _selecting ? _toggleSelect(p.id) : _openEdit(p),
-            onLongPress: () => _toggleSelect(p.id),
-            onMenu: (v) {
-              switch (v) {
-                case 'edit':
-                  _openEdit(p);
-                case 'move':
-                  _move([p]);
-                case 'toggle':
-                  _setActive([p], !p.isActive);
-                case 'select':
-                  _toggleSelect(p.id);
-                case 'delete':
-                  _delete([p]);
-              }
-            },
-          );
-        },
-      ),
+        // Süzgeç değişti ya da yenileniyor: eski liste yeni sayfa gelene
+        // kadar kalır.
+        if (_refreshing)
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+      ],
+    );
+  }
+
+  /// Izgaranın altı: sonraki sayfa yükleniyor / yüklenemedi. Dönen gösterge
+  /// yalnız istek sürerken kurulur (sürekli dönen gösterge ekran dışında da
+  /// kare çizdirir).
+  Widget _buildFooter() {
+    if (_pageError != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Devamı yüklenemedi: $_pageError',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12.5, color: AdminUi.muted),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() => _pageError = null);
+                _loadMore();
+              },
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Tekrar dene'),
+            ),
+          ],
+        ),
+      );
+    }
+    return SizedBox(
+      height: _hasMore ? 56 : 0,
+      child: _loadingMore
+          ? const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              ),
+            )
+          : null,
     );
   }
 
@@ -1017,6 +1389,10 @@ class _PresetTile extends StatelessWidget {
       imageUrl: preset.imageUrl,
       fit: BoxFit.cover,
       memCacheWidth: 480,
+      // Varsayılan 500+1000 ms geçiş kaydırırken ağır hissettirir.
+      fadeInDuration: const Duration(milliseconds: 120),
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
       placeholder: (_, __) => const ColoredBox(color: Color(0xFFEDEEF3)),
       errorWidget: (_, __, ___) => const ColoredBox(
         color: Color(0xFFEDEEF3),
@@ -2326,7 +2702,7 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
           uniqueTag: 'edit${widget.preset.id.substring(0, 6)}',
         );
       }
-      await widget.service.updatePreset(
+      final updated = await widget.service.updatePreset(
         id: widget.preset.id,
         name: name,
         description: _keywords.text,
@@ -2337,7 +2713,7 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
         setFolder: true,
         folderId: _folderId,
       );
-      if (mounted) Navigator.pop(context, 'saved');
+      if (mounted) Navigator.pop(context, updated);
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
@@ -2374,7 +2750,7 @@ class _EditPresetSheetState extends State<_EditPresetSheet> {
     setState(() => _saving = true);
     try {
       await widget.service.deletePreset(widget.preset.id);
-      if (mounted) Navigator.pop(context, 'deleted');
+      if (mounted) Navigator.pop(context, _deletedResult);
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);

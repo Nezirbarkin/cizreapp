@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../shop/services/return_request_service.dart';
+import '../../shop/widgets/return_request_card.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 
 /// Satıcı İade Yönetimi Ekranı
+///
+/// İadeyi yönetici onaylar/reddeder (para iadesi ve satıcı payının düşülmesi
+/// onay anında DB'de yapılır). Satıcı talepleri izler; onaylanan iadede
+/// ürünleri müşteriden teslim alınca "Teslim Aldım" der (isteğe bağlı stoğa
+/// geri ekleme).
 class SellerReturnRequestsScreen extends StatefulWidget {
   const SellerReturnRequestsScreen({super.key});
 
@@ -13,209 +19,113 @@ class SellerReturnRequestsScreen extends StatefulWidget {
 }
 
 class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen> {
-  final ReturnRequestService _returnRequestService = ReturnRequestService();
-  /// Supabase client'ı güvenli şekilde al (lazy)
-  SupabaseClient get _supabase {
-    try {
-      return Supabase.instance.client;
-    } catch (e) {
-      debugPrint('⚠️ Supabase henüz başlatılmadı: $e');
-      rethrow;
-    }
-  }
-  
+  final ReturnRequestService _service = ReturnRequestService();
+
   bool _isLoading = true;
+  String? _error;
   List<ReturnRequest> _returnRequests = [];
-  String? _shopId;
 
   @override
   void initState() {
     super.initState();
-    _loadShopAndRequests();
+    _load();
   }
 
-  Future<void> _loadShopAndRequests() async {
-    setState(() => _isLoading = true);
-    
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) {
-        debugPrint('❌ RETURN REQUESTS: Kullanıcı oturum açmamış');
-        return;
-      }
-
-      debugPrint('📦 RETURN REQUESTS: Satıcının dükkanı aranıyor... userId: $userId');
-      
-      // Satıcının dükkånını bul
-      final shopResponse = await _supabase
-          .from('shops')
-          .select('id')
-          .eq('owner_id', userId)
-          .maybeSingle();
-
-      debugPrint('📦 RETURN REQUESTS: Dükkan yanıtı: $shopResponse');
-
-      if (shopResponse != null) {
-        _shopId = shopResponse['id'];
-        debugPrint('✅ RETURN REQUESTS: Dükkan bulundu - shopId: $_shopId');
-        debugPrint('📦 RETURN REQUESTS: İade talepleri çekiliyor...');
-        _returnRequests = await _returnRequestService.getShopReturnRequests(_shopId!);
-        debugPrint('✅ RETURN REQUESTS: ${_returnRequests.length} adet iade talebi bulundu');
-      } else {
-        debugPrint('❌ RETURN REQUESTS: Satıcının dükkanı bulunamadı!');
-      }
+      final list = await _service.getShopReturnRequests();
+      if (!mounted) return;
+      setState(() => _returnRequests = list);
     } catch (e) {
-      debugPrint('İade talepleri yüklenirken hata: $e');
+      if (!mounted) return;
+      setState(() => _error = returnErrorMessage(e));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _handleReturnRequest(ReturnRequest request, bool approve) async {
-    final responseController = TextEditingController();
-    
-    final result = await showDialog<bool>(
+  Future<void> _markReceived(ReturnRequest request) async {
+    var restock = false;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(approve ? 'İade Talebini Onayla' : 'İade Talebini Reddet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Müşteri: ${request.userName ?? "Bilinmiyor"}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text('İade sebebi: ${request.reason}'),
-            if (request.orderTotal != null) ...[
-              const SizedBox(height: 8),
-              Text('Sipariş tutarı: ₺${request.orderTotal!.toStringAsFixed(2)}'),
-            ],
-            const SizedBox(height: 16),
-            TextField(
-              controller: responseController,
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: approve ? 'Onay mesajı (opsiyonel)' : 'Red sebebi',
-                hintText: approve 
-                    ? 'Örn: İadeniz onaylandı, 3-5 iş günü içinde hesabınıza yansıyacak'
-                    : 'Örn: Ürün kullanılmış durumda, iade şartlarını karşılamıyor',
-                border: const OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Ürünleri Teslim Aldınız mı?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Sipariş #${request.orderNumber ?? request.orderId.substring(0, 8)} için '
+                '${request.totalQuantity} ürün müşteriden teslim alındı olarak işaretlenecek. '
+                'İade süreci tamamlanır.',
               ),
+              if (request.isSellerCashRefund) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Müşteriye ₺${request.refundAmount.toStringAsFixed(2)} nakit iade ettiğinizden emin olun.',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: restock,
+                onChanged: (v) => setDialogState(() => restock = v ?? false),
+                title: const Text('Ürünleri stoğa geri ekle'),
+                subtitle: const Text(
+                  'Yalnız satılabilir durumdaysa işaretleyin. Sınırsız stoklu ürünler etkilenmez.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Teslim Aldım'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            // Dispose burada DEĞİL: dialog kapanmadan controller öldürülünce
-            // TextField ölü controller'a bakıyor ("A TextEditingController was
-            // used after being disposed"), ayrıca metodun sonundaki dispose ile
-            // çift dispose oluyordu.
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context, true);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: approve ? Colors.green : Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(approve ? 'Onayla' : 'Reddet'),
-          ),
-        ],
       ),
     );
 
-    if (result == true && mounted) {
-      try {
-        await _returnRequestService.updateReturnRequest(
-          requestId: request.id,
-          status: approve ? ReturnRequestStatus.approved : ReturnRequestStatus.rejected,
-          adminResponse: responseController.text.trim().isEmpty 
-              ? null 
-              : responseController.text.trim(),
-        );
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(approve 
-                  ? 'İade talebi onaylandı'
-                  : 'İade talebi reddedildi'),
-              backgroundColor: approve ? Colors.green : Colors.red,
-            ),
-          );
-          await _loadShopAndRequests();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Hata: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-    
-    responseController.dispose();
-  }
-
-  Future<void> _markAsCompleted(ReturnRequest request) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('İadeyi Tamamla'),
-        content: const Text(
-          'İade işlemi tamamlandı mı? Bu işlem iade talebini "Tamamlandı" olarak işaretler.',
+    if (confirmed != true || !mounted) return;
+    try {
+      await _service.markReceived(requestId: request.id, restock: restock);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(restock
+              ? 'İade tamamlandı, ürünler stoğa eklendi'
+              : 'İade tamamlandı olarak işaretlendi'),
+          backgroundColor: Colors.blue,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Hayır'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Evet, Tamamla'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      try {
-        await _returnRequestService.updateReturnRequest(
-          requestId: request.id,
-          status: ReturnRequestStatus.completed,
-        );
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('İade işlemi tamamlandı olarak işaretlendi'),
-              backgroundColor: Colors.blue,
-            ),
-          );
-          await _loadShopAndRequests();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Hata: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(returnErrorMessage(e)),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -229,243 +139,42 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
       ),
       body: _isLoading
           ? const SellerListSkeleton()
-          : _returnRequests.isEmpty
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  onRefresh: _loadShopAndRequests,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _returnRequests.length,
-                    itemBuilder: (context, index) {
-                      return _buildReturnRequestCard(_returnRequests[index]);
-                    },
-                  ),
-                ),
+          : _error != null
+              ? SellerEmptyState(
+                  icon: Icons.error_outline,
+                  message: 'İade talepleri yüklenemedi: $_error',
+                )
+              : _returnRequests.isEmpty
+                  ? const SellerEmptyState(
+                      icon: Icons.assignment_outlined,
+                      message: 'İade talebi bulunmuyor',
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _returnRequests.length,
+                        itemBuilder: (context, index) {
+                          final r = _returnRequests[index];
+                          return ReturnRequestCard(
+                            request: r,
+                            viewer: ReturnCardViewer.seller,
+                            actions: [
+                              if (r.status == ReturnRequestStatus.approved)
+                                ElevatedButton.icon(
+                                  onPressed: () => _markReceived(r),
+                                  icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                                  label: const Text('Ürünleri Teslim Aldım'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
     );
-  }
-
-  Widget _buildEmptyState() {
-    return const SellerEmptyState(
-      icon: Icons.assignment_outlined,
-      message: 'İade talebi bulunmuyor',
-    );
-  }
-
-  Widget _buildReturnRequestCard(ReturnRequest request) {
-    final statusInfo = _getStatusInfo(request.status);
-    
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Başlık ve Durum
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Sipariş #${request.orderNumber ?? request.orderId.substring(0, 8)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        request.userName ?? 'Müşteri',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    // ignore: deprecated_member_use
-                    color: statusInfo.color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    statusInfo.label,
-                    style: TextStyle(
-                      color: statusInfo.color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 16),
-            
-            // İade Sebebi
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.amber.shade200),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.report_problem_outlined, color: Colors.amber.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'İade Sebebi',
-                          style: TextStyle(
-                            color: Colors.amber.shade900,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          request.reason,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            // Admin Yanıtı
-            if (request.adminResponse != null && request.adminResponse!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.reply, color: Colors.blue.shade700, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        request.adminResponse!,
-                        style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            
-            const SizedBox(height: 16),
-            
-            // Bilgiler
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _formatDate(request.createdAt),
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                  ),
-                ),
-                if (request.orderTotal != null)
-                  Text(
-                    '₺${request.orderTotal!.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-              ],
-            ),
-            
-            // Aksiyon Butonları
-            if (request.status == ReturnRequestStatus.pending) ...[
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _handleReturnRequest(request, false),
-                      icon: const Icon(Icons.close, size: 18),
-                      label: const Text('Reddet'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _handleReturnRequest(request, true),
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Onayla'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ] else if (request.status == ReturnRequestStatus.approved) ...[
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _markAsCompleted(request),
-                  icon: const Icon(Icons.task_alt, size: 18),
-                  label: const Text('Tamamlandı Olarak İşaretle'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  ({Color color, String label}) _getStatusInfo(ReturnRequestStatus status) {
-    switch (status) {
-      case ReturnRequestStatus.pending:
-        return (color: Colors.orange, label: 'Beklemede');
-      case ReturnRequestStatus.approved:
-        return (color: Colors.green, label: 'Onaylandı');
-      case ReturnRequestStatus.rejected:
-        return (color: Colors.red, label: 'Reddedildi');
-      case ReturnRequestStatus.completed:
-        return (color: Colors.blue, label: 'Tamamlandı');
-    }
-  }
-
-  String _formatDate(DateTime dateTime) {
-    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

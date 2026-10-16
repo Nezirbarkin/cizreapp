@@ -2,31 +2,77 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// İade talebi durumları
+///
+/// [pending]   -> Müşteri açtı, yönetici inceliyor
+/// [approved]  -> Yönetici onayladı; tutar müşteri bakiyesine eklendi,
+///                satıcının payı mağaza hesabından düşüldü
+/// [rejected]  -> Yönetici reddetti
+/// [completed] -> Satıcı (veya yönetici) iade edilen ürünleri teslim aldı
+/// [cancelled] -> Müşteri bekleyen talebini geri çekti
 enum ReturnRequestStatus {
-  pending,    // Beklemede
-  approved,   // Onaylandı
-  rejected,   // Reddedildi
-  completed;  // Tamamlandı
+  pending,
+  approved,
+  rejected,
+  completed,
+  cancelled;
 
   String get label {
     switch (this) {
       case ReturnRequestStatus.pending:
-        return 'Beklemede';
+        return 'İncelemede';
       case ReturnRequestStatus.approved:
         return 'Onaylandı';
       case ReturnRequestStatus.rejected:
         return 'Reddedildi';
       case ReturnRequestStatus.completed:
         return 'Tamamlandı';
+      case ReturnRequestStatus.cancelled:
+        return 'Geri Çekildi';
     }
   }
 
   String get dbValue => name;
 
-  static ReturnRequestStatus fromString(String value) {
+  static ReturnRequestStatus fromString(String? value) {
     return ReturnRequestStatus.values.firstWhere(
       (status) => status.name == value,
       orElse: () => ReturnRequestStatus.pending,
+    );
+  }
+}
+
+/// İade talebindeki tek ürün satırı (talep anındaki fiyat kilitlidir)
+class ReturnRequestItem {
+  final String id;
+  final String orderItemId;
+  final String? productId;
+  final String productName;
+  final String? productImageUrl;
+  final int quantity;
+  final double unitPrice;
+  final double lineTotal;
+
+  const ReturnRequestItem({
+    required this.id,
+    required this.orderItemId,
+    this.productId,
+    required this.productName,
+    this.productImageUrl,
+    required this.quantity,
+    required this.unitPrice,
+    required this.lineTotal,
+  });
+
+  factory ReturnRequestItem.fromJson(Map<String, dynamic> json) {
+    return ReturnRequestItem(
+      id: json['id'] as String? ?? '',
+      orderItemId: json['order_item_id'] as String? ?? '',
+      productId: json['product_id'] as String?,
+      productName: json['product_name'] as String? ?? 'Ürün',
+      productImageUrl: json['product_image_url'] as String?,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 0,
+      unitPrice: (json['unit_price'] as num?)?.toDouble() ?? 0,
+      lineTotal: (json['line_total'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -39,15 +85,34 @@ class ReturnRequest {
   final String shopId;
   final String reason;
   final ReturnRequestStatus status;
+
+  /// 'full' = siparişin tamamı tek talepte, 'partial' = seçili ürünler
+  final String returnScope;
+  final String? paymentMethod;
+
+  /// 'balance' = platform müşteri bakiyesine iade eder;
+  /// 'seller_cash' = kuryeli satıcı kapıda tahsil etmişti, nakdi kendisi iade
+  /// eder ve iade tutarının komisyonu satıcının borcundan düşülür.
+  final String refundMethod;
+  final double refundAmount;
+  final double sellerDebitAmount;
+
+  /// İade edilen tutar için adminin vazgeçtiği komisyon.
+  final double commissionRefundAmount;
   final String? adminResponse;
+  final DateTime? reviewedAt;
+  final DateTime? receivedAt;
+  final bool restocked;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
-  // İlişkili veriler
+  final List<ReturnRequestItem> items;
+
+  // İlişkili veriler (get_return_requests RPC'si doldurur)
   final String? orderNumber;
-  final String? shopName;
-  final String? userName;
   final double? orderTotal;
+  final String? shopName;
+  final String? customerName;
 
   ReturnRequest({
     required this.id,
@@ -56,46 +121,93 @@ class ReturnRequest {
     required this.shopId,
     required this.reason,
     required this.status,
+    this.returnScope = 'full',
+    this.paymentMethod,
+    this.refundMethod = 'balance',
+    this.refundAmount = 0,
+    this.sellerDebitAmount = 0,
+    this.commissionRefundAmount = 0,
     this.adminResponse,
+    this.reviewedAt,
+    this.receivedAt,
+    this.restocked = false,
     required this.createdAt,
     this.updatedAt,
+    this.items = const [],
     this.orderNumber,
-    this.shopName,
-    this.userName,
     this.orderTotal,
+    this.shopName,
+    this.customerName,
   });
 
-  factory ReturnRequest.fromJson(Map<String, dynamic> json) {
-    // İlişkili veriler
-    final order = json['orders'] as Map<String, dynamic>?;
-    final shop = json['shops'] as Map<String, dynamic>?;
-    final user = json['profiles'] as Map<String, dynamic>?;
+  bool get isFullReturn => returnScope == 'full';
+  bool get isSellerCashRefund => refundMethod == 'seller_cash';
+  int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
 
+  static DateTime? _date(dynamic v) =>
+      v == null ? null : DateTime.tryParse(v as String);
+
+  factory ReturnRequest.fromJson(Map<String, dynamic> json) {
+    final rawItems = json['items'] as List? ?? const [];
     return ReturnRequest(
       id: json['id'] as String,
       orderId: json['order_id'] as String,
       userId: json['user_id'] as String,
       shopId: json['shop_id'] as String,
       reason: json['reason'] as String? ?? '',
-      status: ReturnRequestStatus.fromString(json['status'] as String? ?? 'pending'),
+      status: ReturnRequestStatus.fromString(json['status'] as String?),
+      returnScope: json['return_scope'] as String? ?? 'full',
+      paymentMethod: json['payment_method'] as String?,
+      refundAmount: (json['refund_amount'] as num?)?.toDouble() ?? 0,
+      refundMethod: json['refund_method'] as String? ?? 'balance',
+      sellerDebitAmount: (json['seller_debit_amount'] as num?)?.toDouble() ?? 0,
+      commissionRefundAmount:
+          (json['commission_refund_amount'] as num?)?.toDouble() ?? 0,
       adminResponse: json['admin_response'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'] as String)
-          : null,
-      orderNumber: order?['order_number']?.toString(),
-      shopName: shop?['name'] as String?,
-      userName: user?['name'] as String?,
-      orderTotal: order?['total'] != null
-          ? (order!['total'] as num).toDouble()
-          : null,
+      reviewedAt: _date(json['reviewed_at']),
+      receivedAt: _date(json['received_at']),
+      restocked: json['restocked'] as bool? ?? false,
+      createdAt: _date(json['created_at']) ?? DateTime.now(),
+      updatedAt: _date(json['updated_at']),
+      items: rawItems
+          .map((e) => ReturnRequestItem.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      orderNumber: json['order_number']?.toString(),
+      orderTotal: (json['order_total'] as num?)?.toDouble(),
+      shopName: json['shop_name'] as String?,
+      customerName: json['customer_name'] as String?,
     );
   }
 }
 
+/// Müşterinin iade için seçtiği sipariş kalemi + adet
+class ReturnItemSelection {
+  final String orderItemId;
+  final int quantity;
+
+  const ReturnItemSelection({required this.orderItemId, required this.quantity});
+
+  Map<String, dynamic> toJson() => {
+        'order_item_id': orderItemId,
+        'quantity': quantity,
+      };
+}
+
 /// İade talebi servisi
+///
+/// Tüm yazma işlemleri DB'de atomik RPC'lerdir (20261016000007):
+/// - create_return_request   (müşteri; tümü ya da seçili ürünler)
+/// - cancel_return_request   (müşteri; yalnız bekleyen)
+/// - approve_return_request  (yönetici; bakiyeye iade + satıcı payı + bildirim;
+///                            kuryeli satıcının kapıda tahsilatında satıcı nakit
+///                            iade eder, komisyon borcundan düşülür)
+/// - reject_return_request   (yönetici)
+/// - mark_return_received    (satıcı/yönetici; isteğe bağlı stoğa ekleme)
+/// - get_return_requests     (liste; adlar ve kalemler tek istekte)
 class ReturnRequestService {
-  /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
+  /// İade hakkı teslimattan sonra bu kadar gün (DB'deki sınırla aynı).
+  static const int returnWindowDays = 14;
+
   SupabaseClient get _supabase {
     try {
       return Supabase.instance.client;
@@ -105,146 +217,161 @@ class ReturnRequestService {
     }
   }
 
-  /// Yeni iade talebi oluştur
+  ReturnRequest _single(dynamic response) =>
+      ReturnRequest.fromJson(Map<String, dynamic>.from(response as Map));
+
+  Future<List<ReturnRequest>> _list({
+    required String scope,
+    String? status,
+    String? orderId,
+  }) async {
+    final response = await _supabase.rpc(
+      'get_return_requests',
+      params: {
+        'p_scope': scope,
+        'p_status': status,
+        'p_order_id': orderId,
+      },
+    );
+    return (response as List? ?? const [])
+        .map((e) => ReturnRequest.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  // ---------------------------------------------------------------------
+  // MÜŞTERİ
+  // ---------------------------------------------------------------------
+
+  /// İade talebi aç. [items] null/boş = siparişte kalan tüm ürünler.
   Future<ReturnRequest> createReturnRequest({
     required String orderId,
-    required String userId,
-    required String shopId,
     required String reason,
+    List<ReturnItemSelection>? items,
   }) async {
     try {
-      debugPrint('📦 RETURN: İade talebi oluşturuluyor...');
-      debugPrint('  └─ orderId: $orderId');
-      debugPrint('  └─ userId: $userId');
-      debugPrint('  └─ shopId: $shopId');
-      debugPrint('  └─ reason: $reason');
-
-      final response = await _supabase
-          .from('return_requests')
-          .insert({
-            'order_id': orderId,
-            'user_id': userId,
-            'shop_id': shopId,
-            'reason': reason,
-            'status': 'pending',
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select()
-          .single();
-
-      debugPrint('✅ RETURN: İade talebi oluşturuldu - ID: ${response['id']}');
-      return ReturnRequest.fromJson(response);
+      final response = await _supabase.rpc(
+        'create_return_request',
+        params: {
+          'p_order_id': orderId,
+          'p_reason': reason,
+          'p_items': (items == null || items.isEmpty)
+              ? null
+              : items.map((i) => i.toJson()).toList(),
+        },
+      );
+      return _single(response);
     } catch (e) {
-      debugPrint('❌ RETURN: İade talebi oluşturulurken hata: $e');
-      throw Exception('İade talebi oluşturulurken hata: $e');
+      debugPrint('❌ RETURN: İade talebi oluşturulamadı: $e');
+      rethrow;
     }
   }
 
-  /// Kullanıcının iade taleplerini getir
-  Future<List<ReturnRequest>> getUserReturnRequests(String userId) async {
+  /// Bekleyen talebi geri çek
+  Future<ReturnRequest> cancelReturnRequest(String requestId) async {
+    final response = await _supabase.rpc(
+      'cancel_return_request',
+      params: {'p_request_id': requestId},
+    );
+    return _single(response);
+  }
+
+  /// Kullanıcının iade talepleri (en yeni önce)
+  Future<List<ReturnRequest>> getMyReturnRequests() async {
     try {
-      final response = await _supabase
-          .from('return_requests')
-          .select('''
-            *,
-            orders(order_number, total),
-            shops(name)
-          ''')
-          .eq('user_id', userId)
-          .order('created_at', ascending: false);
-
-      return (response as List)
-          .map((json) => ReturnRequest.fromJson(json))
-          .toList();
+      return await _list(scope: 'customer');
     } catch (e) {
-      debugPrint('❌ RETURN: Kullanıcı iade talepleri alınırken hata: $e');
-      throw Exception('İade talepleri alınırken hata: $e');
+      debugPrint('❌ RETURN: Kullanıcı iade talepleri alınamadı: $e');
+      rethrow;
     }
   }
 
-  /// Dükkanın iade taleplerini getir
-  Future<List<ReturnRequest>> getShopReturnRequests(String shopId) async {
+  /// Bir siparişe ait talepler (sipariş detay ekranı için)
+  Future<List<ReturnRequest>> getOrderReturnRequests(String orderId) async {
     try {
-      final response = await _supabase
-          .from('return_requests')
-          .select('''
-            *,
-            orders(order_number, total),
-            profiles(name)
-          ''')
-          .eq('shop_id', shopId)
-          .order('created_at', ascending: false);
-
-      return (response as List)
-          .map((json) => ReturnRequest.fromJson(json))
-          .toList();
+      return await _list(scope: 'customer', orderId: orderId);
     } catch (e) {
-      debugPrint('❌ RETURN: Dükkan iade talepleri alınırken hata: $e');
-      throw Exception('İade talepleri alınırken hata: $e');
+      debugPrint('❌ RETURN: Sipariş iade talepleri alınamadı: $e');
+      return [];
     }
   }
 
-  /// İade talebini güncelle (satıcı/admin)
-  Future<void> updateReturnRequest({
+  // ---------------------------------------------------------------------
+  // SATICI
+  // ---------------------------------------------------------------------
+
+  /// Satıcının mağaza(lar)ına gelen talepler
+  Future<List<ReturnRequest>> getShopReturnRequests() async {
+    try {
+      return await _list(scope: 'seller');
+    } catch (e) {
+      debugPrint('❌ RETURN: Dükkan iade talepleri alınamadı: $e');
+      rethrow;
+    }
+  }
+
+  /// İade edilen ürünler teslim alındı (onaylı talep → tamamlandı)
+  Future<ReturnRequest> markReceived({
     required String requestId,
-    required ReturnRequestStatus status,
-    String? adminResponse,
+    bool restock = false,
   }) async {
-    try {
-      debugPrint('📦 RETURN: İade talebi güncelleniyor - ID: $requestId');
-      
-      final updateData = {
-        'status': status.dbValue,
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      
-      if (adminResponse != null) {
-        updateData['admin_response'] = adminResponse;
-      }
-
-      await _supabase
-          .from('return_requests')
-          .update(updateData)
-          .eq('id', requestId);
-
-      debugPrint('✅ RETURN: İade talebi güncellendi - Durum: ${status.label}');
-    } catch (e) {
-      debugPrint('❌ RETURN: İade talebi güncellenirken hata: $e');
-      throw Exception('İade talebi güncellenirken hata: $e');
-    }
+    final response = await _supabase.rpc(
+      'mark_return_received',
+      params: {'p_request_id': requestId, 'p_restock': restock},
+    );
+    return _single(response);
   }
 
-  /// Sipariş için iade talebi var mı kontrol et
-  Future<ReturnRequest?> getReturnRequestByOrderId(String orderId) async {
-    try {
-      final response = await _supabase
-          .from('return_requests')
-          .select()
-          .eq('order_id', orderId)
-          .maybeSingle();
+  // ---------------------------------------------------------------------
+  // YÖNETİCİ
+  // ---------------------------------------------------------------------
 
-      if (response != null) {
-        return ReturnRequest.fromJson(response);
-      }
-      return null;
-    } catch (e) {
-      debugPrint('❌ RETURN: İade talebi kontrol edilirken hata: $e');
-      return null;
-    }
-  }
+  Future<List<ReturnRequest>> getAdminReturnRequests({String? status}) =>
+      _list(scope: 'admin', status: status);
 
-  /// Bekleyen iade taleplerinin sayısını getir (dükkan için)
-  Future<int> getPendingReturnRequestsCount(String shopId) async {
+  Future<int> getPendingCount() async {
     try {
       final response = await _supabase
           .from('return_requests')
           .select('id')
-          .eq('shop_id', shopId)
           .eq('status', 'pending');
-
       return (response as List).length;
     } catch (e) {
       return 0;
     }
   }
+
+  Future<ReturnRequest> approve({
+    required String requestId,
+    String? adminResponse,
+  }) async {
+    final response = await _supabase.rpc(
+      'approve_return_request',
+      params: {
+        'p_request_id': requestId,
+        'p_admin_response': adminResponse,
+      },
+    );
+    return _single(response);
+  }
+
+  Future<ReturnRequest> reject({
+    required String requestId,
+    required String adminResponse,
+  }) async {
+    final response = await _supabase.rpc(
+      'reject_return_request',
+      params: {
+        'p_request_id': requestId,
+        'p_admin_response': adminResponse,
+      },
+    );
+    return _single(response);
+  }
+}
+
+/// Supabase/PostgREST hatasından kullanıcıya gösterilecek kısa metin.
+String returnErrorMessage(Object e) {
+  if (e is PostgrestException) return e.message;
+  final s = e.toString();
+  return s.startsWith('Exception: ') ? s.substring(11) : s;
 }

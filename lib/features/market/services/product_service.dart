@@ -19,6 +19,39 @@ enum BulkDiscountMode {
   final String dbValue;
 }
 
+/// `seller_bulk_delete_products` sonucu.
+class BulkDeleteResult {
+  const BulkDeleteResult({
+    required this.deleted,
+    required this.deactivated,
+    required this.notFound,
+    this.deletedIds = const [],
+    this.deactivatedIds = const [],
+  });
+
+  /// Kalıcı silinen (kuru çalıştırmada: silinecek) ürün sayısı.
+  final int deleted;
+
+  /// Geçmişi olduğu için satışa kapatılan (kapatılacak) ürün sayısı.
+  final int deactivated;
+
+  /// Bulunamayan ya da başka mağazaya ait kimlikler.
+  final int notFound;
+  final List<String> deletedIds;
+  final List<String> deactivatedIds;
+
+  factory BulkDeleteResult.fromJson(Map<String, dynamic> json) {
+    List<String> ids(Object? v) => [for (final e in (v as List? ?? const [])) e.toString()];
+    return BulkDeleteResult(
+      deleted: (json['deleted'] as num?)?.toInt() ?? 0,
+      deactivated: (json['deactivated'] as num?)?.toInt() ?? 0,
+      notFound: (json['not_found'] as num?)?.toInt() ?? 0,
+      deletedIds: ids(json['deleted_ids']),
+      deactivatedIds: ids(json['deactivated_ids']),
+    );
+  }
+}
+
 class ProductService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get supabase {
@@ -306,7 +339,8 @@ class ProductService {
     required String description,
     required double price,
     required double? oldPrice,
-    required int stockQuantity,
+    // null = stok sınırsız (sunucu stock_unlimited'e çevirir).
+    required int? stockQuantity,
     required String? imageUrl,
     required String? category,
     List<String>? additionalImages,
@@ -319,6 +353,9 @@ class ProductService {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    // Dijitalde 'smm' | 'package'. Paket satırında sağlayıcı alanları DB
+    // tetikleyicisiyle temizlenir.
+    String digitalMode = 'smm',
     int? maxOrdersPerUser,
     String? campaignType,
     List<String>? badges,
@@ -415,6 +452,7 @@ class ProductService {
               'price_per_1000': pricePer1000,
               'min_quantity': minQuantity,
               'max_quantity': maxQuantity,
+              'digital_mode': digitalMode,
               'max_orders_per_user': maxOrdersPerUser,
               'campaign_type': campaignType,
               'badges': badges ?? <String>[],
@@ -475,7 +513,8 @@ class ProductService {
     required String description,
     required double price,
     required double? oldPrice,
-    required int stockQuantity,
+    // null = stok sınırsız (sunucu stock_unlimited'e çevirir).
+    required int? stockQuantity,
     required String? imageUrl,
     List<String>? additionalImages,
     required String? category,
@@ -488,6 +527,7 @@ class ProductService {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    String? digitalMode,
     int? maxOrdersPerUser,
     bool clearMaxOrdersPerUser = false,
     String? campaignType,
@@ -545,6 +585,7 @@ class ProductService {
       if (pricePer1000 != null) updateData['price_per_1000'] = pricePer1000;
       if (minQuantity != null) updateData['min_quantity'] = minQuantity;
       if (maxQuantity != null) updateData['max_quantity'] = maxQuantity;
+      if (digitalMode != null) updateData['digital_mode'] = digitalMode;
       if (maxOrdersPerUser != null) {
         updateData['max_orders_per_user'] = maxOrdersPerUser;
       } else if (clearMaxOrdersPerUser) {
@@ -567,19 +608,35 @@ class ProductService {
   // Ürünü sil (seller için). Sipariş geçmişi olan ürünler silinemediğinden
   // bu durumda ürün otomatik olarak devre dışı bırakılır (soft delete).
   // Dönüş değeri true ise ürün silindi, false ise devre dışı bırakıldı.
+  /// Ürünü siler; sipariş / dijital sipariş / öne çıkarma geçmişi varsa
+  /// silmez, satışa kapatır. `true` = silindi, `false` = kapatıldı.
+  ///
+  /// Kural sunucuda ([bulkDeleteProducts]). Eskiden 23503 hatasına
+  /// güveniliyordu; ama `order_items` bağlantısı ON DELETE SET NULL olduğu için
+  /// siparişi olan fiziksel ürün gerçekten siliniyordu.
   Future<bool> deleteProduct(String productId) async {
+    final result = await bulkDeleteProducts([productId]);
+    if (result.deleted + result.deactivated == 0) {
+      throw Exception('Ürün bulunamadı ya da bu mağazaya ait değil');
+    }
+    return result.deleted > 0;
+  }
+
+  /// Seçili ürünleri toplu siler (`seller_bulk_delete_products`, en fazla
+  /// 500). Geçmişi olanlar silinmez, satışa kapatılır. [dryRun] hiçbir şeyi
+  /// değiştirmeden aynı sayıları döner (onay penceresi için).
+  Future<BulkDeleteResult> bulkDeleteProducts(
+    List<String> productIds, {
+    bool dryRun = false,
+  }) async {
     try {
-      await supabase.from('products').delete().eq('id', productId);
-      return true;
+      final result = await supabase.rpc(
+        'seller_bulk_delete_products',
+        params: {'p_product_ids': productIds, 'p_dry_run': dryRun},
+      );
+      return BulkDeleteResult.fromJson(Map<String, dynamic>.from(result as Map));
     } catch (e) {
-      if (e is PostgrestException && e.code == '23503') {
-        await supabase
-            .from('products')
-            .update({'is_available': false})
-            .eq('id', productId);
-        return false;
-      }
-      throw Exception('Ürün silinirken hata: $e');
+      throw Exception('Ürünler silinirken hata: $e');
     }
   }
 

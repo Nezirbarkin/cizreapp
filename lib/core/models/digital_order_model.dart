@@ -94,7 +94,13 @@ class DigitalOrder {
   final String id;
   final String userId;
   final String productId;
-  final String providerId;
+
+  /// Paket (manuel teslim) siparişinde null.
+  final String? providerId;
+
+  /// `provider` = SMM sağlayıcısına otomatik iletildi; `manual` = paket,
+  /// satıcı elle teslim eder.
+  final String deliveryMode;
   final String targetUrl;
   final int quantity;
   final double unitPrice;
@@ -128,6 +134,7 @@ class DigitalOrder {
     required this.userId,
     required this.productId,
     required this.providerId,
+    this.deliveryMode = 'provider',
     required this.targetUrl,
     required this.quantity,
     required this.unitPrice,
@@ -164,7 +171,10 @@ class DigitalOrder {
       id: json['id'] as String,
       userId: json['user_id'] as String,
       productId: json['product_id'] as String,
-      providerId: json['provider_id'] as String,
+      providerId: json['provider_id'] as String?,
+      deliveryMode:
+          json['delivery_mode'] as String? ??
+          (json['provider_id'] == null ? 'manual' : 'provider'),
       targetUrl: json['target_url'] as String,
       quantity: json['quantity'] as int,
       unitPrice: (json['unit_price'] as num).toDouble(),
@@ -203,6 +213,19 @@ class DigitalOrder {
           : null,
     );
   }
+
+  /// Satıcının elle teslim ettiği paket siparişi mi?
+  bool get isManualDelivery => deliveryMode == 'manual';
+
+  /// Paket siparişi satıcının teslimini bekliyor mu?
+  bool get awaitingSellerDelivery =>
+      isManualDelivery &&
+      (status == DigitalOrderStatus.pending ||
+          status == DigitalOrderStatus.inProgress);
+
+  /// Listelerde gösterilecek durum: bekleyen paket "Teslim bekliyor" olur.
+  String get statusLabel =>
+      awaitingSellerDelivery ? 'Teslim bekliyor' : status.label;
 
   bool get hasPointComponent => pointsSpent > 0;
   bool get hasRefund => refundPointsTotal > 0 || refundCashTotalTry > 0;

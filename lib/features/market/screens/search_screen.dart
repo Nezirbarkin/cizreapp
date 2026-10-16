@@ -716,7 +716,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: product.images.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: product.images.first,
-                              fit: BoxFit.cover,
+                              fit: productCardImageFit(product),
                               memCacheWidth: 400,
                               errorWidget: (context, url, error) {
                                 return const Center(
@@ -924,7 +924,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                           isOrderable &&
                                           (product.isDigital ||
                                               cartQuantity <
-                                                  product.stockQuantity))
+                                                  product.maxCartQuantity))
                                       ? () => _updateQuantity(
                                           product,
                                           cartQuantity + 1,
@@ -940,7 +940,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                           (isInStock &&
                                               (product.isDigital ||
                                                   cartQuantity <
-                                                      product.stockQuantity))
+                                                      product.maxCartQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

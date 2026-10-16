@@ -9,6 +9,10 @@ import {
 } from "../_shared/digital_orders.ts";
 import { bearerToken, json, options, requireEnv } from "../_shared/http.ts";
 
+// Alıcı bildirimi DB tetikleyicisinden gelir (notify_digital_order_status,
+// yönetici kazanç bildirimi notify_digital_order_seller_credit); burada
+// notifications'a yazılmaz, yoksa çift bildirim olur.
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return options("POST, OPTIONS");
   if (req.method !== "POST") {
@@ -38,7 +42,11 @@ serve(async (req: Request) => {
       .select(
         "id,user_id,product_id,provider_id,quantity,gross_total_try,status,seller_credited,external_order_id,reconciliation_status",
       )
-      .in("status", ["pending", "in_progress"]).order("last_checked_at", {
+      .in("status", ["pending", "in_progress"])
+      // Paket (manuel teslim) siparişlerinin sorgulanacak sağlayıcısı yok;
+      // last_checked_at'leri hep boş kaldığından 200'lük sırayı işgal ederlerdi.
+      .not("provider_id", "is", null)
+      .order("last_checked_at", {
         ascending: true,
         nullsFirst: true,
       }).limit(200);
@@ -57,98 +65,110 @@ serve(async (req: Request) => {
       for (const p of providerRows ?? []) providerMap.set(p.id, p);
     }
     let checked = 0, updated = 0, refunded = 0, reconciliationPending = 0;
+    let failed = 0;
     for (const order of orders ?? []) {
       if (!order.external_order_id) continue;
-      const provider = providerMap.get(order.provider_id);
-      if (!provider?.is_active) {
-        await setReconciliation(supabase, order.id, "reconciliation_pending");
-        reconciliationPending++;
-        continue;
-      }
-      checked++;
-      let response: Response;
-      let result: unknown;
+      // Bir siparişin RPC hatası partinin kalanını durdurmasın: hatalı sipariş
+      // en eski last_checked_at ile her turda başa geldiğinden tüm cron'u
+      // kalıcı olarak kilitlerdi. Sonraki turda yeniden denenir.
       try {
-        response = await fetch(provider.api_url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            key: provider.api_key,
-            action: "status",
-            order: order.external_order_id,
-          }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        result = JSON.parse(await response.text());
-      } catch {
-        await setReconciliation(supabase, order.id, "reconciliation_pending");
-        reconciliationPending++;
-        continue;
-      }
-      if (
-        !response.ok || !isRecord(result) || result.error ||
-        typeof result.status !== "string"
-      ) {
-        await setReconciliation(supabase, order.id, "reconciliation_pending");
-        reconciliationPending++;
-        continue;
-      }
-      const status = mapProviderStatus(result.status);
-      const remains = result.remains == null ? null : Number(result.remains);
-      const startCount = result.start_count == null
-        ? null
-        : Number(result.start_count);
-      if (status === "canceled" || status === "refunded") {
-        await refundComposition(
-          supabase,
-          order,
-          status,
-          Number(order.gross_total_try),
-          `Sağlayıcı kesin ${status} sonucu`,
-          true,
-        );
-        refunded++;
-      } else if (
-        status === "partial" && remains !== null && Number.isInteger(remains)
-      ) {
-        await setReconciliation(supabase, order.id, "settled");
-        const cumulative = cumulativeRefund(
-          Number(order.gross_total_try),
-          order.quantity,
-          remains,
-          false,
-        );
-        if (cumulative > 0) {
+        const provider = providerMap.get(order.provider_id);
+        if (!provider?.is_active) {
+          await setReconciliation(supabase, order.id, "reconciliation_pending");
+          reconciliationPending++;
+          continue;
+        }
+        checked++;
+        let response: Response;
+        let result: unknown;
+        try {
+          response = await fetch(provider.api_url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              key: provider.api_key,
+              action: "status",
+              order: order.external_order_id,
+            }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          result = JSON.parse(await response.text());
+        } catch {
+          await setReconciliation(supabase, order.id, "reconciliation_pending");
+          reconciliationPending++;
+          continue;
+        }
+        if (
+          !response.ok || !isRecord(result) || result.error ||
+          typeof result.status !== "string"
+        ) {
+          await setReconciliation(supabase, order.id, "reconciliation_pending");
+          reconciliationPending++;
+          continue;
+        }
+        const status = mapProviderStatus(result.status);
+        const remains = result.remains == null ? null : Number(result.remains);
+        const startCount = result.start_count == null
+          ? null
+          : Number(result.start_count);
+        if (status === "canceled" || status === "refunded") {
           await refundComposition(
             supabase,
             order,
             status,
-            cumulative,
-            "Sağlayıcı kesin kısmi teslim sonucu",
-            false,
+            Number(order.gross_total_try),
+            `Sağlayıcı kesin ${status} sonucu`,
+            true,
           );
           refunded++;
-        }
-        await creditSellerOnce(
-          supabase,
-          order,
-          (order.quantity - remains) / order.quantity,
-        );
-      } else if (status === "completed") {
-        await setReconciliation(supabase, order.id, "settled");
-        await creditSellerOnce(supabase, order, 1);
-      } else await setReconciliation(supabase, order.id, "pending_provider");
-      // Persist provider status only after economic mutations succeed. DB RPCs
-      // make retries safe if this final state write fails.
-      const { error: updateError } = await supabase.from("digital_orders").update({
-        status,
-        remains,
-        start_count: startCount,
-        last_checked_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq("id", order.id);
-      if (updateError) throw new Error("ORDER_STATUS_UPDATE_FAILED");
-      if (status !== order.status) updated++;
+        } else if (
+          status === "partial" && remains !== null && Number.isInteger(remains)
+        ) {
+          await setReconciliation(supabase, order.id, "settled");
+          const cumulative = cumulativeRefund(
+            Number(order.gross_total_try),
+            order.quantity,
+            remains,
+            false,
+          );
+          if (cumulative > 0) {
+            await refundComposition(
+              supabase,
+              order,
+              status,
+              cumulative,
+              "Sağlayıcı kesin kısmi teslim sonucu",
+              false,
+            );
+            refunded++;
+          }
+          await creditSellerOnce(
+            supabase,
+            order,
+            (order.quantity - remains) / order.quantity,
+          );
+        } else if (status === "completed") {
+          await setReconciliation(supabase, order.id, "settled");
+          await creditSellerOnce(supabase, order, 1);
+        } else await setReconciliation(supabase, order.id, "pending_provider");
+        // Persist provider status only after economic mutations succeed. DB RPCs
+        // make retries safe if this final state write fails.
+        const { error: updateError } = await supabase.from("digital_orders").update({
+          status,
+          remains,
+          start_count: startCount,
+          last_checked_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", order.id);
+        if (updateError) throw new Error("ORDER_STATUS_UPDATE_FAILED");
+        if (status !== order.status) updated++;
+      } catch (error) {
+        failed++;
+        console.error("smm_status_check_order_failed", {
+          order_id: order.id,
+          code: error instanceof Error ? error.message : "UNKNOWN",
+        });
+      }
     }
     return json({
       status: "success",
@@ -156,6 +176,7 @@ serve(async (req: Request) => {
       updated,
       refunded,
       reconciliation_pending: reconciliationPending,
+      failed,
     });
   } catch (error) {
     console.error("smm_status_check_failed", {

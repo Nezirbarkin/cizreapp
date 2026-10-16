@@ -373,7 +373,7 @@ class _AllDiscountedProductsScreenState
                       child: product.images.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: product.images.first,
-                              fit: BoxFit.cover,
+                              fit: productCardImageFit(product),
                               memCacheWidth: 400,
                               errorWidget: (context, url, error) {
                                 return const Center(
@@ -589,7 +589,7 @@ class _AllDiscountedProductsScreenState
                                           isOrderable &&
                                           (product.isDigital ||
                                               cartQuantity <
-                                                  product.stockQuantity))
+                                                  product.maxCartQuantity))
                                       ? () => _updateQuantity(
                                           product,
                                           cartQuantity + 1,
@@ -605,7 +605,7 @@ class _AllDiscountedProductsScreenState
                                           (isInStock &&
                                               (product.isDigital ||
                                                   cartQuantity <
-                                                      product.stockQuantity))
+                                                      product.maxCartQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

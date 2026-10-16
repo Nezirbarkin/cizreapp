@@ -6,6 +6,8 @@ import '../../../core/widgets/invoice_info_widget.dart';
 import '../../shop/services/cancellation_request_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/services/return_request_service.dart';
+import '../widgets/return_request_sheet.dart';
+import 'my_return_requests_screen.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final Order order;
@@ -25,7 +27,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   final ReturnRequestService _returnRequestService = ReturnRequestService();
   final CancellationRequestService _cancellationService = CancellationRequestService();
   RealtimeChannel? _orderChannel;
-  bool _hasReturnRequest = false;
+  // Bu siparişin iade talepleri (en yeni önce)
+  List<ReturnRequest> _returnRequests = [];
+  bool _isSubmittingReturn = false;
   // Bekleyen iptal talebi (admin onayı bekliyorsa)
   CancellationRequest? _pendingCancellation;
   // "Gel Al" teslim onayı gönderiliyor
@@ -41,12 +45,32 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   Future<void> _checkReturnRequest() async {
-    final returnRequest = await _returnRequestService.getReturnRequestByOrderId(_currentOrder.id);
+    final requests = await _returnRequestService.getOrderReturnRequests(_currentOrder.id);
     if (mounted) {
       setState(() {
-        _hasReturnRequest = returnRequest != null;
+        _returnRequests = requests;
       });
     }
+  }
+
+  ReturnRequest? get _pendingReturn {
+    for (final r in _returnRequests) {
+      if (r.status == ReturnRequestStatus.pending) return r;
+    }
+    return null;
+  }
+
+  /// İade butonu: teslim edilmiş, ödemesi tamamen iade edilmemiş, süresi
+  /// geçmemiş, bekleyen talebi olmayan ve iade edilecek ürünü kalan sipariş.
+  bool get _canReturn {
+    if (_currentOrder.status != OrderStatus.delivered) return false;
+    if (_currentOrder.paymentStatus == 'refunded') return false;
+    if (_pendingReturn != null) return false;
+    final deliveredAt = _currentOrder.deliveredAt ?? _currentOrder.updatedAt;
+    if (DateTime.now().difference(deliveredAt).inDays >= ReturnRequestService.returnWindowDays) {
+      return false;
+    }
+    return remainingReturnQuantities(_currentOrder, _returnRequests).isNotEmpty;
   }
 
   /// Bekleyen iptal talebini kontrol et (admin onayındaysa butonu devre dışı bırak)
@@ -278,41 +302,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // Sadece belirli durumlarda butonları göster
     final canCancel = _currentOrder.status == OrderStatus.pending ||
                       _currentOrder.status == OrderStatus.confirmed;
-    final canReturn = _currentOrder.status == OrderStatus.delivered && !_hasReturnRequest;
+    final canReturn = _canReturn;
+    final returnSummary = _buildReturnSummary();
 
-    if (!canCancel && !canReturn) {
+    if (!canCancel && !canReturn && returnSummary == null) {
       return const SizedBox.shrink();
-    }
-
-    // Eğer iade talebi varsa bilgi göster
-    if (_hasReturnRequest && _currentOrder.status == OrderStatus.delivered) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.blue.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.blue.shade700),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Bu sipariş için iade talebi oluşturuldu. Satıcı tarafından değerlendiriliyor.',
-                style: TextStyle(
-                  color: Colors.blue.shade900,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
     }
 
     return Column(
       children: [
+        // İade talep(ler)inin durumu
+        if (returnSummary != null) ...[
+          returnSummary,
+          const SizedBox(height: 12),
+        ],
         // Bekleyen iptal talebi varsa: badge + iade bilgisi
         if (canCancel && _pendingCancellation != null) ...[
           _buildPendingCancellationBadge(),
@@ -342,9 +345,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => _showReturnDialog(),
+              onPressed: _isSubmittingReturn ? null : _showReturnDialog,
               icon: const Icon(Icons.assignment_return_outlined, color: Colors.orange),
-              label: const Text('İade Talebi Oluştur'),
+              label: Text(_returnRequests.any((r) =>
+                      r.status == ReturnRequestStatus.approved ||
+                      r.status == ReturnRequestStatus.completed)
+                  ? 'Diğer Ürünler İçin İade Talebi'
+                  : 'İade Talebi Oluştur'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.orange,
                 side: const BorderSide(color: Colors.orange),
@@ -547,134 +554,167 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
-  Future<void> _showReturnDialog() async {
-    final reasonController = TextEditingController();
-    
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.assignment_return, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('İade Talebi'),
-          ],
+  /// Siparişin iade talep(ler)inin özet kartı; talep yoksa null.
+  Widget? _buildReturnSummary() {
+    if (_returnRequests.isEmpty) return null;
+    final latest = _returnRequests.first;
+    final refunded = _returnRequests
+        .where((r) =>
+            r.status == ReturnRequestStatus.approved ||
+            r.status == ReturnRequestStatus.completed)
+        .fold<double>(0, (s, r) => s + r.refundAmount);
+    final response = latest.adminResponse ?? '';
+
+    final (MaterialColor color, IconData icon, String text) = switch (latest.status) {
+      ReturnRequestStatus.pending => (
+          Colors.orange,
+          Icons.hourglass_top,
+          'İade talebiniz (${latest.totalQuantity} ürün, '
+              '₺${latest.refundAmount.toStringAsFixed(2)}) yönetici incelemesinde.',
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'İade sebebinizi belirtiniz:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Örn: Ürün hasarlı geldi, yanlış ürün gönderildi...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'İade talebiniz satıcı tarafından değerlendirilecektir.',
-                      style: TextStyle(fontSize: 12, color: Colors.blue),
-                    ),
+      ReturnRequestStatus.approved => (
+          Colors.green,
+          Icons.check_circle,
+          latest.isSellerCashRefund
+              ? 'İadeniz onaylandı. Ürünleri teslim ederken ₺${latest.refundAmount.toStringAsFixed(2)} '
+                  'iade tutarını satıcıdan nakit alacaksınız.'
+              : 'İadeniz onaylandı, ₺${latest.refundAmount.toStringAsFixed(2)} bakiyenize '
+                  'eklendi. Ürünleri satıcıya teslim edin.',
+        ),
+      ReturnRequestStatus.completed => (
+          Colors.blue,
+          Icons.task_alt,
+          latest.isSellerCashRefund
+              ? 'İade tamamlandı. Toplam ₺${refunded.toStringAsFixed(2)} iade edildi.'
+              : 'İade tamamlandı. Toplam ₺${refunded.toStringAsFixed(2)} bakiyenize iade edildi.',
+        ),
+      ReturnRequestStatus.rejected => (
+          Colors.red,
+          Icons.cancel,
+          response.isEmpty
+              ? 'İade talebiniz reddedildi.'
+              : 'İade talebiniz reddedildi: $response',
+        ),
+      ReturnRequestStatus.cancelled => (
+          Colors.grey,
+          Icons.undo,
+          'İade talebinizi geri çektiniz.',
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 6, 4),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color.shade700, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text(
+                    text,
+                    style: TextStyle(color: color.shade900, fontSize: 13),
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            // Controller'ı BURADA dispose etmiyoruz: dialog daha kapanmadan
-            // TextField ölü bir controller'a bakıyor ("A TextEditingController
-            // was used after being disposed") ve metodun sonundaki dispose ile
-            // birlikte çift dispose oluyordu. Tek dispose, dialog kapandıktan
-            // sonra yapılır.
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () {
-              if (reasonController.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Lütfen iade sebebini belirtiniz'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(context, true);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('İade Talebi Oluştur'),
+          Wrap(
+            alignment: WrapAlignment.end,
+            children: [
+              if (latest.status == ReturnRequestStatus.pending)
+                TextButton(
+                  onPressed: _isSubmittingReturn ? null : () => _cancelReturn(latest),
+                  child: const Text('Talebi Geri Çek'),
+                ),
+              TextButton(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyReturnRequestsScreen()),
+                  );
+                  await _checkReturnRequest();
+                },
+                child: const Text('İade Taleplerim'),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
 
-    if (confirmed == true && mounted) {
-      try {
-        debugPrint('📦 ORDER DETAIL: İade talebi oluşturuluyor...');
-        debugPrint('  └─ orderId: ${_currentOrder.id}');
-        debugPrint('  └─ userId: ${_currentOrder.userId}');
-        debugPrint('  └─ shopId: ${_currentOrder.shopId}');
-        debugPrint('  └─ reason: ${reasonController.text.trim()}');
-        
-        // İade talebini veritabanına kaydet
-        await _returnRequestService.createReturnRequest(
-          orderId: _currentOrder.id,
-          userId: _currentOrder.userId,
-          shopId: _currentOrder.shopId,
-          reason: reasonController.text.trim(),
+  Future<void> _cancelReturn(ReturnRequest request) async {
+    setState(() => _isSubmittingReturn = true);
+    try {
+      await _returnRequestService.cancelReturnRequest(request.id);
+      await _checkReturnRequest();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('İade talebiniz geri çekildi')),
         );
-
-        if (mounted) {
-          setState(() {
-            _hasReturnRequest = true;
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('İade talebiniz başarıyla oluşturuldu. Satıcı ile iletişime geçilecektir.'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('İade talebi oluşturulurken hata: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(returnErrorMessage(e)), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmittingReturn = false);
     }
-    
-    reasonController.dispose();
+  }
+
+  /// Tümü / seçili ürünler için iade talebi (yönetici onayına düşer).
+  Future<void> _showReturnDialog() async {
+    final result = await showReturnRequestSheet(
+      context,
+      order: _currentOrder,
+      existingRequests: _returnRequests,
+    );
+    if (result == null || !mounted) return;
+
+    setState(() => _isSubmittingReturn = true);
+    try {
+      final created = await _returnRequestService.createReturnRequest(
+        orderId: _currentOrder.id,
+        reason: result.reason,
+        items: result.items,
+      );
+      await _checkReturnRequest();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'İade talebiniz yönetici onayına gönderildi '
+              '(₺${created.refundAmount.toStringAsFixed(2)}).',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('İade talebi oluşturulamadı: ${returnErrorMessage(e)}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmittingReturn = false);
+    }
   }
 
   Widget _buildStatusTimeline() {

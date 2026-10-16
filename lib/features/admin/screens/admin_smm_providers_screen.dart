@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/models/smm_provider_model.dart';
 import '../../../core/models/digital_order_model.dart';
 import '../../../core/services/smm_service.dart';
+import '../../../core/widgets/package_order_status_dialog.dart';
 
 class AdminSmmProvidersScreen extends StatefulWidget {
   const AdminSmmProvidersScreen({super.key});
@@ -484,6 +485,16 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
   }
 
   Future<void> _showManualStatusDialog(DigitalOrder order) async {
+    // Paket (manuel teslim) siparişinin kendi kapatma akışı var.
+    if (order.isManualDelivery) {
+      final changed = await closePackageOrderFlow(
+        context,
+        order: order,
+        service: _smmService,
+      );
+      if (changed && mounted) await _loadData();
+      return;
+    }
     if (order.status == DigitalOrderStatus.canceled ||
         order.status == DigitalOrderStatus.refunded ||
         order.status == DigitalOrderStatus.failed) {
@@ -633,7 +644,7 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                               ),
                             ),
                             Text(
-                              order.status.label,
+                              order.statusLabel,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                               ),
@@ -654,7 +665,9 @@ class _AdminSmmProvidersScreenState extends State<AdminSmmProvidersScreen>
                           ),
                         ),
                         Text(
-                          'Sipariş ID: ${order.externalOrderId ?? '-'} • Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
+                          order.isManualDelivery
+                              ? 'Paket (satıcı elle teslim eder) • Ödeme: ${order.paymentCompositionLabel}'
+                              : 'Sipariş ID: ${order.externalOrderId ?? '-'} • Miktar: ${order.quantity} • Ödeme: ${order.paymentCompositionLabel}',
                           style: const TextStyle(fontSize: 12),
                         ),
                         if (order.hasRefund)

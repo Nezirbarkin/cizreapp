@@ -44,6 +44,9 @@ class DigitalOrderCreateResult {
   final bool duplicate;
   final bool refunded;
 
+  /// `manual` = paket siparişi; sağlayıcıya gitmez, satıcı elle teslim eder.
+  final String? deliveryMode;
+
   DigitalOrderCreateResult({
     required this.digitalOrderId,
     this.externalOrderId,
@@ -54,9 +57,11 @@ class DigitalOrderCreateResult {
     required this.cashPaidTry,
     this.duplicate = false,
     this.refunded = false,
+    this.deliveryMode,
   });
 
   bool get reconciliationPending => status == 'reconciliation_pending';
+  bool get isManualDelivery => deliveryMode == 'manual';
 
   String get compositionLabel {
     final parts = <String>[];
@@ -78,6 +83,7 @@ class DigitalOrderCreateResult {
       cashPaidTry: (json['cash_paid_try'] as num?)?.toDouble() ?? 0,
       duplicate: json['duplicate'] as bool? ?? false,
       refunded: json['refunded'] as bool? ?? false,
+      deliveryMode: json['delivery_mode'] as String?,
     );
   }
 }
@@ -456,6 +462,46 @@ class SmmService {
       throw FriendlyException.from(e);
     }
   }
+
+  /// Paket (manuel teslim) siparişini kapatır: `completed` = teslim edildi
+  /// (satıcıya net kazanç), `canceled` = iptal (puan/TL kaynağına tam iade).
+  /// Yetki sunucuda: admin ya da ürünün mağaza sahibi.
+  Future<DigitalOrderStatusUpdateResult> setPackageOrderStatus({
+    required String digitalOrderId,
+    required String newStatus,
+  }) async {
+    assert(newStatus == 'completed' || newStatus == 'canceled');
+    try {
+      final response = await _supabase.functions.invoke(
+        'digital-package-order-status',
+        body: {'digital_order_id': digitalOrderId, 'new_status': newStatus},
+      );
+      final raw = response.data;
+      final data = raw is Map ? Map<String, dynamic>.from(raw) : null;
+      if (response.status != 200 || data?['status'] != 'success') {
+        throw Exception(_packageStatusError(data?['error_code']));
+      }
+      return DigitalOrderStatusUpdateResult.fromJson(data!);
+    } on FunctionException catch (e) {
+      final details = e.details;
+      final code = details is Map ? details['error_code'] : null;
+      debugPrint(
+        '❌ SMM: Paket durum güncelleme hatası - status: ${e.status}, code: $code',
+      );
+      throw FriendlyException(_packageStatusError(code), originalError: e);
+    } catch (e) {
+      debugPrint('❌ SMM: Paket durum güncelleme hatası - $e');
+      throw FriendlyException.from(e);
+    }
+  }
+
+  static String _packageStatusError(Object? code) => switch (code) {
+    'FORBIDDEN' => 'Bu siparişi değiştirme yetkiniz yok.',
+    'ORDER_CLOSED' => 'Bu sipariş zaten kapanmış.',
+    'NOT_PACKAGE_ORDER' => 'Bu sipariş bir paket siparişi değil.',
+    'NOT_FOUND' => 'Sipariş bulunamadı.',
+    _ => 'Durum güncellenemedi.',
+  };
 
   /// Bekleyen siparişlerin durumunu sağlayıcıdan sorgulatır (manuel tazeleme).
   Future<void> refreshDigitalOrdersStatus() async {

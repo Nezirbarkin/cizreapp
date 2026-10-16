@@ -134,6 +134,9 @@ class NotificationPreferencesService {
         case 'delivered':       // Sipariş teslim edildi
           return prefs.deliveryEnabled;
         case 'new_order':       // Yeni sipariş (satıcı için)
+        case 'seller_new_digital_order': // Paket siparişi teslim bekliyor (satıcı)
+        case 'seller_product_out_of_stock': // Ürün stoğu tükendi (satıcı)
+        case 'digital_order_status':     // Paket teslim edildi / iptal (alıcı)
           return prefs.orderUpdatesEnabled;
         case 'promotional':
           return prefs.promotionalEnabled;

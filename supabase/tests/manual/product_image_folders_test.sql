@@ -1,5 +1,6 @@
 -- Ürün görsel kütüphanesi klasörleri + arama RPC'si canlı doğrulaması
--- (20261006000001_product_image_folders.sql). Kendini geri alır.
+-- (20261006000001_product_image_folders.sql,
+-- 20261016000003_product_image_search_perf.sql). Kendini geri alır.
 --
 -- Çalıştırma: supabase db query --linked --file supabase/tests/manual/product_image_folders_test.sql
 -- Başarı = 'TESTS_PASSED ...' istisnası (DO bloğu RAISE EXCEPTION ile biter,
@@ -18,6 +19,7 @@ DECLARE
   v_t0 timestamptz;
   v_ms numeric;
   v_ms_typo numeric;
+  v_ms_any numeric;
   v_checks integer := 0;
 BEGIN
   SELECT id INTO v_admin FROM public.profiles
@@ -45,16 +47,29 @@ BEGIN
    WHERE pronamespace = 'public'::regnamespace AND NOT prosecdef
      AND proname IN ('search_product_image_presets', 'product_image_folder_summary');
   IF v_n <> 2 THEN RAISE EXCEPTION '[1] RPC''ler yok ya da DEFINER'; END IF;
+  -- performans göçü: kelime dizisi sütunu, sözlük + tetikleyicisi, politikada
+  -- satır başına EXISTS yok
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'product_image_presets'
+                    AND column_name = 'search_words' AND is_generated = 'ALWAYS') THEN
+    RAISE EXCEPTION '[1] search_words üretilmiş sütunu yok';
+  END IF;
+  IF to_regclass('public.product_image_search_words') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger
+                     WHERE tgname = 'trg_product_image_search_words'
+                       AND tgrelid = 'public.product_image_presets'::regclass) THEN
+    RAISE EXCEPTION '[1] kelime sözlüğü ya da tetikleyicisi yok';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies
+              WHERE tablename = 'product_image_presets'
+                AND policyname = 'product_image_presets_select_policy'
+                AND qual ILIKE '%EXISTS%') THEN
+    RAISE EXCEPTION '[1] SELECT politikası satır başına EXISTS çalıştırıyor';
+  END IF;
   v_checks := v_checks + 1;
 
-  -- [2] başlangıç klasörleri var; göç öncesi görsellerin hepsi bir klasörde
-  SELECT count(*) INTO v_n FROM public.product_image_folders
-   WHERE public.search_normalize(name) IN ('market', 'manav', 'kozmetik', 'hirdavat');
-  IF v_n <> 4 THEN RAISE EXCEPTION '[2] başlangıç klasörleri eksik: %', v_n; END IF;
-  SELECT count(*) INTO v_n FROM public.product_image_presets
-   WHERE folder_id IS NULL AND created_at < '2026-10-06 00:00:00+00';
-  IF v_n <> 0 THEN RAISE EXCEPTION '[2] klasörsüz eski görsel: %', v_n; END IF;
-  v_checks := v_checks + 1;
+  -- [2] (kaldırıldı) başlangıç klasörü kontrolü: klasörleri artık admin
+  -- yönetiyor ("Market" canlıda "Yemek" oldu); tohum durumu sınanamaz.
 
   -- Test verisi (postgres olarak, RLS'siz)
   INSERT INTO public.product_image_folders (name, display_order, is_active)
@@ -84,7 +99,9 @@ BEGIN
   VALUES
     ('Ay Çekirdeği', NULL, 'https://example.invalid/c1.webp', true, 1, v_c),
     ('Salatalık',    NULL, 'https://example.invalid/c2.webp', true, 2, v_c),
-    ('Kavun',        NULL, 'https://example.invalid/c3.webp', true, 3, v_c);
+    ('Kavun',        NULL, 'https://example.invalid/c3.webp', true, 3, v_c),
+    -- sözlükte olmayan uydurma kelime: tetikleyici eklemeli [16]
+    ('Plavomir Vazo', NULL, 'https://example.invalid/c4.webp', true, 4, v_c);
 
   -- ---------------------------------------------------------------- satıcı
   EXECUTE 'SET LOCAL ROLE authenticated';
@@ -159,7 +176,10 @@ BEGIN
   v_checks := v_checks + 1;
 
   -- [7] kapalı klasör satıcıya tamamen gizli (RPC, tablo, klasör)
-  SELECT count(*) INTO v_n FROM public.search_product_image_presets('gizli domates');
+  -- Yalnız test satırı sayılır: canlıda "Bizim Hızlı Çorba Domates" yazım
+  -- hatası toleransıyla (gizli ~ hizli) meşru olarak eşleşiyor.
+  SELECT count(*) INTO v_n FROM public.search_product_image_presets('gizli domates') r
+   WHERE r.name = 'Gizli Domates' OR r.folder_id = v_b;
   IF v_n <> 0 THEN RAISE EXCEPTION '[7] kapalı klasör görseli RPC''de'; END IF;
   SELECT count(*) INTO v_n FROM public.search_product_image_presets(NULL, v_b);
   IF v_n <> 0 THEN RAISE EXCEPTION '[7] kapalı klasör filtreyle açılıyor'; END IF;
@@ -241,6 +261,24 @@ BEGIN
   END IF;
   v_checks := v_checks + 1;
 
+  -- [16] sözlük tetikleyicisi: yeni eklenen görselin kelimesi yazım
+  --      hatasıyla bulunur
+  SELECT array_agg(r.name) INTO v_names
+    FROM public.search_product_image_presets('plavomr', v_c) r;
+  IF v_names IS DISTINCT FROM ARRAY['Plavomir Vazo'] THEN
+    RAISE EXCEPTION '[16] eklenen kelime sözlüğe girmedi: %', v_names;
+  END IF;
+  v_checks := v_checks + 1;
+
+  -- [17] RPC yalnız istemci sütunlarını döner (arama sütunları sızmaz)
+  SELECT count(*) INTO v_n
+    FROM public.search_product_image_presets('domates', v_a, 60, 0) r
+   WHERE to_jsonb(r) ?| ARRAY['search_text', 'search_name', 'search_words', 'source_key']
+      OR NOT to_jsonb(r) ?& ARRAY['id', 'name', 'description', 'image_url', 'is_active',
+                                  'display_order', 'created_at', 'folder_id'];
+  IF v_n <> 0 THEN RAISE EXCEPTION '[17] RPC sütunları yanlış'; END IF;
+  v_checks := v_checks + 1;
+
   EXECUTE 'RESET ROLE';
 
   -- ---------------------------------------------------------------- admin
@@ -279,8 +317,18 @@ BEGIN
   UPDATE public.product_image_presets SET name = 'Kaynak Bir'
    WHERE source_key = 'zz-test/kaynak.webp';
   IF NOT EXISTS (SELECT 1 FROM public.product_image_presets
-                  WHERE source_key = 'zz-test/kaynak.webp' AND search_name = 'kaynak bir') THEN
-    RAISE EXCEPTION '[12] search_name ad değişince güncellenmedi';
+                  WHERE source_key = 'zz-test/kaynak.webp' AND search_name = 'kaynak bir'
+                    -- açıklama boşken search_text 'kaynak bir ' (sonda boşluk)
+                    AND array_remove(search_words, '') = ARRAY['kaynak', 'bir']) THEN
+    RAISE EXCEPTION '[12] search_name/search_words ad değişince güncellenmedi';
+  END IF;
+  -- [16] ad değişince yeni kelime de sözlüğe girer (admin güncellemesi)
+  UPDATE public.product_image_presets SET name = 'Kavun Trimbolex'
+   WHERE folder_id = v_c AND name = 'Kavun';
+  SELECT array_agg(r.name) INTO v_names
+    FROM public.search_product_image_presets('trimbolx', v_c) r;
+  IF v_names IS DISTINCT FROM ARRAY['Kavun Trimbolex'] THEN
+    RAISE EXCEPTION '[16] güncellenen ad sözlüğe girmedi: %', v_names;
   END IF;
   -- klasör silinince görseller klasörsüz kalır, silinmez
   DELETE FROM public.product_image_folders WHERE id = v_b;
@@ -326,14 +374,20 @@ BEGIN
   v_t0 := clock_timestamp();
   SELECT count(*) INTO v_n FROM public.search_product_image_presets('samuan', NULL, 60, 0);
   v_ms_typo := round(extract(epoch FROM clock_timestamp() - v_t0) * 1000, 1);
+  v_t0 := clock_timestamp();
+  PERFORM count(*) FROM public.search_product_image_presets(
+    'Ülker Çikolatalı Gofret 36 g', NULL, 60, 0, true);
+  v_ms_any := round(extract(epoch FROM clock_timestamp() - v_t0) * 1000, 1);
   EXECUTE 'RESET ROLE';
   IF v_n = 0 THEN RAISE EXCEPTION '[14] samuan -> Şampuan bulunamadı'; END IF;
-  IF v_ms > 300 OR v_ms_typo > 300 THEN
-    RAISE EXCEPTION '[14] arama yavaş: % ms / yazım hatası % ms', v_ms, v_ms_typo;
+  -- 20261016000003 öncesi canlıda 180–590 ms idi.
+  IF v_ms > 80 OR v_ms_typo > 80 OR v_ms_any > 120 THEN
+    RAISE EXCEPTION '[14] arama yavaş: % ms / yazım hatası % ms / any % ms',
+      v_ms, v_ms_typo, v_ms_any;
   END IF;
   v_checks := v_checks + 1;
 
-  RAISE EXCEPTION 'TESTS_PASSED % kontrol (3000+ görselde arama % ms, yazım hatalı arama % ms)',
-    v_checks, v_ms, v_ms_typo;
+  RAISE EXCEPTION 'TESTS_PASSED % kontrol (canlı kütüphane + 3000 görselde arama % ms, yazım hatalı % ms, ürün adından öneri % ms)',
+    v_checks, v_ms, v_ms_typo, v_ms_any;
 END
 $test$;

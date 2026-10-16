@@ -137,3 +137,126 @@ class ProductImageFolder {
     );
   }
 }
+
+/// Admin görsel listesinin durum süzgeci (`p_status`).
+enum ProductImageAdminStatus { all, active, passive }
+
+/// Admin görsel listesinin sıralaması (`p_sort`): sıra numarası ya da en
+/// yeni önce.
+enum ProductImageAdminSort { order, newest }
+
+/// Admin görsel listesinin süzgeci ve sıralaması; sunucuda uygulanır
+/// (`admin_product_image_presets_page`).
+class ProductImageAdminQuery {
+  const ProductImageAdminQuery({
+    this.folderId,
+    this.unfiled = false,
+    this.status = ProductImageAdminStatus.all,
+    this.search = '',
+    this.sort = ProductImageAdminSort.order,
+  });
+
+  /// Yalnız bu klasör; null = tüm klasörler ([unfiled] değilse).
+  final String? folderId;
+
+  /// Yalnız klasörsüz görseller.
+  final bool unfiled;
+
+  final ProductImageAdminStatus status;
+
+  /// Ad + arama kelimelerinde aranır: Türkçe harf/aksan duyarsız, her kelime
+  /// geçmeli (sırası önemsiz).
+  final String search;
+
+  final ProductImageAdminSort sort;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ProductImageAdminQuery &&
+      other.folderId == folderId &&
+      other.unfiled == unfiled &&
+      other.status == status &&
+      other.search == search &&
+      other.sort == sort;
+
+  @override
+  int get hashCode => Object.hash(folderId, unfiled, status, search, sort);
+}
+
+/// Kütüphanenin tamamının sayaçları (süzgeçten bağımsız): klasörler
+/// ([ProductImageFolder.imageCount] / [ProductImageFolder.activeImageCount]
+/// dolu), klasörsüzler ve en büyük sıra numarası.
+class ProductImageLibrarySummary {
+  const ProductImageLibrarySummary({
+    this.folders = const [],
+    this.unfiledCount = 0,
+    this.unfiledActiveCount = 0,
+    this.maxDisplayOrder = 0,
+  });
+
+  final List<ProductImageFolder> folders;
+  final int unfiledCount;
+  final int unfiledActiveCount;
+  final int maxDisplayOrder;
+
+  /// Kütüphanedeki tüm görseller.
+  int get totalCount => folders.fold(unfiledCount, (n, f) => n + f.imageCount);
+
+  /// Yayındaki görseller.
+  int get activeCount =>
+      folders.fold(unfiledActiveCount, (n, f) => n + f.activeImageCount);
+
+  ProductImageLibrarySummary copyWith({List<ProductImageFolder>? folders}) {
+    return ProductImageLibrarySummary(
+      folders: folders ?? this.folders,
+      unfiledCount: unfiledCount,
+      unfiledActiveCount: unfiledActiveCount,
+      maxDisplayOrder: maxDisplayOrder,
+    );
+  }
+
+  factory ProductImageLibrarySummary.fromJson(Map<String, dynamic> json) {
+    return ProductImageLibrarySummary(
+      folders: [
+        for (final f in (json['folders'] as List? ?? const []))
+          ProductImageFolder.fromJson(Map<String, dynamic>.from(f as Map)),
+      ],
+      unfiledCount: (json['unfiled_count'] as num?)?.toInt() ?? 0,
+      unfiledActiveCount: (json['unfiled_active_count'] as num?)?.toInt() ?? 0,
+      maxDisplayOrder: (json['max_display_order'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// `admin_product_image_presets_page` yanıtı: bir sayfa, süzgece uyan toplam
+/// ve (istendiyse) kütüphane özeti.
+class ProductImageAdminPage {
+  const ProductImageAdminPage({
+    required this.items,
+    required this.total,
+    this.summary,
+  });
+
+  final List<ProductImagePreset> items;
+
+  /// Süzgece uyan görsel sayısı (tüm sayfalar).
+  final int total;
+
+  final ProductImageLibrarySummary? summary;
+
+  factory ProductImageAdminPage.fromJson(Map<String, dynamic> json) {
+    final summary = json['summary'];
+    return ProductImageAdminPage(
+      items: [
+        for (final p in (json['items'] as List? ?? const []))
+          ProductImagePreset.fromJson(Map<String, dynamic>.from(p as Map)),
+      ],
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      summary: summary is Map
+          ? ProductImageLibrarySummary.fromJson(
+              Map<String, dynamic>.from(summary),
+            )
+          : null,
+    );
+  }
+}

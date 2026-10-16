@@ -209,6 +209,10 @@ class Order {
   final double? sellerNetAmount;
   final double? commissionDebt;
   final DateTime? commissionCalculatedAt;
+
+  /// Platform kuryesiyle ücretsiz teslimatta satıcının alacağından kesilen
+  /// teslimat bedeli (kuryeli satıcıda ve müşteri teslimatı ödediğinde 0).
+  final double sellerDeliveryCharge;
   
   // Satıcı kurye durumu (ilişkili veri)
   final bool? hasOwnCourier;
@@ -266,6 +270,7 @@ class Order {
     this.sellerNetAmount,
     this.commissionDebt,
     this.commissionCalculatedAt,
+    this.sellerDeliveryCharge = 0,
     this.hasOwnCourier,
     // Müşteri telefonu
     this.customerPhone,
@@ -366,7 +371,10 @@ class Order {
       commissionCalculatedAt: json['commission_calculated_at'] != null
           ? DateTime.parse(json['commission_calculated_at'] as String)
           : null,
-      hasOwnCourier: json['has_own_courier'] as bool?,
+      sellerDeliveryCharge: (json['seller_delivery_charge'] as num?)?.toDouble() ?? 0,
+      // Sipariş satırı kurye durumunu seller_has_own_courier olarak taşır.
+      hasOwnCourier: json['seller_has_own_courier'] as bool? ??
+          json['has_own_courier'] as bool?,
       // Müşteri telefonu
       customerPhone: json['customer_phone'] as String?,
       // Kupon alanları
@@ -412,6 +420,7 @@ class Order {
       'admin_commission': adminCommission,
       'admin_delivery_fee': adminDeliveryFee,
       'seller_net_amount': sellerNetAmount,
+      'seller_delivery_charge': sellerDeliveryCharge,
       'commission_debt': commissionDebt,
       'commission_calculated_at': commissionCalculatedAt?.toIso8601String(),
       // Müşteri telefonu
@@ -459,9 +468,14 @@ class Order {
   // Komisyon durumu: Borçlu mu?
   bool get hasDebt => (commissionDebt ?? 0) > 0;
   
-  // Admin toplam kazancı
+  // Admin toplam kazancı (komisyon + teslimat geliri)
   double get totalAdminEarnings =>
       (adminCommission ?? 0) + (adminDeliveryFee ?? 0);
+
+  /// Satıcının bu siparişten ödediği toplam: komisyon + ücretsiz teslimat
+  /// bedeli. Müşterinin ödediği teslimat ücreti satıcıdan kesilmez.
+  double get sellerTotalDeductions =>
+      (adminCommission ?? 0) + sellerDeliveryCharge;
 
   // Tarih formatı
   String get formattedDate {
@@ -498,6 +512,7 @@ class Order {
     double? sellerNetAmount,
     double? commissionDebt,
     DateTime? commissionCalculatedAt,
+    double? sellerDeliveryCharge,
     bool? hasOwnCourier,
     // Müşteri telefonu
     String? customerPhone,
@@ -546,6 +561,7 @@ class Order {
       sellerNetAmount: sellerNetAmount ?? this.sellerNetAmount,
       commissionDebt: commissionDebt ?? this.commissionDebt,
       commissionCalculatedAt: commissionCalculatedAt ?? this.commissionCalculatedAt,
+      sellerDeliveryCharge: sellerDeliveryCharge ?? this.sellerDeliveryCharge,
       hasOwnCourier: hasOwnCourier ?? this.hasOwnCourier,
       customerPhone: customerPhone ?? this.customerPhone,
       couponId: couponId ?? this.couponId,

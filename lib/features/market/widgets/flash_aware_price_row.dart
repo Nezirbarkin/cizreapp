@@ -40,6 +40,8 @@ class FlashAwarePriceRow extends StatelessWidget {
     return ValueListenableBuilder<Map<String, FlashSale>>(
       valueListenable: cache.byProduct,
       builder: (context, _, __) {
+        // Dijitalde flaş/indirim fiyatı ödemeye yansımaz; yalnız liste fiyatı.
+        if (product.isDigital) return _plainRow(context);
         final flashSale = cache.activeFor(product.id);
         if (flashSale != null) {
           return _flashRow(context, flashSale);
@@ -134,14 +136,29 @@ class FlashAwarePriceRow extends StatelessWidget {
 
   Widget _plainRow(BuildContext context) {
     final theme = Theme.of(context);
-    return Text(
-      '₺${product.effectivePrice.toStringAsFixed(2)}',
-      style: priceStyle ??
-          TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-            color: theme.colorScheme.primary,
-          ),
+    final style = priceStyle ??
+        TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+          color: theme.colorScheme.primary,
+        );
+    final unit = product.listingPriceUnit;
+    return Text.rich(
+      TextSpan(
+        text: '₺${product.listingPrice.toStringAsFixed(2)}',
+        children: [
+          if (unit.isNotEmpty)
+            TextSpan(
+              text: ' $unit',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: (style.fontSize ?? 11) * 0.8,
+                color: Colors.grey.shade600,
+              ),
+            ),
+        ],
+      ),
+      style: style,
       overflow: TextOverflow.ellipsis,
     );
   }
@@ -165,6 +182,7 @@ class FlashAwareDiscountBadge extends StatelessWidget {
     return ValueListenableBuilder<Map<String, FlashSale>>(
       valueListenable: cache.byProduct,
       builder: (context, _, __) {
+        if (product.isDigital) return const SizedBox.shrink();
         final flash = cache.activeFor(product.id);
         if (flash != null) {
           return FlashDiscountBadge(

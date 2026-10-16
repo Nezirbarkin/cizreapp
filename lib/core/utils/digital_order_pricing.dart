@@ -1,20 +1,23 @@
 /// Dijital (SMM) sipariş fiyatı — sunucunun `create_digital_order_with_points`
 /// hesabının BİREBİR istemci karşılığı (Görev 3.6).
 ///
-/// Sunucu:
-///   birim  = round(price_per_1000 / 1000, 4)
-///   toplam = round(birim × adet, 2)
+/// Sunucu (20261016000011):
+///   toplam = round(price_per_1000 × adet / 1000, 2)
+///   birim  = round(price_per_1000 / 1000, 6)  (yalnız kayıt; toplamı etkilemez)
 ///   puan   ≤ floor(toplam_kuruş × max_points_coverage_percent / 100) kuruş
 ///
-/// `price_per_1000` sütunu numeric(12,2) olduğundan hesap kuruş/on-binde-bir
+/// Eskiden birim önce 4 haneye yuvarlanıp adetle çarpılıyordu; ucuz serviste
+/// (0,24 TL / 1000 adet) birim 0,0002'ye kırpılıp 1000 adet 0,20 TL çıkıyordu.
+///
+/// `price_per_1000` sütunu numeric(12,2) olduğundan hesap kuruş/milyonda-bir
 /// tamsayılarıyla yapılır; kayan nokta yuvarlama farkı oluşmaz. PostgreSQL
 /// `round()` sıfırdan uzağa yuvarlar — pozitif değerlerde (x + yarım) ~/ birim.
 class DigitalOrderQuote {
   /// 1000 adetlik fiyat, kuruş.
   final int pricePer1000Cents;
 
-  /// Adet başı fiyat, 1/10000 TL (sunucudaki 4 haneli `unit_price`).
-  final int unitPriceE4;
+  /// Adet başı fiyat, 1/1000000 TL (sunucudaki 6 haneli `unit_price`).
+  final int unitPriceE6;
   final int quantity;
 
   /// Sunucudaki `gross_total_try`, kuruş.
@@ -25,7 +28,7 @@ class DigitalOrderQuote {
 
   const DigitalOrderQuote({
     required this.pricePer1000Cents,
-    required this.unitPriceE4,
+    required this.unitPriceE6,
     required this.quantity,
     required this.totalCents,
     this.maxPointsCents = 0,
@@ -48,16 +51,36 @@ class DigitalOrderPricing {
   }) {
     if (pricePer1000 == null || pricePer1000 < 0 || quantity <= 0) return null;
     final ppkCents = (pricePer1000 * 100).round();
-    // birim (4 hane) = ppk / 1000 → on-binde-bir TL = ppk × 10 = kuruş / 10
-    final unitE4 = (ppkCents + 5) ~/ 10;
-    // toplam (2 hane): on-binde-bir × adet → kuruş = / 100
-    final totalCents = (unitE4 * quantity + 50) ~/ 100;
+    // birim (6 hane) = ppk / 1000 → milyonda-bir TL = kuruş × 10 (kesirsiz)
+    final unitE6 = ppkCents * 10;
+    // toplam (2 hane) = ppk × adet / 1000 → kuruş = ppk_kuruş × adet / 1000
+    final totalCents = (ppkCents * quantity + 500) ~/ 1000;
     final coverage = maxPointsCoveragePercent.clamp(0, 100);
     final maxPoints = pointsEligible ? (totalCents * coverage) ~/ 100 : 0;
     return DigitalOrderQuote(
       pricePer1000Cents: ppkCents,
-      unitPriceE4: unitE4,
+      unitPriceE6: unitE6,
       quantity: quantity,
+      totalCents: totalCents,
+      maxPointsCents: maxPoints,
+    );
+  }
+
+  /// Paket (sabit fiyat) siparişi: sunucu `brüt = round(price, 2)`, adet 1.
+  /// Fiyat bilinmiyorsa ya da 0 / negatifse null.
+  static DigitalOrderQuote? quotePackage({
+    required double? price,
+    bool pointsEligible = false,
+    int maxPointsCoveragePercent = 100,
+  }) {
+    if (price == null || price <= 0) return null;
+    final totalCents = (price * 100).round();
+    final coverage = maxPointsCoveragePercent.clamp(0, 100);
+    final maxPoints = pointsEligible ? (totalCents * coverage) ~/ 100 : 0;
+    return DigitalOrderQuote(
+      pricePer1000Cents: 0,
+      unitPriceE6: totalCents * 10000,
+      quantity: 1,
       totalCents: totalCents,
       maxPointsCents: maxPoints,
     );

@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -169,6 +172,12 @@ class SehiriciFullStoryCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
+              // Web'de liteMode yok: küçük kart için tam JS haritası açılır ve
+              // Maps JavaScript API kapalıysa Google'ın "Hata! Bir sorun
+              // oluştu" katmanı kartı örter. Web'de hat şeması çizilir.
+              if (kIsWeb)
+                _SehiriciRoutePreview(lines: lines, trips: trips)
+              else
               // Harita önizlemesi (etkileşimsiz) — sefer olmasa da duraklar görünür
               IgnorePointer(
                 child: SehiriciLiveMap(
@@ -270,6 +279,134 @@ class SehiriciFullStoryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Web ana sayfa önizlemesi: harita motoru olmadan hat rotaları, duraklar ve
+/// aktif araçlar sade bir şema olarak çizilir.
+class _SehiriciRoutePreview extends StatelessWidget {
+  final List<SehiriciLine> lines;
+  final List<SehiriciActiveTrip> trips;
+
+  const _SehiriciRoutePreview({required this.lines, required this.trips});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _RouteSchematicPainter(lines: lines, trips: trips),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _RouteSchematicPainter extends CustomPainter {
+  final List<SehiriciLine> lines;
+  final List<SehiriciActiveTrip> trips;
+
+  _RouteSchematicPainter({required this.lines, required this.trips});
+
+  // Koyu zemin: dar kartta başlık degradenin altına taşınca da beyaz yazı
+  // okunur kalsın.
+  static const _background = Color(0xFF2F4358);
+  static const _street = Color(0xFF3B536B);
+
+  List<List<double>> _pathOf(SehiriciLine line) => line.hasRoute
+      ? line.roadPolyline!
+      : [for (final s in line.stops) [s.lat, s.lng]];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = _background);
+
+    // Sokak dokusu: hafif eğik ızgara.
+    final street = Paint()
+      ..color = _street
+      ..strokeWidth = 2;
+    for (double x = -size.height; x < size.width; x += 26) {
+      canvas.drawLine(
+          Offset(x, size.height), Offset(x + size.height * 0.35, 0), street);
+    }
+    for (double y = 12; y < size.height; y += 30) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y - 8), street);
+    }
+
+    final paths = [for (final l in lines) _pathOf(l)];
+    final points = [
+      for (final p in paths) ...p,
+      for (final t in trips)
+        if (t.currentLat != null && t.currentLng != null)
+          [t.currentLat!, t.currentLng!],
+    ];
+    if (points.isEmpty) return;
+
+    var minLat = points.first[0], maxLat = minLat;
+    var minLng = points.first[1], maxLng = minLng;
+    for (final p in points) {
+      minLat = math.min(minLat, p[0]);
+      maxLat = math.max(maxLat, p[0]);
+      minLng = math.min(minLng, p[1]);
+      maxLng = math.max(maxLng, p[1]);
+    }
+    // Üstteki başlık degradesinin altına sığdır; boylam enleme göre daraltılır.
+    final area = Rect.fromLTRB(14, 64, size.width - 14, size.height - 14);
+    final lngScale = math.cos((minLat + maxLat) / 2 * math.pi / 180);
+    final spanX = math.max((maxLng - minLng) * lngScale, 1e-6);
+    final spanY = math.max(maxLat - minLat, 1e-6);
+    final scale = math.min(area.width / spanX, area.height / spanY);
+    final dx = area.left + (area.width - spanX * scale) / 2;
+    final dy = area.top + (area.height - spanY * scale) / 2;
+    Offset project(double lat, double lng) => Offset(
+          dx + (lng - minLng) * lngScale * scale,
+          dy + (maxLat - lat) * scale,
+        );
+
+    for (var i = 0; i < lines.length; i++) {
+      final pts = [for (final p in paths[i]) project(p[0], p[1])];
+      if (pts.length >= 2) {
+        final path = Path()..addPolygon(pts, false);
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 5
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round,
+        );
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = lines[i].color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round,
+        );
+      }
+      for (final s in lines[i].stops) {
+        final o = project(s.lat, s.lng);
+        canvas.drawCircle(o, 2.8, Paint()..color = Colors.white);
+        canvas.drawCircle(
+          o,
+          2.8,
+          Paint()
+            ..color = lines[i].color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4,
+        );
+      }
+    }
+
+    for (final t in trips) {
+      if (t.currentLat == null || t.currentLng == null) continue;
+      final o = project(t.currentLat!, t.currentLng!);
+      canvas.drawCircle(o, 5.5, Paint()..color = Colors.white);
+      canvas.drawCircle(o, 4, Paint()..color = t.color);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RouteSchematicPainter old) =>
+      old.lines != lines || old.trips != trips;
 }
 
 /// Tam ekran Şehiriçi harita dialog'u: başlık çubuğu + tam ekran harita +

@@ -245,8 +245,8 @@ class BalanceStatusCard extends StatelessWidget {
 
                 if (adminCredit > 0 && commissionDebt > 0) const SizedBox(height: 12),
 
-                // Komisyon borcu (sadece kuryesi olan için)
-                if (hasCourier && commissionDebt > 0)
+                // Borç: kuryelide kapıda ödeme komisyonu, her satıcıda iade farkı
+                if (commissionDebt > 0)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -279,7 +279,7 @@ class BalanceStatusCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Kapıda ödemelerden',
+                              hasCourier ? 'Kapıda ödeme komisyonu / iade' : 'İade farkından',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Colors.orange.shade600,
@@ -292,13 +292,13 @@ class BalanceStatusCard extends StatelessWidget {
                     ),
                   ),
 
-                if ((adminCredit > 0 || (hasCourier && commissionDebt > 0)))
+                if ((adminCredit > 0 || commissionDebt > 0))
                   const SizedBox(height: 16),
 
-                if ((adminCredit > 0 || (hasCourier && commissionDebt > 0)))
+                if ((adminCredit > 0 || commissionDebt > 0))
                   const Divider(),
 
-                if ((adminCredit > 0 || (hasCourier && commissionDebt > 0)))
+                if ((adminCredit > 0 || commissionDebt > 0))
                   const SizedBox(height: 16),
 
                 // Net ödeme tutarı
@@ -353,7 +353,7 @@ class BalanceStatusCard extends StatelessWidget {
                           color: Colors.white,
                         ),
                       ),
-                      if (hasCourier && commissionDebt > 0) ...[
+                      if (commissionDebt > 0) ...[
                         const SizedBox(height: 8),
                         Text(
                           'Alacak - Borç = Net tutar',
@@ -384,7 +384,7 @@ class BalanceStatusCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            hasCourier
+                            commissionDebt > 0
                                 ? 'Komisyon borcunuz olduğu için şu an ödeme isteği oluşturamazsınız. Online ödemeler ile borç kapatıldıkça ödeme alabilirsiniz.'
                                 : 'Henüz ödenebilir bakiyeniz bulunmuyor. Siparişleriniz teslim edildikçe bakiyeniz artacaktır.',
                             style: TextStyle(

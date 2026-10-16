@@ -119,6 +119,11 @@ class Product {
   final double? oldPrice;
   final double? discountPrice; // İndirimli fiyat (discount_price kolonu için)
   final int stockQuantity;
+
+  /// Satıcı stok girmediyse true (stok takibi yok). Sunucu bu durumda
+  /// `stock_quantity`'yi [unlimitedStockValue]'ya sabitler; eski uygulama
+  /// sürümleri bayrağı bilmeden ürünü "stokta" görür.
+  final bool stockUnlimited;
   final String? imageUrl;
   final List<String> additionalImages; // Ek görseller
   final String? category;
@@ -146,6 +151,11 @@ class Product {
   final double? pricePer1000;
   final int? minQuantity;
   final int? maxQuantity;
+
+  /// Dijital satış şekli: `smm` = 1000 adet fiyatı × adet, sağlayıcıya
+  /// otomatik gider; `package` = sabit fiyat ([price]), her sipariş 1 paket,
+  /// satıcı elle teslim eder (sağlayıcı alanları boştur).
+  final String digitalMode;
   // smm-sync-products ürünü OTOMATİK kapattıysa nedeni (yalnız okunur; toJson'a
   // yazılmaz). kind: 'missing' | 'service_changed' | 'price_changed'.
   final String? smmDisabledReason;
@@ -191,6 +201,7 @@ class Product {
     this.oldPrice,
     this.discountPrice,
     required this.stockQuantity,
+    this.stockUnlimited = false,
     this.imageUrl,
     this.additionalImages = const [],
     this.category,
@@ -210,6 +221,7 @@ class Product {
     this.pricePer1000,
     this.minQuantity,
     this.maxQuantity,
+    this.digitalMode = 'smm',
     this.smmDisabledReason,
     this.smmDisabledKind,
     this.maxOrdersPerUser,
@@ -260,6 +272,24 @@ class Product {
 
   // Stokta var mı?
   bool get inStock => (isDigital || stockQuantity > 0) && isAvailable;
+
+  /// Sınırsız stokta sunucunun yazdığı sabit değer
+  /// (20261016000005_products_unlimited_stock.sql).
+  static const int unlimitedStockValue = 999999;
+
+  /// Stok takibi yok mu? Bayrağı seçmeyen sorgular için sabit değer de
+  /// sınırsız sayılır.
+  bool get isStockUnlimited =>
+      !isDigital && (stockUnlimited || stockQuantity >= unlimitedStockValue);
+
+  /// Satıcı/yönetici ekranlarındaki stok metni ("Sınırsız" ya da adet).
+  String get stockLabel => isStockUnlimited ? 'Sınırsız' : '$stockQuantity';
+
+  /// Ham satırdaki (`products` map'i) `stock_quantity` için aynı metin.
+  static String stockLabelFor(Object? rawStock) {
+    final stock = (rawStock as num?)?.toInt() ?? 0;
+    return stock >= unlimitedStockValue ? 'Sınırsız' : '$stock';
+  }
 
   // Geçerli fiyat (indirim varsa indirimli fiyat, yoksa normal fiyat)
   double get effectivePrice {
@@ -320,6 +350,26 @@ class Product {
   // Dijital (SMM panel) ürünü mü?
   bool get isDigital => productType == 'digital';
 
+  /// Sabit fiyatlı, satıcının elle teslim ettiği dijital paket mi?
+  bool get isDigitalPackage => isDigital && digitalMode == 'package';
+
+  /// 1000 adet fiyatıyla satılan (SMM) dijital ürün mü? Vitrindeki fiyat tek
+  /// ürünün değil 1000 adedin fiyatıdır; birimsiz yazılırsa müşteri sipariş
+  /// toplamıyla (adet × fiyat / 1000) çelişen bir rakam görür.
+  bool get isDigitalPerThousand => isDigital && !isDigitalPackage;
+
+  /// Kart/detay başlığında yazan fiyat. Dijitalde indirim ve flaş fiyatı
+  /// uygulanmaz: sunucu (`create_digital_order_with_points`) yalnız
+  /// `price_per_1000` (SMM) ya da `price` (paket) üzerinden ücret keser.
+  double get listingPrice {
+    if (isDigitalPerThousand) return pricePer1000 ?? price;
+    if (isDigital) return price;
+    return effectivePrice;
+  }
+
+  /// [listingPrice]'ın yanına yazılacak birim; SMM dışında boş.
+  String get listingPriceUnit => isDigitalPerThousand ? '/1000 adet' : '';
+
   // "2 al biri bakiye" kampanyası aktif mi?
   bool get isBuy2Get1BalanceCampaign => campaignType == 'buy2_get1_balance';
 
@@ -344,8 +394,26 @@ class Product {
   int? get maxOrderQty {
     if (isDigital) return null;
     final limit = maxOrderQuantity;
-    if (limit == null || limit <= 0) return null;
-    return limit;
+    final sellerLimit = (limit == null || limit <= 0) ? null : limit;
+    // Stok girilmediyse (sınırsız) müşteri en fazla 2 adet alır; sunucu da
+    // max_order_quantity'yi buna göre yazar, bu satır kolonu seçmeyen
+    // sorgular için.
+    if (isStockUnlimited &&
+        (sellerLimit == null || sellerLimit > unlimitedStockMaxPerOrder)) {
+      return unlimitedStockMaxPerOrder;
+    }
+    return sellerLimit;
+  }
+
+  /// Sınırsız stoklu üründe sipariş başına en fazla adet
+  /// (20261016000006_unlimited_stock_max_two_per_order.sql).
+  static const int unlimitedStockMaxPerOrder = 2;
+
+  /// Sepette bu üründen olabilecek en fazla adet: stok ile satıcı sınırının
+  /// küçüğü (stok girildiyse müşteri stok kadar ekleyebilir).
+  int get maxCartQuantity {
+    final max = maxOrderQty;
+    return (max == null || max > stockQuantity) ? stockQuantity : max;
   }
 
   /// Satıcının koyduğu adet sınırı için açıklama metni.
@@ -428,6 +496,7 @@ class Product {
           : null,
       discountPrice: discountPriceValue,
       stockQuantity: json['stock_quantity'] as int? ?? 0,
+      stockUnlimited: json['stock_unlimited'] as bool? ?? false,
       imageUrl: json['image_url'] as String?,
       additionalImages: additionalImagesList,
       category: json['category'] as String?,
@@ -447,6 +516,7 @@ class Product {
       pricePer1000: (json['price_per_1000'] as num?)?.toDouble(),
       minQuantity: json['min_quantity'] as int?,
       maxQuantity: json['max_quantity'] as int?,
+      digitalMode: json['digital_mode'] as String? ?? 'smm',
       smmDisabledReason: json['smm_disabled_reason'] as String?,
       smmDisabledKind: json['smm_disabled_kind'] as String?,
       maxOrdersPerUser: json['max_orders_per_user'] as int?,
@@ -476,6 +546,7 @@ class Product {
       'old_price': oldPrice,
       'discount_price': discountPrice,
       'stock_quantity': stockQuantity,
+      'stock_unlimited': stockUnlimited,
       'image_url': imageUrl,
       'additional_images': additionalImages,
       'category': category,
@@ -493,6 +564,7 @@ class Product {
       'price_per_1000': pricePer1000,
       'min_quantity': minQuantity,
       'max_quantity': maxQuantity,
+      'digital_mode': digitalMode,
       'max_orders_per_user': maxOrdersPerUser,
       'is_points_eligible': isDigital ? isPointsEligible : false,
       'max_points_coverage_percent': maxPointsCoveragePercent,
@@ -518,6 +590,7 @@ class Product {
     double? oldPrice,
     double? discountPrice,
     int? stockQuantity,
+    bool? stockUnlimited,
     String? imageUrl,
     List<String>? additionalImages,
     String? category,
@@ -537,6 +610,7 @@ class Product {
     double? pricePer1000,
     int? minQuantity,
     int? maxQuantity,
+    String? digitalMode,
     int? maxOrdersPerUser,
     bool? isPointsEligible,
     int? maxPointsCoveragePercent,
@@ -567,6 +641,7 @@ class Product {
           ? null
           : (discountPrice ?? this.discountPrice),
       stockQuantity: stockQuantity ?? this.stockQuantity,
+      stockUnlimited: stockUnlimited ?? this.stockUnlimited,
       imageUrl: imageUrl ?? this.imageUrl,
       additionalImages: additionalImages ?? this.additionalImages,
       category: category ?? this.category,
@@ -586,6 +661,7 @@ class Product {
       pricePer1000: pricePer1000 ?? this.pricePer1000,
       minQuantity: minQuantity ?? this.minQuantity,
       maxQuantity: maxQuantity ?? this.maxQuantity,
+      digitalMode: digitalMode ?? this.digitalMode,
       smmDisabledReason: smmDisabledReason,
       smmDisabledKind: smmDisabledKind,
       maxOrdersPerUser: maxOrdersPerUser ?? this.maxOrdersPerUser,

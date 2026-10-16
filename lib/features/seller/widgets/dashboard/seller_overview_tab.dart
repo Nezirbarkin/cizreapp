@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/models/seller_announcement_model.dart';
+import '../../../../core/models/product_model.dart';
 import '../common/seller_stat_card.dart';
 import '../../utils/shop_contact_requirements.dart';
 import '../seller_announcements_section.dart';
@@ -490,7 +491,7 @@ class SellerOverviewTab extends StatelessWidget {
                         style: TextStyle(color: primary),
                       ),
                       trailing: Text(
-                        'Stok: ${product['stock_quantity'] ?? product['stock'] ?? 0}',
+                        'Stok: ${Product.stockLabelFor(product['stock_quantity'] ?? product['stock'])}',
                         style: TextStyle(
                           color: (product['stock_quantity'] ?? product['stock'] ?? 0) > 0
                               ? Colors.green

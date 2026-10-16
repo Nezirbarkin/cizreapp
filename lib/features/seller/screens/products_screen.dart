@@ -13,6 +13,7 @@ import '../services/shop_analytics_service.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 import '../widgets/common/seller_product_stats_chips.dart';
+import '../widgets/bulk_tools_sheet.dart';
 import 'manage_product_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -515,6 +516,68 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
+  /// Toplu silme: önce sunucuya kuru çalıştırmayla sorulur (kaçı silinecek,
+  /// kaçının sipariş geçmişi olduğu için satışa kapatılacağı), satıcı bu
+  /// sayıları görerek onaylar. Kural sunucuda: `seller_bulk_delete_products`.
+  Future<void> _confirmBulkDelete() async {
+    final ids = _selectedProducts.map((p) => p.id).toList();
+    if (ids.isEmpty) return;
+    if (ids.length > 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tek seferde en fazla 500 ürün silinebilir')),
+      );
+      return;
+    }
+
+    setState(() => _isBulkWorking = true);
+    BulkDeleteResult preview;
+    try {
+      preview = await _productService.bulkDeleteProducts(ids, dryRun: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _isBulkWorking = false);
+    }
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _BulkDeleteDialog(selected: ids.length, preview: preview),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isBulkWorking = true);
+    try {
+      final result = await _productService.bulkDeleteProducts(ids);
+      if (!mounted) return;
+      final parts = [
+        if (result.deleted > 0) '${result.deleted} ürün silindi',
+        if (result.deactivated > 0) '${result.deactivated} ürün satışa kapatıldı (sipariş geçmişi var)',
+      ];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(parts.isEmpty ? 'Hiçbir ürün değişmedi' : parts.join(' · ')),
+          backgroundColor: parts.isEmpty ? Colors.orange : Colors.green,
+        ),
+      );
+      _exitSelectionMode();
+      await _loadProducts();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBulkWorking = false);
+    }
+  }
+
   /// Toplu işlemlerin ortak sarmalayıcısı: yükleniyor durumu, hata yakalama,
   /// listeyi tazeleme ve "kaç ürün etkilendi" geri bildirimi.
   Future<void> _runBulkAction({
@@ -579,6 +642,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
     }
   }
 
+  /// Excel'den toplu yükleme, toplu dijital ürün, dışa aktarma, şablon.
+  Future<void> _openBulkTools() async {
+    final changed = await showBulkToolsSheet(context, products: _products);
+    if (changed && mounted) _loadProducts();
+  }
+
   void _showCategoryManagement() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
@@ -639,6 +708,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
       appBar: AppBar(
         title: const Text('Ürünlerim'),
         actions: [
+          // Toplu yükleme / dijital içe aktarma / dışa aktarma
+          IconButton(
+            icon: const Icon(Icons.drive_folder_upload_outlined),
+            tooltip: 'Toplu işlemler',
+            onPressed: _openBulkTools,
+          ),
           // Çoklu seçim moduna gir (toplu indirim vb.)
           IconButton(
             icon: const Icon(Icons.checklist),
@@ -761,6 +836,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 : '${_selectedIds.length} ürün seçildi',
           ),
           actions: [
+            IconButton(
+              key: const ValueKey('bulk-delete'),
+              tooltip: 'Seçilenleri sil',
+              icon: const Icon(Icons.delete_outline),
+              color: Colors.white,
+              disabledColor: Colors.white38,
+              onPressed: (_selectedIds.isEmpty || _isBulkWorking)
+                  ? null
+                  : _confirmBulkDelete,
+            ),
             TextButton.icon(
               onPressed: visible.isEmpty ? null : _selectAllVisible,
               icon: Icon(
@@ -1026,7 +1111,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       valueListenable: flashCache.byProduct,
                       builder: (context, _, __) {
                         final flash = flashCache.activeFor(product.id);
-                        if (flash != null) {
+                        if (flash != null && !product.isDigital) {
                           return _buildFlashSalePriceRow(flash);
                         }
                         return _buildNormalPriceRow(product, discountPercent);
@@ -1046,7 +1131,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         const SizedBox(width: 4),
                         Text(
                           product.inStock
-                              ? 'Stok: ${product.stockQuantity}'
+                              ? 'Stok: ${product.stockLabel}'
+                              : (!product.isDigital &&
+                                    product.stockQuantity <= 0)
+                              ? 'Stok tükendi'
                               : 'Stokta Yok',
                           style: TextStyle(
                             fontSize: 12,
@@ -1231,14 +1319,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return Row(
       children: [
         Text(
-          '₺${product.effectivePrice.toStringAsFixed(2)}',
+          '₺${product.listingPrice.toStringAsFixed(2)}',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Theme.of(context).colorScheme.primary,
           ),
         ),
-        if (product.displayOldPrice != null) ...[
+        if (product.listingPriceUnit.isNotEmpty) ...[
+          const SizedBox(width: 4),
+          Text(
+            product.listingPriceUnit,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ],
+        if (!product.isDigital && product.displayOldPrice != null) ...[
           const SizedBox(width: 8),
           Text(
             '₺${product.displayOldPrice!.toStringAsFixed(2)}',
@@ -1914,6 +2009,85 @@ class _CategoryManagementSheetState extends State<_CategoryManagementSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Toplu silme onayı: sunucunun kuru çalıştırma sayılarını gösterir.
+class _BulkDeleteDialog extends StatelessWidget {
+  const _BulkDeleteDialog({required this.selected, required this.preview});
+
+  final int selected;
+  final BulkDeleteResult preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final willDelete = preview.deleted;
+    final willDeactivate = preview.deactivated;
+    final nothing = willDelete + willDeactivate == 0;
+    return AlertDialog(
+      icon: Icon(
+        willDelete > 0 ? Icons.delete_forever_outlined : Icons.visibility_off_outlined,
+        color: willDelete > 0 ? Colors.red.shade700 : Colors.orange.shade800,
+        size: 36,
+      ),
+      title: Text('$selected ürün seçildi'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (nothing) const Text('Seçili ürünler bulunamadı; liste yenilenecek.'),
+          if (willDelete > 0)
+            _line(
+              icon: Icons.delete_outline,
+              color: Colors.red.shade700,
+              text: '$willDelete ürün kalıcı olarak silinecek. Bu işlem geri alınamaz.',
+            ),
+          if (willDeactivate > 0)
+            _line(
+              icon: Icons.receipt_long_outlined,
+              color: Colors.orange.shade800,
+              text: '$willDeactivate ürünün sipariş geçmişi var; silinmeyecek, satışa kapatılacak. '
+                  'Ürünlerim\'de kalır, istediğinde tekrar satışa açabilirsin.',
+            ),
+          if (preview.notFound > 0)
+            _line(
+              icon: Icons.info_outline,
+              color: Colors.grey.shade700,
+              text: '${preview.notFound} ürün bulunamadı (başka yerden silinmiş olabilir).',
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Vazgeç'),
+        ),
+        if (!nothing)
+          ElevatedButton(
+            key: const ValueKey('bulk-delete-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: willDelete > 0 ? Colors.red : Colors.orange.shade800,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(willDelete > 0 ? 'Sil' : 'Satışa kapat'),
+          ),
+      ],
+    );
+  }
+
+  Widget _line({required IconData icon, required Color color, required String text}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(height: 1.35))),
+        ],
       ),
     );
   }

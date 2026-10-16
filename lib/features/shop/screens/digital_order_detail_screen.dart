@@ -87,7 +87,7 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          order.status.label,
+                          order.statusLabel,
                           style: TextStyle(
                             color: color,
                             fontWeight: FontWeight.bold,
@@ -98,8 +98,17 @@ class DigitalOrderDetailScreen extends StatelessWidget {
                   ),
                   const Divider(height: 24),
                   _row('Link', order.targetUrl),
-                  _row('Miktar', order.quantity.toString()),
-                  _row('Birim Fiyat', '₺${order.unitPrice.toStringAsFixed(4)}'),
+                  if (order.isManualDelivery)
+                    _row('Teslim', 'Paket · satıcı elle teslim eder')
+                  else ...[
+                    _row('Miktar', order.quantity.toString()),
+                    // Vitrindeki gibi 1000 adet üzerinden; adet başı 0,00024
+                    // gibi değerler 4 haneyle yazılınca kırpılıyordu.
+                    _row(
+                      '1000 Adet Fiyatı',
+                      '₺${(order.unitPrice * 1000).toStringAsFixed(2)}',
+                    ),
+                  ],
                   _row(
                     'Brüt Tutar',
                     '${order.grossTotalTry.toStringAsFixed(2)} TL',

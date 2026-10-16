@@ -5,6 +5,7 @@ import '../../../core/services/balance_service.dart';
 import 'bank_accounts_tab_widget.dart';
 import 'balance_load_tab_widget.dart';
 import 'cancellation_requests_tab_widget.dart';
+import 'return_requests_tab_widget.dart';
 import 'transfer_confirmations_tab_widget.dart';
 import 'wallet_notification_widgets.dart';
 import 'wallet_settings_tab_widget.dart';
@@ -39,7 +40,7 @@ class _WalletManagementContentState extends State<WalletManagementContent> {
         ],
       ),
       body: DefaultTabController(
-        length: 7,
+        length: 8,
         child: Column(
           children: [
             TabBar(
@@ -52,6 +53,7 @@ class _WalletManagementContentState extends State<WalletManagementContent> {
                 const Tab(text: 'Banka Hesapları'),
                 const Tab(text: 'Bakiye Ayarları'),
                 Tab(child: CancellationRequestsTabLabel()),
+                const Tab(child: ReturnRequestsTabLabel()),
               ],
               labelColor: Colors.blue,
               unselectedLabelColor: Colors.grey,
@@ -67,6 +69,7 @@ class _WalletManagementContentState extends State<WalletManagementContent> {
                   BankAccountsTabWidget(),
                   const WalletSettingsTabWidget(),
                   const CancellationRequestsTabWidget(),
+                  const ReturnRequestsTabWidget(),
                 ],
               ),
             ),

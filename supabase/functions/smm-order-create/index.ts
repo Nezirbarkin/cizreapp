@@ -9,8 +9,10 @@ import { sha256Hex } from "../_shared/crypto.ts";
 
 interface OrderReservation {
   digital_order_id: string;
-  provider_id: string;
-  smm_service_id: string;
+  // Paket (manuel teslim) siparişte ikisi de null.
+  provider_id: string | null;
+  smm_service_id: string | null;
+  delivery_mode?: string;
   gross_total_try: unknown;
   points_spent: unknown;
   points_discount_try: unknown;
@@ -72,6 +74,17 @@ serve(async (req: Request) => {
       return json({ error_code: "ORDER_RESERVATION_FAILED" }, 400);
     }
     const orderData = data;
+    if (orderData.delivery_mode === "manual") {
+      // Paket: sağlayıcı yok, ödeme RPC'de alındı; satıcı elle teslim edip
+      // digital-package-order-status ile kapatır. Tekrar isteği aynı siparişi döner.
+      return json({
+        status: "success",
+        digital_order_id: orderData.digital_order_id,
+        delivery_mode: "manual",
+        ...publicComposition(orderData),
+        duplicate: orderData.duplicate === true,
+      });
+    }
     if (orderData.duplicate) {
       // The RPC deliberately returns no provider service/external id on the
       // duplicate branch. Never repeat an ambiguous non-idempotent provider add.
@@ -202,8 +215,11 @@ function publicComposition(data: OrderReservation) {
 }
 
 function isOrderReservation(value: unknown): value is OrderReservation {
-  return isRecord(value) && typeof value.digital_order_id === "string" &&
-    typeof value.provider_id === "string" &&
+  if (!isRecord(value) || typeof value.digital_order_id !== "string") {
+    return false;
+  }
+  if (value.delivery_mode === "manual") return value.provider_id == null;
+  return typeof value.provider_id === "string" &&
     typeof value.smm_service_id === "string";
 }
 

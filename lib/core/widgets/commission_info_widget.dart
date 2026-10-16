@@ -69,13 +69,41 @@ class CommissionInfoWidget extends StatelessWidget {
                 color: Colors.red,
               ),
             
-            // Admin teslimat ücreti
-            if (order.adminDeliveryFee != null && order.adminDeliveryFee! > 0)
+            // Satıcı kuponu: indirim satıcının netinden düşer
+            if (order.discountAmount > 0)
               _buildRow(
                 context,
-                isAdmin ? 'Admin Teslimat Ücreti' : 'Teslimat Ücreti Kesintisi',
-                '-₺${order.adminDeliveryFee!.toStringAsFixed(2)}',
+                'Kupon İndirimi',
+                '-₺${order.discountAmount.toStringAsFixed(2)}',
                 color: Colors.red,
+              ),
+
+            // Satıcıdan kesilen: yalnız platform kuryesiyle ücretsiz teslimat
+            // bedeli. Müşterinin ödediği teslimat ücreti satıcıdan kesilmez
+            // (kuryesizde admine, kuryelide satıcıya kalır).
+            if (order.sellerDeliveryCharge > 0)
+              _buildRow(
+                context,
+                'Ücretsiz Teslimat Bedeli',
+                '-₺${order.sellerDeliveryCharge.toStringAsFixed(2)}',
+                color: Colors.red,
+              ),
+
+            // Kuryeli satıcı: müşterinin ödediği teslimat ücreti satıcıya kalır
+            if (order.hasOwnCourier == true && order.deliveryFee > 0)
+              _buildRow(
+                context,
+                'Teslimat Ücreti (size kalır)',
+                '+₺${order.deliveryFee.toStringAsFixed(2)}',
+                color: Colors.green,
+              ),
+
+            // Yönetici: platformun teslimat geliri
+            if (isAdmin && (order.adminDeliveryFee ?? 0) > 0)
+              _buildRow(
+                context,
+                'Admin Teslimat Geliri',
+                '₺${order.adminDeliveryFee!.toStringAsFixed(2)}',
               ),
             
             const Divider(height: 16),

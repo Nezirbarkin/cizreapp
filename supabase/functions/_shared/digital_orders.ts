@@ -20,7 +20,8 @@ export interface DigitalOrderPayment {
   id: string;
   user_id: string;
   product_id: string;
-  provider_id: string;
+  // Paket (manuel teslim) siparişinde null.
+  provider_id: string | null;
   quantity: number;
   gross_total_try: number;
   status: string;

@@ -262,7 +262,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _shop = shop;
         _globalOrdersEnabled = globalEnabled;
         _isLoading = false;
-        if (product.isDigital) {
+        if (product.isDigitalPackage) {
+          // Paket bölünmez: her sipariş tek paket.
+          _digitalQuantity = 1;
+          _digitalQuantityController.text = '1';
+        } else if (product.isDigital) {
           // Sağlayıcıdan senkronize edilen alt sınır varsayılan miktar olarak gelir;
           // müşteri geçersiz bir değerle başlamaz.
           final minQ = product.minQuantity ?? 0;
@@ -781,8 +785,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Price - Flaş sale varsa flaş fiyat öncelikli, sonra ürün indirimi, sonra normal fiyat
-                      if (_activeFlashSale != null) ...[
+                      // Price - Flaş sale varsa flaş fiyat öncelikli, sonra ürün indirimi, sonra normal fiyat.
+                      // Dijitalde ikisi de ödemeye yansımaz → yalnız liste fiyatı (+ SMM'de birim).
+                      if (_activeFlashSale != null && !product.isDigital) ...[
                         // Eski fiyat (üstü çizili) - ürünün normal fiyatı
                         Text(
                           '₺${_activeFlashSale!.originalPrice.toStringAsFixed(2)}',
@@ -823,7 +828,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             ),
                           ],
                         ),
-                      ] else if (product.hasDiscount) ...[
+                      ] else if (product.hasDiscount && !product.isDigital) ...[
                         // Eski fiyat (üstü çizili)
                         if (product.displayOldPrice != null)
                           Text(
@@ -867,8 +872,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ),
                       ] else
                         // İndirim yoksa normal fiyat
-                        Text(
-                          '₺${product.effectivePrice.toStringAsFixed(2)}',
+                        Text.rich(
+                          TextSpan(
+                            text: '₺${product.listingPrice.toStringAsFixed(2)}',
+                            children: [
+                              if (product.listingPriceUnit.isNotEmpty)
+                                TextSpan(
+                                  text: ' ${product.listingPriceUnit}',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                            ],
+                          ),
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.primary,
                             fontWeight: FontWeight.bold,
@@ -879,7 +897,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 12),
 
                       // Flash Sale aktifse mini banner
-                      if (_activeFlashSale != null)
+                      if (_activeFlashSale != null && !product.isDigital)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(
@@ -1037,10 +1055,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     builder: (context) {
                       // Dijital sipariş için geçerlilik kontrolü
                       final product = _product;
+                      final isPackage = product?.isDigitalPackage ?? false;
                       final minQ = product?.minQuantity ?? 0;
                       final maxQ = product?.maxQuantity ?? 0;
                       final isQuantityValid =
-                          _digitalQuantity >= minQ && _digitalQuantity <= maxQ;
+                          isPackage ||
+                          (_digitalQuantity >= minQ && _digitalQuantity <= maxQ);
                       final hasLink = _digitalTargetUrlController.text
                           .trim()
                           .isNotEmpty;
@@ -1128,14 +1148,102 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final base = product?.isPointsEligible == true
         ? 'Önce puan, sonra TL ile satın al'
         : 'TL bakiye ile satın al';
-    final quote = DigitalOrderPricing.quote(
-      pricePer1000: product?.pricePer1000,
-      quantity: _digitalQuantity,
-    );
+    final quote = product?.isDigitalPackage == true
+        ? DigitalOrderPricing.quotePackage(price: product!.price)
+        : DigitalOrderPricing.quote(
+            pricePer1000: product?.pricePer1000,
+            quantity: _digitalQuantity,
+          );
     return quote == null ? base : '$base · ${DigitalOrderPricing.formatTry(quote.totalCents)}';
   }
 
+  /// Paket (sabit fiyat, satıcı elle teslim eder): adet seçimi yoktur.
+  Widget _buildDigitalPackageForm(Product product) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Sipariş Bilgileri',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _digitalTargetUrlController,
+              // Alt düğme ("Link girin" / satın al) link yazıldıkça güncellensin.
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Link / kullanıcı adı *',
+                hintText: 'Teslimatın yapılacağı link ya da kullanıcı adı',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.link),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.teal.shade100),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 18,
+                    color: Colors.teal.shade700,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Paket ürün: tek seferde 1 paket alınır. Ödeme hemen alınır; '
+                      'teslimi satıcı elle yapar, tamamlanınca bildirim alırsınız. '
+                      'Satıcı iptal ederse ödemeniz puan/TL kaynağına iade edilir.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.teal.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            DigitalOrderTotalCard.package(
+              price: product.price,
+              pointsEligible: product.isPointsEligible,
+              maxPointsCoveragePercent: product.maxPointsCoveragePercent,
+            ),
+            if (product.isPointsEligible) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: const Text(
+                  'Bu dijital ürün puan kullanımına uygundur. Sunucu, varsa önce puanı sonra kalan TL bakiyeyi kullanır. Nihai ödeme dağılımı yalnız sipariş yanıtında kesinleşir.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDigitalOrderForm(Product product) {
+    if (product.isDigitalPackage) return _buildDigitalPackageForm(product);
     final minQ = product.minQuantity ?? 0;
     final maxQ = product.maxQuantity ?? 0;
     final isQuantityValid =
@@ -1154,6 +1262,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _digitalTargetUrlController,
+              // Alt düğme ("Link girin" / satın al) link yazıldıkça güncellensin.
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Link *',
                 hintText: 'Sipariş linkini girin',
@@ -1276,9 +1386,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       ).showSnackBar(const SnackBar(content: Text('Lütfen link girin')));
       return;
     }
+    final isPackage = _product!.isDigitalPackage;
     final minQ = _product!.minQuantity ?? 0;
     final maxQ = _product!.maxQuantity ?? 0;
-    if (_digitalQuantity < minQ || _digitalQuantity > maxQ) {
+    if (!isPackage && (_digitalQuantity < minQ || _digitalQuantity > maxQ)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Miktar $minQ - $maxQ aralığında olmalıdır')),
       );
@@ -1290,12 +1401,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       final result = await _smmService.createDigitalOrder(
         productId: _product!.id,
         targetUrl: targetUrl,
-        quantity: _digitalQuantity,
+        // Paket her zaman tek adettir; sunucu başka adedi reddeder.
+        quantity: isPackage ? 1 : _digitalQuantity,
         usePoints: true,
       );
       if (mounted) {
         final message = result.reconciliationPending
             ? 'Sipariş sağlayıcıda mutabakat bekliyor. İade yapılmış sayılmaz; durum netleşince güncellenecek.'
+            : result.isManualDelivery
+            ? 'Paket siparişiniz alındı, satıcı teslim edince bildirim alacaksınız. Ödeme: ${result.compositionLabel}.'
             : 'Sipariş oluşturuldu. Ödeme: ${result.compositionLabel} (brüt ${result.grossTotalTry.toStringAsFixed(2)} TL).';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

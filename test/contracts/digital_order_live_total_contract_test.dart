@@ -19,8 +19,11 @@ void main() {
 
   test('istemci formülü sunucunun create_digital_order_with_points hesabını izler', () {
     final pricing = read('lib/core/utils/digital_order_pricing.dart');
-    expect(pricing, contains('final unitE4 = (ppkCents + 5) ~/ 10;'));
-    expect(pricing, contains('final totalCents = (unitE4 * quantity + 50) ~/ 100;'));
+    expect(pricing, contains('final totalCents = (ppkCents * quantity + 500) ~/ 1000;'));
+    final migration = read(
+      'supabase/migrations/20261016000011_digital_order_total_exact_per_thousand.sql',
+    );
+    expect(migration, contains('v_gross := round(v_product.price_per_1000 * p_quantity / 1000.0, 2);'));
     expect(pricing, contains('(totalCents * coverage) ~/ 100'));
   });
 }

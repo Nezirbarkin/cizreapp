@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -18,6 +19,9 @@ class _FakeService extends ProductImagePresetService {
   /// true: "tüm kelimeler" modunda sonuç yok (yalnız matchAny döner).
   bool emptyAnd = false;
   bool fail = false;
+
+  /// Verilirse "tüm kelimeler" cevabı bu tamamlanana kadar bekler.
+  Completer<void>? allGate;
   final List<Map<String, Object?>> calls = [];
 
   @override
@@ -41,6 +45,7 @@ class _FakeService extends ProductImagePresetService {
       'offset': offset,
       'any': matchAny,
     });
+    if (!matchAny && allGate != null) await allGate!.future;
     if (fail) throw Exception('ağ yok');
     if (emptyAnd && !matchAny) return [];
     final n = math.max(0, math.min(limit, total - offset));
@@ -165,6 +170,23 @@ void main() {
     expect(svc.calls.length, 3);
     expect(find.text('"domates" için görsel bulunamadı'), findsOneWidget);
     expect(find.textContaining('tam eşleşme yok'), findsNothing);
+  });
+
+  testWidgets('çok kelimede yedek arama beklemeden aynı anda gider; '
+      'tam eşleşme varsa yedek gösterilmez', (t) async {
+    final svc = _FakeService()..allGate = Completer<void>();
+    await open(t, svc, query: 'Salkım Domates');
+
+    // "Tüm kelimeler" cevabı henüz gelmedi; ikisi de istendi.
+    expect(svc.calls.map((c) => c['any']), [false, true]);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    svc.allGate!.complete();
+    await t.pump();
+    await t.pump();
+    expect(find.text('Görsel 0'), findsOneWidget);
+    expect(find.textContaining('tam eşleşme yok'), findsNothing);
+    expect(svc.calls.length, 2);
   });
 
   testWidgets('eklenmiş görsel işaretli ve seçilemez; diğeri seçilip döner', (

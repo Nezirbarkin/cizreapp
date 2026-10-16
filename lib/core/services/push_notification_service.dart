@@ -461,6 +461,9 @@ class PushNotificationService {
       case 'order_status':
       case 'order_confirmed':
       case 'new_order':
+      case 'seller_new_digital_order':
+      case 'seller_product_out_of_stock':
+      case 'digital_order_status':
       case 'delivered':
         _navigateToMainScreen(context);
         break;

@@ -320,7 +320,7 @@ extension on _AdminDashboardScreenState {
                                           color: Colors.grey.shade600,
                                         ),
                                         Text(
-                                          ' Stok: ${product['stock_quantity'] ?? 0}',
+                                          ' Stok: ${Product.stockLabelFor(product['stock_quantity'])}',
                                           style: const TextStyle(fontSize: 12),
                                         ),
                                         const SizedBox(width: 12),

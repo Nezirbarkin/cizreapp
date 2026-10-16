@@ -51,11 +51,17 @@ class _SellerFlashSalesScreenState extends State<SellerFlashSalesScreen> {
   }
 
   Future<void> _showCreateDialog() async {
-    final products = await _productService.getShopProducts(widget.shopId);
+    // Dijital siparişte flaş fiyatı uygulanmaz (sunucu yalnız 1000 adet /
+    // paket fiyatından keser); listede olursa vitrinde sahte indirim görünürdü.
+    final products = (await _productService.getShopProducts(widget.shopId))
+        .where((p) => !p.isDigital)
+        .toList();
     if (!mounted) return;
     if (products.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mağazada ürün yok, önce ürün ekleyin')),
+        const SnackBar(
+          content: Text('Flaş satışa uygun ürün yok (dijital ürünler hariç)'),
+        ),
       );
       return;
     }
@@ -356,7 +362,7 @@ class _CreateFlashSaleDialogState extends State<_CreateFlashSaleDialog> {
                   ),
                   child: Text(
                     'Mevcut fiyat: ${_selected!.price.toStringAsFixed(2)} ₺\n'
-                    'Mevcut stok: ${_selected!.stockQuantity}',
+                    'Mevcut stok: ${_selected!.stockLabel}',
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),

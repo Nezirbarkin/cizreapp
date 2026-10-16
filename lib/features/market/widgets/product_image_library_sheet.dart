@@ -25,12 +25,16 @@ Future<ProductImagePreset?> showProductImageLibrarySheet(
     backgroundColor: Colors.transparent,
     constraints: const BoxConstraints(maxWidth: 640),
     builder: (_) => ProductImageLibrarySheet(
-      service: service ?? ProductImagePresetService(),
+      service: service ?? ProductImagePresetService.shared,
       initialQuery: initialQuery,
       addedUrls: addedUrls,
     ),
   );
 }
+
+/// Izgara kutusunun en geniş hali (mantıksal piksel); görsel bu genişliğe
+/// göre çözülür.
+const double _tileMaxExtent = 150;
 
 /// Kütüphane görsel seçicisi: arama (Türkçe/aksan duyarsız, yazım hatasına
 /// toleranslı — sunucuda), klasör çipleri, kaydırdıkça sayfa yükleme.
@@ -77,6 +81,10 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
 
   /// Son sonuçlar "kelimelerden biri yeter" modunda mı (tam eşleşme yoktu).
   bool _matchAny = false;
+
+  /// Ekrandaki sonuçların arandığı metin (kutudaki metin yazarken değişir,
+  /// notlar/boş mesaj sonuçla tutarlı kalsın).
+  String _shownQuery = '';
   String? _error;
 
   /// Her yeni aramada artar; eski isteklerin geç gelen cevabı yok sayılır.
@@ -102,7 +110,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
 
   Future<void> _loadFolders() async {
     try {
-      final folders = await widget.service.getFolders();
+      final folders = await widget.service.getFoldersCached();
       if (!mounted) return;
       // Satıcı yalnız açık klasörleri ve yayındaki görselleri sayar (RLS);
       // boş klasör çipi gösterilmez.
@@ -130,20 +138,35 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
     final query = _query;
     final folderId = _folderId;
     try {
-      var matchAny = false;
-      var page = await widget.service.searchPresets(
+      // Birden çok kelimede "kelimelerden biri" yedeği AYNI ANDA istenir:
+      // tam eşleşme yoksa ikinci bir tur beklenmez (ürün adıyla açılışta,
+      // "Salkım Domates 1 kg", yaygın durum).
+      final allWords = widget.service.searchPresets(
         query,
         folderId: folderId,
         limit: _pageSize,
       );
-      if (page.isEmpty && query.split(RegExp(r'\s+')).length > 1) {
+      final anyWord = query.split(RegExp(r'\s+')).length > 1
+          ? widget.service.searchPresets(
+              query,
+              folderId: folderId,
+              limit: _pageSize,
+              matchAny: true,
+            )
+          : null;
+      List<ProductImagePreset> page;
+      try {
+        page = await allWords;
+      } catch (_) {
+        anyWord?.ignore();
+        rethrow;
+      }
+      var matchAny = false;
+      if (page.isEmpty && anyWord != null) {
         matchAny = true;
-        page = await widget.service.searchPresets(
-          query,
-          folderId: folderId,
-          limit: _pageSize,
-          matchAny: true,
-        );
+        page = await anyWord;
+      } else {
+        anyWord?.ignore();
       }
       if (!mounted || req != _request) return;
       setState(() {
@@ -151,6 +174,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
           ..clear()
           ..addAll(page);
         _matchAny = matchAny;
+        _shownQuery = query;
         _hasMore = page.length == _pageSize;
         _loading = false;
       });
@@ -165,9 +189,11 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
     }
   }
 
+  /// Sona ~1,5 ekran kala sonraki sayfa istenir: hızlı kaydırmada boşluğa
+  /// çarpılmaz.
   void _maybeLoadMore() {
     if (!mounted || !_scroll.hasClients) return;
-    if (_scroll.position.extentAfter < 400) _loadMore();
+    if (_scroll.position.extentAfter < 1200) _loadMore();
   }
 
   Future<void> _loadMore() async {
@@ -197,10 +223,11 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
     }
   }
 
+  /// Yazarken sayfa yeniden kurulmaz (temizle düğmesi kendi dinler); arama
+  /// kısa bir bekleyişten sonra gider.
   void _onSearchChanged(String _) {
-    setState(() {}); // temizle düğmesi
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), _reload);
+    _debounce = Timer(const Duration(milliseconds: 300), _reload);
   }
 
   void _selectFolder(String? id) {
@@ -212,11 +239,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 100),
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+    return _KeyboardInset(
       child: FractionallySizedBox(
         heightFactor: 0.9,
         child: Material(
@@ -303,37 +326,41 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
     );
   }
 
+  /// Yalnız arama kutusu metni dinler (temizle düğmesi); her harfte ızgara
+  /// yeniden kurulmaz.
   Widget _buildSearchField(Color accent) {
-    return TextField(
-      controller: _search,
-      onChanged: _onSearchChanged,
-      onSubmitted: (_) => _reload(),
-      textInputAction: TextInputAction.search,
-      decoration: InputDecoration(
-        hintText: 'Ürün adı ile ara (örn. domates)',
-        prefixIcon: const Icon(Icons.search_rounded),
-        suffixIcon: _search.text.isEmpty
-            ? null
-            : IconButton(
-                tooltip: 'Temizle',
-                icon: const Icon(Icons.close_rounded, size: 20),
-                onPressed: () {
-                  _search.clear();
-                  setState(() {});
-                  _reload();
-                },
-              ),
-        isDense: true,
-        filled: true,
-        fillColor: Colors.grey.shade100,
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: accent, width: 1.5),
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _search,
+      builder: (context, value, _) => TextField(
+        controller: _search,
+        onChanged: _onSearchChanged,
+        onSubmitted: (_) => _reload(),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Ürün adı ile ara (örn. domates)',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: value.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Temizle',
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  onPressed: () {
+                    _search.clear();
+                    _reload();
+                  },
+                ),
+          isDense: true,
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: accent, width: 1.5),
+          ),
         ),
       ),
     );
@@ -390,7 +417,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '"$_query" için tam eşleşme yok; kelimelerinden biriyle '
+              '"$_shownQuery" için tam eşleşme yok; kelimelerinden biriyle '
               'eşleşenler gösteriliyor.',
               style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
             ),
@@ -417,7 +444,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
       );
     }
     if (_items.isEmpty) {
-      final q = _query;
+      final q = _shownQuery;
       return _Message(
         icon: Icons.image_search_rounded,
         title: q.isEmpty
@@ -429,20 +456,24 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
       );
     }
 
+    // Görselleri ekrana girmeden ~bir ekran önce yüklemeye başla.
+    final cacheWidth = (_tileMaxExtent * MediaQuery.devicePixelRatioOf(context))
+        .round();
     return CustomScrollView(
       controller: _scroll,
+      cacheExtent: 900,
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 150,
+              maxCrossAxisExtent: _tileMaxExtent,
               mainAxisSpacing: 12,
               crossAxisSpacing: 10,
               childAspectRatio: 0.8,
             ),
             delegate: SliverChildBuilderDelegate(
-              (context, i) => _buildTile(_items[i], accent),
+              (context, i) => _buildTile(_items[i], accent, cacheWidth),
               childCount: _items.length,
             ),
           ),
@@ -483,7 +514,7 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
     return const SizedBox.shrink();
   }
 
-  Widget _buildTile(ProductImagePreset preset, Color accent) {
+  Widget _buildTile(ProductImagePreset preset, Color accent, int cacheWidth) {
     final added = widget.addedUrls.contains(preset.imageUrl);
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -501,7 +532,11 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
                   CachedNetworkImage(
                     imageUrl: preset.imageUrl,
                     fit: BoxFit.cover,
-                    memCacheWidth: 360,
+                    memCacheWidth: cacheWidth,
+                    // Varsayılan 500+1000 ms geçiş kaydırırken ağır hissettirir.
+                    fadeInDuration: const Duration(milliseconds: 120),
+                    fadeOutDuration: Duration.zero,
+                    placeholderFadeInDuration: Duration.zero,
                     placeholder: (_, __) =>
                         ColoredBox(color: Colors.grey.shade100),
                     errorWidget: (_, __, ___) => Icon(
@@ -546,6 +581,24 @@ class _ProductImageLibrarySheetState extends State<ProductImageLibrarySheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Klavye boşluğu kadar yukarı iter. Klavye açılıp kapanırken her karede
+/// yalnız bu katman yeniden kurulur; [child] (ızgara) aynı nesne kaldığı için
+/// yeniden kurulmaz.
+class _KeyboardInset extends StatelessWidget {
+  const _KeyboardInset({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 100),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: child,
     );
   }
 }

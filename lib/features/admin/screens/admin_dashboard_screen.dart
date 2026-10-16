@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/services/cache_service.dart';
+import '../../../core/models/product_model.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/performance_monitoring_service.dart';
 import '../../../core/services/connectivity_service.dart';

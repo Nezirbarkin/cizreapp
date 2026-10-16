@@ -100,22 +100,15 @@ class PayoutService {
     }
   }
 
-  /// Net ödeme tutarını hesapla
-  /// Kuryesi OLAN: Alacak - Borç
-  /// Kuryesi OLMAYAN: Direkt alacak (teslimat zaten düşülmüş)
+  /// Net ödeme tutarı = Alacak − Borç (DB'deki validate_payout_request ile
+  /// aynı). Kuryeli satıcıda borç kapıda tahsilatın komisyonudur; her
+  /// mağazada iade farkı da borca yazılabilir. Ücretsiz teslimat bedeli
+  /// alacağa zaten sipariş anında yansır.
   Future<double> getNetPayableAmount(String shopId) async {
     try {
       final credit = await getAdminCredit(shopId);
       final debt = await getCommissionDebt(shopId);
-      final hasCourier = await hasOwnCourier(shopId);
-
-      if (hasCourier) {
-        // Kuryesi var: Alacak - Borç
-        return credit - debt;
-      } else {
-        // Kuryesi yok: Direkt alacak (teslimat zaten kesilmiş)
-        return credit;
-      }
+      return credit - debt;
     } catch (e) {
       return 0;
     }
@@ -220,27 +213,28 @@ class PayoutService {
     }
   }
 
-  /// Kuryesi olmayan mağazalarda, teslim edilen siparişlerden admin
-  /// tarafından kesilen toplam teslimat ücretini getir.
-  /// (orders.admin_delivery_fee: kuryesi olan mağazalarda her zaman 0'dır,
-  /// bkz. calculate_order_commission() trigger'ı.)
+  /// Platform kuryesiyle ÜCRETSİZ teslimat yapılan, teslim edilmiş
+  /// siparişlerde satıcının alacağından kesilen teslimat bedelleri
+  /// (orders.seller_delivery_charge). Müşterinin ödediği teslimat ücreti
+  /// satıcıdan kesilmediği için burada sayılmaz.
   /// Ödeme isteği oluşturulurken "detay" olarak kaydedilir.
-  Future<double> getDeliveryFeeDeductedTotal(String shopId) async {
+  Future<({double total, int count})> getDeliveryFeeDeductedTotal(String shopId) async {
     try {
       final response = await _supabase
           .from('orders')
-          .select('admin_delivery_fee')
+          .select('seller_delivery_charge')
           .eq('shop_id', shopId)
-          .eq('status', 'delivered');
+          .eq('status', 'delivered')
+          .gt('seller_delivery_charge', 0);
 
       double total = 0;
       for (final row in response) {
-        total += (row['admin_delivery_fee'] as num?)?.toDouble() ?? 0;
+        total += (row['seller_delivery_charge'] as num?)?.toDouble() ?? 0;
       }
-      return total;
+      return (total: total, count: response.length);
     } catch (e) {
       debugPrint('⚠️ getDeliveryFeeDeductedTotal hatası: $e');
-      return 0;
+      return (total: 0.0, count: 0);
     }
   }
 
@@ -262,7 +256,7 @@ class PayoutService {
       final hasCourier = await hasOwnCourier(shopId);
 
       if (amount > netPayoutAmount) {
-        if (hasCourier && commissionDebt > 0) {
+        if (commissionDebt > 0) {
           throw Exception(
               'İstediğiniz tutar (₺${amount.toStringAsFixed(2)}) net ödenebilir tutarınızdan (₺${netPayoutAmount.toStringAsFixed(2)}) daha fazla.\n'
               'Admin\'den alacak: ₺${(await getAdminCredit(shopId)).toStringAsFixed(2)}\n'
@@ -303,16 +297,16 @@ class PayoutService {
       // Tamamlanmış sipariş sayısını hesapla (order_count için)
       final orderCount = await getCompletedOrderCount(shopId);
 
-      // Kuryesi olmayan mağazalarda, alacaktan zaten düşülmüş olan teslimat
-      // ücreti kesintisini hesapla ve isteğe "detay" olarak ekle. Kuryesi olan
-      // mağazalarda admin_delivery_fee her zaman 0 olduğundan bu değer 0 çıkar.
-      final deliveryFeeDeducted =
-          hasCourier ? 0.0 : await getDeliveryFeeDeductedTotal(shopId);
+      // Platform kuryesiyle ücretsiz teslimat yapılan siparişlerde alacaktan
+      // zaten düşülmüş teslimat bedelini isteğe "detay" olarak ekle.
+      final deducted = hasCourier
+          ? (total: 0.0, count: 0)
+          : await getDeliveryFeeDeductedTotal(shopId);
+      final deliveryFeeDeducted = deducted.total;
       final String? deductionDetail = deliveryFeeDeducted > 0
-          ? 'Kuryeniz olmadığı için siparişleriniz admin kuryesiyle teslim '
-              'edilir. Bu nedenle teslim edilen $orderCount siparişten toplam '
-              '₺${deliveryFeeDeducted.toStringAsFixed(2)} teslimat ücreti '
-              'kesilerek ödenebilir tutarınıza yansıtılmıştır.'
+          ? 'Platform kuryesiyle ücretsiz teslimat yapılan ${deducted.count} '
+              'siparişin toplam ₺${deliveryFeeDeducted.toStringAsFixed(2)} '
+              'teslimat bedeli ödenebilir tutarınızdan düşülmüştür.'
           : null;
 
       // Ödeme isteğini oluştur

@@ -158,7 +158,11 @@ class NotificationModel {
         return 'shopping_cart';
       case 'order_confirmed':
       case 'new_order':
+      case 'seller_new_digital_order':
+      case 'digital_order_status':
         return 'shopping_bag';
+      case 'seller_product_out_of_stock':
+        return 'inventory';
       case 'delivered':
         return 'local_shipping';
       case 'shop':
@@ -229,7 +233,11 @@ class NotificationModel {
         return 'green';
       case 'order_confirmed':
       case 'new_order':
+      case 'seller_new_digital_order':
+      case 'digital_order_status':
         return 'green';
+      case 'seller_product_out_of_stock':
+        return 'red';
       case 'delivered':
         return 'cyan';
       case 'shop':

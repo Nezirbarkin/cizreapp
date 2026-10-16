@@ -123,6 +123,11 @@ dependencies:
   flutter_tts: ^4.2.3
   file_picker: ^11.0.3
 
+  # ============ TOPLU ÜRÜN YÜKLEME (Excel .xlsx okuma/yazma) ============
+  # İkisi de zaten geçişli bağımlılıktı; sürümler pubspec.lock'takiyle aynı.
+  archive: ^4.0.9
+  xml: ^6.6.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

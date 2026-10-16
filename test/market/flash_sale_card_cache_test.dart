@@ -182,4 +182,61 @@ void main() {
         reason: 'aynı anda çizilen kartlar tek yenileme isteğine iner');
     expect(find.text('₺80.00'), findsOneWidget);
   });
+
+  testWidgets('dijital ürün: flaş/indirim yok sayılır, SMM fiyatı birimiyle yazar', (
+    tester,
+  ) async {
+    // p1'in canlı flaş kampanyası var; dijital siparişte sunucu flaş fiyatını
+    // uygulamadığı için kart onu göstermemeli.
+    final smm = Product(
+      id: 'p1',
+      shopId: 'shop-1',
+      name: 'Instagram Takipçi',
+      price: 380,
+      pricePer1000: 380,
+      discountPrice: 300,
+      stockQuantity: 0,
+      isAvailable: true,
+      productType: 'digital',
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
+    final package = Product(
+      id: 'p3',
+      shopId: 'shop-1',
+      name: 'Paket',
+      price: 49.9,
+      stockQuantity: 0,
+      isAvailable: true,
+      productType: 'digital',
+      digitalMode: 'package',
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              for (final p in [smm, package])
+                Row(
+                  children: [
+                    FlashAwarePriceRow(product: p),
+                    FlashAwareDiscountBadge(product: p),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('₺380.00 /1000 adet'), findsOneWidget);
+    expect(find.text('₺49.90'), findsOneWidget, reason: 'paket: birimsiz sabit fiyat');
+    expect(find.text('₺80.00'), findsNothing);
+    expect(find.text('₺300.00'), findsNothing);
+    expect(find.textContaining('%'), findsNothing);
+  });
 }

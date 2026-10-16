@@ -2094,7 +2094,7 @@ class _MarketScreenState extends State<MarketScreen> {
                       child: product.images.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: product.images.first,
-                              fit: BoxFit.cover,
+                              fit: productCardImageFit(product),
                               memCacheWidth: 400,
                               errorWidget: (context, url, error) {
                                 return const Center(
@@ -2284,7 +2284,7 @@ class _MarketScreenState extends State<MarketScreen> {
                                   onTap:
                                       (isInStock &&
                                           isOrderable &&
-                                          cartQuantity < product.stockQuantity)
+                                          cartQuantity < product.maxCartQuantity)
                                       ? () => _updateQuantity(
                                           product,
                                           cartQuantity + 1,
@@ -2299,7 +2299,7 @@ class _MarketScreenState extends State<MarketScreen> {
                                       color:
                                           (isInStock &&
                                               cartQuantity <
-                                                  product.stockQuantity)
+                                                  product.maxCartQuantity)
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

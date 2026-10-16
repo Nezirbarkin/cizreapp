@@ -63,12 +63,14 @@ def join_keywords(names, skip=()):
     return ", ".join(out)
 
 
-def save_library(session, rows, out_root, folder, size, source, no_image=()):
+def save_library(session, rows, out_root, folder, size, source, no_image=(), delay=0.0):
     """rows: [{"name", "keywords", "image", "key", ...ek bilgi}] -> diske yazar.
 
     "key" (urun kodu) yalniz iki baslik ayni dosya kimligine dustugunde ada eklenir:
     yukleme betigi kimligi slug(dosya adi)'ndan uretir.
     Yarida kalirsa ayni cagri kaldigi yerden devam eder (diskteki gorsel atlanir).
+    delay > 0: gorseller tek tek, her indirmeden once bu kadar saniye beklenerek
+    indirilir (robots.txt Crawl-delay'i olan siteler icin).
     """
     folder = safe_file_name(folder)
     out_dir = os.path.join(out_root, folder)
@@ -90,6 +92,8 @@ def save_library(session, rows, out_root, folder, size, source, no_image=()):
         target = os.path.join(out_dir, row["file"])
         if os.path.exists(target) and os.path.getsize(target) > 0:
             return "have"
+        if delay:
+            time.sleep(delay)
         for attempt in range(3):
             try:
                 r = session.get(row["image"], headers={"User-Agent": HEADERS["User-Agent"]}, timeout=60)
@@ -112,8 +116,10 @@ def save_library(session, rows, out_root, folder, size, source, no_image=()):
                     raise
                 time.sleep(2 * (attempt + 1))
 
-    print(f"{len(rows)} görsel indiriliyor ({WORKERS} paralel) -> {out_dir}")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
+    workers = 1 if delay else WORKERS
+    pace = f"tek tek, {delay:g} sn arayla" if delay else f"{workers} paralel"
+    print(f"{len(rows)} görsel indiriliyor ({pace}) -> {out_dir}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(fetch, row): row for row in rows}
         for fut in concurrent.futures.as_completed(futures):
             row = futures[fut]
@@ -126,7 +132,7 @@ def save_library(session, rows, out_root, folder, size, source, no_image=()):
                 except Exception as e:  # noqa: BLE001
                     failed.append((row["name"], str(e)[:200]))
                 n = done[0] + skipped[0] + len(failed)
-                if n % 50 == 0 or n == len(rows):
+                if n % (10 if delay else 50) == 0 or n == len(rows):
                     print(f"  görsel {n}/{len(rows)}")
 
     ok_files = {r["file"] for r in rows if os.path.exists(os.path.join(out_dir, r["file"]))}

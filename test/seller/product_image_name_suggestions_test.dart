@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cizreapp/core/models/product_model.dart';
+import 'package:cizreapp/features/market/services/product_image_preset_service.dart';
 import 'package:cizreapp/features/seller/screens/manage_product_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -151,7 +152,11 @@ void main() {
     );
   });
 
-  setUp(_requests.clear);
+  setUp(() {
+    _requests.clear();
+    // Form paylaşılan servisi kullanır; önbellek testler arasında taşınmasın.
+    ProductImagePresetService.shared.clearCache();
+  });
 
   testWidgets('ad yazılınca öneri gelir; dokununca ana resim olur, şerit kapanır', (
     tester,

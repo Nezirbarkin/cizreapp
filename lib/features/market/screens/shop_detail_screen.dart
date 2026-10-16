@@ -1883,7 +1883,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                           ? CachedNetworkImage(
                               memCacheWidth: 400,
                               imageUrl: product.images.first,
-                              fit: BoxFit.cover,
+                              fit: productCardImageFit(product),
                               errorWidget: (context, url, error) {
                                 return const Center(
                                   child: Icon(
@@ -2100,7 +2100,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                 InkWell(
                                   onTap:
                                       (isInStock &&
-                                          cartQuantity < product.stockQuantity)
+                                          cartQuantity < product.maxCartQuantity)
                                       ? () => _updateQuantity(
                                           context,
                                           product,
@@ -2116,7 +2116,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                                       color:
                                           (isInStock &&
                                               cartQuantity <
-                                                  product.stockQuantity)
+                                                  product.maxCartQuantity)
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

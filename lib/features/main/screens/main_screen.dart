@@ -1213,7 +1213,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           ? CachedNetworkImage(
                               memCacheWidth: 300,
                               imageUrl: product.images.first,
-                              fit: BoxFit.cover,
+                              fit: productCardImageFit(product),
                               placeholder: (context, url) => const Center(
                                 child: SizedBox(
                                   width: 20,
@@ -1428,7 +1428,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           isOrderable &&
                                           (product.isDigital ||
                                               cartQuantity <
-                                                  product.stockQuantity))
+                                                  product.maxCartQuantity))
                                       ? () => _updateQuantity(
                                           product,
                                           cartQuantity + 1,
@@ -1444,7 +1444,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           (isInStock &&
                                               (product.isDigital ||
                                                   cartQuantity <
-                                                      product.stockQuantity))
+                                                      product.maxCartQuantity))
                                           ? theme.colorScheme.primary
                                           : Colors.grey,
                                     ),

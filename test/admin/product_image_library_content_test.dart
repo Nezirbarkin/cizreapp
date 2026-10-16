@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:cizreapp/core/models/product_image_preset_model.dart';
+import 'package:cizreapp/features/admin/widgets/admin_ui.dart';
 import 'package:cizreapp/features/admin/widgets/product_image_library_content.dart';
 import 'package:cizreapp/features/market/services/product_image_preset_service.dart';
 import 'package:cizreapp/features/market/services/product_image_scrape_service.dart';
@@ -11,33 +14,154 @@ import 'package:flutter_test/flutter_test.dart';
 // ignore: depend_on_referenced_packages
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
-/// Supabase'e dokunmayan sahte servis: liste sabit, yazımlar kaydedilir.
+/// Supabase'e dokunmayan sahte servis. Admin sayfa/kimlik RPC'lerini
+/// bellekteki listeyle taklit eder (sunucudaki süzgeç, arama, sıralama ve
+/// sayaç kuralları); yazımları hem kaydeder hem listeye uygular ki sunucudan
+/// tazelenen sayaçlar gerçekçi olsun.
 class _FakeService extends ProductImagePresetService {
-  _FakeService(this.items, {this.failName, List<ProductImageFolder>? folders})
-    : folders = folders ?? _folders();
+  _FakeService(
+    List<ProductImagePreset> items, {
+    this.failName,
+    List<ProductImageFolder>? folders,
+  }) : items = [...items],
+       folders = [...(folders ?? _folders())];
 
   final List<ProductImagePreset> items;
   final List<ProductImageFolder> folders;
   final String? failName;
   final List<Map<String, dynamic>> added = [];
   final List<(List<String>, String?)> moved = [];
+  final List<(List<String>, bool)> activated = [];
+  final List<List<String>> deleted = [];
   final List<String> addedFolders = [];
   final List<Map<String, dynamic>> folderUpdates = [];
   final List<List<String>> reordered = [];
-  int loads = 0;
+  final List<
+    ({ProductImageAdminQuery query, int limit, int offset, bool summary})
+  >
+  pageCalls = [];
+  final List<ProductImageAdminQuery> idCalls = [];
 
-  @override
-  Future<List<ProductImagePreset>> getAllPresetsForAdmin() async {
-    loads++;
-    return items;
+  /// Verilirse yazımlar (taşı / durum / sil) bu bitene kadar bekler; hatayla
+  /// biterse yazım uygulanmaz.
+  Completer<void>? writeGate;
+
+  /// Açılış ve tam yenilemeler (satır + özet isteyen sayfa istekleri).
+  int get loads => pageCalls.where((c) => c.summary && c.limit > 0).length;
+
+  static const Map<String, String> _tr = {
+    'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g', //
+    'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
+  };
+
+  static String _norm(String s) => [
+    for (final r in s.runes)
+      _tr[String.fromCharCode(r)] ?? String.fromCharCode(r).toLowerCase(),
+  ].join();
+
+  List<ProductImagePreset> _match(ProductImageAdminQuery q) {
+    final words = _norm(
+      q.search,
+    ).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final list = items.where((p) {
+      if (q.folderId != null && p.folderId != q.folderId) return false;
+      if (q.unfiled && p.folderId != null) return false;
+      if (q.status == ProductImageAdminStatus.active && !p.isActive) {
+        return false;
+      }
+      if (q.status == ProductImageAdminStatus.passive && p.isActive) {
+        return false;
+      }
+      final text = _norm('${p.name} ${p.description ?? ''}');
+      return words.every(text.contains);
+    }).toList();
+    list.sort(
+      (a, b) => q.sort == ProductImageAdminSort.newest
+          ? b.createdAt.compareTo(a.createdAt)
+          : (a.displayOrder != b.displayOrder
+                ? a.displayOrder.compareTo(b.displayOrder)
+                : _norm(a.name).compareTo(_norm(b.name))),
+    );
+    return list;
+  }
+
+  ProductImageLibrarySummary _summary() {
+    int count(String? folder, {bool activeOnly = false}) => items
+        .where((p) => p.folderId == folder && (!activeOnly || p.isActive))
+        .length;
+    return ProductImageLibrarySummary(
+      folders: [
+        for (final f in folders)
+          f.copyWith(
+            imageCount: count(f.id),
+            activeImageCount: count(f.id, activeOnly: true),
+          ),
+      ],
+      unfiledCount: count(null),
+      unfiledActiveCount: count(null, activeOnly: true),
+      maxDisplayOrder: items.fold(0, (m, p) => math.max(m, p.displayOrder)),
+    );
   }
 
   @override
-  Future<List<ProductImageFolder>> getFolders() async => folders;
+  Future<ProductImageAdminPage> getAdminPage(
+    ProductImageAdminQuery query, {
+    int limit = ProductImagePresetService.adminPageSize,
+    int offset = 0,
+    bool withSummary = false,
+  }) async {
+    pageCalls.add((
+      query: query,
+      limit: limit,
+      offset: offset,
+      summary: withSummary,
+    ));
+    final all = _match(query);
+    return ProductImageAdminPage(
+      items: all.skip(offset).take(limit).toList(),
+      total: all.length,
+      summary: withSummary ? _summary() : null,
+    );
+  }
+
+  @override
+  Future<List<String>> getAdminPresetIds(ProductImageAdminQuery query) async {
+    idCalls.add(query);
+    return [for (final p in _match(query)) p.id];
+  }
+
+  Future<void> _write(
+    List<String> ids,
+    ProductImagePreset? Function(ProductImagePreset p) change,
+  ) async {
+    await writeGate?.future;
+    final set = ids.toSet();
+    final next = <ProductImagePreset>[];
+    for (final p in items) {
+      final changed = set.contains(p.id) ? change(p) : p;
+      if (changed != null) next.add(changed);
+    }
+    items
+      ..clear()
+      ..addAll(next);
+  }
 
   @override
   Future<void> moveToFolder(List<String> ids, String? folderId) async {
     moved.add((ids, folderId));
+    await _write(ids, (p) => p.withFolder(folderId));
+  }
+
+  @override
+  Future<void> setActive(List<String> ids, bool isActive) async {
+    activated.add((ids, isActive));
+    await _write(ids, (p) => p.copyWith(isActive: isActive));
+  }
+
+  @override
+  Future<void> deletePresets(List<String> ids) async {
+    deleted.add(ids);
+    await _write(ids, (_) => null);
   }
 
   @override
@@ -46,11 +170,13 @@ class _FakeService extends ProductImagePresetService {
     int displayOrder = 0,
   }) async {
     addedFolders.add('$name#$displayOrder');
-    return ProductImageFolder(
+    final folder = ProductImageFolder(
       id: 'nf${addedFolders.length}',
       name: name,
       displayOrder: displayOrder,
     );
+    folders.add(folder);
+    return folder;
   }
 
   @override
@@ -61,6 +187,8 @@ class _FakeService extends ProductImagePresetService {
     bool? isActive,
   }) async {
     folderUpdates.add({'id': id, 'name': name, 'active': isActive});
+    final i = folders.indexWhere((f) => f.id == id);
+    folders[i] = folders[i].copyWith(name: name, isActive: isActive);
   }
 
   @override
@@ -92,14 +220,17 @@ class _FakeService extends ProductImagePresetService {
       'active': isActive,
       'folder': folderId,
     });
-    return ProductImagePreset(
+    final preset = ProductImagePreset(
       id: 'new${added.length}',
       name: name,
       imageUrl: imageUrl,
       displayOrder: displayOrder,
       isActive: isActive,
       createdAt: DateTime.now(),
+      folderId: folderId,
     );
+    items.add(preset);
+    return preset;
   }
 }
 
@@ -169,7 +300,28 @@ List<ProductImagePreset> _sample() => [
     ),
 ];
 
+/// Sayfalı liste için büyük kütüphane: "Görsel 1" … "Görsel n" (sıra no =
+/// numara), Manav'da; her üçüncüsü pasif.
+List<ProductImagePreset> _many(int n) => [
+  for (var i = 1; i <= n; i++)
+    ProductImagePreset(
+      id: 'g$i',
+      name: 'Görsel $i',
+      imageUrl: 'https://example.invalid/g$i.jpg',
+      isActive: i % 3 != 0,
+      displayOrder: i,
+      createdAt: DateTime(2026, 1, 1).add(Duration(minutes: i)),
+      folderId: 'f1',
+    ),
+];
+
 Widget _host(Widget child) => MaterialApp(home: Scaffold(body: child));
+
+/// Durum kutusundaki sayı ([label]: Tümü / Yayında / Pasif).
+Finder _stat(String label, int value) => find.descendant(
+  of: find.widgetWithText(AdminCard, label),
+  matching: find.text('$value'),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -210,7 +362,7 @@ void main() {
     expect(find.text('Simit'), findsOneWidget);
 
     await t.enterText(find.byType(TextField).first, 'cig');
-    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
     expect(find.text('Çiğ köfte'), findsOneWidget);
     expect(find.text('Simit'), findsNothing);
 
@@ -445,6 +597,7 @@ void main() {
     final svc = _FakeService(_sample());
     await open(t, svc);
     expect(svc.loads, 1);
+    expect(svc.pageCalls, hasLength(1));
 
     await t.tap(find.text('Klasörler'));
     await t.pump();
@@ -498,5 +651,139 @@ void main() {
     await t.pump();
     await t.pump(const Duration(milliseconds: 600));
     expect(svc.loads, 2);
+  });
+
+  testWidgets('açılış yalnız bir sayfa + özet indirir; sayaçlar özetten, '
+      'kaydırdıkça sonraki sayfalar gelir', (t) async {
+    final svc = _FakeService(_many(150));
+    await open(t, svc);
+
+    // Tek istek: ilk sayfa ve kütüphane özeti.
+    expect(svc.pageCalls, hasLength(1));
+    final first = svc.pageCalls.single;
+    expect(first.offset, 0);
+    expect(first.limit, ProductImagePresetService.adminPageSize);
+    expect(first.summary, isTrue);
+    expect(first.query, const ProductImageAdminQuery());
+
+    // Yalnız 60 görsel yüklü ama sayaçlar kütüphanenin tamamını gösterir.
+    expect(
+      find.text('Tüm klasörler · 150', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(_stat('Tümü', 150), findsOneWidget);
+    expect(_stat('Yayında', 100), findsOneWidget);
+    expect(_stat('Pasif', 50), findsOneWidget);
+    expect(find.text('Görsel 61', skipOffstage: false), findsNothing);
+
+    // Sona yaklaşınca sıradaki sayfa istenir; liste bitince istek durur.
+    for (var i = 0; i < 8; i++) {
+      await t.drag(find.byType(CustomScrollView), const Offset(0, -1500));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(svc.pageCalls.map((c) => c.offset), [0, 60, 120]);
+    expect(svc.pageCalls.skip(1).every((c) => !c.summary), isTrue);
+    expect(find.text('Görsel 150'), findsOneWidget);
+  });
+
+  testWidgets('arama yazmanın durmasını bekler: tek istek, sunucuda süzülür', (
+    t,
+  ) async {
+    final svc = _FakeService(_sample());
+    await open(t, svc);
+
+    for (final q in ['k', 'kö', 'köf']) {
+      await t.enterText(find.byType(TextField).first, q);
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(svc.pageCalls, hasLength(1));
+    await t.pump(const Duration(milliseconds: 250));
+    expect(svc.pageCalls, hasLength(2));
+    expect(svc.pageCalls.last.query.search, 'köf');
+    expect(svc.pageCalls.last.offset, 0);
+    expect(find.text('Çiğ köfte'), findsOneWidget);
+    expect(find.text('Simit'), findsNothing);
+
+    // Sıralama değişince ilk sayfa yeni sıralamayla (arama korunur).
+    await t.tap(find.byTooltip('Sırala'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    await t.tap(find.text('En yeni önce'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(svc.pageCalls.last.query.sort, ProductImageAdminSort.newest);
+    expect(svc.pageCalls.last.query.search, 'köf');
+  });
+
+  testWidgets('süzgece uyanların tümünü seç: yüklenmemişler de seçilir, '
+      'toplu işlem hepsine gider, sayaçlar sunucudan tazelenir', (t) async {
+    final svc = _FakeService(_many(150));
+    await open(t, svc);
+
+    await t.tap(find.text('Yayında'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(svc.pageCalls.last.query.status, ProductImageAdminStatus.active);
+
+    await t.longPress(find.text('Görsel 1'));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('1 seçildi'), findsOneWidget);
+
+    await t.tap(find.byTooltip('Süzgece uyanların tümünü seç'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    // Yayındaki 100 görselin hepsi (yalnız 60'ı yüklü) seçildi.
+    expect(svc.idCalls.single.status, ProductImageAdminStatus.active);
+    expect(find.text('100 seçildi'), findsOneWidget);
+    expect(find.text('Süzgece uyan 100 görselin tümü seçildi'), findsOneWidget);
+
+    await t.tap(find.byTooltip('Pasife al'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(svc.activated.single.$1, hasLength(100));
+    expect(svc.activated.single.$2, isFalse);
+    // "Yayında" süzgecinden hepsi çıktı; sayaçlar sunucudan.
+    expect(find.text('Görsel 1'), findsNothing);
+    expect(_stat('Yayında', 0), findsOneWidget);
+    expect(_stat('Pasif', 150), findsOneWidget);
+    expect(svc.pageCalls.last.summary, isTrue);
+  });
+
+  testWidgets('silme iyimser: görsel hemen kalkar, hata olursa geri gelir; '
+      'başarıda sayaçlar sunucudan', (t) async {
+    final svc = _FakeService(_sample());
+    await open(t, svc);
+
+    Future<void> deleteFirst() async {
+      await t.tap(find.byTooltip('İşlemler').first);
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 300));
+      await t.tap(find.text('Sil').last);
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 300));
+      await t.tap(find.widgetWithText(FilledButton, 'Sil'));
+      await t.pump();
+    }
+
+    svc.writeGate = Completer<void>();
+    await deleteFirst();
+    // Sunucu yanıtı beklenirken kart kalktı.
+    expect(find.text('Kırmızı domates'), findsNothing);
+    svc.writeGate!.completeError(Exception('Sunucu reddetti'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('Kırmızı domates'), findsOneWidget);
+    expect(find.text('Sunucu reddetti'), findsOneWidget);
+    expect(svc.items, hasLength(3));
+
+    svc.writeGate = null;
+    await deleteFirst();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(svc.deleted.last, ['id0']);
+    expect(find.text('Kırmızı domates'), findsNothing);
+    expect(find.text('Görsel silindi'), findsOneWidget);
+    expect(find.text('Tüm klasörler · 2', skipOffstage: false), findsOneWidget);
+    expect(find.text('Manav · 1', skipOffstage: false), findsOneWidget);
   });
 }

@@ -113,7 +113,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   final int _maxImages = 5;
 
   // Ürün adından kütüphane görseli önerisi (bkz. _onNameChanged).
-  final ProductImagePresetService _presetService = ProductImagePresetService();
+  // Paylaşılan örnek: seçici ve ad önerisi önbelleği formlar arasında korunur.
+  final ProductImagePresetService _presetService =
+      ProductImagePresetService.shared;
   Timer? _suggestDebounce;
   String _suggestedFor = '';
   List<ProductImagePreset> _nameSuggestions = [];
@@ -187,6 +189,13 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   String? _pickedProviderServiceName;
   bool _isPointsEligible = false;
 
+  // Dijital satış şekli: 'smm' (1000 adet fiyatı × adet, sağlayıcıya otomatik)
+  // ya da 'package' (sabit fiyat, adet 1, satıcı elle teslim eder).
+  String _digitalMode = 'smm';
+  final TextEditingController _packagePriceController = TextEditingController();
+  bool get _isDigitalPackage =>
+      _productType == 'digital' && _digitalMode == 'package';
+
   // Renk picker için global key
   final GlobalKey<_ColorPickerWidgetState> _colorPickerKey = GlobalKey();
 
@@ -207,8 +216,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _oldPriceController = TextEditingController(
       text: widget.product?.oldPrice?.toString() ?? '',
     );
+    // Sınırsız stoklu ürünün alanı boş açılır (boş = sınırsız).
     _stockController = TextEditingController(
-      text: widget.product?.stockQuantity.toString() ?? '',
+      text: widget.product == null || widget.product!.isStockUnlimited
+          ? ''
+          : widget.product!.stockQuantity.toString(),
     );
 
     _selectedCategory = widget.product?.category;
@@ -244,6 +256,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _maxOrdersPerUserController.text =
           widget.product!.maxOrdersPerUser?.toString() ?? '';
       _isPointsEligible = widget.product!.isPointsEligible;
+      _digitalMode = widget.product!.isDigitalPackage ? 'package' : 'smm';
+      if (widget.product!.isDigitalPackage) {
+        _packagePriceController.text = widget.product!.price.toStringAsFixed(2);
+      }
 
       // Ek özellikler
       _selectedBadges.addAll(widget.product!.badges);
@@ -252,8 +268,14 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
       _freeShipping = widget.product!.freeShipping;
       _minOrderQtyController.text =
           widget.product!.minOrderQuantity?.toString() ?? '';
+      // Sınırsız stokta sunucunun koyduğu 2 adet sınırı alanda gösterilmez
+      // (boş = varsayılan 2); stok girilince sınır kendiliğinden kalkar.
+      final maxOrder = widget.product!.maxOrderQuantity;
       _maxOrderQtyController.text =
-          widget.product!.maxOrderQuantity?.toString() ?? '';
+          widget.product!.isStockUnlimited &&
+              maxOrder == Product.unlimitedStockMaxPerOrder
+          ? ''
+          : maxOrder?.toString() ?? '';
       _bulkDiscountPrice = widget.product!.discountPrice;
     }
 
@@ -423,6 +445,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     _stockController.dispose();
     _smmServiceIdController.dispose();
     _pricePer1000Controller.dispose();
+    _packagePriceController.dispose();
     _minQuantityController.dispose();
     _maxQuantityController.dispose();
     _maxOrdersPerUserController.dispose();
@@ -762,10 +785,22 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
     // Dijital ürün için validasyon
     double? pricePer1000;
+    double? packagePrice;
     int? minQuantity;
     int? maxQuantity;
     int? maxOrdersPerUser;
-    if (_productType == 'digital') {
+    if (_isDigitalPackage) {
+      packagePrice = double.tryParse(
+        _packagePriceController.text.trim().replaceAll(',', '.'),
+      );
+      if (packagePrice == null || packagePrice <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Geçerli bir paket fiyatı girin (0\'dan büyük)')),
+        );
+        return;
+      }
+      packagePrice = (packagePrice * 100).round() / 100;
+    } else if (_productType == 'digital') {
       if (_selectedSmmProviderId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bir SMM sağlayıcısı seçmelisiniz')),
@@ -819,20 +854,20 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
         );
         return;
       }
-      if (_maxOrdersPerUserController.text.trim().isNotEmpty) {
-        maxOrdersPerUser = int.tryParse(
-          _maxOrdersPerUserController.text.trim(),
-        );
-        if (maxOrdersPerUser == null || maxOrdersPerUser <= 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Kullanıcı başına sipariş limiti geçerli bir sayı olmalı',
-              ),
+    }
+    // Kullanıcı başı sipariş limiti her iki dijital satış şeklinde geçerli.
+    if (_productType == 'digital' &&
+        _maxOrdersPerUserController.text.trim().isNotEmpty) {
+      maxOrdersPerUser = int.tryParse(_maxOrdersPerUserController.text.trim());
+      if (maxOrdersPerUser == null || maxOrdersPerUser <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Kullanıcı başına sipariş limiti geçerli bir sayı olmalı',
             ),
-          );
-          return;
-        }
+          ),
+        );
+        return;
       }
     }
 
@@ -846,6 +881,24 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     final maxOrderQty = _productType == 'digital'
         ? null
         : _intOrNull(_maxOrderQtyController.text);
+
+    // Stok girilmediyse sunucu en fazla 2 adede indirir; en az adet bunu
+    // aşamaz.
+    if (_productType != 'digital' &&
+        _stockController.text.trim().isEmpty &&
+        minOrderQty != null &&
+        minOrderQty > (maxOrderQty ?? Product.unlimitedStockMaxPerOrder)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Stok girilmediğinde müşteri en fazla '
+            '${maxOrderQty ?? Product.unlimitedStockMaxPerOrder} adet '
+            'alabilir; en az adet bundan büyük olamaz',
+          ),
+        ),
+      );
+      return;
+    }
 
     if (minOrderQty != null &&
         maxOrderQty != null &&
@@ -899,9 +952,13 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           ? imageUrls.sublist(1)
           : <String>[];
 
-      // Dijital ürünlerde fiyatlandırma/stok bölümü gösterilmez; gerçek fiyat
-      // pricePer1000 üzerinden hesaplanır, komisyon mantığı fizikselden ayrıdır.
-      final price = _productType == 'digital'
+      // Dijital ürünlerde fiyatlandırma/stok bölümü gösterilmez; SMM'de gerçek
+      // fiyat pricePer1000 üzerinden hesaplanır, pakette price = paket fiyatı.
+      // Komisyon mantığı fizikselden ayrıdır.
+      final isSmm = _productType == 'digital' && !_isDigitalPackage;
+      final price = _isDigitalPackage
+          ? packagePrice!
+          : _productType == 'digital'
           ? (pricePer1000 ?? 0)
           : double.parse(_priceController.text);
       final oldPrice =
@@ -910,9 +967,10 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               _oldPriceController.text.isNotEmpty
           ? double.parse(_oldPriceController.text)
           : null;
-      final stock = _productType == 'digital'
+      // Boş stok = sınırsız (null gönderilir, sunucu stock_unlimited yapar).
+      final int? stock = _productType == 'digital'
           ? 0
-          : int.parse(_stockController.text);
+          : _intOrNull(_stockController.text);
 
       // Renkleri JSON formatına çevir
       final colorsJson = _colors.map((c) => c.toJson()).toList();
@@ -932,15 +990,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
-          smmProviderId: _productType == 'digital'
-              ? _selectedSmmProviderId
-              : null,
-          smmServiceId: _productType == 'digital'
-              ? _smmServiceIdController.text.trim()
-              : null,
-          pricePer1000: _productType == 'digital' ? pricePer1000 : null,
-          minQuantity: _productType == 'digital' ? minQuantity : null,
-          maxQuantity: _productType == 'digital' ? maxQuantity : null,
+          smmProviderId: isSmm ? _selectedSmmProviderId : null,
+          smmServiceId: isSmm ? _smmServiceIdController.text.trim() : null,
+          pricePer1000: isSmm ? pricePer1000 : null,
+          minQuantity: isSmm ? minQuantity : null,
+          maxQuantity: isSmm ? maxQuantity : null,
+          digitalMode: _productType == 'digital' ? _digitalMode : 'smm',
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
           campaignType: _hasBuy2Get1BalanceCampaign
               ? 'buy2_get1_balance'
@@ -952,7 +1007,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           maxOrderQuantity: maxOrderQty,
         );
 
-        if (_productType == 'digital') {
+        if (isSmm) {
           await _productService.setSmmBaseline(
             productId: created.id,
             providerRate: _pickedProviderRate,
@@ -984,15 +1039,12 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
           sizes: _selectedSizes.toList(),
           shoeSizes: _selectedShoeSizes.toList(),
           colors: colorsJson,
-          smmProviderId: _productType == 'digital'
-              ? _selectedSmmProviderId
-              : null,
-          smmServiceId: _productType == 'digital'
-              ? _smmServiceIdController.text.trim()
-              : null,
-          pricePer1000: _productType == 'digital' ? pricePer1000 : null,
-          minQuantity: _productType == 'digital' ? minQuantity : null,
-          maxQuantity: _productType == 'digital' ? maxQuantity : null,
+          smmProviderId: isSmm ? _selectedSmmProviderId : null,
+          smmServiceId: isSmm ? _smmServiceIdController.text.trim() : null,
+          pricePer1000: isSmm ? pricePer1000 : null,
+          minQuantity: isSmm ? minQuantity : null,
+          maxQuantity: isSmm ? maxQuantity : null,
+          digitalMode: _productType == 'digital' ? _digitalMode : null,
           maxOrdersPerUser: _productType == 'digital' ? maxOrdersPerUser : null,
           clearMaxOrdersPerUser:
               _productType == 'digital' && maxOrdersPerUser == null,
@@ -1016,7 +1068,7 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               _bulkDiscountPrice == null || _bulkDiscountPrice! >= price,
         );
 
-        if (_productType == 'digital') {
+        if (isSmm) {
           await _productService.setSmmBaseline(
             productId: widget.product!.id,
             providerRate: _pickedProviderRate,
@@ -1551,186 +1603,240 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
 
             // Dijital ürün (SMM panel) alanları
             if (_productType == 'digital') ...[
-              // Sağlayıcıda fiyat/servis değiştiği için ürün otomatik "tükendi"
-              // yapıldıysa satıcı nedenini burada görür.
-              if (widget.product?.smmDisabledReason != null &&
-                  !(widget.product?.isAvailable ?? true)) ...[
+              _buildDigitalModeSelector(),
+              const SizedBox(height: 16),
+              if (_isDigitalPackage) ...[
+                TextFormField(
+                  controller: _packagePriceController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Paket Fiyatı (₺) *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.inventory_2_outlined),
+                    helperText:
+                        'Müşteri bu tutarı öder; adet seçmez (her sipariş 1 paket)',
+                    helperMaxLines: 2,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.shade200),
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.teal.shade200),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline, color: Colors.red.shade700),
-                      const SizedBox(width: 10),
+                      Icon(
+                        Icons.local_shipping_outlined,
+                        color: Colors.teal.shade700,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Bu ürün otomatik olarak satıştan kaldırıldı: '
-                          '${widget.product!.smmDisabledReason}.\n'
-                          'Sağlayıcıdaki yeni durumu kabul ediyorsanız hizmeti '
-                          'aşağıdan yeniden seçip fiyatınızı güncelleyin, sonra '
-                          'ürünü tekrar satışa açın.',
+                          'Paket siparişleri sağlayıcıya gitmez. Sipariş gelince '
+                          'bildirim alırsınız; teslimi siz yapıp Dijital Siparişler '
+                          'ekranından "Teslim edildi" olarak işaretlersiniz. İptal '
+                          'ederseniz müşteriye tam iade yapılır. Paketin içeriğini '
+                          '(ör. 1000 takipçi) ürün adı ve açıklamasında belirtin.',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.35,
-                            color: Colors.red.shade900,
+                            color: Colors.teal.shade900,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                // ignore: deprecated_member_use
-                value: _smmProviders.any((p) => p.id == _selectedSmmProviderId)
-                    ? _selectedSmmProviderId
-                    : null,
-                decoration: const InputDecoration(
-                  labelText: 'SMM Sağlayıcısı *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.dns_outlined),
-                ),
-                items: _smmProviders.isEmpty
-                    ? [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          enabled: false,
+              ] else ...[
+                // Sağlayıcıda fiyat/servis değiştiği için ürün otomatik "tükendi"
+                // yapıldıysa satıcı nedenini burada görür.
+                if (widget.product?.smmDisabledReason != null &&
+                    !(widget.product?.isAvailable ?? true)) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red.shade700),
+                        const SizedBox(width: 10),
+                        Expanded(
                           child: Text(
-                            'Kullanılabilir sağlayıcı yok',
-                            style: TextStyle(color: Colors.grey),
+                            'Bu ürün otomatik olarak satıştan kaldırıldı: '
+                            '${widget.product!.smmDisabledReason}.\n'
+                            'Sağlayıcıdaki yeni durumu kabul ediyorsanız hizmeti '
+                            'aşağıdan yeniden seçip fiyatınızı güncelleyin, sonra '
+                            'ürünü tekrar satışa açın.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: Colors.red.shade900,
+                            ),
                           ),
                         ),
-                      ]
-                    : _smmProviders
-                          .map(
-                            (p) => DropdownMenuItem(
-                              value: p.id,
-                              child: Text(p.name),
-                            ),
-                          )
-                          .toList(),
-                onChanged: _smmProviders.isEmpty
-                    ? null
-                    : (value) => setState(() {
-                        _selectedSmmProviderId = value;
-                        _smmProviderServices = [];
-                        _selectedSmmServiceKey = null;
-                      }),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed:
-                    (_selectedSmmProviderId == null || _isLoadingSmmServices)
-                    ? null
-                    : _fetchSmmServices,
-                icon: _isLoadingSmmServices
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.cloud_download_outlined),
-                label: const Text('Servisleri Getir'),
-              ),
-              if (_smmProviderServices.isNotEmpty) ...[
-                const SizedBox(height: 12),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 DropdownButtonFormField<String>(
-                  // isExpanded ŞART: sağlayıcı hizmet adları çok uzun olur;
-                  // olmadan `ellipsis` etkisiz kalıp satır binlerce piksel
-                  // taşıyordu (RenderFlex overflowed by 1511 pixels).
                   isExpanded: true,
                   // ignore: deprecated_member_use
-                  value: _selectedSmmServiceKey,
+                  value: _smmProviders.any((p) => p.id == _selectedSmmProviderId)
+                      ? _selectedSmmProviderId
+                      : null,
                   decoration: const InputDecoration(
-                    labelText:
-                        'Sağlayıcı Hizmeti (seçince alanlar otomatik doldurulur)',
+                    labelText: 'SMM Sağlayıcısı *',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.list_alt),
+                    prefixIcon: Icon(Icons.dns_outlined),
                   ),
-                  items: _smmProviderServices
-                      .map(
-                        (s) => DropdownMenuItem(
-                          value: s.service,
-                          child: Text(
-                            '${s.name ?? s.service} (₺${s.rate?.toStringAsFixed(2) ?? '-'} / 1000)',
-                            overflow: TextOverflow.ellipsis,
+                  items: _smmProviders.isEmpty
+                      ? [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            enabled: false,
+                            child: Text(
+                              'Kullanılabilir sağlayıcı yok',
+                              style: TextStyle(color: Colors.grey),
+                            ),
                           ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    final service = _smmProviderServices.firstWhere(
-                      (s) => s.service == value,
-                    );
-                    _applySmmService(service);
-                  },
+                        ]
+                      : _smmProviders
+                            .map(
+                              (p) => DropdownMenuItem(
+                                value: p.id,
+                                child: Text(p.name),
+                              ),
+                            )
+                            .toList(),
+                  onChanged: _smmProviders.isEmpty
+                      ? null
+                      : (value) => setState(() {
+                          _selectedSmmProviderId = value;
+                          _smmProviderServices = [];
+                          _selectedSmmServiceKey = null;
+                        }),
                 ),
-              ],
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _smmServiceIdController,
-                decoration: const InputDecoration(
-                  labelText: 'Sağlayıcı Servis ID *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.numbers),
-                  helperText: 'Sağlayıcı panelindeki hizmet (service) numarası',
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed:
+                      (_selectedSmmProviderId == null || _isLoadingSmmServices)
+                      ? null
+                      : _fetchSmmServices,
+                  icon: _isLoadingSmmServices
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_download_outlined),
+                  label: const Text('Servisleri Getir'),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _pricePer1000Controller,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  labelText: '1000 Adet Fiyatı (₺) *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.price_change_outlined),
-                  helperText: 'Ücretsiz ürün için 0 girebilirsiniz',
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _minQuantityController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Min. Miktar *',
-                        border: OutlineInputBorder(),
-                      ),
+                if (_smmProviderServices.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    // isExpanded ŞART: sağlayıcı hizmet adları çok uzun olur;
+                    // olmadan `ellipsis` etkisiz kalıp satır binlerce piksel
+                    // taşıyordu (RenderFlex overflowed by 1511 pixels).
+                    isExpanded: true,
+                    // ignore: deprecated_member_use
+                    value: _selectedSmmServiceKey,
+                    decoration: const InputDecoration(
+                      labelText:
+                          'Sağlayıcı Hizmeti (seçince alanlar otomatik doldurulur)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.list_alt),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _maxQuantityController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Max. Miktar *',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
+                    items: _smmProviderServices
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s.service,
+                            child: Text(
+                              '${s.name ?? s.service} (₺${s.rate?.toStringAsFixed(2) ?? '-'} / 1000)',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      final service = _smmProviderServices.firstWhere(
+                        (s) => s.service == value,
+                      );
+                      _applySmmService(service);
+                    },
                   ),
                 ],
-              ),
-              if (_serviceLimitMin != null || _serviceLimitMax != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Sağlayıcı sınırı: ${_serviceLimitMin ?? '-'} - ${_serviceLimitMax ?? '-'}. '
-                  'Bu aralık servis listesi çekildiğinde otomatik doldurulur ve '
-                  'saatlik senkronizasyonda sağlayıcıya göre güncellenir.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _smmServiceIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'Sağlayıcı Servis ID *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.numbers),
+                    helperText: 'Sağlayıcı panelindeki hizmet (service) numarası',
+                  ),
                 ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _pricePer1000Controller,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: '1000 Adet Fiyatı (₺) *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.price_change_outlined),
+                    helperText: 'Ücretsiz ürün için 0 girebilirsiniz',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _minQuantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Min. Miktar *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _maxQuantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Max. Miktar *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_serviceLimitMin != null || _serviceLimitMax != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Sağlayıcı sınırı: ${_serviceLimitMin ?? '-'} - ${_serviceLimitMax ?? '-'}. '
+                    'Bu aralık servis listesi çekildiğinde otomatik doldurulur ve '
+                    'saatlik senkronizasyonda sağlayıcıya göre güncellenir.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ],
               ],
               const SizedBox(height: 16),
               TextFormField(
@@ -1774,7 +1880,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Dijital ürün fiyatı 1000 adet başına girdiğiniz tutara göre hesaplanır. Fiziksel ürünlerdeki stok, indirim ve komisyon oranı bu ürün tipine uygulanmaz.',
+                        _isDigitalPackage
+                            ? 'Paket fiyatı sabittir; müşteri tek seferde bir paket alır. Fiziksel ürünlerdeki stok, indirim ve komisyon oranı bu ürün tipine uygulanmaz.'
+                            : 'Dijital ürün fiyatı 1000 adet başına girdiğiniz tutara göre hesaplanır. Fiziksel ürünlerdeki stok, indirim ve komisyon oranı bu ürün tipine uygulanmaz.',
                         style: TextStyle(
                           color: Colors.purple.shade700,
                           fontWeight: FontWeight.w500,
@@ -2019,17 +2127,91 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                   child: TextFormField(
                     controller: _stockController,
                     decoration: const InputDecoration(
-                      labelText: 'Stok *',
+                      labelText: 'Stok',
+                      hintText: 'Sınırsız',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.inventory),
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) => setState(() {}),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Stok gerekli';
-                      final stock = int.tryParse(value);
-                      if (stock == null || stock < 0)
+                      // Boş = sınırsız stok.
+                      if (value == null || value.trim().isEmpty) return null;
+                      final stock = int.tryParse(value.trim());
+                      if (stock == null || stock < 0) {
                         return 'Geçerli bir stok girin';
+                      }
+                      if (stock >= Product.unlimitedStockValue) {
+                        return 'Sınırsız için boş bırakın';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _buildStockInfo(),
+
+            // ── Müşteri başına adet sınırı ─────────────────────────────────
+            const SizedBox(height: 20),
+            const Text(
+              'Müşteri kaç adet alabilir?',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _stockController.text.trim().isEmpty
+                  ? 'Stok girmediğiniz için her müşteri bir siparişte EN FAZLA '
+                        '${Product.unlimitedStockMaxPerOrder} adet alabilir. '
+                        'Daha küçük bir sınır (1) koyabilirsiniz; stok girerseniz '
+                        'müşteri stok kadar alabilir.'
+                  : 'Opsiyonel. Boş bırakırsanız müşteri stok kadar alabilir. '
+                        'Sınır ödeme adımında da doğrulanır.',
+              key: const ValueKey('order-limit-info'),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _minOrderQtyController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'En az adet',
+                      hintText: '1',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _maxOrderQtyController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: 'En fazla adet',
+                      hintText: _stockController.text.trim().isEmpty
+                          ? '${Product.unlimitedStockMaxPerOrder}'
+                          : 'Stok kadar',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    validator: (value) {
+                      final max = _intOrNull(value ?? '');
+                      if (max != null &&
+                          _stockController.text.trim().isEmpty &&
+                          max > Product.unlimitedStockMaxPerOrder) {
+                        return 'Stok yokken en fazla '
+                            '${Product.unlimitedStockMaxPerOrder}';
+                      }
                       return null;
                     },
                   ),
@@ -2218,48 +2400,6 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
                     isDense: true,
                   ),
                 ),
-
-              const SizedBox(height: 24),
-              const Text(
-                'Sipariş Adedi Limiti',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Toptan satış ya da stok koruma için sipariş başına adet '
-                'sınırı koyabilirsiniz. Limit ödeme adımında da doğrulanır.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _minOrderQtyController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        labelText: 'En az adet',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _maxOrderQtyController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        labelText: 'En fazla adet',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
 
             // ── Toplu indirim bilgisi ───────────────────────────────────────
@@ -2320,6 +2460,46 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
   }
 
   /// Komisyon hesaplama kartı
+  /// Stok alanının altındaki açıklama: boş = sınırsız, 0 = tükendi.
+  Widget _buildStockInfo() {
+    final stock = _intOrNull(_stockController.text);
+    final IconData icon;
+    final Color color;
+    final String text;
+    if (stock == null) {
+      icon = Icons.all_inclusive;
+      color = Colors.blue.shade700;
+      text =
+          'Stok boş bırakıldı: ürün SINIRSIZ satılır, hiçbir zaman '
+          '"Tükendi" olmaz; her müşteri bir siparişte en fazla '
+          '${Product.unlimitedStockMaxPerOrder} adet alabilir. Stok takibi '
+          'istiyorsanız adet yazın.';
+    } else if (stock == 0) {
+      icon = Icons.remove_shopping_cart_outlined;
+      color = Colors.red.shade700;
+      text =
+          'Stok 0: ürün müşterilere "Tükendi" görünür ve sepete eklenemez.';
+    } else {
+      icon = Icons.info_outline;
+      color = Colors.grey.shade700;
+      text =
+          'Her onaylanan siparişte stok düşer. Stok 0\'a inince ürün '
+          '"Tükendi" görünür ve size bildirim gelir. Sınırsız satış için '
+          'alanı boş bırakın.';
+    }
+    return Row(
+      key: const ValueKey('stock-info'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(text, style: TextStyle(fontSize: 12, color: color)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCommissionCalculation() {
     final price = double.tryParse(_priceController.text) ?? 0.0;
     final commission = _calculateCommission(price);
@@ -2400,11 +2580,53 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
     );
   }
 
-  /// Dijital ürün (1000 adet fiyatı) için kazanç hesaplama kartı
+  /// Dijital satış şekli seçici: adet bazlı (SMM) ya da paket (manuel teslim).
+  Widget _buildDigitalModeSelector() {
+    final isPackage = _digitalMode == 'package';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Satış Şekli', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'smm',
+                icon: Icon(Icons.calculate_outlined),
+                label: Text('Adet bazlı'),
+              ),
+              ButtonSegment(
+                value: 'package',
+                icon: Icon(Icons.inventory_2_outlined),
+                label: Text('Paket'),
+              ),
+            ],
+            selected: {_digitalMode},
+            showSelectedIcon: false,
+            onSelectionChanged: (s) => setState(() => _digitalMode = s.first),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          isPackage
+              ? 'Sabit fiyatlı paket: müşteri adet seçmez, paket fiyatı kadar ödeme alınır, teslimi siz elle yaparsınız.'
+              : 'Fiyat 1000 adet üzerinden hesaplanır; müşteri adet seçer, sipariş SMM sağlayıcısına otomatik iletilir.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+        ),
+      ],
+    );
+  }
+
+  /// Dijital ürün (1000 adet fiyatı ya da paket fiyatı) için kazanç hesaplama kartı
   Widget _buildDigitalCommissionCalculation() {
+    final isPackage = _isDigitalPackage;
     final price =
         double.tryParse(
-          _pricePer1000Controller.text.trim().replaceAll(',', '.'),
+          (isPackage ? _packagePriceController : _pricePer1000Controller).text
+              .trim()
+              .replaceAll(',', '.'),
         ) ??
         0.0;
     final commission = _calculateDigitalCommission(price);
@@ -2433,7 +2655,9 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Kazanç Hesaplaması (1000 Adet)',
+                isPackage
+                    ? 'Kazanç Hesaplaması (Paket)'
+                    : 'Kazanç Hesaplaması (1000 Adet)',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -2443,7 +2667,11 @@ class _ManageProductScreenState extends State<ManageProductScreen> {
             ],
           ),
           const Divider(height: 24),
-          _buildCalculationRow('1000 Adet Fiyatı', price, Colors.grey),
+          _buildCalculationRow(
+            isPackage ? 'Paket Fiyatı' : '1000 Adet Fiyatı',
+            price,
+            Colors.grey,
+          ),
           const SizedBox(height: 8),
           _buildCalculationRow(
             'Platform Komisyonu (%${_digitalCommissionRate.toStringAsFixed(1)})',

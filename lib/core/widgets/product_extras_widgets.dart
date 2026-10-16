@@ -54,6 +54,14 @@ class ProductMiniChip extends StatelessWidget {
   }
 }
 
+/// Ürün kartlarında (grid/liste) görselin sığdırma biçimi.
+///
+/// Dijital ürün görselleri (servis logosu + başlık yazılı kare kapaklar)
+/// kırpılınca okunmaz hale geldiği için kartta tamamı gösterilir; fiziksel
+/// ürünlerde kartı dolduran kırpma korunur.
+BoxFit productCardImageFit(Product product) =>
+    product.isDigital ? BoxFit.contain : BoxFit.cover;
+
 /// Ürünün satıcı tarafından tanımlanmış rozetleri. Rozet yoksa hiç yer kaplamaz.
 class ProductBadgesWrap extends StatelessWidget {
   final Product product;
