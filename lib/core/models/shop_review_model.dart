@@ -45,13 +45,13 @@ class ShopReview {
       userId: json['user_id'] as String?,
       rating: json['rating'] as int,
       comment: json['comment'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
+      updatedAt: DateTime.parse(json['updated_at'] as String).toLocal(),
       userName: json['user_name'] as String?,
       userAvatar: json['user_avatar'] as String?,
       sellerReply: json['seller_reply'] as String?,
       sellerRepliedAt: json['seller_replied_at'] != null
-          ? DateTime.parse(json['seller_replied_at'] as String)
+          ? DateTime.parse(json['seller_replied_at'] as String).toLocal()
           : null,
       orderId: json['order_id'] as String?,
       isAnonymous: json['is_anonymous'] as bool? ?? false,

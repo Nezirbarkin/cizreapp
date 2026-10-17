@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/cart_provider.dart';
 import '../providers/address_provider.dart';
 import '../../../core/models/cart_model.dart';
+import '../../../core/utils/app_error_handler.dart' show AppErrorHandler;
 import 'checkout_screen.dart';
 import 'multi_shop_checkout_screen.dart';
 
@@ -846,6 +847,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _couponControllers[shopId]?.clear();
   }
 
+  /// Miktar/silme dokunuşları eskiden beklenmeden çağrılıyordu: ağ hatasında
+  /// (504 vb.) "Uncaught async error" düşüyor, kullanıcı geri bildirim
+  /// görmüyordu.
+  Future<void> _runCartAction(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
+    }
+  }
+
   Widget _buildModernCartItem(
     BuildContext context,
     CartItem item,
@@ -970,15 +985,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     children: [
                       _buildModernQuantityButton(
                         icon: Icons.remove_rounded,
-                        onTap: () {
-                          // Satıcı minimum adet koyduysa onun altına inmek
-                          // yerine ürün sepetten çıkarılır.
-                          if (item.canRemoveOne) {
-                            cartProvider.updateQuantity(item.id, item.quantity - 1);
-                          } else {
-                            cartProvider.removeFromCart(item.id);
-                          }
-                        },
+                        // Satıcı minimum adet koyduysa onun altına inmek
+                        // yerine ürün sepetten çıkarılır.
+                        onTap: () => _runCartAction(
+                          () => item.canRemoveOne
+                              ? cartProvider.updateQuantity(item.id, item.quantity - 1)
+                              : cartProvider.removeFromCart(item.id),
+                        ),
                       ),
                       Container(
                         width: 40,
@@ -995,7 +1008,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       _buildModernQuantityButton(
                         icon: Icons.add_rounded,
                         onTap: item.canAddMore
-                            ? () => cartProvider.updateQuantity(item.id, item.quantity + 1)
+                            ? () => _runCartAction(
+                                  () => cartProvider.updateQuantity(item.id, item.quantity + 1),
+                                )
                             : null,
                       ),
                     ],
@@ -1036,7 +1051,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           IconButton(
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: () => cartProvider.removeFromCart(item.id),
+            onPressed: () =>
+                _runCartAction(() => cartProvider.removeFromCart(item.id)),
             icon: Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(

@@ -410,6 +410,14 @@ extension on _AdminDashboardScreenState {
                       // "null" yazmaz.
                       final origin = e.metadata?['origin']?.toString();
                       final details = e.metadata?['details']?.toString() ?? '';
+                      // Sürüm/platform 2026-10-17'den sonraki kayıtlarda var;
+                      // kaynak satırını o sürümün koduna eşlemek için.
+                      final version = e.metadata?['app_version']?.toString();
+                      final platform = e.metadata?['platform']?.toString();
+                      final build = [
+                        if (version != null && version.isNotEmpty) 'v$version',
+                        if (platform != null && platform.isNotEmpty) platform,
+                      ].join(' · ');
                       return ListTile(
                         leading: const Icon(
                           Icons.error_outline,
@@ -430,7 +438,9 @@ extension on _AdminDashboardScreenState {
                                 ),
                               ),
                             Text(
-                              '${e.timestamp.toLocal()}',
+                              build.isEmpty
+                                  ? '${e.timestamp.toLocal()}'
+                                  : '${e.timestamp.toLocal()}  ·  $build',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.grey.shade600,

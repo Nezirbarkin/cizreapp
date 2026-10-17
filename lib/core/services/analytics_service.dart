@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:hive/hive.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, visibleForTesting;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_logger.dart';
 
@@ -71,6 +73,48 @@ class AnalyticsService {
   static void attachToLogger() {
     final instance = AnalyticsService();
     AppLogger.errorSink = instance._onLoggedError;
+    unawaited(_loadAppVersion());
+  }
+
+  /// Hata kaydına eklenen sürüm ("1.3.3+43"). Admin hata kartındaki
+  /// `dosya:satır` kaynağını YAYINLANAN sürümün koduna eşlemek için gerekli;
+  /// eskiden kayıtta sürüm yoktu ve hangi derlemeden geldiği tahmin ediliyordu.
+  static String? _appVersion;
+
+  static Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _appVersion = '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      // Sürüm okunamazsa alan boş kalır; hata kaydı yine yazılır.
+    }
+  }
+
+  static String get _platformName =>
+      kIsWeb ? 'web' : defaultTargetPlatform.name;
+
+  static Map<String, dynamic> _errorMetadata(
+    String errorType, {
+    String? details,
+    String? origin,
+  }) => {
+    'type': errorType,
+    'details': details,
+    'origin': origin,
+    if (_appVersion != null) 'app_version': _appVersion,
+    'platform': _platformName,
+  };
+
+  /// Test kancası: hata kaydına yazılan metadata.
+  @visibleForTesting
+  static Map<String, dynamic> errorMetadataForTest(
+    String errorType, {
+    String? details,
+    String? origin,
+    String? appVersion,
+  }) {
+    _appVersion = appVersion;
+    return _errorMetadata(errorType, details: details, origin: origin);
   }
 
   void _onLoggedError(
@@ -340,7 +384,7 @@ class AnalyticsService {
     String? origin,
   }) => trackEvent(
     eventType: 'error',
-    metadata: {'type': errorType, 'details': details, 'origin': origin},
+    metadata: _errorMetadata(errorType, details: details, origin: origin),
   );
 
   /// En çok görüntülenen postlar

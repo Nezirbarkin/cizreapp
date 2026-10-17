@@ -443,7 +443,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
           .select('fee_amount')
           .eq('courier_id', userId)
           .eq('status', 'delivered')
-          .gte('delivered_at', startOfWeek.toIso8601String());
+          .gte('delivered_at', startOfWeek.toUtc().toIso8601String());
 
       final deliveries = List<Map<String, dynamic>>.from(response);
       _weeklyDeliveries = deliveries.length;
@@ -457,7 +457,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
           .select('courier_fee')
           .eq('courier_id', userId)
           .eq('status', 'delivered')
-          .gte('delivered_at', startOfWeek.toIso8601String());
+          .gte('delivered_at', startOfWeek.toUtc().toIso8601String());
       final packageList = List<Map<String, dynamic>>.from(packages);
       _weeklyDeliveries += packageList.length;
       _weeklyEarnings += packageList.fold(
@@ -482,7 +482,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
           .select('fee_amount')
           .eq('courier_id', userId)
           .eq('status', 'delivered')
-          .gte('delivered_at', startOfMonth.toIso8601String());
+          .gte('delivered_at', startOfMonth.toUtc().toIso8601String());
 
       final deliveries = List<Map<String, dynamic>>.from(response);
       _monthlyDeliveries = deliveries.length;
@@ -496,7 +496,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
           .select('courier_fee')
           .eq('courier_id', userId)
           .eq('status', 'delivered')
-          .gte('delivered_at', startOfMonth.toIso8601String());
+          .gte('delivered_at', startOfMonth.toUtc().toIso8601String());
       final packageList = List<Map<String, dynamic>>.from(packages);
       _monthlyDeliveries += packageList.length;
       _monthlyEarnings += packageList.fold(

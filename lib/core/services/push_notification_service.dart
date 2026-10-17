@@ -449,6 +449,7 @@ class PushNotificationService {
       // Sepetteki ürün indirime girdi (Görev 3.3) / fiyat alarmı: ürünü aç.
       case 'cart_price_drop':
       case 'price_drop':
+      case 'stock_back': // Beklenen ürün stoğa girdi
         if (entityId != null && entityId.isNotEmpty) {
           _navigateToProduct(context, entityId);
         } else {

@@ -688,7 +688,7 @@ extension on _AdminDashboardScreenState {
       final ordersResponse = await Supabase.instance.client
           .from('orders')
           .select()
-          .gte('created_at', startDate.toIso8601String())
+          .gte('created_at', startDate.toUtc().toIso8601String())
           .order('created_at', ascending: true);
 
       final orders = List<Map<String, dynamic>>.from(ordersResponse);

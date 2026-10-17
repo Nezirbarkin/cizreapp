@@ -395,6 +395,21 @@ class ProfileService {
     }
   }
 
+  /// Liste ekranları için profilleri `id → satır` olarak tek istekte çeker.
+  Future<Map<String, Map<String, dynamic>>> _profilesById(
+    Iterable<String> ids,
+  ) async {
+    final unique = ids.toSet().toList();
+    if (unique.isEmpty) return {};
+    final rows = await _supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .inFilter('id', unique);
+    return {
+      for (final row in rows) row['id'] as String: Map<String, dynamic>.from(row),
+    };
+  }
+
   // Engellediğim kullanıcıları getir
   Future<List<Map<String, dynamic>>> getBlockedUsers() async {
     try {
@@ -407,25 +422,15 @@ class ProfileService {
           .eq('blocker_id', currentUserId)
           .order('created_at', ascending: false);
 
-      // Profil bilgilerini ayrıca çek
-      final blockedUsers = <Map<String, dynamic>>[];
-      for (var block in response) {
-        try {
-          final userProfile = await _supabase
-              .from('profiles')
-              .select('id, username, full_name, avatar_url')
-              .eq('id', block['blocked_id'])
-              .maybeSingle();
-
-          if (userProfile != null) {
-            blockedUsers.add({...block, 'blocked_user': userProfile});
-          }
-        } catch (e) {
-          debugPrint('Profil alınamadı: $e');
-        }
-      }
-
-      return blockedUsers;
+      // Profil bilgilerini ayrıca, tek istekte çek (eskiden satır başına).
+      final profiles = await _profilesById(
+        response.map((b) => b['blocked_id']).whereType<String>(),
+      );
+      return [
+        for (final block in response)
+          if (profiles[block['blocked_id']] != null)
+            {...block, 'blocked_user': profiles[block['blocked_id']]},
+      ];
     } catch (e) {
       debugPrint('Engellenen kullanıcılar getirilemedi: $e');
       return [];
@@ -446,25 +451,15 @@ class ProfileService {
           .eq('reporter_id', currentUserId)
           .order('created_at', ascending: false);
 
-      // Profil bilgilerini ayrıca çek
-      final reports = <Map<String, dynamic>>[];
-      for (var report in response) {
-        try {
-          final userProfile = await _supabase
-              .from('profiles')
-              .select('id, username, full_name, avatar_url')
-              .eq('id', report['reported_user_id'])
-              .maybeSingle();
-
-          if (userProfile != null) {
-            reports.add({...report, 'reported_user': userProfile});
-          }
-        } catch (e) {
-          debugPrint('Profil alınamadı: $e');
-        }
-      }
-
-      return reports;
+      // Profil bilgilerini ayrıca, tek istekte çek (eskiden satır başına).
+      final profiles = await _profilesById(
+        response.map((r) => r['reported_user_id']).whereType<String>(),
+      );
+      return [
+        for (final report in response)
+          if (profiles[report['reported_user_id']] != null)
+            {...report, 'reported_user': profiles[report['reported_user_id']]},
+      ];
     } catch (e) {
       debugPrint('Şikayetler getirilemedi: $e');
       return [];

@@ -105,6 +105,19 @@ class AppErrorHandler {
   String processError(dynamic error, [StackTrace? stackTrace]) {
     final errorString = error.toString();
 
+    // Zaten kullanıcıya gösterilebilir mesaj (stok/adet sınırı gibi iş kuralı
+    // ya da FriendlyException.from ile daha önce işlenip loglanmış hata):
+    // olduğu gibi döndür. Eskiden "Bilinmeyen hata"ya düşüp kullanıcıya
+    // "Bir sorun oluştu" gösteriliyor ve admin hata kartına yazılıyordu.
+    if (error is FriendlyException) {
+      AppLogger.warning(
+        error.message,
+        error: error.originalError ?? error,
+        stackTrace: stackTrace,
+      );
+      return error.message;
+    }
+
     // AppException tipinde hataları işle
     if (error is AppException) {
       _logError(error.message, error.stackTrace ?? stackTrace, error: error);

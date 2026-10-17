@@ -577,6 +577,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // Sepetteki ürün indirime girdi (Görev 3.3) / fiyat alarmı: ürünü aç.
       case 'cart_price_drop':
       case 'price_drop':
+      case 'stock_back': // Beklenen ürün stoğa girdi
         final productId = notification.entityId;
         if (productId != null && productId.isNotEmpty && mounted) {
           Navigator.push(
@@ -902,6 +903,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.local_offer;
       case 'price_drop':
         return Icons.trending_down;
+      case 'stock_back':
+        return Icons.inventory_2_outlined;
       case 'ilan_expiring':
         return Icons.hourglass_bottom;
       case 'ilan_expired':
@@ -977,6 +980,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.deepOrange;
       case 'price_drop':
         return Colors.green;
+      case 'stock_back':
+        return const Color(0xFF1565C0);
       case 'ilan_expiring':
         return Colors.orange;
       case 'ilan_expired':

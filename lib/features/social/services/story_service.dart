@@ -710,7 +710,7 @@ class StoryService {
       await _supabase
           .from('stories')
           .delete()
-          .lt('expires_at', DateTime.now().toIso8601String());
+          .lt('expires_at', DateTime.now().toUtc().toIso8601String());
     } catch (e) {
       throw Exception('Süresi dolmuş hikayeler silinirken hata: $e');
     }

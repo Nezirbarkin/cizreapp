@@ -161,7 +161,7 @@ class OrderItem {
       shopId: json['shop_id'] as String?,
       shopName: json['shop_name'] as String?,
       createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
+          ? DateTime.parse(json['created_at'] as String).toLocal()
           : DateTime.now(),
       flashSaleId: json['flash_sale_id'] as String?,
       flashPrice: (json['flash_price'] as num?)?.toDouble(),
@@ -347,20 +347,20 @@ class Order {
       deliveryNotes: json['delivery_notes'] as String? ??
                      json['notes'] as String?,
       estimatedDeliveryTime: json['estimated_delivery_time'] != null
-          ? DateTime.parse(json['estimated_delivery_time'] as String)
+          ? DateTime.parse(json['estimated_delivery_time'] as String).toLocal()
           : null,
       deliveredAt: json['delivered_at'] != null
-          ? DateTime.parse(json['delivered_at'] as String)
+          ? DateTime.parse(json['delivered_at'] as String).toLocal()
           : null,
       cancelledAt: json['cancelled_at'] != null
-          ? DateTime.parse(json['cancelled_at'] as String)
+          ? DateTime.parse(json['cancelled_at'] as String).toLocal()
           : null,
       cancellationReason: json['cancellation_reason'] as String?,
       createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
+          ? DateTime.parse(json['created_at'] as String).toLocal()
           : DateTime.now(),
       updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'] as String)
+          ? DateTime.parse(json['updated_at'] as String).toLocal()
           : DateTime.now(),
       addressDisplay: json['address_display'] as String? ??
                       json['delivery_address_text'] as String?,
@@ -378,7 +378,7 @@ class Order {
       sellerNetAmount: (json['seller_net_amount'] as num?)?.toDouble(),
       commissionDebt: (json['commission_debt'] as num?)?.toDouble(),
       commissionCalculatedAt: json['commission_calculated_at'] != null
-          ? DateTime.parse(json['commission_calculated_at'] as String)
+          ? DateTime.parse(json['commission_calculated_at'] as String).toLocal()
           : null,
       sellerDeliveryCharge: (json['seller_delivery_charge'] as num?)?.toDouble() ?? 0,
       returnStatus: json['return_status'] as String?,

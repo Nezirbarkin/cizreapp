@@ -18,20 +18,36 @@ class PriceAlertDialog extends StatefulWidget {
     required this.currentPrice,
   });
 
+  /// Hedef fiyat aralığı (slider sınırları). Eskiden `clamp(1, fiyat - 1)`
+  /// kullanılıyordu: fiyat 2 ₺'nin altındaysa üst sınır alt sınırdan küçük
+  /// kalıp ArgumentError fırlatıyor (diyalog açılmıyordu), tam 2 ₺'de
+  /// slider'ın aralığı sıfıra iniyordu. 10 ₺ ve üstünde davranış aynı.
+  @visibleForTesting
+  static ({double min, double max}) targetRange(double currentPrice) {
+    final max = currentPrice >= 10 ? currentPrice - 1 : currentPrice * 0.9;
+    return (min: currentPrice * 0.3, max: max);
+  }
+
   @override
   State<PriceAlertDialog> createState() => _PriceAlertDialogState();
 }
 
 class _PriceAlertDialogState extends State<PriceAlertDialog> {
   final _service = PriceAlertService();
+  late final ({double min, double max}) _range =
+      PriceAlertDialog.targetRange(widget.currentPrice);
   late double _targetPrice;
   bool _saving = false;
+
+  bool get _hasRange => _range.max > _range.min;
 
   @override
   void initState() {
     super.initState();
     // Mevcut fiyatın %10 altı varsayılan hedef
-    _targetPrice = (widget.currentPrice * 0.9).clamp(1, widget.currentPrice - 1);
+    _targetPrice = _hasRange
+        ? (widget.currentPrice * 0.9).clamp(_range.min, _range.max).toDouble()
+        : 0;
   }
 
   Future<void> _save() async {
@@ -65,6 +81,20 @@ class _PriceAlertDialogState extends State<PriceAlertDialog> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_hasRange) {
+      // Fiyatı olmayan (0 ₺) üründe alarm anlamsız; slider kurulamaz.
+      return AlertDialog(
+        title: const Text('Fiyat Alarmı Kur'),
+        content: const Text('Bu ürün için fiyat alarmı kurulamıyor.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Kapat'),
+          ),
+        ],
+      );
+    }
+
     final diff = widget.currentPrice - _targetPrice;
     final diffPercent = (diff / widget.currentPrice) * 100;
 
@@ -152,10 +182,8 @@ class _PriceAlertDialogState extends State<PriceAlertDialog> {
             ),
             const SizedBox(height: 16),
             Slider(
-              min: (widget.currentPrice * 0.3)
-                  .clamp(1, widget.currentPrice - 1)
-                  .toDouble(),
-              max: (widget.currentPrice - 1).toDouble(),
+              min: _range.min,
+              max: _range.max,
               divisions: 30,
               value: _targetPrice,
               label: '${_targetPrice.toStringAsFixed(2)} ₺',

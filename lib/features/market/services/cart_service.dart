@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/cart_model.dart';
 import '../../../core/models/coupon_model.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/utils/app_error_handler.dart' show FriendlyException;
 
 class CartService {
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
@@ -107,7 +108,7 @@ class CartService {
       }
 
       if (!isAvailable) {
-        throw Exception('Bu ürün şu anda satışta değil');
+        throw const FriendlyException('Bu ürün şu anda satışta değil');
       }
 
       // Varyantlı ürünler için varyant bazlı kontrol yap
@@ -148,10 +149,10 @@ class CartService {
         // Varsa miktarı artır
         final newQuantity = existingItem.quantity + quantity;
         if (maxPerOrder != null && newQuantity > maxPerOrder) {
-          throw Exception('Bu üründen en fazla $maxPerOrder adet alınabilir');
+          throw FriendlyException('Bu üründen en fazla $maxPerOrder adet alınabilir');
         }
         if (stockQuantity != null && newQuantity > stockQuantity) {
-          throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
+          throw FriendlyException('Stokta yeterli ürün yok (kalan: $stockQuantity)');
         }
         await _supabase
             .from('cart')
@@ -164,10 +165,10 @@ class CartService {
       }
 
       if (maxPerOrder != null && quantity > maxPerOrder) {
-        throw Exception('Bu üründen en fazla $maxPerOrder adet alınabilir');
+        throw FriendlyException('Bu üründen en fazla $maxPerOrder adet alınabilir');
       }
       if (stockQuantity != null && quantity > stockQuantity) {
-        throw Exception('Stokta yeterli ürün yok (kalan: $stockQuantity)');
+        throw FriendlyException('Stokta yeterli ürün yok (kalan: $stockQuantity)');
       }
 
       // Yeni ekle
@@ -193,6 +194,9 @@ class CartService {
           .single();
 
       return _mapToCartItem(insertResponse);
+    } on FriendlyException {
+      // Kullanıcıya olduğu gibi gösterilecek iş kuralı (stok, adet sınırı).
+      rethrow;
     } catch (e) {
       throw Exception('Sepete eklenirken hata: $e');
     }

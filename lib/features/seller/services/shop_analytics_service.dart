@@ -35,7 +35,8 @@ class ShopAnalyticsService {
         'shop_id': shopId,
         'user_id': userId,
         'session_id': sessionId,
-        'viewed_at': DateTime.now().toIso8601String(),
+        // viewed_at: DB varsayılanı now() (UTC). İstemcinin yerel saati
+        // offset'siz gidip UTC sanılıyor, kayıt 3 saat ileri kayıyordu.
       });
       debugPrint('✅ Shop view kaydedildi: $shopId');
     } catch (e) {
@@ -54,7 +55,8 @@ class ShopAnalyticsService {
         'shop_id': shopId,
         'user_id': userId,
         'session_id': sessionId,
-        'viewed_at': DateTime.now().toIso8601String(),
+        // viewed_at: DB varsayılanı now() (UTC). İstemcinin yerel saati
+        // offset'siz gidip UTC sanılıyor, kayıt 3 saat ileri kayıyordu.
       });
       debugPrint('✅ Product view kaydedildi: $productId');
     } catch (e) {
@@ -120,7 +122,7 @@ class ShopAnalyticsService {
           .from('shop_views')
           .select()
           .eq('shop_id', shopId)
-          .gte('viewed_at', todayStart.toIso8601String())
+          .gte('viewed_at', todayStart.toUtc().toIso8601String())
           .count(CountOption.exact);
       debugPrint('📊 Shop today views (direct count): ${result.count}');
       return result.count;
@@ -348,7 +350,7 @@ class ShopAnalyticsService {
           .select('subtotal')
           .eq('shop_id', shopId)
           .eq('status', 'delivered')
-          .gte('created_at', startOfMonth.toIso8601String());
+          .gte('created_at', startOfMonth.toUtc().toIso8601String());
       double monthSales = 0;
       for (var order in monthSalesResult) {
         monthSales += (order['subtotal'] ?? 0).toDouble();
@@ -409,7 +411,7 @@ class ShopAnalyticsService {
           .select('created_at, subtotal')
           .eq('shop_id', shopId)
           .eq('status', 'delivered')
-          .gte('created_at', weekAgo.toIso8601String())
+          .gte('created_at', weekAgo.toUtc().toIso8601String())
           .order('created_at');
 
       // Günlük bazda gruplama

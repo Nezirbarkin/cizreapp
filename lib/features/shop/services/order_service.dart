@@ -125,8 +125,8 @@ class OrderService {
         // Komisyon alanları trigger tarafından otomatik doldurulacak.
         'status': 'pending',
         'notes': notes,
-        'created_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
+        // created_at/updated_at: DB varsayılanı now() (UTC). İstemcinin yerel
+        // saati offset'siz gidip UTC sanılıyor, sipariş 3 saat ileri kayıyordu.
         // Fatura bilgileri
         if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
         if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
@@ -139,8 +139,10 @@ class OrderService {
       final order = Order.fromJson(orderResponse);
       debugPrint('✅ ORDER: INSERT başarılı - ID: ${order.id}');
 
-      // Sipariş öğelerini kaydet.
+      // Sipariş öğelerini kaydet: tek istekte ve hepsi-ya-da-hiçbiri (eskiden
+      // kalem başına ayrı istek; ortada biri düşerse yarım sipariş kalıyordu).
       debugPrint('🛒 ORDER: Sipariş öğeleri ekleniyor (${items.length} adet)...');
+      final itemRows = <Map<String, dynamic>>[];
       for (var i = 0; i < items.length; i++) {
         final item = items[i];
         debugPrint('  └─ Item ${i + 1}: ${item.productName} x${item.quantity}'
@@ -156,7 +158,6 @@ class OrderService {
           'product_image_url': item.productImageUrl,
           'shop_id': item.shopId,
           'shop_name': item.shopName,
-          'created_at': DateTime.now().toIso8601String(),
         };
         // Flaş satış bilgisi varsa ekle (faturalama/raporlama için).
         if (item.flashSaleId != null) {
@@ -165,7 +166,10 @@ class OrderService {
         if (item.flashPrice != null) {
           insertMap['flash_price'] = item.flashPrice;
         }
-        await _supabase.from('order_items').insert(insertMap);
+        itemRows.add(insertMap);
+      }
+      if (itemRows.isNotEmpty) {
+        await _supabase.from('order_items').insert(itemRows);
       }
       debugPrint('✅ ORDER: Tüm sipariş öğeleri eklendi');
 
@@ -547,7 +551,7 @@ class OrderService {
           .from('orders')
           .update({
             'status': 'cancelled',
-            'cancelled_at': DateTime.now().toIso8601String(),
+            'cancelled_at': DateTime.now().toUtc().toIso8601String(),
             'cancellation_reason': reason,
             'updated_at': DateTime.now().toIso8601String(),
           })
@@ -792,8 +796,7 @@ class OrderService {
             'notes': notes,
             'order_group_id': orderGroupId,
             'group_order_number': groupOrderNumber,
-            'created_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
+            // created_at/updated_at: DB varsayılanı now() (UTC).
             // Fatura bilgileri
             if (invoiceData['invoice_type'] != null) 'invoice_type': invoiceData['invoice_type'],
             if (invoiceData['invoice_full_name'] != null) 'invoice_full_name': invoiceData['invoice_full_name'],
@@ -806,7 +809,8 @@ class OrderService {
           final order = Order.fromJson(orderResponse);
           debugPrint('✅ Dükkan $shopId siparişi oluşturuldu - ID: ${order.id}');
 
-          // Sipariş öğelerini ekle
+          // Sipariş öğelerini ekle (tek istekte, hepsi-ya-da-hiçbiri)
+          final itemRows = <Map<String, dynamic>>[];
           for (final item in items) {
               final insertMap = <String, dynamic>{
                 'order_id': order.id,
@@ -819,7 +823,6 @@ class OrderService {
                 'product_image_url': item.productImageUrl,
                 'shop_id': item.shopId,
                 'shop_name': item.shopName,
-                'created_at': DateTime.now().toIso8601String(),
               };
               if (item.flashSaleId != null) {
                 insertMap['flash_sale_id'] = item.flashSaleId;
@@ -827,7 +830,10 @@ class OrderService {
               if (item.flashPrice != null) {
                 insertMap['flash_price'] = item.flashPrice;
               }
-              await _supabase.from('order_items').insert(insertMap);
+              itemRows.add(insertMap);
+            }
+            if (itemRows.isNotEmpty) {
+              await _supabase.from('order_items').insert(itemRows);
               
               // Not: Stok düşürme DB trigger'ı (decrease_product_stock) tarafından
               // sipariş statusu 'confirmed' olduğunda otomatik yapılıyor.

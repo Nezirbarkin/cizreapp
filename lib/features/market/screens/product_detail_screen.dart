@@ -28,6 +28,7 @@ import '../../seller/services/shop_analytics_service.dart';
 import '../../../core/services/smm_service.dart';
 import '../widgets/digital_order_total_card.dart';
 import '../widgets/price_alert_dialog.dart';
+import '../widgets/stock_alert_button.dart';
 import 'flash_sales_screen.dart' show FlashSaleMiniBanner;
 import 'cart_screen.dart';
 import 'shop_detail_screen.dart';
@@ -933,7 +934,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           ),
                           backgroundColor: Colors.green,
                         )
-                      else
+                      else ...[
                         const Chip(
                           label: Text(
                             'Tükendi',
@@ -941,6 +942,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           ),
                           backgroundColor: Colors.red,
                         ),
+                        const SizedBox(height: 8),
+                        StockAlertButton(productId: product.id),
+                      ],
 
                       // Kargo bilgileri (teslimat süresi satıcı profilinde)
                       if (product.hasCustomShipping) ...[

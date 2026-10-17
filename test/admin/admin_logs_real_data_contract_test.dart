@@ -132,7 +132,13 @@ void main() {
     // hiçbir dosyayı işaret etmiyordu; kaynak artık yığın izinden ya da
     // FlutterErrorDetails metninden çıkarılıp kayda yazılıyor.
     expect(analytics, contains('_extractOrigin('));
-    expect(analytics, contains("metadata: {'type': errorType, 'details': details, 'origin': origin}"));
+    expect(
+      analytics,
+      contains('metadata: _errorMetadata(errorType, details: details, origin: origin)'),
+    );
+    expect(analytics, contains("'origin': origin,"));
+    // Kaynak satırı yayınlanan sürümün koduna eşlenebilsin (2026-10-17).
+    expect(analytics, contains("'app_version': _appVersion"));
 
     // Layout hatalarında yığın izi tamamen framework içindedir; hatayı üreten
     // widget'ın konumu yalnızca tanı metninde geçer.

@@ -184,6 +184,8 @@ class NotificationModel {
         return 'local_offer';
       case 'price_drop':
         return 'trending_down';
+      case 'stock_back':
+        return 'inventory_2';
       case 'ilan_expiring':
         return 'hourglass_bottom';
       case 'ilan_expired':
@@ -259,6 +261,8 @@ class NotificationModel {
         return 'deepOrange';
       case 'price_drop':
         return 'green';
+      case 'stock_back':
+        return 'blue';
       case 'ilan_expiring':
         return 'orange';
       case 'ilan_expired':

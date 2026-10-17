@@ -456,6 +456,29 @@ class GroupChatService {
     }
   }
 
+  /// Profilleri `id → satır` olarak tek seferde (100'lük parçalarla, URL
+  /// uzunluğu sınırı için) çeker. Üye / katılma isteği / okundu listeleri
+  /// eskiden her satır için ayrı ardışık istek atıyordu (100 üye = 100 istek).
+  Future<Map<String, Map<String, dynamic>>> _profilesById(
+    Iterable<String> ids,
+    String columns,
+  ) async {
+    final unique = ids.toSet().toList();
+    final result = <String, Map<String, dynamic>>{};
+    for (var start = 0; start < unique.length; start += 100) {
+      final end = start + 100 < unique.length ? start + 100 : unique.length;
+      final rows = await _supabase
+          .from('profiles')
+          .select('id, $columns')
+          .inFilter('id', unique.sublist(start, end));
+      for (final row in (rows as List)) {
+        final map = Map<String, dynamic>.from(row as Map);
+        result[map['id'] as String] = map;
+      }
+    }
+    return result;
+  }
+
   /// Grup üyelerini getir
   Future<List<GroupMember>> getGroupMembers(String groupId) async {
     try {
@@ -467,23 +490,21 @@ class GroupChatService {
 
       final list = List<Map<String, dynamic>>.from(response);
 
-      // Her üye için profil bilgisini ayrı sorgula (FK garantili değil).
+      // Profil bilgileri ayrı sorguyla (FK garantili değil), tek seferde.
       // is_online / last_seen BURADA okunmaz: ham sütunlar hayalet modu, "son
       // görülmeyi gizle", engel ve yönetici ayarlarını bilmez. Aşağıda sunucunun
       // kural uyguladığı cevapla doldurulur.
-      for (var i = 0; i < list.length; i++) {
-        try {
-          final profile = await _supabase
-              .from('profiles')
-              .select('full_name, username, avatar_url')
-              .eq('id', list[i]['user_id'])
-              .maybeSingle();
-          if (profile != null) {
-            list[i]['profiles'] = profile;
-          }
-        } catch (_) {
-          // Profile bulunamazsa boş bırak
+      try {
+        final profiles = await _profilesById(
+          list.map((m) => m['user_id']).whereType<String>(),
+          'full_name, username, avatar_url',
+        );
+        for (final member in list) {
+          final profile = profiles[member['user_id']];
+          if (profile != null) member['profiles'] = profile;
         }
+      } catch (_) {
+        // Profiller alınamazsa boş bırak
       }
 
       final presence = await UserPresenceService.instance.fetch(
@@ -564,20 +585,18 @@ class GroupChatService {
 
       final list = List<Map<String, dynamic>>.from(response);
 
-      // Her istek için profil bilgisini ayrı sorgula (FK garantili değil)
-      for (var i = 0; i < list.length; i++) {
-        try {
-          final profile = await _supabase
-              .from('profiles')
-              .select('full_name, avatar_url')
-              .eq('id', list[i]['user_id'])
-              .maybeSingle();
-          if (profile != null) {
-            list[i]['profiles'] = profile;
-          }
-        } catch (_) {
-          // Profile bulunamazsa boş bırak
+      // Profil bilgileri ayrı sorguyla (FK garantili değil), tek seferde.
+      try {
+        final profiles = await _profilesById(
+          list.map((r) => r['user_id']).whereType<String>(),
+          'full_name, avatar_url',
+        );
+        for (final request in list) {
+          final profile = profiles[request['user_id']];
+          if (profile != null) request['profiles'] = profile;
         }
+      } catch (_) {
+        // Profiller alınamazsa boş bırak
       }
 
       return list
@@ -800,31 +819,37 @@ class GroupChatService {
         }
       }
 
-      // Reply bilgilerini de çek
-      for (var i = 0; i < messages.length; i++) {
-        if (messages[i].replyToId != null && messages[i].replyToContent == null) {
-          try {
-            final replyTo = await _supabase
-                .from('group_messages')
-                .select('content, sender_id')
-                .eq('id', messages[i].replyToId!)
-                .maybeSingle();
-
-            if (replyTo != null) {
-              // Reply gönderen adını al
-              final replySender = await _supabase
-                  .from('profiles')
-                  .select('full_name')
-                  .eq('id', replyTo['sender_id'])
-                  .maybeSingle();
-
-              messages[i] = messages[i].copyWith(
-                replyToContent: replyTo['content'] as String?,
-                replyToSenderName: replySender?['full_name'] as String?,
-              );
-            }
-          } catch (_) {}
-        }
+      // Reply bilgilerini de çek (yanıtlanan mesajlar + gönderenleri tek
+      // seferde; eskiden yanıtlı her mesaj için iki ardışık istek gidiyordu).
+      final replyIds = messages
+          .where((m) => m.replyToId != null && m.replyToContent == null)
+          .map((m) => m.replyToId!)
+          .toSet()
+          .toList();
+      if (replyIds.isNotEmpty) {
+        try {
+          final replies = await _supabase
+              .from('group_messages')
+              .select('id, content, sender_id')
+              .inFilter('id', replyIds);
+          final replyMap = <String, Map<String, dynamic>>{
+            for (final r in (replies as List))
+              r['id'] as String: Map<String, dynamic>.from(r as Map),
+          };
+          final senders = await _profilesById(
+            replyMap.values.map((r) => r['sender_id']).whereType<String>(),
+            'full_name',
+          );
+          for (var i = 0; i < messages.length; i++) {
+            final replyTo = replyMap[messages[i].replyToId];
+            if (replyTo == null || messages[i].replyToContent != null) continue;
+            messages[i] = messages[i].copyWith(
+              replyToContent: replyTo['content'] as String?,
+              replyToSenderName:
+                  senders[replyTo['sender_id']]?['full_name'] as String?,
+            );
+          }
+        } catch (_) {}
       }
 
       return messages;
@@ -1126,31 +1151,26 @@ class GroupChatService {
             .eq('message_id', messageId)
             .order('read_at', ascending: true);
 
-        final list = <MessageReadReceipt>[];
-        for (final r in (receipts as List)) {
-          // Profil bilgisini ayrı çek
-          try {
-            final profile = await _supabase
-                .from('profiles')
-                .select('full_name, username, avatar_url')
-                .eq('id', r['user_id'])
-                .maybeSingle();
+        final rows = List<Map<String, dynamic>>.from(receipts as List);
+        // Profil bilgileri tek seferde; alınamazsa okuma kaydı adsız döner.
+        var profiles = <String, Map<String, dynamic>>{};
+        try {
+          profiles = await _profilesById(
+            rows.map((r) => r['user_id']).whereType<String>(),
+            'full_name, username, avatar_url',
+          );
+        } catch (_) {}
 
-            list.add(MessageReadReceipt(
+        return [
+          for (final r in rows)
+            MessageReadReceipt(
               userId: r['user_id'] as String,
-              fullName: profile?['full_name'] as String?,
-              username: profile?['username'] as String?,
-              avatarUrl: profile?['avatar_url'] as String?,
+              fullName: profiles[r['user_id']]?['full_name'] as String?,
+              username: profiles[r['user_id']]?['username'] as String?,
+              avatarUrl: profiles[r['user_id']]?['avatar_url'] as String?,
               readAt: DateTime.parse(r['read_at'] as String),
-            ));
-          } catch (_) {
-            list.add(MessageReadReceipt(
-              userId: r['user_id'] as String,
-              readAt: DateTime.parse(r['read_at'] as String),
-            ));
-          }
-        }
-        return list;
+            ),
+        ];
       } catch (e2) {
         AppLogger.error('Error getting message read receipts fallback: $e2');
         return [];

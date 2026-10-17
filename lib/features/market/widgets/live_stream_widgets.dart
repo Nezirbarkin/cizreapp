@@ -43,6 +43,18 @@ class LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Dar kartta (ana sayfa canlı kartı, Flexible içinde) süre + izleyici
+    // rozeti sığmayınca taşıyordu. FittedBox yalnız gerektiğinde küçültür;
+    // Flexible'dan farklı olarak Positioned(left/top) gibi sınırsız
+    // genişlikte de güvenli.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: AlignmentDirectional.centerStart,
+      child: _buildRow(),
+    );
+  }
+
+  Widget _buildRow() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
