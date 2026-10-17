@@ -96,8 +96,12 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
       return;
     }
     final live = card.live;
+    final last = card.last;
+    // Canlı yayın yoksa ve son yayının kaydı varsa doğrudan kayıt açılır.
     final Widget screen = live != null && card.liveCount <= 1
         ? LiveViewerScreen(session: live)
+        : live == null && last != null && (last.replay?.isWatchable ?? false)
+        ? LiveViewerScreen(session: last)
         : LiveSessionsScreen(initialTab: live != null ? 0 : 1);
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen)).then((_) {
       if (mounted) _refresh(force: true);
@@ -119,12 +123,15 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
 
   Widget _compact(LiveHomeCard card, LiveSession session) {
     final live = card.isLive;
+    final replay = !live && (session.replay?.isWatchable ?? false);
     final shopName = session.displayName;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Semantics(
         button: true,
-        label: live ? 'Canlı yayın: $shopName' : 'Son canlı yayın: $shopName',
+        label: live
+            ? 'Canlı yayın: $shopName'
+            : (replay ? 'Canlı yayın kaydını izle: $shopName' : 'Son canlı yayın: $shopName'),
         child: GestureDetector(
           key: const ValueKey('live-home-card'),
           onTap: () => _open(card),
@@ -170,7 +177,7 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
                           border: Border.all(color: Colors.white, width: 1.5),
                         ),
                         child: Text(
-                          live ? 'CANLI' : 'SON YAYIN',
+                          live ? 'CANLI' : (replay ? '▶ TEKRAR' : 'SON YAYIN'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 8,
@@ -203,6 +210,7 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
 
   Widget _full(LiveHomeCard card, LiveSession session) {
     final live = card.isLive;
+    final replay = !live && (session.replay?.isWatchable ?? false);
     final shopName = session.displayName;
     final image = session.coverImageUrl ??
         session.pinnedProduct?.imageUrl ??
@@ -214,7 +222,9 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
         width: widget.width ?? 120,
         child: Semantics(
           button: true,
-          label: live ? 'Canlı yayın: $shopName' : 'Son canlı yayın: $shopName',
+          label: live
+              ? 'Canlı yayın: $shopName'
+              : (replay ? 'Canlı yayın kaydını izle: $shopName' : 'Son canlı yayın: $shopName'),
           child: GestureDetector(
             key: const ValueKey('live-home-card'),
             onTap: () => _open(card),
@@ -257,6 +267,12 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
                         ),
                       ),
                     ),
+                    if (replay)
+                      const Center(
+                        child: Icon(Icons.play_circle_fill, color: Colors.white, size: 40, shadows: [
+                          Shadow(color: Colors.black54, blurRadius: 6),
+                        ]),
+                      ),
                     Positioned(
                       top: 8,
                       left: 8,
@@ -265,6 +281,8 @@ class _LiveHomeStoryCardState extends State<LiveHomeStoryCard> with WidgetsBindi
                         children: [
                           if (live)
                             Flexible(child: LiveBadge(viewers: session.viewerCount))
+                          else if (replay)
+                            const LiveReplayBadge(small: true)
                           else
                             Flexible(
                               child: Container(

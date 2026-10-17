@@ -356,11 +356,15 @@ class AdminLiveOptions {
     this.notifyMaxRecipients = 2000,
     this.homeCardEnabled = true,
     this.historyDays = 30,
+    this.replayEnabled = true,
+    this.replayDays = 30,
     this.subscriptions = 0,
     this.subscribedShops = 0,
     this.notifications30d = 0,
     this.recipients30d = 0,
     this.cooldownSkips30d = 0,
+    this.replays = 0,
+    this.replaySizeBytes = 0,
   });
 
   final bool notifyEnabled;
@@ -372,6 +376,10 @@ class AdminLiveOptions {
   final bool homeCardEnabled;
   final int historyDays;
 
+  /// Yeni yayınlar kaydedilsin mi (tekrar izleme) ve kayıt kaç gün saklanır.
+  final bool replayEnabled;
+  final int replayDays;
+
   // Son 30 gün sayaçları
   final int subscriptions;
   final int subscribedShops;
@@ -379,10 +387,15 @@ class AdminLiveOptions {
   final int recipients30d;
   final int cooldownSkips30d;
 
+  /// Saklanan kayıt sayısı ve depoda kapladığı yer.
+  final int replays;
+  final int replaySizeBytes;
+
   /// Sunucudaki sınırlar (`admin_set_live_options` aynı aralığa sıkıştırır).
   static const cooldownRange = (min: 0, max: 72);
   static const maxRecipientsRange = (min: 0, max: 20000);
   static const historyDaysRange = (min: 1, max: 180);
+  static const replayDaysRange = (min: 1, max: 365);
 
   factory AdminLiveOptions.fromJson(Map<String, dynamic> json) {
     final stats = (json['stats'] as Map?) ?? const {};
@@ -395,11 +408,15 @@ class AdminLiveOptions {
       notifyMaxRecipients: _int(json['notify_max_recipients']),
       homeCardEnabled: json['home_card_enabled'] != false,
       historyDays: json['history_days'] == null ? 30 : _int(json['history_days']),
+      replayEnabled: json['replay_enabled'] != false,
+      replayDays: json['replay_days'] == null ? 30 : _int(json['replay_days']),
       subscriptions: _int(stats['subscriptions']),
       subscribedShops: _int(stats['subscribed_shops']),
       notifications30d: _int(stats['notifications_30d']),
       recipients30d: _int(stats['recipients_30d']),
       cooldownSkips30d: _int(stats['cooldown_skips_30d']),
+      replays: _int(stats['replays']),
+      replaySizeBytes: _int(stats['replay_size_bytes']),
     );
   }
 }

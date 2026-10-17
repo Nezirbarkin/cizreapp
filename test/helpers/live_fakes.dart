@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cizreapp/core/models/live_shopping_model.dart';
 import 'package:cizreapp/core/models/product_model.dart';
 import 'package:cizreapp/features/market/services/agora_service.dart';
+import 'package:cizreapp/features/market/services/live_replay_uploader.dart';
 import 'package:cizreapp/features/market/services/live_shopping_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangePayload;
@@ -31,6 +33,7 @@ Map<String, dynamic> liveSessionJson({
   // Kullanıcı (mağazasız) yayını: shop_id/shop_name boş, yayıncı alanları dolu.
   bool user = false,
   String hostName = 'zeynep',
+  Map<String, dynamic>? replay,
 }) => {
   'id': id,
   'kind': user ? 'user' : 'shop',
@@ -55,6 +58,7 @@ Map<String, dynamic> liveSessionJson({
   if (featured != null) 'featured_products': featured,
   if (durationSeconds != null) 'duration_seconds': durationSeconds,
   if (messageCount != null) 'message_count': messageCount,
+  if (replay != null) 'replay': replay,
 };
 
 Map<String, dynamic> pinnedJson({String id = 'p1', String name = 'Demlik', num price = 250, num? discount}) => {
@@ -323,7 +327,95 @@ class FakeLiveService extends LiveShoppingService {
 
   @override
   Stream<PostgresChangePayload> watchAllSessions() => changes.stream;
+
+  // ------------------------------------------------ tekrar izleme (yayın kaydı)
+
+  /// Varsayılan kapalı: eski ekran testleri kayıtsız çalışır.
+  LiveReplayStart replayStart = const LiveReplayStart();
+  Object? beginReplayError;
+  final List<String> uploadedParts = [];
+
+  /// Yükleme hatası (sırayla tüketilir; null = başarılı).
+  final List<Object?> uploadErrors = [];
+  final List<String> addedParts = [];
+  Object? addPartError;
+  final List<String> finishedReplays = [];
+  LiveReplay? finishResult = const LiveReplay(state: 'ready', parts: 1, durationMs: 1000);
+  Object? finishError;
+  LiveReplayManifest? manifest;
+  Object? manifestError;
+  final List<String> deletedReplays = [];
+  Object? deleteReplayError;
+
+  @override
+  Future<LiveReplayStart> beginReplay(String sessionId) async {
+    calls.add('replay:begin');
+    if (beginReplayError != null) throw beginReplayError!;
+    return replayStart;
+  }
+
+  @override
+  Future<void> uploadReplayPart(String sessionId, int partNo, File file) async {
+    calls.add('replay:upload:$partNo');
+    final error = uploadErrors.isEmpty ? null : uploadErrors.removeAt(0);
+    if (error != null) throw error;
+    uploadedParts.add('$sessionId#$partNo');
+  }
+
+  @override
+  Future<LiveReplay?> addReplayPart(String sessionId, int partNo, int durationMs) async {
+    if (addPartError != null) throw addPartError!;
+    addedParts.add('$sessionId#$partNo:$durationMs');
+    return LiveReplay(state: 'recording', parts: addedParts.length, durationMs: durationMs);
+  }
+
+  @override
+  Future<LiveReplay?> finishReplay(String sessionId) async {
+    calls.add('replay:finish');
+    if (finishError != null) throw finishError!;
+    finishedReplays.add(sessionId);
+    return finishResult;
+  }
+
+  @override
+  Future<LiveReplayManifest?> fetchReplay(String sessionId) async {
+    calls.add('replay:manifest');
+    if (manifestError != null) throw manifestError!;
+    return manifest;
+  }
+
+  @override
+  Future<List<String?>> signReplayUrls(List<String> paths, {Duration expiresIn = const Duration(hours: 6)}) async =>
+      [for (final p in paths) 'https://cdn.test/$p?token=t'];
+
+  @override
+  Future<LiveReplay?> deleteReplay(String sessionId) async {
+    calls.add('replay:delete');
+    if (deleteReplayError != null) throw deleteReplayError!;
+    deletedReplays.add(sessionId);
+    return const LiveReplay(state: 'deleted', deletedReason: 'host');
+  }
 }
+
+/// Bellekte duran yükleme kuyruğu deposu.
+class MemoryReplayQueueStore implements LiveReplayQueueStore {
+  String? value;
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String value) async => this.value = value;
+}
+
+/// Liste/ayrıntı JSON'undaki kayıt özeti.
+Map<String, dynamic> replayJson({String state = 'ready', int parts = 2, int durationMs = 240000}) => {
+  'state': state,
+  'parts': parts,
+  'duration_ms': durationMs,
+  'size_bytes': 1000,
+  'expires_at': kLiveNow.add(const Duration(days: 30)).toIso8601String(),
+};
 
 class FakeLiveEngine implements LiveVideoEngine {
   FakeLiveEngine({this.supported = true});
@@ -378,6 +470,54 @@ class FakeLiveEngine implements LiveVideoEngine {
 
   @override
   Widget buildRemoteView(int uid) => ColoredBox(key: ValueKey('fake-remote-view-$uid'), color: Colors.teal);
+
+  // yerel kayıt (tekrar izleme)
+  bool recordingSupported = true;
+  final List<String> recordings = [];
+  LiveRecordingEvents? recordingEvents;
+  Duration? recordingMax;
+  int stopRecordingCalls = 0;
+
+  /// Durdurulunca motor kendiliğinden "durdu" der mi (false = zaman aşımı yolu).
+  bool ackStop = true;
+
+  @override
+  Future<bool> startLocalRecording(
+    String filePath, {
+    required Duration maxDuration,
+    required LiveRecordingEvents events,
+  }) async {
+    calls.add('record:start');
+    if (!recordingSupported) return false;
+    recordings.add(filePath);
+    recordingEvents = events;
+    recordingMax = maxDuration;
+    return true;
+  }
+
+  @override
+  Future<void> stopLocalRecording() async {
+    calls.add('record:stop');
+    stopRecordingCalls++;
+    final events = recordingEvents;
+    recordingEvents = null;
+    if (ackStop) events?.onStopped?.call(LiveRecordingStop.stopped);
+  }
+
+  /// Süren parçanın dosyasını yazar ve motorun bitiş olayını gönderir.
+  void finishPart(LiveRecordingStop reason, {int bytes = 4096, int ms = 180000}) {
+    final events = recordingEvents;
+    recordingEvents = null;
+    if (bytes > 0) File(recordings.last).writeAsBytesSync(List.filled(bytes, 1));
+    events?.onInfo?.call(ms, bytes);
+    events?.onStopped?.call(reason);
+  }
+
+  /// Süren parçanın dosyasını yazar (durdurma testleri için), olay göndermez.
+  void writeCurrentPart({int bytes = 4096, int ms = 60000}) {
+    File(recordings.last).writeAsBytesSync(List.filled(bytes, 1));
+    recordingEvents?.onInfo?.call(ms, bytes);
+  }
 
   @override
   Future<void> leave() async => calls.add('leave');

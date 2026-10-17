@@ -550,13 +550,46 @@ String liveAgoText(DateTime? at, DateTime now) {
 }
 
 /// Biten yayın satırı (Geçmiş sekmesi ve Yayınlarım): yayıncı, süre, en çok
-/// izleyici, ne zaman bittiği ve öne çıkan ürünler.
+/// izleyici, ne zaman bittiği ve öne çıkan ürünler. Kaydı izlenebilen yayında
+/// "BİTTİ" yerine "TEKRAR" rozeti.
 class LiveEndedTile extends StatelessWidget {
-  const LiveEndedTile({super.key, required this.session, required this.now, required this.onTap});
+  const LiveEndedTile({
+    super.key,
+    required this.session,
+    required this.now,
+    required this.onTap,
+    this.showReplayDetail = false,
+  });
 
   final LiveSession session;
   final DateTime now;
   final VoidCallback onTap;
+
+  /// Yayınlarım: kaydın durumu ve ne zaman silineceği satırda yazar.
+  final bool showReplayDetail;
+
+  /// Yayıncıya kaydın durumu ("Kayıt hazır · 12 gün sonra silinir" gibi).
+  static String? replayDetailText(LiveReplay? replay, DateTime now) {
+    if (replay == null) return null;
+    switch (replay.state) {
+      case 'ready':
+      case 'processing':
+        if (!replay.isWatchable) return 'Kayıt yükleniyor';
+        final expires = replay.expiresAt;
+        final prefix = replay.isProcessing ? 'Kayıt kısmen hazır' : 'Kayıt hazır';
+        if (expires == null) return prefix;
+        final days = expires.difference(now).inHours / 24;
+        return days < 1 ? '$prefix · bugün silinir' : '$prefix · ${days.ceil()} gün sonra silinir';
+      case 'recording':
+        return 'Kayıt yükleniyor';
+      case 'deleted':
+        return replay.deletedReason == 'admin' ? 'Kayıt yönetim tarafından silindi' : 'Kayıt silindi';
+      case 'expired':
+        return 'Kaydın süresi doldu';
+      default:
+        return 'Kayıt alınamadı';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -564,6 +597,9 @@ class LiveEndedTile extends StatelessWidget {
     final seconds = session.durationSeconds;
     final duration = seconds != null ? Duration(seconds: seconds) : session.durationAt(now);
     final featured = session.featuredProducts;
+    final replay = session.replay;
+    final watchable = replay?.isWatchable ?? false;
+    final replayText = showReplayDetail ? replayDetailText(replay, now) : null;
     return InkWell(
       key: ValueKey('live-history-${session.id}'),
       onTap: onTap,
@@ -596,6 +632,16 @@ class LiveEndedTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
+                  if (replayText != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      replayText,
+                      key: ValueKey('live-history-replay-${session.id}'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: watchable ? Colors.white70 : Colors.white38, fontSize: 12),
+                    ),
+                  ],
                   if (featured.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Row(
@@ -637,14 +683,17 @@ class LiveEndedTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
-              child: const Text(
-                'BİTTİ',
-                style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700),
+            if (watchable)
+              const LiveReplayBadge(small: true)
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
+                child: const Text(
+                  'BİTTİ',
+                  style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700),
+                ),
               ),
-            ),
           ],
         ),
       ),

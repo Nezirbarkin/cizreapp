@@ -11,8 +11,9 @@ import 'live_viewer_screen.dart';
 ///
 /// Ana sayfa kartında biten yayın hikâye gibi 24 saat kalır, herkese açık
 /// Geçmiş sekmesinde yönetici ayarındaki gün kadar; burada hep durur ve yalnız
-/// sahibi görür. Dokununca yayının özeti (süre, izleyici, mesaj, öne çıkan
-/// ürünler) açılır.
+/// sahibi görür. Dokununca yayının kaydı (varsa) ya da özeti (süre, izleyici,
+/// mesaj, öne çıkan ürünler) açılır; satırda kaydın durumu ve ne zaman
+/// silineceği yazar.
 class MyLiveStreamsScreen extends StatefulWidget {
   const MyLiveStreamsScreen({super.key, this.service, this.openSession, this.now});
 
@@ -103,7 +104,10 @@ class _MyLiveStreamsScreenState extends State<MyLiveStreamsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => LiveViewerScreen(session: session, service: widget.service)),
-    );
+    ).then((_) {
+      // Kayıt silinmiş ya da yüklemesi bitmiş olabilir.
+      if (mounted) _load(silent: true);
+    });
   }
 
   @override
@@ -162,7 +166,7 @@ class _MyLiveStreamsScreenState extends State<MyLiveStreamsScreen> {
           );
         }
         final session = _rows[index - 1];
-        return LiveEndedTile(session: session, now: now, onTap: () => _open(session));
+        return LiveEndedTile(session: session, now: now, onTap: () => _open(session), showReplayDetail: true);
       },
     );
   }
@@ -213,7 +217,8 @@ class _InfoBanner extends StatelessWidget {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Bu listeyi yalnız sen görürsün. Biten yayının ana sayfada 24 saat kalır; burada hep durur.',
+              'Bu listeyi yalnız sen görürsün. Biten yayının ana sayfada 24 saat kalır; burada hep durur. '
+              'Yayın kaydını izleyiciler saklama süresi boyunca tekrar izleyebilir; açıp "Kaydı sil" ile kaldırabilirsin.',
               style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.3),
             ),
           ),

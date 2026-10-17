@@ -87,6 +87,34 @@ class LiveBadge extends StatelessWidget {
   }
 }
 
+/// Biten yayının kaydı izlenebilir: beyaz "TEKRAR" rozeti (isteğe bağlı süre).
+class LiveReplayBadge extends StatelessWidget {
+  const LiveReplayBadge({super.key, this.duration, this.small = false});
+
+  final Duration? duration;
+  final bool small;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = duration;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: small ? 6 : 8, vertical: small ? 2 : 4),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(small ? 4 : 6)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.play_arrow, size: small ? 12 : 14, color: Colors.black),
+          const SizedBox(width: 2),
+          Text(
+            d == null || d <= Duration.zero ? 'TEKRAR' : 'TEKRAR · ${formatLiveDuration(d)}',
+            style: TextStyle(color: Colors.black, fontSize: small ? 10 : 12, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Mağaza logosu (yoksa baş harf) — yuvarlak.
 class LiveShopAvatar extends StatelessWidget {
   const LiveShopAvatar({super.key, this.logoUrl, required this.name, this.size = 36});

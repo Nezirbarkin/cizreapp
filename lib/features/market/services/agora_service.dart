@@ -35,6 +35,31 @@ class LiveEngineEvents {
   final void Function(String code)? onError;
 }
 
+/// Yerel kaydın (tekrar izleme parçası) bitiş nedeni.
+enum LiveRecordingStop {
+  /// [LiveVideoEngine.stopLocalRecording] ile durduruldu.
+  stopped,
+
+  /// Parça uzunluğu doldu; sıradaki parça başlatılmalı.
+  maxDuration,
+
+  /// Görüntü/ses akışı 5 sn'den uzun kesildi (kamera+mikrofon kapalı vb.).
+  noStream,
+
+  /// Dosyaya yazılamadı (yer kalmadı vb.); yeniden denemek boşuna.
+  writeFailed,
+  error,
+}
+
+/// Yerel kayıt olayları.
+class LiveRecordingEvents {
+  const LiveRecordingEvents({this.onInfo, this.onStopped});
+
+  /// Kaydedilen süre ve dosya boyutu (yaklaşık saniyede bir).
+  final void Function(int durationMs, int sizeBytes)? onInfo;
+  final void Function(LiveRecordingStop reason)? onStopped;
+}
+
 /// Canlı video motoru. Uygulama Agora kullanır ([AgoraService]); testler
 /// sahte motorla ekranı sürer.
 abstract class LiveVideoEngine {
@@ -62,6 +87,18 @@ abstract class LiveVideoEngine {
 
   Widget buildRemoteView(int uid);
 
+  /// Yayıncının kendi görüntü+sesini [filePath]'e MP4 olarak kaydeder (kanala
+  /// yayıncı olarak katıldıktan sonra). [maxDuration] dolunca kayıt kendiliğinden
+  /// durur ([LiveRecordingStop.maxDuration]). Başlatılamazsa false.
+  Future<bool> startLocalRecording(
+    String filePath, {
+    required Duration maxDuration,
+    required LiveRecordingEvents events,
+  });
+
+  /// Süren kaydı durdurur; dosya kapanınca `onStopped(stopped)` gelir.
+  Future<void> stopLocalRecording();
+
   Future<void> leave();
 
   Future<void> dispose();
@@ -83,6 +120,16 @@ class AgoraService implements LiveVideoEngine {
   RtcEngineEventHandler? _handler;
   VideoViewController? _localController;
   final Map<int, VideoViewController> _remoteControllers = {};
+
+  // Yerel kayıt (tekrar izleme). Kaydedici önce yayıncının kendi uid'iyle
+  // kurulur; hiç akış bulamazsa (SDK sürümüne göre yerel akış uid 0 ile de
+  // adreslenir) bir kez 0 ile yeniden kurulur.
+  MediaRecorder? _recorder;
+  int? _hostUid;
+  int? _recorderUid;
+  bool _recorderConfirmed = false;
+  bool _recorderFallbackTried = false;
+  LiveRecordingEvents? _recordingEvents;
 
   @override
   bool get isSupported => !kIsWeb;
@@ -161,6 +208,7 @@ class AgoraService implements LiveVideoEngine {
   Future<void> joinAsHost(LiveCredentials credentials, LiveEngineEvents events) async {
     final engine = await _ensureEngine(credentials.appId);
     _channel = credentials.channel;
+    _hostUid = credentials.uid;
     _listen(engine, events);
     await engine.joinChannel(
       token: credentials.token,
@@ -250,9 +298,108 @@ class AgoraService implements LiveVideoEngine {
   }
 
   @override
+  Future<bool> startLocalRecording(
+    String filePath, {
+    required Duration maxDuration,
+    required LiveRecordingEvents events,
+  }) async {
+    final engine = _engine;
+    final channel = _channel;
+    if (engine == null || channel == null || _hostUid == null) return false;
+    final recorder = await _ensureRecorder(engine, channel);
+    if (recorder == null) return false;
+    _recordingEvents = events;
+    try {
+      await recorder.startRecording(MediaRecorderConfiguration(
+        storagePath: filePath,
+        containerFormat: MediaRecorderContainerFormat.formatMp4,
+        streamType: MediaRecorderStreamType.streamTypeBoth,
+        maxDurationMs: maxDuration.inMilliseconds,
+        recorderInfoUpdateInterval: 1000,
+      ));
+      return true;
+    } catch (e) {
+      debugPrint('Agora recording start: $e');
+      _recordingEvents = null;
+      return false;
+    }
+  }
+
+  @override
+  Future<void> stopLocalRecording() async {
+    try {
+      await _recorder?.stopRecording();
+    } catch (e) {
+      debugPrint('Agora recording stop: $e');
+    }
+  }
+
+  Future<MediaRecorder?> _ensureRecorder(RtcEngine engine, String channel) async {
+    final existing = _recorder;
+    if (existing != null) return existing;
+    final uid = _recorderUid ??= _hostUid;
+    try {
+      final recorder = await engine.createMediaRecorder(
+        RecorderStreamInfo(channelId: channel, uid: uid, type: RecorderStreamType.rtc),
+      );
+      if (recorder == null) return null;
+      await recorder.setMediaRecorderObserver(MediaRecorderObserver(
+        onRecorderStateChanged: (channelId, uid, state, reason) => _onRecorderState(state, reason),
+        onRecorderInfoUpdated: (channelId, uid, info) {
+          final ms = info.durationMs ?? 0;
+          if (ms > 0) _recorderConfirmed = true;
+          _recordingEvents?.onInfo?.call(ms, info.fileSize ?? 0);
+        },
+      ));
+      _recorder = recorder;
+      return recorder;
+    } catch (e) {
+      debugPrint('Agora recorder create: $e');
+      return null;
+    }
+  }
+
+  void _onRecorderState(RecorderState state, RecorderReasonCode reason) {
+    if (state == RecorderState.recorderStateStart) return;
+    final events = _recordingEvents;
+    _recordingEvents = null;
+    final stop = switch (reason) {
+      RecorderReasonCode.recorderReasonOverMaxDuration => LiveRecordingStop.maxDuration,
+      RecorderReasonCode.recorderReasonNoStream => LiveRecordingStop.noStream,
+      RecorderReasonCode.recorderReasonWriteFailed => LiveRecordingStop.writeFailed,
+      _ => state == RecorderState.recorderStateStop ? LiveRecordingStop.stopped : LiveRecordingStop.error,
+    };
+    // Hiç kayıt alınamadan "akış yok": kaydedici yerel akışı bu uid ile
+    // bulamıyor → bir kez uid 0 ile yeniden kur (sonraki parça onunla başlar).
+    if (stop == LiveRecordingStop.noStream && !_recorderConfirmed && !_recorderFallbackTried && _recorderUid != 0) {
+      _recorderFallbackTried = true;
+      _recorderUid = 0;
+      unawaited(_dropRecorder());
+    }
+    events?.onStopped?.call(stop);
+  }
+
+  Future<void> _dropRecorder() async {
+    final recorder = _recorder;
+    final engine = _engine;
+    _recorder = null;
+    _recordingEvents = null;
+    if (recorder == null || engine == null) return;
+    try {
+      await recorder.stopRecording();
+    } catch (_) {}
+    try {
+      await engine.destroyMediaRecorder(recorder);
+    } catch (e) {
+      debugPrint('Agora recorder destroy: $e');
+    }
+  }
+
+  @override
   Future<void> leave() async {
     final engine = _engine;
     if (engine == null) return;
+    await _dropRecorder();
     try {
       await engine.leaveChannel();
       await engine.stopPreview();
@@ -263,6 +410,7 @@ class AgoraService implements LiveVideoEngine {
 
   @override
   Future<void> dispose() async {
+    await _dropRecorder();
     final engine = _engine;
     _engine = null;
     _appId = null;

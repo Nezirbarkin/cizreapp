@@ -80,6 +80,11 @@ verify_jwt = false
 [functions.send-courier-package-email]
 verify_jwt = true
 
+# Canlı yayın kayıtlarının saatlik temizliği (pg_cron live-replay-cleanup-hourly).
+# Kullanıcı JWT'si yok; x-cron-secret (CRON_SECRET) ile korunur.
+[functions.live-replay-cleanup]
+verify_jwt = false
+
 # -----------------------------------------------------------------------------
 # Eski push endpoint'leri (2026-08-02 itibarıyla kullanımdan kaldırıldı)
 # -----------------------------------------------------------------------------

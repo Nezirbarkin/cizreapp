@@ -37,6 +37,7 @@ import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/profile/screens/user_profile_screen.dart';
 import 'features/market/screens/product_detail_screen.dart';
 import 'features/market/screens/live_session_route_screen.dart';
+import 'features/market/services/live_replay_uploader.dart';
 import 'ilanlar/screens/ilan_detail_screen.dart';
 import 'features/market/screens/shop_detail_screen.dart';
 import 'features/courier/screens/courier_panel_screen.dart';
@@ -554,6 +555,8 @@ class _CizreAppState extends State<CizreApp> {
         } catch (e) {
           print('presence start error: $e');
         }
+        // Yarım kalan canlı yayın kaydı yüklemeleri (tekrar izleme) sürer.
+        unawaited(LiveReplayUploader.instance.resume());
         // Şehiriçi favori durakları kullanıcıya aittir; hesap değişince
         // yenilenir (çıkışta aşağıda boşaltılıyor).
         if (mounted) {
@@ -590,6 +593,7 @@ class _CizreAppState extends State<CizreApp> {
       // (bkz. gotrue GoTrueClient.setInitialSession), bu yüzden register/
       // login ekranlarındaki kontrolle çakışmaz.
       if (event == AuthChangeEvent.initialSession && session != null) {
+        unawaited(LiveReplayUploader.instance.resume());
         needsUsernameSetup().then((needs) {
           if (!needs) return;
           _navigatorKey.currentState?.push(

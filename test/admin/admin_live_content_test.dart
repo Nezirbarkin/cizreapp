@@ -384,6 +384,29 @@ void main() {
     expect(find.text('Kapatan: Yönetici Ali'), findsOneWidget);
     expect(find.text('En çok 30 izleyici'), findsOneWidget);
     expect(find.text('Yayını kapat'), findsNothing);
+    expect(find.text('Kaydı izle'), findsNothing, reason: 'kaydı olmayan yayında yok');
+  });
+
+  testWidgets('Geçmiş: kaydı olan yayında boyutlu rozet ve "Kaydı izle"', (tester) async {
+    final (_, watched) = await _pump(
+      tester,
+      setup: (fake) => fake.ended
+        ..add({
+          ..._session('e2', title: 'Kayıtlı yayın', status: 'ended', endedReason: 'host'),
+          'replay': {'state': 'ready', 'parts': 2, 'duration_ms': 245000, 'size_bytes': 36 * 1024 * 1024},
+        })
+        ..add({
+          ..._session('e3', title: 'Silinen kayıt', status: 'ended', endedReason: 'host'),
+          'replay': {'state': 'deleted', 'parts': 0, 'deleted_reason': 'expired'},
+        }),
+    );
+    await _openTab(tester, 'Geçmiş');
+    expect(find.text('Kayıt 4 dk · 36 MB'), findsOneWidget);
+    expect(find.text('Kaydın süresi doldu'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('live-session-replay-e2')));
+    await tester.tap(find.byKey(const ValueKey('live-session-replay-e2')));
+    expect(watched, ['e2']);
+    expect(find.byKey(const ValueKey('live-session-replay-e3')), findsNothing);
   });
 
   testWidgets('Mağaza İzinleri: arama, süzgeç, izni kaldır (notlu) ve varsayılana dön', (tester) async {
@@ -529,6 +552,46 @@ void main() {
     expect(find.text('Yayın geçmişi: 60 gün'), findsOneWidget);
   });
 
+  testWidgets('Ayarlar: yayın kaydı anahtarı, saklama süresi ve depo sayacı', (tester) async {
+    final (fake, _) = await _pump(
+      tester,
+      setup: (fake) => fake.options = {
+        ...fake.options,
+        'replay_enabled': true,
+        'replay_days': 30,
+        'stats': {...(fake.options['stats'] as Map), 'replays': 3, 'replay_size_bytes': 1288490189},
+      },
+    );
+    await _openTab(tester, 'Ayarlar');
+    await tester.ensureVisible(find.byKey(const ValueKey('live-opt-replay-stats')));
+    await _settle(tester);
+    expect(find.text('3 kayıt · 1,2 GB'), findsOneWidget);
+    expect(find.text('Kayıtlar yayın bittikten 30 gün sonra silinir'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const ValueKey('live-opt-replay')));
+    await tester.tap(find.byKey(const ValueKey('live-opt-replay')));
+    await _settle(tester);
+    expect(fake.calls, contains('options:replay_enabled=false'));
+    expect(find.text('Yayın kaydı kapatıldı'), findsOneWidget);
+    expect(
+      find.text('Kapalı — yeni yayınlar kaydedilmez; mevcut kayıtlar süreleri dolana kadar kalır'),
+      findsOneWidget,
+    );
+
+    await tester.ensureVisible(find.byKey(const ValueKey('live-opt-replay-days')));
+    await tester.tap(find.byKey(const ValueKey('live-opt-replay-days')));
+    await _settle(tester);
+    await tester.enterText(find.byKey(const ValueKey('live-opt-number')), '400');
+    await tester.tap(find.widgetWithText(FilledButton, 'Kaydet'));
+    await _settle(tester);
+    expect(find.text('1–365 arası bir sayı girin'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('live-opt-number')), '7');
+    await tester.tap(find.widgetWithText(FilledButton, 'Kaydet'));
+    await _settle(tester);
+    expect(fake.calls, contains('options:replay_days=7'));
+    expect(find.text('Kayıtlar yayın bittikten 7 gün sonra silinir'), findsOneWidget);
+  });
+
   testWidgets('Dar ekran + büyük yazı: sekmeler ve pencereler taşmaz', (tester) async {
     await _pump(tester, size: const Size(320, 568), textScale: 1.6);
     expect(tester.takeException(), isNull);
@@ -650,7 +713,15 @@ void main() {
     expect(fake.calls, contains('user-mode:off:true'));
     expect(find.text('Kullanıcı yayınları kapatıldı'), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(const ValueKey('live-user-mode-open')));
+    // Ayarlar listesi uzun (bildirim + kayıt bölümleri): üstteki seçenek tembel
+    // listede çizilmemiş olabilir, kaydırarak bulunur.
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('live-user-mode-open')),
+      -200,
+      scrollable: find
+          .ancestor(of: find.byKey(const ValueKey('live-user-mode-off')), matching: find.byType(Scrollable))
+          .first,
+    );
     await tester.tap(find.byKey(const ValueKey('live-user-mode-open')));
     await _settle(tester);
     expect(fake.calls, contains('user-mode:open:false'), reason: 'açmak onay istemez');

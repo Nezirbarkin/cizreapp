@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show SocketException;
+import 'dart:io' show File, SocketException;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -182,6 +182,78 @@ class LiveShoppingService {
       throw LiveException(LiveFailure.fromCode(data['error']?.toString()), data['error']?.toString());
     }
     return LiveCredentials.fromJson(Map<String, dynamic>.from(data));
+  });
+
+  // ------------------------------------------------- tekrar izleme (yayın kaydı)
+
+  static const replayBucket = 'live-replays';
+
+  /// Yayın canlı olunca: kayıt açık mı, sıradaki parça numarası ve uzunluğu.
+  Future<LiveReplayStart> beginReplay(String sessionId) => _guard(() async {
+    final data = await _client.rpc('live_replay_begin', params: {'p_session_id': sessionId});
+    return LiveReplayStart.fromJson(Map<String, dynamic>.from(data as Map));
+  });
+
+  /// Parça dosyasını depoya yükler (yarıda kalmış deneme varsa üzerine yazar).
+  /// Hata sınıflandırması için ham [StorageException] fırlatır.
+  Future<void> uploadReplayPart(String sessionId, int partNo, File file) async {
+    await _client.storage
+        .from(replayBucket)
+        .upload(
+          LiveReplay.partPath(sessionId, partNo),
+          file,
+          fileOptions: const FileOptions(contentType: 'video/mp4', upsert: true),
+        );
+  }
+
+  /// Yüklenen parçayı kayda işler (sunucu dosyanın depoda olduğuna bakar).
+  Future<LiveReplay?> addReplayPart(String sessionId, int partNo, int durationMs) => _guard(() async {
+    final data = await _client.rpc(
+      'live_replay_add_part',
+      params: {'p_session_id': sessionId, 'p_part_no': partNo, 'p_duration_ms': durationMs},
+    );
+    return LiveReplay.tryFromJson(data);
+  });
+
+  /// Yayın bitip parçalar yüklenince kaydı sonlandırır (yayın sürüyorsa
+  /// sunucu bir şey değiştirmez).
+  Future<LiveReplay?> finishReplay(String sessionId) => _guard(() async {
+    final data = await _client.rpc('live_replay_finish', params: {'p_session_id': sessionId});
+    return LiveReplay.tryFromJson(data);
+  });
+
+  /// İzleyici: parça listesi; kayıt görünür değilse null.
+  Future<LiveReplayManifest?> fetchReplay(String sessionId) => _guard(() async {
+    final data = await _client.rpc('live_replay_parts', params: {'p_session_id': sessionId});
+    return LiveReplayManifest.tryFromJson(data);
+  });
+
+  /// Parçaların imzalı adresleri ([paths] sırasıyla; imzalanamayan null).
+  Future<List<String?>> signReplayUrls(List<String> paths, {Duration expiresIn = const Duration(hours: 6)}) =>
+      _guard(() async {
+        if (paths.isEmpty) return const <String?>[];
+        final results = await _client.storage.from(replayBucket).createSignedUrlsResult(paths, expiresIn.inSeconds);
+        final byPath = {
+          for (final r in results.whereType<SignedUrlSuccess>()) r.path: r.signedUrl,
+        };
+        return [for (final p in paths) byPath[p]];
+      });
+
+  /// Yayıncı ya da yönetici kaydı siler: kayıt hemen izlenemez olur, dosyalar
+  /// depodan kaldırılır (kaldırılamayanları saatlik temizlik toplar).
+  Future<LiveReplay?> deleteReplay(String sessionId) => _guard(() async {
+    final data = Map<String, dynamic>.from(
+      await _client.rpc('live_replay_delete', params: {'p_session_id': sessionId}) as Map,
+    );
+    final paths = (data['paths'] as List? ?? const []).map((e) => e.toString()).toList();
+    if (paths.isNotEmpty) {
+      try {
+        await _client.storage.from(replayBucket).remove(paths);
+      } catch (e) {
+        debugPrint('live replay remove: $e');
+      }
+    }
+    return LiveReplay.tryFromJson(data['replay']);
   });
 
   // ------------------------------------------------------------------ sohbet

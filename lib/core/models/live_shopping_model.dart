@@ -64,6 +64,154 @@ class LivePinnedProduct {
   }
 }
 
+/// Yayın kaydı (tekrar izleme) özeti — sunucu `private.live_replay_json`.
+///
+/// Kaydı yayıncının telefonu 3 dakikalık MP4 parçalar hâlinde alıp
+/// `live-replays` kovasına yükler; yayın bitince izleyici bu parçaları art
+/// arda izler.
+class LiveReplay {
+  /// recording (yayın sürüyor) | processing (yayın bitti, parçalar hâlâ
+  /// yükleniyor) | ready | failed (hiç parça gelmedi) | deleted | expired
+  final String state;
+  final int parts;
+  final int durationMs;
+  final int sizeBytes;
+
+  /// Kaydın silineceği an (yönetici ayarındaki saklama süresi).
+  final DateTime? expiresAt;
+
+  /// 'host' | 'admin' | 'expired' (yalnız silinmiş kayıtta).
+  final String? deletedReason;
+
+  const LiveReplay({
+    required this.state,
+    this.parts = 0,
+    this.durationMs = 0,
+    this.sizeBytes = 0,
+    this.expiresAt,
+    this.deletedReason,
+  });
+
+  static LiveReplay? tryFromJson(Object? json) {
+    if (json is! Map) return null;
+    final state = _text(json['state']);
+    if (state == null) return null;
+    return LiveReplay(
+      state: state,
+      parts: _int(json['parts']),
+      durationMs: _int(json['duration_ms']),
+      sizeBytes: _int(json['size_bytes']),
+      expiresAt: _time(json['expires_at']),
+      deletedReason: _text(json['deleted_reason']),
+    );
+  }
+
+  /// Realtime `live_sessions` satırındaki replay_* sütunlarından (sunucudaki
+  /// durum eşlemesiyle aynı; saklama süresi bilinmediği için öncekinden alınır).
+  /// Satırda kayıt sütunu yoksa [previous] döner.
+  static LiveReplay? fromRow(Map<String, dynamic> row, {required String status, LiveReplay? previous}) {
+    if (!row.containsKey('replay_state')) return previous;
+    final raw = _text(row['replay_state']);
+    if (raw == null) return null;
+    final gone = raw == 'deleted';
+    return LiveReplay(
+      state: raw == 'recording' && status == 'ended' ? 'processing' : raw,
+      parts: gone ? 0 : _int(row['replay_parts']),
+      durationMs: gone ? 0 : _int(row['replay_duration_ms']),
+      sizeBytes: gone ? 0 : _int(row['replay_size_bytes']),
+      expiresAt: gone ? null : previous?.expiresAt,
+      deletedReason: _text(row['replay_deleted_reason']),
+    );
+  }
+
+  /// İzleyici şimdi izleyebilir mi (en az bir parça yüklendi, kayıt duruyor).
+  bool get isWatchable => (state == 'ready' || state == 'processing') && parts > 0;
+
+  /// Yayın bitti, parçalar hâlâ yükleniyor.
+  bool get isProcessing => state == 'processing';
+
+  /// Silindi ya da saklama süresi doldu.
+  bool get isGone => state == 'deleted' || state == 'expired';
+
+  Duration get duration => Duration(milliseconds: durationMs);
+
+  /// Depodaki parça yolu: `<session_id>/part-0001.mp4`.
+  static String partPath(String sessionId, int partNo) => '$sessionId/part-${partNo.toString().padLeft(4, '0')}.mp4';
+}
+
+/// Kaydın bir parçası (`live_replay_parts` RPC'si).
+class LiveReplayItem {
+  final int partNo;
+  final String path;
+  final Duration duration;
+
+  const LiveReplayItem({required this.partNo, required this.path, required this.duration});
+}
+
+/// İzleyicinin oynattığı parça listesi; görünür değilse sunucu null döner.
+class LiveReplayManifest {
+  final LiveReplay replay;
+  final List<LiveReplayItem> items;
+
+  const LiveReplayManifest({required this.replay, this.items = const []});
+
+  static LiveReplayManifest? tryFromJson(Object? json) {
+    final replay = LiveReplay.tryFromJson(json);
+    if (replay == null || json is! Map) return null;
+    final raw = json['items'];
+    final items = <LiveReplayItem>[];
+    if (raw is List) {
+      for (final e in raw.whereType<Map>()) {
+        final path = _text(e['path']);
+        final ms = _int(e['duration_ms']);
+        if (path == null || ms <= 0) continue;
+        items.add(LiveReplayItem(partNo: _int(e['part_no']), path: path, duration: Duration(milliseconds: ms)));
+      }
+    }
+    items.sort((a, b) => a.partNo.compareTo(b.partNo));
+    return LiveReplayManifest(replay: replay, items: items);
+  }
+
+  Duration get total => items.fold(Duration.zero, (sum, item) => sum + item.duration);
+}
+
+/// `live_replay_begin` cevabı: kayıt açık mı, parça numarası ve uzunluğu.
+class LiveReplayStart {
+  final bool enabled;
+
+  /// Kapalıysa neden: 'disabled' (yönetim kapattı) ya da kaydın durumu.
+  final String? reason;
+  final int nextPart;
+  final Duration partLength;
+  final int maxParts;
+
+  /// Kaydın kaç gün saklanacağı.
+  final int days;
+
+  const LiveReplayStart({
+    this.enabled = false,
+    this.reason,
+    this.nextPart = 1,
+    this.partLength = const Duration(minutes: 3),
+    this.maxParts = 999,
+    this.days = 30,
+  });
+
+  factory LiveReplayStart.fromJson(Map<String, dynamic> json) {
+    final seconds = _int(json['part_seconds']);
+    final next = _int(json['next_part']);
+    final max = _int(json['max_parts']);
+    return LiveReplayStart(
+      enabled: json['enabled'] == true,
+      reason: _text(json['reason']),
+      nextPart: next < 1 ? 1 : next,
+      partLength: Duration(seconds: seconds < 30 ? 180 : seconds),
+      maxParts: max < 1 ? 999 : max,
+      days: json['days'] == null ? 30 : _int(json['days']),
+    );
+  }
+}
+
 /// Canlı yayın oturumu. status: 'scheduled' (hazırlık) | 'live' | 'ended'.
 ///
 /// İki tür: mağaza yayını ([shopId] dolu) ve kullanıcı yayını ([shopId] boş;
@@ -117,6 +265,9 @@ class LiveSession {
   /// (null = bu çağrıda bildirim gönderilmedi, ör. zaten canlıydı).
   final int? notified;
 
+  /// Yayın kaydı (tekrar izleme); kayıt hiç başlamadıysa null.
+  final LiveReplay? replay;
+
   const LiveSession({
     required this.id,
     required this.hostUserId,
@@ -145,6 +296,7 @@ class LiveSession {
     this.durationSeconds,
     this.messageCount,
     this.notified,
+    this.replay,
   });
 
   factory LiveSession.fromJson(Map<String, dynamic> json) {
@@ -181,6 +333,7 @@ class LiveSession {
       durationSeconds: json['duration_seconds'] == null ? null : _int(json['duration_seconds']),
       messageCount: json['message_count'] == null ? null : _int(json['message_count']),
       notified: json['notified'] == null ? null : _int(json['notified']),
+      replay: LiveReplay.tryFromJson(json['replay']),
     );
   }
 
@@ -240,8 +393,41 @@ class LiveSession {
       featuredProducts: featuredProducts,
       durationSeconds: durationSeconds,
       messageCount: messageCount,
+      replay: LiveReplay.fromRow(row, status: status, previous: replay),
     );
   }
+
+  /// Kaydı güncellenmiş kopya (ör. silindikten sonra).
+  LiveSession withReplay(LiveReplay? value) => LiveSession(
+    id: id,
+    hostUserId: hostUserId,
+    shopId: shopId,
+    title: title,
+    description: description,
+    coverImageUrl: coverImageUrl,
+    channelName: channelName,
+    status: status,
+    isLiveNow: isLiveNow,
+    startedAt: startedAt,
+    endedAt: endedAt,
+    endedReason: endedReason,
+    viewerCount: viewerCount,
+    peakViewerCount: peakViewerCount,
+    lastHeartbeatAt: lastHeartbeatAt,
+    createdAt: createdAt,
+    shopName: shopName,
+    shopLogoUrl: shopLogoUrl,
+    hostDisplayName: hostDisplayName,
+    hostUsername: hostUsername,
+    hostAvatarUrl: hostAvatarUrl,
+    pinnedProduct: pinnedProduct,
+    pinnedProductId: pinnedProductId,
+    featuredProducts: featuredProducts,
+    durationSeconds: durationSeconds,
+    messageCount: messageCount,
+    notified: notified,
+    replay: value,
+  );
 
   /// Sabit ürün ayrıntısı yüklenmesi gerekiyor mu (kimlik var, ayrıntı yok).
   bool get needsPinnedDetail => pinnedProductId != null && pinnedProduct?.id != pinnedProductId;
@@ -503,6 +689,11 @@ enum LiveFailure {
   userRevoked('Canlı yayın iznin yönetim tarafından kaldırıldı.'),
   userNotPermitted('Canlı yayın şu an yalnız izin verilen kullanıcılara açık. İzin için yönetimle iletişime geç.'),
   userNotFound('Kullanıcı bulunamadı.'),
+  // Tekrar izleme (yayın kaydı)
+  replayClosed('Bu yayının kaydı kapandı.'),
+  replayPartMissing('Kayıt parçası yüklenemedi.'),
+  replayPartInvalid('Kayıt parçası geçersiz.'),
+  replayNotEnded('Yayın sürerken kayıt silinemez.'),
   unknown('Bir şeyler ters gitti; tekrar dene.');
 
   const LiveFailure(this.message);
@@ -562,6 +753,14 @@ enum LiveFailure {
         return LiveFailure.userNotPermitted;
       case 'LIVE_USER_NOT_FOUND':
         return LiveFailure.userNotFound;
+      case 'LIVE_REPLAY_CLOSED':
+        return LiveFailure.replayClosed;
+      case 'LIVE_REPLAY_PART_MISSING':
+        return LiveFailure.replayPartMissing;
+      case 'LIVE_REPLAY_PART_INVALID':
+        return LiveFailure.replayPartInvalid;
+      case 'LIVE_REPLAY_NOT_ENDED':
+        return LiveFailure.replayNotEnded;
       default:
         return LiveFailure.unknown;
     }

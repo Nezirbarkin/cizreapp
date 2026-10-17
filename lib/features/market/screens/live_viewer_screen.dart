@@ -7,6 +7,7 @@ import '../../../core/models/live_shopping_model.dart';
 import '../../../core/services/screen_awake_service.dart';
 import '../services/agora_service.dart';
 import '../services/live_shopping_service.dart';
+import '../widgets/live_replay_player.dart';
 import '../widgets/live_stream_widgets.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import 'product_detail_screen.dart';
@@ -22,12 +23,20 @@ enum _ViewerPhase { connecting, watching, ended, failed }
 /// "Haberdar ol" ile mağazanın sonraki yayınlarında bildirim gelir. Kullanıcı
 /// (mağazasız) yayınında üst bilgi yayıncının profilini açar; bildirim
 /// takipçilere gittiği için abonelik düğmesi yoktur.
+///
+/// Tekrar izleme: biten yayın (geçmişten, bildirimden, ana sayfadan) açılınca
+/// kaydı varsa doğrudan kayıt oynatılır ([LiveReplayPlayer]); izlerken biten
+/// yayında özet ekranında "Kaydı izle" çıkar. Yayıncı son parçaları hâlâ
+/// yüklüyorsa satır değişiklikleri dinlenir, kayıt gelince düğme belirir.
+/// Yayıncı (ve [allowReplayDelete] ile yönetici) kaydı silebilir.
 class LiveViewerScreen extends StatefulWidget {
   const LiveViewerScreen({
     super.key,
     required this.session,
     this.service,
     this.engineFactory,
+    this.replayClipFactory,
+    this.allowReplayDelete = false,
     this.openProduct,
     this.openShop,
     this.openProfile,
@@ -37,6 +46,12 @@ class LiveViewerScreen extends StatefulWidget {
   final LiveSession session;
   final LiveShoppingService? service;
   final LiveVideoEngineFactory? engineFactory;
+
+  /// Testler için; varsayılan `video_player`.
+  final LiveReplayClipFactory? replayClipFactory;
+
+  /// Yönetici ekranından açılınca kaydı silme seçeneği (yetki sunucuda).
+  final bool allowReplayDelete;
 
   /// Testler için; varsayılan ürün detayını açar.
   final void Function(BuildContext context, String productId)? openProduct;
@@ -69,18 +84,35 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
   LiveConnectionState _connection = LiveConnectionState.connecting;
   DateTime? _lastTokenRenew;
 
+  /// Bitmiş yayında kayıt oynatıcısı mı (true) özet mi gösteriliyor.
+  bool _showReplay = false;
+
+  /// Biten yayın açıldıysa kayıt kendiliğinden oynar; izlerken biten yayında
+  /// önce özet gösterilir.
+  bool _autoReplay = false;
+  bool _deletingReplay = false;
+
   StreamSubscription<Map<String, dynamic>>? _rowSub;
   StreamSubscription<LiveChatEvent>? _chatSub;
   StreamSubscription<int>? _audienceSub;
 
   bool get _isGuest => _service.currentUserId == null;
 
+  bool get _canDeleteReplay {
+    final replay = _session.replay;
+    if (replay == null || replay.isGone || _session.isLive) return false;
+    final uid = _service.currentUserId;
+    return widget.allowReplayDelete || (uid != null && uid == _session.hostUserId);
+  }
+
   @override
   void initState() {
     super.initState();
-    // Biten yayının özeti görüntü motoru istemez (web'de de açılır).
+    // Biten yayının kaydı/özeti görüntü motoru istemez (web'de de açılır).
     if (_session.isEnded) {
       _phase = _ViewerPhase.ended;
+      _autoReplay = true;
+      _showReplay = _session.replay?.isWatchable ?? false;
       _loadEndedDetail();
       return;
     }
@@ -92,13 +124,75 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
     _connect();
   }
 
-  /// Bitti ekranı için süre/mesaj sayısı ve öne çıkan ürünler.
+  /// Bitti ekranı için süre/mesaj sayısı, öne çıkan ürünler ve kayıt durumu.
   Future<void> _loadEndedDetail() async {
     try {
       final fresh = await _service.fetchSession(_session.id);
-      if (fresh != null && mounted) setState(() => _session = fresh);
+      if (fresh != null && mounted) {
+        setState(() {
+          _session = fresh;
+          if (_autoReplay && (fresh.replay?.isWatchable ?? false)) _showReplay = true;
+        });
+      }
     } catch (_) {
       // Ayrıntı gelmezse bitti ekranı eldeki bilgiyle kalır.
+    }
+    _syncReplayWatch();
+  }
+
+  /// Bitmiş yayında kayıt hâlâ yükleniyorsa satır aboneliği açık kalır
+  /// (parça sayısı/durum güncellenir); yüklenme bitince kapanır.
+  void _syncReplayWatch() {
+    if (!mounted || _phase != _ViewerPhase.ended) return;
+    final state = _session.replay?.state;
+    if (state == 'recording' || state == 'processing') {
+      _rowSub ??= _service.watchSessionRow(_session.id).listen(_onRow, onError: (_) {});
+    } else if (_rowSub != null) {
+      unawaited(_rowSub!.cancel());
+      _rowSub = null;
+    }
+  }
+
+  void _openReplay() => setState(() => _showReplay = true);
+
+  void _replayUnavailable() {
+    if (!mounted) return;
+    setState(() => _showReplay = false);
+    // Sunucu artık izlenemez diyor (silindi/süresi doldu): özeti tazele.
+    unawaited(_loadEndedDetail());
+  }
+
+  Future<void> _deleteReplay() async {
+    if (_deletingReplay) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kaydı sil'),
+        content: const Text('Yayının kaydı herkes için silinecek ve bir daha izlenemeyecek. Emin misin?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: kLiveRed),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _deletingReplay = true);
+    try {
+      final replay = await _service.deleteReplay(_session.id);
+      if (!mounted) return;
+      setState(() {
+        _session = _session.withReplay(replay ?? const LiveReplay(state: 'deleted'));
+        _showReplay = false;
+      });
+      _snack('Kayıt silindi');
+    } catch (e) {
+      _snack(LiveShoppingService.toLiveException(e).message);
+    } finally {
+      if (mounted) setState(() => _deletingReplay = false);
     }
   }
 
@@ -192,6 +286,12 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
   void _onRow(Map<String, dynamic> row) {
     if (!mounted) return;
     final updated = _session.applyRow(row);
+    if (_phase == _ViewerPhase.ended) {
+      // Bitmiş yayında yalnız kaydın yüklenme durumu değişir.
+      setState(() => _session = updated);
+      _syncReplayWatch();
+      return;
+    }
     if (updated.isEnded) {
       _session = updated;
       _showEnded();
@@ -217,7 +317,12 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
   }
 
   void _showEnded() {
-    _stopStreams();
+    // Sohbet ve izleyici sayacı kapanır; satır aboneliği kaydın yüklenmesini
+    // izlemek için kalabilir (_syncReplayWatch karar verir).
+    unawaited(_chatSub?.cancel());
+    unawaited(_audienceSub?.cancel());
+    _chatSub = null;
+    _audienceSub = null;
     unawaited(_engine.leave());
     unawaited(ScreenAwakeService.setKeepOn(false));
     if (!mounted) return;
@@ -354,10 +459,224 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
       backgroundColor: Colors.black,
       body: switch (_phase) {
         _ViewerPhase.failed => _failureView(),
+        _ViewerPhase.ended when _showReplay && (_session.replay?.isWatchable ?? false) => _replayView(),
         _ViewerPhase.ended => _endedView(),
         _ => _stage(),
       },
     );
+  }
+
+  /// Biten yayının kaydı: tam ekran oynatıcı + üstte yayıncı, TEKRAR rozeti.
+  Widget _replayView() {
+    final shopName = _session.displayName;
+    final replay = _session.replay!;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        LiveReplayPlayer(
+          key: ValueKey('live-replay-${_session.id}'),
+          sessionId: _session.id,
+          service: _service,
+          clipFactory: widget.replayClipFactory,
+          muted: _muted,
+          onUnavailable: _replayUnavailable,
+        ),
+        const IgnorePointer(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: 160,
+              width: double.infinity,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x99000000), Color(0x00000000)],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _openHost,
+                      child: LiveShopAvatar(logoUrl: _session.displayAvatarUrl, name: shopName),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: _openHost,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              shopName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                            ),
+                            Text(
+                              _session.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Paylaş',
+                      onPressed: _shareLive,
+                      icon: const Icon(Icons.share_outlined, color: Colors.white),
+                    ),
+                    IconButton(
+                      tooltip: _muted ? 'Sesi aç' : 'Sesi kapat',
+                      onPressed: () => setState(() => _muted = !_muted),
+                      icon: Icon(_muted ? Icons.volume_off : Icons.volume_up, color: Colors.white),
+                    ),
+                    PopupMenuButton<String>(
+                      key: const ValueKey('live-replay-menu'),
+                      tooltip: 'Diğer',
+                      icon: const Icon(Icons.more_vert, color: Colors.white),
+                      onSelected: (value) {
+                        if (value == 'summary') setState(() => _showReplay = false);
+                        if (value == 'delete') _deleteReplay();
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 'summary', child: Text('Yayın özeti')),
+                        if (_canDeleteReplay)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Kaydı sil', style: TextStyle(color: kLiveRed)),
+                          ),
+                      ],
+                    ),
+                    IconButton(
+                      tooltip: 'Kapat',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: Row(
+                  children: [
+                    const LiveReplayBadge(),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.visibility_outlined, size: 14, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${_session.peakViewerCount}',
+                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (_session.shopId.isNotEmpty)
+                      Flexible(
+                        child: LiveSubscribeButton(
+                          shopId: _session.shopId,
+                          shopName: _session.shopName,
+                          service: _service,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (replay.isProcessing)
+                Container(
+                  key: const ValueKey('live-replay-processing'),
+                  margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.cloud_upload_outlined, color: Colors.white70, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Yayının son bölümü hâlâ yükleniyor; sona gelince kendiliğinden devam eder.',
+                          style: TextStyle(color: Colors.white, fontSize: 12.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Bitti ekranında kaydın durumu: izle düğmesi ya da neden izlenemediği.
+  List<Widget> _replaySection() {
+    final replay = _session.replay;
+    if (replay == null) return const [];
+    if (replay.isWatchable) {
+      final duration = replay.duration > Duration.zero ? ' (${formatLiveDuration(replay.duration)})' : '';
+      return [
+        FilledButton.icon(
+          key: const ValueKey('live-replay-open'),
+          onPressed: _openReplay,
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            minimumSize: const Size.fromHeight(48),
+          ),
+          icon: const Icon(Icons.play_arrow),
+          label: Text('Kaydı izle$duration', style: const TextStyle(fontWeight: FontWeight.w800)),
+        ),
+        if (replay.isProcessing) ...[
+          const SizedBox(height: 6),
+          const Text(
+            'Yayının son bölümü hâlâ yükleniyor.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ],
+        const SizedBox(height: 14),
+      ];
+    }
+    final (IconData icon, String text) = switch (replay.state) {
+      'recording' || 'processing' => (Icons.cloud_upload_outlined, 'Kayıt hazırlanıyor; hazır olunca buradan izleyebilirsin.'),
+      'deleted' => (Icons.delete_outline, 'Bu yayının kaydı silindi.'),
+      'expired' => (Icons.history_toggle_off, 'Bu yayının kaydının saklama süresi doldu.'),
+      _ => (Icons.videocam_off_outlined, 'Bu yayının kaydı alınamadı.'),
+    };
+    return [
+      Row(
+        key: const ValueKey('live-replay-note'),
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white54, size: 18),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(text, style: const TextStyle(color: Colors.white54, fontSize: 12.5)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+    ];
   }
 
   Widget _video() {
@@ -570,11 +889,13 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
                     ],
                   ),
                 ],
+                const SizedBox(height: 20),
+                ..._replaySection(),
                 if (_session.featuredProducts.isNotEmpty) ...[
-                  const SizedBox(height: 20),
                   LiveFeaturedProducts(products: _session.featuredProducts, onTap: _openProduct),
+                  const SizedBox(height: 4),
                 ],
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 if (_session.shopId.isNotEmpty) ...[
                   LiveSubscribeButton(
                     shopId: _session.shopId,
@@ -602,6 +923,16 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> {
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.white, minimumSize: const Size.fromHeight(44)),
                   child: const Text('Kapat'),
                 ),
+                if (_canDeleteReplay) ...[
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    key: const ValueKey('live-replay-delete'),
+                    onPressed: _deletingReplay ? null : _deleteReplay,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: Text(_deletingReplay ? 'Kayıt siliniyor…' : 'Kaydı sil'),
+                  ),
+                ],
               ],
             ),
           ),

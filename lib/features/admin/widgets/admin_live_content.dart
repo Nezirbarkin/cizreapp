@@ -98,7 +98,14 @@ class _AdminLiveContentState extends State<AdminLiveContent> {
       opener(context, session);
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => LiveViewerScreen(session: session)));
+    // Kaydı yalnız yönetici silebilir (sunucu da denetler).
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => LiveViewerScreen(session: session, allowReplayDelete: !widget.moderatorMode),
+          ),
+        )
+        .then((_) => _changed());
   }
 
   Future<void> _applySettings({bool? enabled, String? access, bool closeRunning = false}) async {
@@ -590,6 +597,7 @@ class _LiveSessionCard extends StatelessWidget {
       _ => Colors.blueGrey,
     };
     final pinned = session.pinnedProduct;
+    final replay = session.replay;
     return AdminCard(
       key: ValueKey('live-session-${session.id}'),
       padding: const EdgeInsets.all(12),
@@ -645,6 +653,7 @@ class _LiveSessionCard extends StatelessWidget {
               AdminPill(label: '${row.messageCount} mesaj', color: Colors.blueGrey, icon: Icons.chat_bubble_outline),
               if (row.shopAccess != LiveShopAccess.ok)
                 AdminPill(label: row.shopAccess.label, color: _accessColor(row.shopAccess), icon: Icons.block),
+              if (!live && replay != null) _replayPill(replay),
             ],
           ),
           if (live && pinned != null) ...[
@@ -683,6 +692,18 @@ class _LiveSessionCard extends StatelessWidget {
               child: Text('Not: ${row.endedNote}', style: const TextStyle(fontSize: 12.5, color: AdminUi.ink)),
             ),
           ],
+          if (!live && (replay?.isWatchable ?? false)) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                key: ValueKey('live-session-replay-${session.id}'),
+                onPressed: onWatch,
+                icon: const Icon(Icons.play_circle_outline, size: 18),
+                label: const Text('Kaydı izle'),
+              ),
+            ),
+          ],
           if (live) ...[
             const SizedBox(height: 10),
             if (busy)
@@ -714,6 +735,33 @@ class _LiveSessionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Geçmiş kartında kaydın durumu ve boyutu.
+Widget _replayPill(LiveReplay replay) {
+  final size = replay.sizeBytes > 0 ? ' · ${formatReplaySize(replay.sizeBytes)}' : '';
+  return switch (replay.state) {
+    'ready' || 'processing' when replay.isWatchable => AdminPill(
+      label: 'Kayıt ${adminDuration(replay.durationMs ~/ 1000)}$size',
+      color: Colors.green.shade700,
+      icon: Icons.play_circle_outline,
+    ),
+    'recording' || 'processing' => AdminPill(label: 'Kayıt yükleniyor', color: Colors.orange.shade800),
+    'deleted' => AdminPill(
+      label: replay.deletedReason == 'expired' ? 'Kaydın süresi doldu' : 'Kayıt silindi',
+      color: Colors.grey.shade700,
+    ),
+    'expired' => AdminPill(label: 'Kaydın süresi doldu', color: Colors.grey.shade700),
+    _ => AdminPill(label: 'Kayıt alınamadı', color: Colors.grey.shade700),
+  };
+}
+
+/// "34 MB" / "1,2 GB".
+String formatReplaySize(int bytes) {
+  const mb = 1024 * 1024;
+  if (bytes >= 1024 * mb) return '${(bytes / (1024 * mb)).toStringAsFixed(1).replaceAll('.', ',')} GB';
+  if (bytes >= mb) return '${(bytes / mb).round()} MB';
+  return '${(bytes / 1024).ceil()} KB';
 }
 
 /// Kapatma: not (satıcıya bildirimde) + isteğe bağlı mağaza iznini kaldırma.
@@ -2138,6 +2186,72 @@ class _LiveOptionsSectionState extends State<_LiveOptionsSection> {
                   current: options.historyDays,
                   range: AdminLiveOptions.historyDaysRange,
                   message: (v) => 'Yayın geçmişi: $v gün',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Yayın kayıtları (tekrar izleme)',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AdminUi.ink),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Yayıncının telefonu yayını 3 dakikalık parçalar hâlinde kaydedip yükler; yayın bitince izleyiciler '
+          'kaydı izler. Kayıtlar Supabase depolamasında yer kaplar.',
+          style: TextStyle(fontSize: 12.5, color: AdminUi.muted),
+        ),
+        const SizedBox(height: 8),
+        AdminCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              _switch(
+                key: 'live-opt-replay',
+                value: options.replayEnabled,
+                title: 'Yeni yayınları kaydet',
+                subtitle: options.replayEnabled
+                    ? 'Açık — biten yayınlar tekrar izlenebilir'
+                    : 'Kapalı — yeni yayınlar kaydedilmez; mevcut kayıtlar süreleri dolana kadar kalır',
+                icon: Icons.video_library_outlined,
+                onChanged: (v) => _save(
+                  {'replay_enabled': v},
+                  v ? 'Yayın kaydı açıldı' : 'Yayın kaydı kapatıldı',
+                ),
+              ),
+              const Divider(height: 1),
+              _numberTile(
+                key: 'live-opt-replay-days',
+                icon: Icons.auto_delete_outlined,
+                title: 'Kayıt saklama süresi',
+                value: 'Kayıtlar yayın bittikten ${options.replayDays} gün sonra silinir',
+                onTap: () => _editNumber(
+                  key: 'replay_days',
+                  title: 'Kayıt saklama süresi (gün)',
+                  hint: 'Süresi dolan kayıtlar saatlik temizlikte depodan silinir. Yayıncı kaydını daha önce '
+                      'silebilir.',
+                  current: options.replayDays,
+                  range: AdminLiveOptions.replayDaysRange,
+                  message: (v) => 'Kayıt saklama süresi: $v gün',
+                ),
+              ),
+              Padding(
+                key: const ValueKey('live-opt-replay-stats'),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                child: Row(
+                  children: [
+                    const Icon(Icons.storage_outlined, size: 18, color: AdminUi.muted),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        options.replays == 0
+                            ? 'Şu an saklanan kayıt yok'
+                            : '${options.replays} kayıt · ${formatReplaySize(options.replaySizeBytes)}',
+                        style: const TextStyle(fontSize: 12.5, color: AdminUi.muted),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

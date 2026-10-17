@@ -8,6 +8,8 @@ import '../../../core/models/live_shopping_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/services/screen_awake_service.dart';
 import '../services/agora_service.dart';
+import '../services/live_replay_recorder.dart';
+import '../services/live_replay_uploader.dart';
 import '../services/live_shopping_service.dart';
 import '../widgets/live_stream_widgets.dart';
 import '../widgets/shop_card.dart' show formatShopMoney;
@@ -22,6 +24,10 @@ enum _HostPhase { preparing, setup, connecting, live, ended, failed }
 /// alınır → kamera önizlemesi → "Yayına Başla" → kanala katılınca yayın canlı
 /// olur. Canlıyken 20 sn'de bir sinyal (izleyici sayısıyla) gider; sunucu
 /// yayını kapatırsa (zaman aşımı/yönetici) özet ekranına geçilir.
+///
+/// Tekrar izleme: yayın canlıyken görüntü telefonda parça parça kaydedilir ve
+/// arka planda yüklenir ([LiveReplayRecorder]); özet ekranı yükleme durumunu
+/// gösterir. Yönetim kaydı kapattıysa yayın kayıtsız sürer.
 class LiveHostScreen extends StatefulWidget {
   const LiveHostScreen({
     super.key,
@@ -29,6 +35,7 @@ class LiveHostScreen extends StatefulWidget {
     required this.shopName,
     this.service,
     this.engineFactory,
+    this.replayUploader,
     this.now,
     this.heartbeatInterval = const Duration(seconds: 20),
   });
@@ -40,6 +47,9 @@ class LiveHostScreen extends StatefulWidget {
   final String shopName;
   final LiveShoppingService? service;
   final LiveVideoEngineFactory? engineFactory;
+
+  /// Testler için; varsayılan uygulama genelindeki kuyruk.
+  final LiveReplayUploader? replayUploader;
   final DateTime Function()? now;
   final Duration heartbeatInterval;
 
@@ -50,6 +60,8 @@ class LiveHostScreen extends StatefulWidget {
 class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObserver {
   late final LiveShoppingService _service = widget.service ?? LiveShoppingService();
   late final LiveVideoEngine _engine = (widget.engineFactory ?? AgoraService.new)();
+  late final LiveReplayUploader _uploader = widget.replayUploader ?? LiveReplayUploader.instance;
+  late final LiveReplayRecorder _replay = LiveReplayRecorder(engine: _engine, service: _service, uploader: _uploader);
   final _titleCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
 
@@ -112,7 +124,9 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
     if (session != null && _phase != _HostPhase.ended) {
       unawaited(_service.endLive(session.id).then((_) {}, onError: (_) {}));
     }
-    unawaited(_engine.dispose());
+    // Süren kayıt parçası kapatılıp kuyruğa verilir, motor ondan sonra kapanır.
+    _replay.dispose();
+    unawaited(_replay.stop(finished: true).then((_) => _engine.dispose(), onError: (_) => _engine.dispose()));
     unawaited(ScreenAwakeService.setKeepOn(false));
     _titleCtrl.dispose();
     _messageCtrl.dispose();
@@ -241,6 +255,8 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
       });
       unawaited(ScreenAwakeService.setKeepOn(true));
       _startLiveLoops(live.id);
+      // Tekrar izleme kaydı; başlamazsa yayın kayıtsız sürer.
+      unawaited(_replay.start(live.id));
       // Takipçilere/abonelere "yayın başladı" bildirimi gittiyse söyle.
       final notified = live.notified ?? 0;
       if (notified > 0) _snack('🔔 $notified kişiye yayın bildirimi gönderildi');
@@ -318,10 +334,22 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
     }
   }
 
+  /// Kayıt parçası kapatılmadan kanaldan çıkılırsa son dakikalar kaybolur.
+  Future<void> _stopReplayAndLeave({required bool finished}) async {
+    try {
+      await _replay.stop(finished: finished);
+    } catch (e) {
+      debugPrint('live replay stop: $e');
+    }
+    await _engine.leave();
+  }
+
   void _fail(LiveException failure) {
     if (!mounted) return;
     _stopLiveLoops();
-    unawaited(_engine.leave());
+    // Yayın sunucuda sürüyor olabilir (bağlantı koptu): kayıt sonlandırılmaz,
+    // yeniden bağlanınca kaldığı yerden sürer.
+    unawaited(_stopReplayAndLeave(finished: false));
     unawaited(ScreenAwakeService.setKeepOn(false));
     setState(() {
       _phase = _HostPhase.failed;
@@ -523,7 +551,7 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
     try {
       final summary = await _service.endLive(session.id);
       _stopLiveLoops();
-      await _engine.leave();
+      await _stopReplayAndLeave(finished: true);
       unawaited(ScreenAwakeService.setKeepOn(false));
       if (!mounted) return;
       setState(() {
@@ -541,7 +569,7 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
   /// Sunucu yayını kapattı (zaman aşımı / yönetici): özet yerelden kurulur.
   void _endedRemotely(LiveSession ended) {
     _stopLiveLoops();
-    unawaited(_engine.leave());
+    unawaited(_stopReplayAndLeave(finished: true));
     unawaited(ScreenAwakeService.setKeepOn(false));
     final start = ended.startedAt;
     setState(() {
@@ -823,41 +851,122 @@ class _LiveHostScreenState extends State<LiveHostScreen> with WidgetsBindingObse
   Widget _summaryView() {
     final summary = _summary;
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: (constraints.maxHeight - 48).clamp(0.0, double.infinity)),
+            child: _summaryColumn(summary),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryColumn(LiveEndSummary? summary) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Icon(Icons.check_circle_outline, color: Colors.white, size: 56),
+        const SizedBox(height: 12),
+        const Text(
+          'Yayın sona erdi',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          liveEndedReasonText(_endedReason, forHost: true),
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        const SizedBox(height: 20),
+        Row(
           children: [
-            const Icon(Icons.check_circle_outline, color: Colors.white, size: 56),
-            const SizedBox(height: 12),
-            const Text(
-              'Yayın sona erdi',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              liveEndedReasonText(_endedReason, forHost: true),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                _stat('Süre', formatLiveDuration(summary?.duration ?? Duration.zero)),
-                _stat('En çok izleyici', '${summary?.peakViewerCount ?? 0}'),
-                _stat('Mesaj', '${summary?.messageCount ?? 0}'),
-              ],
-            ),
-            const SizedBox(height: 28),
-            FilledButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              style: FilledButton.styleFrom(backgroundColor: kLiveRed, minimumSize: const Size.fromHeight(48)),
-              child: const Text('Kapat'),
-            ),
+            _stat('Süre', formatLiveDuration(summary?.duration ?? Duration.zero)),
+            _stat('En çok izleyici', '${summary?.peakViewerCount ?? 0}'),
+            _stat('Mesaj', '${summary?.messageCount ?? 0}'),
           ],
         ),
+        ?_replayStatus(),
+        const SizedBox(height: 28),
+        FilledButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          style: FilledButton.styleFrom(backgroundColor: kLiveRed, minimumSize: const Size.fromHeight(48)),
+          child: const Text('Kapat'),
+        ),
+      ],
+    );
+  }
+
+  /// Tekrar izleme kaydının yükleme durumu (kayıt hiç başlamadıysa yok).
+  Widget? _replayStatus() {
+    final sessionId = _replay.sessionId;
+    if (sessionId == null) return null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: ValueListenableBuilder<LiveReplayUploadStatus>(
+        valueListenable: _uploader.statusFor(sessionId),
+        builder: (context, status, _) {
+          final replay = status.replay;
+          final (IconData icon, String title, String detail, bool busy) = switch (status) {
+            _ when status.finished && replay?.state == 'failed' => (
+              Icons.videocam_off_outlined,
+              'Kayıt alınamadı',
+              'Bu yayın tekrar izlenemeyecek.',
+              false,
+            ),
+            _ when status.finished => (
+              Icons.play_circle_outline,
+              'Kayıt hazır',
+              'İzleyiciler yayını ${_replay.days} gün boyunca tekrar izleyebilir.',
+              false,
+            ),
+            _ when status.waitingNetwork => (
+              Icons.wifi_off,
+              'Kayıt yüklemesi bağlantı bekliyor',
+              'İnternet gelince kendiliğinden sürer; uygulamayı kapatırsan sonraki açılışta devam eder.',
+              false,
+            ),
+            _ => (
+              Icons.cloud_upload_outlined,
+              'Kayıt yükleniyor…',
+              status.pending > 0
+                  ? '${status.pending} parça kaldı. Uygulamayı kapatırsan sonraki açılışta devam eder.'
+                  : 'Son parça hazırlanıyor.',
+              true,
+            ),
+          };
+          return Container(
+            key: const ValueKey('live-host-replay-status'),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                if (busy)
+                  const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                  )
+                else
+                  Icon(icon, color: Colors.white, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(detail, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.3)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
