@@ -1,5 +1,6 @@
 // ignore_for_file: depend_on_referenced_packages, deprecated_member_use
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -11,11 +12,14 @@ import 'package:cizreapp/sehirici/models/sehirici_icon_models.dart';
 import 'package:cizreapp/sehirici/providers/sehirici_provider.dart';
 import 'package:cizreapp/sehirici/services/sehirici_city_service.dart';
 import 'package:cizreapp/sehirici/services/sehirici_icon_catalog.dart';
+import 'package:cizreapp/sehirici/services/sehirici_street_namer.dart';
 import 'package:cizreapp/sehirici/utils/sehirici_marker_bitmaps.dart';
+import 'package:cizreapp/sehirici/utils/sehirici_route_geometry.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,6 +47,58 @@ class SehiriciAdminHarness {
   final String? previewDir = Platform.environment['SEHIRICI_PREVIEW_DIR'];
   late FakeGoogleMapsPlatform platform;
 
+  /// Sahte Google Geocoding: bir noktaya [kStreetRadiusMeters] içinde düşen
+  /// ilk kaydın sokağı döner; hiçbiri yoksa ZERO_RESULTS (ad "Durak N"
+  /// olur). OSRM her zaman 404 — testler ağa çıkmaz.
+  final List<({LatLng at, String street, String? neighborhood, List<String> others})>
+      streets = [];
+  static const double kStreetRadiusMeters = 80;
+
+  /// Sokak adı sunucusuna gelen istekler (önbellek/çağrı sayısı testleri için).
+  final List<Uri> streetRequests = [];
+
+  Future<http.Response> _streetResponse(http.Request request) async {
+    streetRequests.add(request.url);
+    if (request.url.host != 'maps.googleapis.com') {
+      return http.Response('{}', 404, request: request);
+    }
+    final parts = request.url.queryParameters['latlng']!.split(',');
+    final at = LatLng(double.parse(parts[0]), double.parse(parts[1]));
+    final routeOnly = request.url.queryParameters['result_type'] == 'route';
+    for (final s in streets) {
+      if (distanceMeters(at, s.at) > kStreetRadiusMeters) continue;
+      Map<String, dynamic> result(String street) => {
+            'address_components': [
+              {'long_name': street, 'short_name': street, 'types': ['route']},
+              if (s.neighborhood != null)
+                {
+                  'long_name': s.neighborhood,
+                  'short_name': s.neighborhood,
+                  'types': ['administrative_area_level_4', 'political'],
+                },
+            ],
+          };
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'status': 'OK',
+          'results': [
+            result(s.street),
+            if (!routeOnly)
+              for (final o in s.others) result(o),
+          ],
+        })),
+        200,
+        request: request,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    }
+    return http.Response(
+      jsonEncode({'status': 'ZERO_RESULTS', 'results': []}),
+      200,
+      request: request,
+    );
+  }
+
   /// `setUpAll` / `setUp` / `tearDown` kancalarını kurar.
   void register() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -68,6 +124,13 @@ class SehiriciAdminHarness {
       MapTypePreference.choice.value = MapBaseType.standard;
       SehiriciIconCatalog.instance.seed(SehiriciMarkerIcon.builtinDefaults);
       SehiriciCityService.clearCache();
+      streets.clear();
+      streetRequests.clear();
+      // Her testte yeni örnek: önbellek testler arasında taşınmasın.
+      SehiriciStreetNamer.instance = SehiriciStreetNamer(
+        apiKey: () async => 'AIza-test-key',
+        client: MockClient(_streetResponse),
+      );
     });
 
     tearDown(() {

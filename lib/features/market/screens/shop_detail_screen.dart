@@ -17,6 +17,8 @@ import '../../../core/widgets/product_extras_widgets.dart';
 import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../widgets/flash_aware_price_row.dart';
+import '../widgets/product_sort_bar.dart';
+import '../services/flash_sale_service.dart';
 import '../services/product_service.dart';
 import '../services/shop_review_service.dart';
 import '../services/live_shopping_service.dart';
@@ -61,6 +63,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   String? _selectedCategory;
   bool _showOnlyInStock = false;
   bool _isSearching = false;
+  ProductSort _sort = ProductSort.recommended;
 
   // Kullanıcının dükkana uzaklığı (metre). null = henüz hesaplanmadı /
   // konum izni yok / dükkanın koordinatı kayıtlı değil.
@@ -76,12 +79,33 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     // Mağaza ziyaretini kaydet
     _analyticsService.recordShopView(widget.shopId);
     _searchController.addListener(_onSearchChanged);
+    ActiveFlashSaleCache.instance.byProduct.addListener(_onFlashPricesChanged);
   }
 
   @override
   void dispose() {
+    ActiveFlashSaleCache.instance.byProduct.removeListener(
+      _onFlashPricesChanged,
+    );
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// Flaş fiyatları kartlardan sonra gelebilir; fiyata göre sıralıyken liste
+  /// kartta yazan fiyatla çelişmesin diye yeniden sıralanır.
+  void _onFlashPricesChanged() {
+    if (!mounted || !_sort.isPrice) return;
+    setState(_applyFilters);
+  }
+
+  /// Kartta yazan fiyat: aktif flaş satış varsa flaş fiyatı (dijitalde flaş
+  /// uygulanmaz, bkz. [FlashAwarePriceRow]).
+  double _shownPrice(Product product) {
+    if (!product.isDigital) {
+      final flash = ActiveFlashSaleCache.instance.activeFor(product.id);
+      if (flash != null) return flash.flashPrice;
+    }
+    return product.listingPrice;
   }
 
   Future<void> _loadShopCoupons() async {
@@ -134,7 +158,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   }
 
   void _applyFilters() {
-    _filteredProducts = _products.where((product) {
+    final filtered = _products.where((product) {
       // Arama filtresi
       if (_searchController.text.isNotEmpty) {
         final query = _searchController.text.toLowerCase();
@@ -156,6 +180,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
 
       return true;
     }).toList();
+    _filteredProducts = sortProducts(filtered, _sort, priceOf: _shownPrice);
   }
 
   Future<void> _loadReviews() async {
@@ -522,7 +547,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
       setState(() {
         _shop = shop;
         _products = products;
-        _filteredProducts = products;
+        // Yenilemede seçili arama/kategori/sıralama korunur.
+        _applyFilters();
         _isLoading = false;
       });
 
@@ -1603,9 +1629,46 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
 
                     const SizedBox(height: 8),
 
-                    Text(
-                      'Ürünler (${_filteredProducts.length}/${_products.length})',
-                      style: Theme.of(context).textTheme.titleMedium,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Ürünler (${_filteredProducts.length}/${_products.length})',
+                                style: Theme.of(context).textTheme.titleMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (_sort != ProductSort.recommended)
+                                Text(
+                                  _sort.label,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (_products.length > 1) ...[
+                          const SizedBox(width: 8),
+                          ProductSortBar(
+                            value: _sort,
+                            onChanged: (sort) => setState(() {
+                              _sort = sort;
+                              _applyFilters();
+                            }),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

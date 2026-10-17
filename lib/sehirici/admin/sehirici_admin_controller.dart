@@ -11,6 +11,7 @@ import '../services/sehirici_icon_catalog.dart';
 import '../services/sehirici_icon_service.dart';
 import '../services/sehirici_line_service.dart';
 import '../services/sehirici_road_snap_service.dart';
+import '../utils/sehirici_line_stop_plan.dart';
 import '../utils/sehirici_route_geometry.dart';
 
 /// Bir hattın rotasının durumu (admin listesinde rozet olarak gösterilir).
@@ -289,6 +290,68 @@ class SehiriciAdminController extends ChangeNotifier {
     }
     await reloadCityData();
     return simplified.length;
+  }
+
+  // ── Durak ↔ hat bağlama ──────────────────────────────────────
+
+  /// Son eklenen durağın konumu: bir sonraki "haritadan ekle" buradan açılır
+  /// (admin kaldığı yerden devam eder). Yalnız bu oturumda tutulur.
+  LatLng? lastAddedStopAt;
+
+  /// Hattın durak sırasını [ordered] yapar (tek işlem). Hattın kayıtlı rotası
+  /// varsa yeni sırayla yeniden üretilir; rota üretilemezse duraklar yine
+  /// yazılmış olur ve uyarı metni döner. Durak yazımı başarısızsa fırlatır.
+  Future<String?> writeLineOrder(
+    SehiriciLine line,
+    List<SehiriciStop> ordered,
+  ) async {
+    final planned = sehiriciPlanLineStops(ordered);
+    await lineService.setLineStopsOrThrow(line.id, sehiriciLineStopRows(planned));
+    if (!line.hasRoute || planned.length < 2) return null;
+    try {
+      await createRouteFromStops(line.copyWith(stops: planned));
+      return null;
+    } catch (e) {
+      final label = line.code.isEmpty ? line.name : line.code;
+      return '$label rotası yenilenemedi (${sehiriciErrorMessage(e)})';
+    }
+  }
+
+  /// Durağın bağlı olduğu hatları [lineIds] yapar: yeni hatlarda en az
+  /// sapmalı sıraya ([sehiriciBestInsertIndex]) girer, çıkarılan hatlardan
+  /// silinir. Uyarıları (yenilenemeyen rotalar) döner.
+  Future<List<String>> setStopLines(
+    SehiriciStop stop,
+    Set<String> lineIds,
+  ) async {
+    final warnings = <String>[];
+    for (final line in lines) {
+      final ordered = [for (final s in line.stops) s.asStop];
+      final index = ordered.indexWhere((s) => s.id == stop.id);
+      final wanted = lineIds.contains(line.id);
+      if (wanted == (index >= 0)) continue;
+      if (wanted) {
+        ordered.insert(sehiriciBestInsertIndex(ordered, stop.lat, stop.lng), stop);
+      } else {
+        ordered.removeAt(index);
+      }
+      final warning = await writeLineOrder(line, ordered);
+      if (warning != null) warnings.add(warning);
+    }
+    return warnings;
+  }
+
+  /// [stops]'u hattın sonuna sırayla ekler (hatta zaten olanlar atlanır).
+  Future<String?> appendStopsToLine(
+    SehiriciLine line,
+    List<SehiriciStop> stops,
+  ) {
+    final ordered = [for (final s in line.stops) s.asStop];
+    final present = ordered.map((s) => s.id).toSet();
+    for (final s in stops) {
+      if (present.add(s.id)) ordered.add(s);
+    }
+    return writeLineOrder(line, ordered);
   }
 
   /// Rotası olmayan ya da duraklar değiştiği için eski kalan (ve en az 2

@@ -74,8 +74,13 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
     notify();
   }
 
-  Stream<T> _of<T extends MapEvent<Object?>>() =>
-      _events.stream.where((e) => e is T).cast<T>();
+  /// Yalnız [mapId] haritasına giden olaylar. Aynı anda birden çok harita
+  /// açıkken (altta canlı harita, üstte seçici) bir işaretçi dokunuşu
+  /// eskiden HER haritaya gidiyor, işaretçiyi tanımayan harita
+  /// `UnknownMapObjectIdError` atıyordu.
+  Stream<T> _of<T extends MapEvent<Object?>>(int mapId) => _events.stream
+      .where((e) => e is T && e.mapId == mapId)
+      .cast<T>();
 
   // ── Yaşam döngüsü ───────────────────────────────────────────
 
@@ -283,48 +288,48 @@ class FakeGoogleMapsPlatform extends GoogleMapsFlutterPlatform {
 
   @override
   Stream<CameraMoveStartedEvent> onCameraMoveStarted({required int mapId}) =>
-      _of<CameraMoveStartedEvent>();
+      _of<CameraMoveStartedEvent>(mapId);
   @override
   Stream<CameraMoveEvent> onCameraMove({required int mapId}) =>
-      _of<CameraMoveEvent>();
+      _of<CameraMoveEvent>(mapId);
   @override
   Stream<CameraIdleEvent> onCameraIdle({required int mapId}) =>
-      _of<CameraIdleEvent>();
+      _of<CameraIdleEvent>(mapId);
   @override
   Stream<MarkerTapEvent> onMarkerTap({required int mapId}) =>
-      _of<MarkerTapEvent>();
+      _of<MarkerTapEvent>(mapId);
   @override
   Stream<InfoWindowTapEvent> onInfoWindowTap({required int mapId}) =>
-      _of<InfoWindowTapEvent>();
+      _of<InfoWindowTapEvent>(mapId);
   @override
   Stream<MarkerDragStartEvent> onMarkerDragStart({required int mapId}) =>
-      _of<MarkerDragStartEvent>();
+      _of<MarkerDragStartEvent>(mapId);
   @override
   Stream<MarkerDragEvent> onMarkerDrag({required int mapId}) =>
-      _of<MarkerDragEvent>();
+      _of<MarkerDragEvent>(mapId);
   @override
   Stream<MarkerDragEndEvent> onMarkerDragEnd({required int mapId}) =>
-      _of<MarkerDragEndEvent>();
+      _of<MarkerDragEndEvent>(mapId);
   @override
   Stream<PolylineTapEvent> onPolylineTap({required int mapId}) =>
-      _of<PolylineTapEvent>();
+      _of<PolylineTapEvent>(mapId);
   @override
   Stream<PolygonTapEvent> onPolygonTap({required int mapId}) =>
-      _of<PolygonTapEvent>();
+      _of<PolygonTapEvent>(mapId);
   @override
   Stream<CircleTapEvent> onCircleTap({required int mapId}) =>
-      _of<CircleTapEvent>();
+      _of<CircleTapEvent>(mapId);
   @override
-  Stream<MapTapEvent> onTap({required int mapId}) => _of<MapTapEvent>();
+  Stream<MapTapEvent> onTap({required int mapId}) => _of<MapTapEvent>(mapId);
   @override
   Stream<MapLongPressEvent> onLongPress({required int mapId}) =>
-      _of<MapLongPressEvent>();
+      _of<MapLongPressEvent>(mapId);
   @override
   Stream<ClusterTapEvent> onClusterTap({required int mapId}) =>
-      _of<ClusterTapEvent>();
+      _of<ClusterTapEvent>(mapId);
   @override
   Stream<GroundOverlayTapEvent> onGroundOverlayTap({required int mapId}) =>
-      _of<GroundOverlayTapEvent>();
+      _of<GroundOverlayTapEvent>(mapId);
 }
 
 class _Notifier extends ChangeNotifier {

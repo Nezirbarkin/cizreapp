@@ -63,7 +63,8 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
           sehiriciFold(s.code ?? '').contains(q) ||
           sehiriciFold(s.address ?? '').contains(q);
     }).toList()
-      ..sort((a, b) => sehiriciFold(a.name).compareTo(sehiriciFold(b.name)));
+      // Doğal sıra: "Yafes Cad. 2" "Yafes Cad. 10"un önünde.
+      ..sort((a, b) => sehiriciNaturalCompare(a.name, b.name));
     return list;
   }
 
@@ -74,41 +75,86 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
   }
 
   Future<void> _edit([SehiriciStop? stop]) async {
-    final changed = await showSehiriciStopEditor(context, controller: c, stop: stop);
-    if (changed && mounted) {
-      sehiriciSnack(context, stop == null ? 'Durak eklendi.' : 'Durak güncellendi.');
+    final result = await showSehiriciStopEditor(context, controller: c, stop: stop);
+    if (result != null && mounted) {
+      sehiriciSnack(context, result.message, error: result.warning);
     }
   }
 
   /// Haritaya sırayla dokunarak birden çok durak oluşturur (bir hattın
-  /// duraklarını tek tek form doldurmadan dizmek için).
+  /// duraklarını tek tek form doldurmadan dizmek için). Adlar sokaktan gelir
+  /// ve numara kaldığı yerden devam eder; seçici son eklenen durağın
+  /// yanında açılır. "Hatta da ekle" seçilirse duraklar o hattın sonuna
+  /// eklenir (hattın gri duraklarına dokunmak da onları bağlar).
   Future<void> _addFromMap() async {
     final city = c.city;
     final cityId = c.cityId;
     if (city == null || cityId == null) return;
-    final picked = await SehiriciLocationPickerDialog.pickMultiple(
+    final resume = c.lastAddedStopAt;
+    final result = await SehiriciLocationPickerDialog.pickMultiple(
       context,
-      initialLat: city.centerLat,
-      initialLng: city.centerLng,
+      initialLat: resume?.latitude ?? city.centerLat,
+      initialLng: resume?.longitude ?? city.centerLng,
       initialZoom: city.zoomLevel.toDouble(),
       existingStops: c.stops,
+      lineChoices: c.lines,
     );
-    if (!mounted || picked == null || picked.isEmpty) return;
+    if (!mounted || result == null || result.stops.isEmpty) return;
 
     setState(() => _bulkSaving = true);
     var saved = 0;
     final failed = <String>[];
-    for (final stop in picked) {
+    // Hatta eklenecekler: yeni yazılanlar + bağlanan mevcut duraklar, sırayla.
+    final ordered = <SehiriciStop>[];
+    for (final p in result.stops) {
+      final existing = p.existing;
+      if (existing != null) {
+        ordered.add(existing);
+        continue;
+      }
+      final name = p.name.trim();
       try {
-        await c.lineService.saveStop(
+        final id = await c.lineService.saveStop(
           cityId: cityId,
-          name: stop.name.trim(),
-          lat: stop.position.latitude,
-          lng: stop.position.longitude,
+          name: name,
+          lat: p.position.latitude,
+          lng: p.position.longitude,
+          address: p.address,
         );
+        ordered.add(SehiriciStop(
+          id: id,
+          name: name,
+          lat: p.position.latitude,
+          lng: p.position.longitude,
+          address: p.address,
+        ));
+        c.lastAddedStopAt = p.position;
         saved++;
       } catch (e) {
-        failed.add('${stop.name.trim()} (${sehiriciErrorMessage(e)})');
+        failed.add('$name (${sehiriciErrorMessage(e)})');
+      }
+    }
+
+    final messages = <String>[
+      failed.isEmpty
+          ? '$saved durak eklendi.'
+          : '$saved durak eklendi, ${failed.length} tanesi eklenemedi: '
+              '${failed.join(', ')}.',
+    ];
+    var warning = failed.isNotEmpty;
+    final line = result.line;
+    if (line != null && ordered.isNotEmpty) {
+      final label = line.code.isEmpty ? line.name : line.code;
+      try {
+        final routeWarning = await c.appendStopsToLine(line, ordered);
+        messages.add('$label hattının sonuna ${ordered.length} durak bağlandı.');
+        if (routeWarning != null) {
+          messages.add('$routeWarning.');
+          warning = true;
+        }
+      } catch (e) {
+        messages.add('$label hattına bağlanamadı: ${sehiriciErrorMessage(e)}');
+        warning = true;
       }
     }
     await c.reloadCityData();
@@ -116,13 +162,7 @@ class _SehiriciAdminStopsTabState extends State<SehiriciAdminStopsTab> {
     if (!mounted) return;
     setState(() => _bulkSaving = false);
     // Kısmi başarı sessiz kalmasın: hangi durakların yazılamadığı söylenir.
-    sehiriciSnack(
-      context,
-      failed.isEmpty
-          ? '$saved durak eklendi.'
-          : '$saved durak eklendi, ${failed.length} tanesi eklenemedi: ${failed.join(', ')}',
-      error: failed.isNotEmpty,
-    );
+    sehiriciSnack(context, messages.join(' '), error: warning);
   }
 
   void _startSelection([String? stopId]) {

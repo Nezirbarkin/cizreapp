@@ -4,6 +4,11 @@ import 'package:flutter/services.dart';
 import '../../features/admin/widgets/admin_ui.dart';
 import '../widgets/sehirici_common_widgets.dart';
 
+// Türkçe duyarsız arama/sıralama yardımcıları durak adı kurallarıyla birlikte
+// yaşar; admin ekranları onları buradan almaya devam eder.
+export '../utils/sehirici_stop_naming.dart'
+    show sehiriciFold, sehiriciNaturalCompare;
+
 /// Şehiriçi admin ekranlarının ortak görsel araçları. Panelin genel diliyle
 /// ([AdminUi]: mor marka rengi, yuvarlatılmış beyaz kartlar) uyumludur; yalnızca
 /// bu modüle özgü parçalar (renk paleti, form alanı stili, alt sayfa iskeleti)
@@ -25,20 +30,6 @@ const List<Color> kSehiriciLinePalette = [
   Color(0xFF6D4C41), // kahve
   Color(0xFF00ACC1), // turkuaz
 ];
-
-/// Türkçe harfleri sadeleştirip küçültür ("Çarşı" ile "carsi" eşleşsin).
-String sehiriciFold(String input) {
-  const map = {
-    'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g', //
-    'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
-  };
-  final b = StringBuffer();
-  for (final r in input.runes) {
-    final ch = String.fromCharCode(r);
-    b.write(map[ch] ?? ch.toLowerCase());
-  }
-  return b.toString();
-}
 
 /// Türkçe büyük harf: i→İ, ı→I. Dart'ın `toUpperCase()` yerel ayar bilmediği
 /// için "harita" → "HARITA" (noktasız) olurdu.

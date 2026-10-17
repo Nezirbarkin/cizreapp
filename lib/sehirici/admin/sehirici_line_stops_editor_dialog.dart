@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -10,6 +8,7 @@ import '../models/sehirici_models.dart';
 import '../providers/sehirici_provider.dart';
 import '../services/sehirici_errors.dart';
 import '../services/sehirici_line_service.dart';
+import '../utils/sehirici_line_stop_plan.dart';
 import '../widgets/sehirici_common_widgets.dart';
 import 'sehirici_admin_controller.dart';
 import 'sehirici_admin_kit.dart';
@@ -74,10 +73,6 @@ class _Entry {
 
 class _SehiriciLineStopsEditorDialogState
     extends State<SehiriciLineStopsEditorDialog> {
-  /// Otobüs/minibüs için ortalama şehir içi hız (km/sa): duraklar arası süre
-  /// tahmini bundan hesaplanır.
-  static const double _avgSpeedKmh = 25;
-
   late final SehiriciLineService _service =
       widget.controller?.lineService ?? SehiriciLineService();
 
@@ -140,62 +135,15 @@ class _SehiriciLineStopsEditorDialogState
     return _pool.where((s) => s.isActive && !used.contains(s.id)).toList();
   }
 
-  static double _distanceKm(SehiriciStop a, SehiriciStop b) {
-    const r = 6371.0;
-    final dLat = (b.lat - a.lat) * math.pi / 180;
-    final dLng = (b.lng - a.lng) * math.pi / 180;
-    final lat1 = a.lat * math.pi / 180;
-    final lat2 = b.lat * math.pi / 180;
-    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1) * math.cos(lat2) * math.sin(dLng / 2) * math.sin(dLng / 2);
-    return r * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
-  }
+  List<SehiriciStop> get _orderedStops => [for (final e in _entries) e.stop];
 
   /// Her durağın hat başından itibaren kümülatif mesafesi (km).
-  List<double> get _cumulativeKm {
-    final out = <double>[];
-    var total = 0.0;
-    for (var i = 0; i < _entries.length; i++) {
-      if (i > 0) total += _distanceKm(_entries[i - 1].stop, _entries[i].stop);
-      out.add(double.parse(total.toStringAsFixed(3)));
-    }
-    return out;
-  }
+  List<double> get _cumulativeKm => sehiriciCumulativeKm(_orderedStops);
 
-  static int _minutesFor(double km) => ((km / _avgSpeedKmh) * 60).round();
-
-  /// Sunucuya gidecek satırlar (sıra, mesafe, süre hesaplanmış).
-  List<Map<String, dynamic>> _rows() {
-    final km = _cumulativeKm;
-    return [
-      for (var i = 0; i < _entries.length; i++)
-        {
-          'stop_id': _entries[i].stop.id,
-          'stop_order': i,
-          'minutes_from_start': _minutesFor(km[i]),
-          'distance_km': km[i],
-        },
-    ];
-  }
+  static int _minutesFor(double km) => sehiriciMinutesFor(km);
 
   /// Şu anki listenin [SehiriciLineStop] karşılığı (imza ve rota için).
-  List<SehiriciLineStop> get _lineStops {
-    final km = _cumulativeKm;
-    return [
-      for (var i = 0; i < _entries.length; i++)
-        SehiriciLineStop(
-          stopId: _entries[i].stop.id,
-          stopOrder: i,
-          minutesFromStart: _minutesFor(km[i]),
-          distanceKm: km[i],
-          name: _entries[i].stop.name,
-          lat: _entries[i].stop.lat,
-          lng: _entries[i].stop.lng,
-          code: _entries[i].stop.code,
-          address: _entries[i].stop.address,
-        ),
-    ];
-  }
+  List<SehiriciLineStop> get _lineStops => sehiriciPlanLineStops(_orderedStops);
 
   /// Kayıtlı rota var ve bu durak sırasıyla uyuşmuyor (ya da düzenleme sonrası
   /// uyuşmayacak).
@@ -255,8 +203,10 @@ class _SehiriciLineStopsEditorDialogState
     });
   }
 
-  /// Haritada güzergâh boyunca dokunarak yeni duraklar oluşturur; sırasıyla
-  /// listeye eklenir (kaydedilene kadar sunucuya yazılmaz).
+  /// Haritada hattın son durağından devam ederek dokunur: boş yere dokunuş
+  /// sokak adıyla yeni durak ("Yafes Cad. 3"), gri durağa dokunuş o durağı
+  /// hatta bağlar. Sırasıyla listeye eklenir (kaydedilene kadar sunucuya
+  /// yazılmaz).
   Future<void> _createOnMap() async {
     if (_saving) return;
     SehiriciCity? city = widget.controller?.city;
@@ -274,28 +224,34 @@ class _SehiriciLineStopsEditorDialogState
         ? _entries.last.stop.lng
         : (city?.centerLng ?? (_pool.isNotEmpty ? _pool.first.lng : 41.0));
 
-    final picked = await SehiriciLocationPickerDialog.pickMultiple(
+    final result = await SehiriciLocationPickerDialog.pickMultiple(
       context,
       initialLat: startLat,
       initialLng: startLng,
       initialZoom: (city?.zoomLevel ?? 14).toDouble(),
       existingStops: [..._pool, for (final e in _entries) e.stop],
       lineColor: widget.line.color,
+      lineStops: [for (final e in _entries) e.stop],
+      linkExisting: true,
     );
-    if (!mounted || picked == null || picked.isEmpty) return;
+    if (!mounted || result == null || result.stops.isEmpty) return;
     setState(() {
       _entries = [
         ..._entries,
-        for (final p in picked)
-          _Entry(
-            SehiriciStop(
-              id: const Uuid().v4(),
-              name: p.name.trim(),
-              lat: p.position.latitude,
-              lng: p.position.longitude,
+        for (final p in result.stops)
+          if (p.existing != null)
+            _Entry(p.existing!)
+          else
+            _Entry(
+              SehiriciStop(
+                id: const Uuid().v4(),
+                name: p.name.trim(),
+                lat: p.position.latitude,
+                lng: p.position.longitude,
+                address: p.address,
+              ),
+              isNew: true,
             ),
-            isNew: true,
-          ),
       ];
       _error = null;
     });
@@ -318,11 +274,13 @@ class _SehiriciLineStopsEditorDialogState
           name: e.stop.name,
           lat: e.stop.lat,
           lng: e.stop.lng,
+          address: e.stop.address,
         );
       }
       // 2) Hat-durak bağı: tek işlemde (hata olursa eski duraklar korunur).
       final lineStops = _lineStops;
-      await _service.setLineStopsOrThrow(widget.line.id, _rows());
+      await _service.setLineStopsOrThrow(
+          widget.line.id, sehiriciLineStopRows(lineStops));
       _refreshUserSide();
 
       // 3) Rota (isteğe bağlı).
@@ -406,6 +364,8 @@ class _SehiriciLineStopsEditorDialogState
             child: Column(
               children: [
                 _ActionBar(
+                  mapLabel:
+                      _entries.isEmpty ? 'Haritadan yeni' : 'Haritada devam et',
                   onAdd: _saving ? null : _addFromList,
                   onMap: _saving ? null : _createOnMap,
                   onReverse: (_saving || _entries.length < 2) ? null : _reverse,
@@ -540,7 +500,7 @@ class _Header extends StatelessWidget {
                       stopCount == 0
                           ? 'Henüz durak yok'
                           : '$stopCount durak · ${totalKm.toStringAsFixed(1)} km · '
-                              '~${((totalKm / _SehiriciLineStopsEditorDialogState._avgSpeedKmh) * 60).round()} dk',
+                              '~${sehiriciMinutesFor(totalKm)} dk',
                       style: TextStyle(
                         color: fg,
                         fontSize: 12.5,
@@ -564,11 +524,13 @@ class _Header extends StatelessWidget {
 }
 
 class _ActionBar extends StatelessWidget {
+  final String mapLabel;
   final VoidCallback? onAdd;
   final VoidCallback? onMap;
   final VoidCallback? onReverse;
 
   const _ActionBar({
+    required this.mapLabel,
     required this.onAdd,
     required this.onMap,
     required this.onReverse,
@@ -598,9 +560,9 @@ class _ActionBar extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: onMap,
               icon: const Icon(Icons.pin_drop_rounded, size: 20),
-              label: const FittedBox(
+              label: FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text('Haritadan yeni', maxLines: 1, softWrap: false),
+                child: Text(mapLabel, maxLines: 1, softWrap: false),
               ),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AdminUi.brand,
@@ -1081,7 +1043,7 @@ class _StopPickerSheetState extends State<_StopPickerSheet> {
           sehiriciFold(s.code ?? '').contains(q) ||
           sehiriciFold(s.address ?? '').contains(q);
     }).toList()
-      ..sort((a, b) => sehiriciFold(a.name).compareTo(sehiriciFold(b.name)));
+      ..sort((a, b) => sehiriciNaturalCompare(a.name, b.name));
     return list;
   }
 

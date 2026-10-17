@@ -320,17 +320,41 @@ void main() {
           reason: 'hatta, az önce oluşturulan duraklar oluşturulma sırasıyla');
     });
 
-    h.adminTest('mevcut durağa çok yakın dokunuş reddedilir', (tester) async {
+    h.adminTest('hat modunda gri durağa dokunmak onu hatta bağlar (kopya oluşmaz)',
+        (tester) async {
       await openMapPicker(tester);
-      // Otogar (s1) tam üstü.
-            await tapMapAt(tester, const LatLng(37.3268, 42.1885));
-      await tester.pump(const Duration(milliseconds: 100));
+      // Otogar (s1) tam üstü: yeni durak değil, mevcut durak bağlanır.
+      await tapMapAt(tester, const LatLng(37.3268, 42.1885));
+      expect(find.textContaining('“Otogar” hatta bağlandı'), findsOneWidget);
+      expect(find.text('Mevcut durak · hatta bağlanır'), findsOneWidget);
+      final keys = h.platform.markers.keys.map((k) => k.value);
+      expect(keys, contains('picked_0'));
+      expect(keys, isNot(contains('existing_s1')), reason: 'gri nokta numaralı pine döndü');
+      // Aynı durağa ikinci dokunuş: zaten listede.
+      await tapMapAt(tester, const LatLng(37.3268, 42.1885));
       expect(find.textContaining('çok yakın bir durak zaten var: Otogar'),
           findsOneWidget);
-      expect(h.platform.markers.keys.where((k) => k.value.startsWith('picked_')),
-          isEmpty);
-      // Uyarı süresi dolunca kalkar (bekleyen zamanlayıcı bırakmamak için).
-      await tester.pump(const Duration(seconds: 5));
+      // Boş yere dokunuş yeni durak.
+      await tapMapAt(tester, const LatLng(37.3320, 42.1900));
+      await h.settle(tester, rounds: 3);
+      expect(find.text('Durak 1'), findsOneWidget);
+
+      await tester.tap(find.text('2 durağı ekle'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      // Editörde Otogar "Yeni" değil; yalnız yeni durak sunucuda oluşturulur.
+      expect(find.text('Otogar'), findsOneWidget);
+      expect(find.text('Yeni'), findsOneWidget);
+      await saveEditor(tester, 'Kaydet · 2 durak');
+      final created = h.backend.rpcCalls('admin_upsert_sehirici_stop').toList();
+      expect(created, hasLength(1));
+      final newId = (created.single.body! as Map)['p_id'];
+      final linked = rowsOf(h.backend.rpcCalls('admin_set_sehirici_line_stops')
+              .single
+              .body)
+          .map((r) => r['stop_id'])
+          .toList();
+      expect(linked, ['s1', newId]);
     });
 
     h.adminTest('vazgeçince editör değişmeden kalır', (tester) async {

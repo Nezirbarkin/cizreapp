@@ -382,6 +382,53 @@ class SehiriciFakeBackend {
       }
       return _json(request, {'deleted': before - stops.length, 'affected_lines': affected});
     }
+    // Durak kaydı belleğe yansır: yeniden yükleme yeni durağı görsün (ad
+    // numarası kaldığı yerden devam etsin diye).
+    if (path.endsWith('/rpc/admin_upsert_sehirici_stop')) {
+      final p = body! as Map;
+      final row = <String, dynamic>{
+        'id': p['p_id'],
+        'name': p['p_name'],
+        'code': p['p_code'],
+        'lat': p['p_lat'],
+        'lng': p['p_lng'],
+        'address': p['p_address'],
+        'is_active': p['p_is_active'] ?? true,
+        'city_id': p['p_city_id'],
+      };
+      final i = stops.indexWhere((s) => s['id'] == row['id']);
+      if (i >= 0) {
+        stops[i] = row;
+      } else {
+        stops.add(row);
+      }
+      return _json(request, null);
+    }
+    // Hat-durak sırası belleğe yansır (durak bilgisi stops'tan).
+    if (path.endsWith('/rpc/admin_set_sehirici_line_stops')) {
+      final p = body! as Map;
+      final line = lines.firstWhere((l) => l['id'] == p['p_line_id']);
+      line['sehirici_line_stops'] = [
+        for (final r in (p['p_stops'] as List).cast<Map>())
+          {
+            'stop_id': r['stop_id'],
+            'stop_order': r['stop_order'],
+            'minutes_from_start': r['minutes_from_start'],
+            'distance_km': r['distance_km'],
+            'sehirici_stops': () {
+              final s = stops.firstWhere((s) => s['id'] == r['stop_id']);
+              return {
+                'name': s['name'],
+                'lat': s['lat'],
+                'lng': s['lng'],
+                'code': s['code'],
+                'address': s['address'],
+              };
+            }(),
+          },
+      ];
+      return _json(request, null);
+    }
     // İkon kaydı yeni kimliği döndürür (istemci "as String" ile okur).
     if (path.endsWith('/rpc/admin_upsert_sehirici_marker_icon')) {
       return _json(request, 'ic-new');
