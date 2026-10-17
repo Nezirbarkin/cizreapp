@@ -18,7 +18,7 @@ void _solid(Canvas canvas, _Rig r, Path path, Color color, {double gloss = 0.16,
     );
     canvas.restore();
   }
-  canvas.drawPath(path, r.stroke(_tone(color, -0.55), r.lineW));
+  canvas.drawPath(path, r.edge(_tone(color, -0.55), alpha: 0.5));
 }
 
 /// Şapkanın alnına düşürdüğü gölge.
@@ -96,7 +96,7 @@ void _paintHeadwearFront(Canvas canvas, _Rig r) {
         // Ters şapka: alında ayar kayışı boşluğu.
         final strap = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(_cx, bandY - 4), width: 18, height: 7), const Radius.circular(3));
         canvas.drawRRect(strap, r.fill(r.hairColor));
-        canvas.drawRRect(strap, r.stroke(_tone(col, -0.55), r.lineW));
+        canvas.drawRRect(strap, r.edge(_tone(col, -0.55), alpha: 0.5));
         canvas.drawLine(Offset(_cx - 9, bandY - 1), Offset(_cx + 9, bandY - 1), r.stroke(_tone(col, -0.3), 2));
       }
       return;
@@ -353,7 +353,7 @@ void _paintHeadwearFront(Canvas canvas, _Rig r) {
       canvas.restore();
       _solid(canvas, r, fabric, col, gloss: 0.08);
       canvas.drawPath(opening, r.stroke(_tone(col, 0.2), 2.4));
-      canvas.drawPath(opening, r.stroke(_tone(col, -0.55), r.lineW));
+      canvas.drawPath(opening, r.edge(_tone(col, -0.55), alpha: 0.5));
       return;
   }
 }

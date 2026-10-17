@@ -1,24 +1,25 @@
 part of '../face_avatar_painter.dart';
 
 // ============================================================================
-// SAKAL / BIYIK / FAVORİ (Bitmoji tarzı)
+// SAKAL / BIYIK / FAVORİ (yarı gerçekçi)
 //
-// Dolgun sakallar tek parça kütle: dolgu + cel gölge + aşağı akan kısa çizgiler
-// + kontur. Üç günlük sakal ise konturu olmayan yarı saydam gölge ve nokta
-// dokusudur. Ağız her zaman açıkta kalır (dudak bölgesi kütleden çıkarılır).
+// Dolgun sakal kontursuz bir kütledir: altındaki deri koyulaşır, kütle yanağa
+// doğru seyrelerek deriye karışır, içi ve kenarı yüzlerce kısa, kıvrık telden
+// oluşur (siluet tel tel taşar). Üç günlük sakal serin bir gölge ve yoğun kıl
+// noktalarıdır. Ağız her zaman açıkta kalır (dudak bölgesi kütleden çıkarılır).
 // ============================================================================
 
 Color _beardColor(_Rig r) => _mix(r.hairColor, r.browColor, 0.30);
 
-/// Alt dudağın alt kenarı (yaklaşık).
+/// Alt dudağın alt kenarı (yaklaşık; `_paintMouth` ile aynı ölçüler).
 double _lipBottomY(_Rig r) {
   final open = math.max(0.0, r.m.smile - 0.60) * 13.0 + (r.lip.corner > 1.2 ? 2.2 : 0);
-  return r.mouthY + 4.2 * r.lip.lower * r.m.lipFullness + open + 0.8;
+  return r.mouthY + 4.4 * r.lip.lower * r.m.lipFullness + open + 0.8;
 }
 
 /// Ağız deliği: dudaklar ve hemen çevresi.
 Path _mouthHole(_Rig r, {double pad = 0.8}) {
-  final top = r.mouthY - 2.6 * r.lip.upper * r.m.lipFullness - 0.6 - 3.0 * r.m.smile - 1.7 * r.lip.corner;
+  final top = r.mouthY - 3.0 * r.lip.upper * r.m.lipFullness - 0.6 - 2.6 * r.m.smile - 1.5 * r.lip.corner;
   final bottom = _lipBottomY(r) + pad;
   final w = r.mouthHalf + pad;
   return Path()
@@ -123,55 +124,89 @@ Path _chinPatch(_Rig r, {required double halfW, required double len, double poin
     ..close();
 }
 
+/// Sakal/bıyık telleri: [region] içinde tohumlanır, [flow] yönünde kısa ve
+/// hafif kıvrık; [avoid] (ağız) dışında kalacak biçimde kırpılır ama bölge
+/// kenarından biraz taşabilir (tel tel siluet).
+void _beardHairs(Canvas canvas, _Rig r, Path region, Offset Function(Offset p) flow,
+    {required int seed, required double perArea, double len = 3.2, double width = 0.5, double light = 0.45, Path? avoid}) {
+  final col = _beardColor(r);
+  final b = region.getBounds();
+  final rng = r.rngFor(seed + 300);
+  final n = (b.width * b.height / perArea).round().clamp(6, r.detailed ? 1300 : 90);
+  final dark = _alpha(r.hairShadow, 0.55);
+  final base = _alpha(col, 0.65);
+  final lit = _mix(col, r.hairLight, 0.6);
+  canvas.save();
+  if (avoid != null) {
+    canvas.clipPath(Path.combine(PathOperation.difference, Path()..addRect(const Rect.fromLTWH(-20, -20, 240, 260)), avoid));
+  }
+  for (var i = 0, tries = 0; i < n && tries < n * 6; tries++) {
+    final p = Offset(b.left + rng.nextDouble() * b.width, b.top + rng.nextDouble() * b.height);
+    if (!region.contains(p)) continue;
+    i++;
+    final ang = (rng.nextDouble() - 0.5) * 0.8;
+    final f = flow(p);
+    final d = Offset(f.dx * math.cos(ang) - f.dy * math.sin(ang), f.dx * math.sin(ang) + f.dy * math.cos(ang));
+    final l = len * (0.6 + 0.8 * rng.nextDouble());
+    final bend = Offset(-d.dy, d.dx) * ((rng.nextDouble() - 0.5) * 1.2);
+    final pts = [p, p + d * (l * 0.5) + bend * 0.5, p + d * l + bend];
+    final k = rng.nextDouble();
+    final litSide = (1 - (p.dx - b.left) / math.max(1.0, b.width)) * 0.7;
+    final Color c = k < 0.45 ? dark : (k < 0.45 + light * litSide ? _alpha(lit, 0.55) : base);
+    canvas.drawPath(_taperPath(pts, width, width * 0.15, wMid: width * 0.9), r.fill(c));
+  }
+  canvas.restore();
+}
+
+/// Sakal kılının yüzdeki akışı: yanaklarda aşağı ve biraz çeneye doğru.
+Offset _beardFlow(Offset p) => _norm(Offset((_cx - p.dx) / 85, 1));
+
 /// Dolgun sakalı boyar.
-void _paintBeardMass(Canvas canvas, _Rig r, Path region, {required int seed, double density = 1.0}) {
+void _paintBeardMass(Canvas canvas, _Rig r, Path region, {required int seed, double density = 1.0, double hairLen = 3.4}) {
   final col = _beardColor(r);
   final hole = _mouthHole(r);
   var shaped = Path.combine(PathOperation.difference, region, hole);
   if (r.detailed) shaped = _wobble(shaped, 0.6, seed, step: 2.0);
-  final base = Color.alphaBlend(_alpha(col, density.clamp(0.0, 1.0)), r.skin);
-  canvas.drawPath(shaped, r.fill(base));
-  r.celShade(canvas, shaped, _alpha(_mix(col, r.hairShadow, 0.6), 0.9), base: base, offset: const Offset(-6, -4), blur: r.detailed ? 1.0 : 0);
-
-  // Aşağı akan kısa tutam çizgileri + sol yanakta parlama.
+  final dens = density.clamp(0.0, 1.0);
   final b = shaped.getBounds();
-  final rng = r.rngFor(seed);
-  Offset flow(Offset p) => _norm(Offset((p.dx - _cx) / 60, 1));
-  final seeds = _seedsIn(shaped, b, r.detailed ? (8 + b.width * b.height / 220).round().clamp(8, 26) : 5, rng);
+
+  // Altındaki deri: serin gölge (kıl dipleri), kenarı geniş ve yumuşak.
+  canvas.drawPath(shaped, r.soft(_alpha(_mix(col, r.skinCool, 0.35), 0.45 * dens), r.detailed ? 2.4 : 0));
+  // Gövde: yanak tarafında (üstte) seyrek, çenede yoğun.
+  canvas.drawPath(
+    shaped,
+    Paint()
+      ..maskFilter = r.detailed ? const MaskFilter.blur(BlurStyle.normal, 0.9) : null
+      ..shader = ui.Gradient.linear(
+        Offset(0, b.top),
+        Offset(0, b.bottom),
+        [_alpha(col, 0.18 * dens), _alpha(col, 0.86 * dens), _alpha(_mix(col, r.hairShadow, 0.30), 0.95 * dens)],
+        [0.0, math.min(0.5, 16 / math.max(1.0, b.height)), 1.0],
+      ),
+  );
   canvas.save();
   canvas.clipPath(shaped);
-  for (final s in seeds) {
-    final d = flow(s);
-    final l = 3.5 + rng.nextDouble() * 3.5;
-    canvas.drawPath(_taperPath([s, s + d * (l * 0.5) + const Offset(0.4, 0), s + d * l], 0.3, 0.1, wMid: 1.1),
-        r.fill(_alpha(r.hairShadow, 0.8)));
-  }
-  canvas.drawOval(
-    Rect.fromLTWH(b.left + b.width * 0.12, b.top + b.height * 0.35, b.width * 0.3, b.height * 0.4),
-    r.soft(_alpha(r.hairLight, 0.30), r.detailed ? 4 : 0),
-  );
-  if (r.detailed) {
-    for (final s in _seedsIn(shaped, Rect.fromLTWH(b.left, b.top + b.height * 0.25, b.width * 0.35, b.height * 0.5), 4, rng)) {
-      canvas.drawPath(_taperPath([s, s + const Offset(0.5, 3), s + const Offset(0.6, 6)], 0.4, 0.1, wMid: 1.5),
-          r.fill(_alpha(r.hairLight, 0.7)));
-    }
-  }
+  r.celShade(canvas, shaped, _alpha(r.hairShadow, 0.55 * dens), offset: const Offset(-6, -4), blur: 1.4);
+  // Sol yanakta ışık.
+  r.glow(canvas, Offset(b.left + b.width * 0.27, b.top + b.height * 0.55), b.width * 0.28, b.height * 0.45, _alpha(r.hairLight, 0.22 * dens), 4);
   canvas.restore();
-  canvas.drawPath(shaped, r.stroke(_alpha(r.hairLine, 0.9), r.lineW * 0.9));
+
+  // Teller (içte yoğun, kenardan taşan).
+  _beardHairs(canvas, r, shaped, _beardFlow, seed: seed, perArea: 2.4 / dens, len: hairLen * (0.75 + 0.35 * dens), avoid: hole);
 }
 
-/// Üç günlük sakal: konturu olmayan gölge + nokta dokusu.
+/// Üç günlük sakal: serin gölge + yoğun kıl noktaları + birkaç kısa kıl.
 void _paintStubble(Canvas canvas, _Rig r, Path region, double density, int seed) {
   final col = _beardColor(r);
   final shaped = Path.combine(PathOperation.difference, region, _mouthHole(r, pad: 0.8));
   canvas.save();
   canvas.clipPath(r.head);
-  canvas.drawPath(shaped, r.soft(_alpha(_mix(col, r.skin, 0.25), 0.22 + 0.36 * density), r.detailed ? 1.6 : 0));
+  canvas.drawPath(shaped, r.soft(_alpha(_mix(col, r.skinCool, 0.45), 0.16 + 0.34 * density), r.detailed ? 2.6 : 0));
   if (r.detailed) {
     canvas.clipPath(shaped);
     final rng = r.rngFor(seed);
     final b = shaped.getBounds();
-    final n = (b.width * b.height * 0.22 * density).round();
+    final n = (b.width * b.height * 0.55 * density).round();
     final pts = <Offset>[];
     for (var i = 0; i < n; i++) {
       pts.add(Offset(b.left + rng.nextDouble() * b.width, b.top + rng.nextDouble() * b.height));
@@ -180,10 +215,13 @@ void _paintStubble(Canvas canvas, _Rig r, Path region, double density, int seed)
       ui.PointMode.points,
       pts,
       Paint()
-        ..strokeWidth = 0.6
+        ..strokeWidth = 0.45
         ..strokeCap = StrokeCap.round
-        ..color = _alpha(_mix(col, Colors.black, 0.2), 0.35 + 0.3 * density),
+        ..color = _alpha(_mix(col, Colors.black, 0.25), 0.28 + 0.30 * density),
     );
+    if (density > 0.5) {
+      _beardHairs(canvas, r, shaped, _beardFlow, seed: seed + 1, perArea: 22 / density, len: 1.1, width: 0.35, light: 0.2);
+    }
   }
   canvas.restore();
 }
@@ -191,9 +229,9 @@ void _paintStubble(Canvas canvas, _Rig r, Path region, double density, int seed)
 // ------------------------------------------------------------------- bıyık
 Path _mustachePath(_Rig r, MustacheKind kind) {
   final w = r.mouthHalf;
-  final lift = 3.0 * r.m.smile + 1.7 * r.lip.corner;
+  final lift = 2.6 * r.m.smile + 1.5 * r.lip.corner;
   final top = r.noseBaseY + 1.6;
-  final lipTop = r.mouthY - 2.6 * r.lip.upper * r.m.lipFullness - 0.8;
+  final lipTop = r.mouthY - 3.0 * r.lip.upper * r.m.lipFullness - 0.8;
   final cornerY = r.mouthY - lift + 0.5;
 
   // Sağ yarı tarif (merkezden köşeye), sonra aynalanır.
@@ -264,24 +302,23 @@ void _paintMustache(Canvas canvas, _Rig r, MustacheKind kind, double density) {
   if (kind == MustacheKind.none) return;
   final path = _mustachePath(r, kind);
   final col = _beardColor(r);
+  // Bıyık kılı ortadan iki yana, aşağı doğru taranır.
+  Offset flow(Offset p) => _norm(Offset((p.dx - _cx) / 9, 1.1));
   if (density < 0.6) {
-    canvas.drawPath(path, r.soft(_alpha(col, 0.25 + 0.5 * density), r.detailed ? 1.0 : 0));
+    canvas.drawPath(path, r.soft(_alpha(_mix(col, r.skinCool, 0.3), 0.20 + 0.45 * density), r.detailed ? 1.6 : 0));
+    if (r.detailed) _beardHairs(canvas, r, path, flow, seed: 420 + kind.index, perArea: 6 / density, len: 1.6, width: 0.4, light: 0.2, avoid: _mouthHole(r, pad: 0));
     return;
   }
-  canvas.drawPath(path, r.fill(col));
-  r.celShade(canvas, path, _alpha(_mix(col, r.hairShadow, 0.6), 0.9), base: col, offset: const Offset(-4, -2.5), blur: 0);
-  canvas.save();
-  canvas.clipPath(path);
   final b = path.getBounds();
-  final rng = r.rngFor(410 + kind.index);
-  for (var i = 0; i < (r.detailed ? 10 : 4); i++) {
-    final x = b.left + rng.nextDouble() * b.width;
-    final y = b.top + rng.nextDouble() * b.height * 0.6;
-    final dx = (x - _cx) / 12;
-    canvas.drawLine(Offset(x, y), Offset(x + dx * 1.6, y + 2.6), r.stroke(_alpha(r.hairShadow, 0.85), 0.8));
-  }
-  canvas.restore();
-  canvas.drawPath(path, r.stroke(_alpha(r.hairLine, 0.9), r.lineW * 0.85));
+  canvas.drawPath(path, r.soft(_alpha(_mix(col, r.skinCool, 0.3), 0.5), r.detailed ? 1.6 : 0));
+  canvas.drawPath(
+    path,
+    Paint()
+      ..maskFilter = r.detailed ? const MaskFilter.blur(BlurStyle.normal, 0.7) : null
+      ..shader = ui.Gradient.linear(Offset(0, b.top), Offset(0, b.bottom), [_alpha(col, 0.55), _alpha(col, 0.92), _alpha(_mix(col, r.hairShadow, 0.35), 0.95)], const [0.0, 0.4, 1.0]),
+  );
+  r.celShade(canvas, path, _alpha(r.hairShadow, 0.5), offset: const Offset(-4, -2.5), blur: 1.0);
+  _beardHairs(canvas, r, path, flow, seed: 410 + kind.index, perArea: 1.8, len: 3.0, width: 0.5, avoid: _mouthHole(r, pad: -0.4));
 }
 
 // -------------------------------------------------------------------- ana
@@ -310,8 +347,8 @@ void _paintBeard(Canvas canvas, _Rig r) {
         p.lineTo(_cx - (q.dx - _cx) + 6.0, q.dy);
       }
       p.close();
-      c.drawPath(p, r.fill(_beardColor(r)));
-      c.drawPath(p, r.stroke(_alpha(r.hairLine, 0.85), r.lineW * 0.85));
+      c.drawPath(p, r.soft(_alpha(_beardColor(r), 0.85), r.detailed ? 0.8 : 0));
+      _beardHairs(c, r, p, (q) => const Offset(0.08, 1), seed: 430, perArea: 2.0, len: 2.6, width: 0.45);
     });
   }
 
@@ -327,50 +364,50 @@ void _paintBeard(Canvas canvas, _Rig r) {
       _paintStubble(canvas, r, _beardMass(r, top: topFull + 2, len: 1.5, lenSide: 0.5, inset: -2), density, 400);
       break;
     case BeardRegion.jawline:
-      _paintBeardMass(canvas, r, _jawBand(r, top: topFull + 4, outer: 2.2, inner: 1.6), seed: 401, density: density);
+      _paintBeardMass(canvas, r, _jawBand(r, top: topFull + 4, outer: 2.2, inner: 1.6), seed: 401, density: density, hairLen: 1.8);
       break;
     case BeardRegion.chinStrap:
-      _paintBeardMass(canvas, r, _jawBand(r, top: topFull, outer: 3.2, inner: 3.4), seed: 402, density: density);
+      _paintBeardMass(canvas, r, _jawBand(r, top: topFull, outer: 3.2, inner: 3.4), seed: 402, density: density, hairLen: 2.2);
       break;
     case BeardRegion.neckOnly:
       _paintStubble(canvas, r, _jawBand(r, top: topFull + 6, outer: 6, inner: -0.5), 0.9, 403);
       break;
     case BeardRegion.short:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 3, len: 4.5, lenSide: 2.2, inset: hug), seed: 404, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 3, len: 4.5, lenSide: 2.2, inset: hug), seed: 404, density: density, hairLen: 2.3);
       break;
     case BeardRegion.boxed:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 2, len: 6.5, lenSide: 3.2, inset: -3 + hug), seed: 405, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 2, len: 6.5, lenSide: 3.2, inset: -3 + hug), seed: 405, density: density, hairLen: 2.8);
       break;
     case BeardRegion.full:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 9.5, lenSide: 4.4, inset: -1 + hug), seed: 406, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 9.5, lenSide: 4.4, inset: -1 + hug), seed: 406, density: density, hairLen: 3.4);
       break;
     case BeardRegion.fullLong:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 22, lenSide: 5.5, inset: -1 + hug, point: 5), seed: 407, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 22, lenSide: 5.5, inset: -1 + hug, point: 5), seed: 407, density: density, hairLen: 4.6);
       break;
     case BeardRegion.garibaldi:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 17, lenSide: 7, inset: -1 + hug, round: 8), seed: 408, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull, len: 17, lenSide: 7, inset: -1 + hug, round: 8), seed: 408, density: density, hairLen: 4.2);
       break;
     case BeardRegion.ducktail:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 1, len: 12, lenSide: 4, inset: hug, point: 9), seed: 409, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull + 1, len: 12, lenSide: 4, inset: hug, point: 9), seed: 409, density: density, hairLen: 3.8);
       break;
     case BeardRegion.lumberjack:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull - 2, len: 15, lenSide: 7.5, inset: -3 + hug, round: 4), seed: 410, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull - 2, len: 15, lenSide: 7.5, inset: -3 + hug, round: 4), seed: 410, density: density, hairLen: 4.2);
       break;
     case BeardRegion.viking:
-      _paintBeardMass(canvas, r, _beardMass(r, top: topFull - 2, len: 34, lenSide: 9, inset: -3 + hug, point: 8, round: 6), seed: 411, density: density);
+      _paintBeardMass(canvas, r, _beardMass(r, top: topFull - 2, len: 34, lenSide: 9, inset: -3 + hug, point: 8, round: 6), seed: 411, density: density, hairLen: 5.0);
       break;
     case BeardRegion.balbo:
       final chin = _chinPatch(r, halfW: r.mouthHalf + 4, len: 4.5);
-      _paintBeardMass(canvas, r, chin, seed: 412, density: density);
+      _paintBeardMass(canvas, r, chin, seed: 412, density: density, hairLen: 2.6);
       break;
     case BeardRegion.goatee:
-      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.72, len: 4.0), seed: 413, density: density);
+      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.72, len: 4.0), seed: 413, density: density, hairLen: 2.6);
       break;
     case BeardRegion.vanDyke:
-      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.55, len: 5.5, point: 5), seed: 414, density: density);
+      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.55, len: 5.5, point: 5), seed: 414, density: density, hairLen: 2.6);
       break;
     case BeardRegion.chinPuff:
-      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.5, len: 3.0, top: (r.chinY - _lipBottomY(r)) * 0.45), seed: 415, density: density);
+      _paintBeardMass(canvas, r, _chinPatch(r, halfW: r.mouthHalf * 0.5, len: 3.0, top: (r.chinY - _lipBottomY(r)) * 0.45), seed: 415, density: density, hairLen: 2.4);
       break;
     case BeardRegion.soulPatch:
       final lipB = _lipBottomY(r);
@@ -379,23 +416,23 @@ void _paintBeard(Canvas canvas, _Rig r) {
         ..quadraticBezierTo(_cx, lipB + 0.4, _cx + 3.2, lipB + 1.2)
         ..lineTo(_cx, lipB + 8.5)
         ..close();
-      _paintBeardMass(canvas, r, p, seed: 416, density: density);
+      _paintBeardMass(canvas, r, p, seed: 416, density: density, hairLen: 2.2);
       break;
     case BeardRegion.anchor:
       final chin = _chinPatch(r, halfW: r.mouthHalf * 0.6, len: 4.5, point: 2);
       final strap = _jawBand(r, top: r.mouthY - 2, outer: 2.6, inner: 2.6);
-      _paintBeardMass(canvas, r, Path.combine(PathOperation.union, chin, strap), seed: 417, density: density);
+      _paintBeardMass(canvas, r, Path.combine(PathOperation.union, chin, strap), seed: 417, density: density, hairLen: 2.6);
       break;
     case BeardRegion.circle:
       final lipB = _lipBottomY(r);
       final ring = Path()
         ..addOval(Rect.fromLTRB(_cx - r.mouthHalf - 4.5, r.noseBaseY + 1.5, _cx + r.mouthHalf + 4.5, math.max(lipB + 10, r.chinY + 3)));
-      _paintBeardMass(canvas, r, ring, seed: 418, density: density);
+      _paintBeardMass(canvas, r, ring, seed: 418, density: density, hairLen: 2.8);
       break;
     case BeardRegion.mutton:
       final mass = _beardMass(r, top: topFull, len: 6, lenSide: 3.5, inset: -2 + hug);
       final chinClear = Path()..addOval(Rect.fromCenter(center: Offset(_cx, r.chinY - 3), width: r.mouthHalf * 2.1, height: (r.chinY - r.mouthY) * 2.0 + 8));
-      _paintBeardMass(canvas, r, Path.combine(PathOperation.difference, mass, chinClear), seed: 419, density: density);
+      _paintBeardMass(canvas, r, Path.combine(PathOperation.difference, mass, chinClear), seed: 419, density: density, hairLen: 3.0);
       break;
   }
 

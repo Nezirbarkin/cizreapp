@@ -1,14 +1,20 @@
 part of '../face_avatar_painter.dart';
 
 // ============================================================================
-// SAÇ MOTORU (Bitmoji tarzı)
+// SAÇ MOTORU (yarı gerçekçi)
 //
-// Saç, tek tek tellerden değil, birkaç büyük TUTAMDAN oluşur: her parça düz
-// renkle dolar, ışığın tersindeki kenarda cel gölge alır, kendi renginin
-// koyusuyla konturlanır. Tutamların ucu sivrilir; içlerinde birkaç kıvrık
-// ayırma çizgisi ve sol üstte parlama şeritleri bulunur. Kıvırcık dokuda
-// kenarlar bulut gibi kabarır.
+// Saç birkaç büyük KÜTLEDEN (tepe, kâkül, yan tutamlar, arka) oluşur; ama her
+// kütle düz renk değil: köklere ve uçlara doğru koyulaşan gradyan, ışığın
+// tersinde yumuşak gölge, kenarlarda kararma ve akış yönünde yüzlerce ince
+// tel. Parlama, saç yönüne dik uzanan geniş ve yumuşak bir banttır (tellerden
+// oluşur). Kenarlarda birkaç kabarık tel, alın çizgisinde tüy gibi ince
+// teller silueti yumuşatır. Kıvırcık dokuda kenarlar bukle bukle kabarır,
+// içi gölgeli halkalardan oluşur.
 // ============================================================================
+
+/// Tutam uçlarının uzunluk çarpanı: alev gibi sivri uçlar yerine kısa,
+/// doğal kırık uçlar.
+const double _kTipScale = 0.55;
 
 typedef _Flow = Offset Function(Offset p);
 
@@ -43,7 +49,7 @@ class _HairGeo {
 
   /// Saç çizgisinin merkezdeki y'si.
   double get hl {
-    var y = 51.0;
+    var y = 47.0;
     switch (s.hairline) {
       case Hairline.high:
         y -= 5;
@@ -267,22 +273,37 @@ List<Offset> _tipsAlong(List<Offset> base, Offset Function(int i, Offset mid) di
     for (var i = 0; i < base.length - 1; i++)
       () {
         final mid = (base[i] + base[i + 1]) / 2;
-        return mid + dir(i, mid) * (len * (1 - jitter / 2 + jitter * rng.nextDouble()));
+        return mid + dir(i, mid) * (len * _kTipScale * (1 - jitter / 2 + jitter * rng.nextDouble()));
       }(),
   ];
 }
 
 // --------------------------------------------------------------- boyama
-/// Saç parçasını boyar: dolgu → cel gölge → kontur.
+/// Saç parçasını boyar: gradyan dolgu → yumuşak hacim gölgesi → kenar
+/// kararması → yumuşak kenar (sert kontur yok).
 void _hairFill(Canvas c, _Rig r, Path path, {Color? base, double shade = 1.0, Offset light = const Offset(-6, -5), bool outline = true}) {
-  c.drawPath(path, r.fill(base ?? r.hairColor));
+  final col = base ?? r.hairColor;
+  final b = path.getBounds();
+  c.drawPath(
+    path,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        b.topLeft,
+        b.bottomRight,
+        [_mix(col, r.hairLight, 0.14), col, _mix(col, r.hairShadow, 0.40)],
+        const [0.0, 0.45, 1.0],
+      ),
+  );
   if (shade > 0) {
-    r.celShade(c, path, _alpha(r.hairShadow, 0.85 * shade), base: base ?? r.hairColor, offset: light, blur: r.detailed ? 1.0 : 0);
+    r.celShade(c, path, _alpha(r.hairShadow, 0.72 * shade), offset: light, blur: 1.4);
+    r.rimShade(c, path, _alpha(r.hairShadow, 0.38 * shade), width: 7, blur: 3);
   }
-  if (outline) c.drawPath(path, r.stroke(r.hairLine, r.lineW));
+  if (outline) c.drawPath(path, r.edge(r.hairShadow, alpha: 0.45));
 }
 
-/// Akış alanını izleyen tutam çizgileri: [seeds]'ten başlar, bölge içinde kalır.
+/// Akış alanını izleyen tutam çizgileri: [seeds]'ten başlar, bölge içinde
+/// kalır. Tutamları birbirinden ayıran derin ayrımlar için kullanılır
+/// (ince doku [_strands] ile verilir).
 void _hairLines(
   Canvas c,
   _Rig r,
@@ -301,20 +322,27 @@ void _hairLines(
   c.save();
   c.clipPath(region);
   for (final s in seeds) {
-    final pts = <Offset>[s];
-    var cur = s;
-    const steps = 7;
-    final l = len * (0.7 + 0.6 * rng.nextDouble());
-    final phase = rng.nextDouble() * math.pi * 2;
-    for (var i = 1; i <= steps; i++) {
-      final d = flow(cur);
-      final perp = Offset(-d.dy, d.dx);
-      cur = cur + d * (l / steps) + perp * (curl * math.sin(i * 1.3 + phase));
-      pts.add(cur);
+    final pts = _flowPath(s, flow, len * (0.7 + 0.6 * rng.nextDouble()), curl, rng.nextDouble() * math.pi * 2);
+    // Ayrım: koyu, yumuşak oluk + yanında ışık alan kenar.
+    c.drawPath(_taperPath(pts, width * 0.25, width * 0.08, wMid: width * 0.8), r.soft(_alpha(col, alpha * 0.75), r.detailed ? 0.35 : 0));
+    if (r.detailed) {
+      c.drawPath(_taperPath(pts.map((p) => p.translate(-0.8, -0.3)).toList(), 0.1, 0.05, wMid: width * 0.45), r.fill(_alpha(r.hairLight, alpha * 0.30)));
     }
-    c.drawPath(_taperPath(pts, width * 0.35, width * 0.1, wMid: width), r.fill(_alpha(col, alpha)));
   }
   c.restore();
+}
+
+/// [s]'ten akış boyunca [len] uzunluğunda nokta dizisi.
+List<Offset> _flowPath(Offset s, _Flow flow, double len, double curl, double phase, {int steps = 7}) {
+  final pts = <Offset>[s];
+  var cur = s;
+  for (var i = 1; i <= steps; i++) {
+    final d = flow(cur);
+    final perp = Offset(-d.dy, d.dx);
+    cur = cur + d * (len / steps) + perp * (curl * math.sin(i * 1.3 + phase));
+    pts.add(cur);
+  }
+  return pts;
 }
 
 /// [region] içinde, [band] dikdörtgeninde rastgele tohumlar.
@@ -329,61 +357,104 @@ List<Offset> _seedsIn(Path region, Rect band, int n, math.Random rng) {
   return out;
 }
 
-/// Bir saç kütlesine doku verir: düzenli aralıklı tutam çizgileri.
-/// [seeds] çizgilerin başladığı noktalardır (stil belirler).
+/// İnce saç telleri: bölgeye yayılmış, akışı izleyen, koyu/orta/açık
+/// tonlarda yüzlerce tel. Düz dolguyu "saç" yapan asıl doku budur.
+void _strands(Canvas c, _Rig r, Path region, _Flow flow, {required int seed, double len = 14, double curl = 0, double density = 1.0}) {
+  final b = region.getBounds();
+  final area = b.width * b.height;
+  final n = ((area / (r.detailed ? 9.0 : 60.0)) * density).round().clamp(4, r.detailed ? 520 : 60);
+  final rng = r.rngFor(seed + 5000);
+  final seeds = _seedsIn(region, b, n, rng);
+  final dark = r.hairShadow;
+  final mid = _mix(r.hairColor, r.hairShadow, 0.5);
+  final light = _mix(r.hairColor, r.hairLight, 0.75);
+  c.save();
+  c.clipPath(region);
+  for (var i = 0; i < seeds.length; i++) {
+    final s = seeds[i];
+    final l = len * (0.55 + 0.7 * rng.nextDouble());
+    final pts = _flowPath(s, flow, l, curl * 0.6, rng.nextDouble() * math.pi * 2, steps: 5);
+    final k = rng.nextDouble();
+    final Color col;
+    if (k < 0.45) {
+      col = _alpha(dark, 0.30 + 0.25 * rng.nextDouble());
+    } else if (k < 0.75) {
+      col = _alpha(mid, 0.30);
+    } else {
+      // Işık alan teller sol üstte daha sık.
+      final lit = (1 - ((s.dx - b.left) / b.width)) * 0.6 + (1 - ((s.dy - b.top) / b.height)) * 0.4;
+      col = _alpha(light, 0.18 + 0.32 * lit);
+    }
+    c.drawPath(_taperPath(pts, 0.25, 0.05, wMid: r.detailed ? 0.55 : 0.9), r.fill(col));
+  }
+  c.restore();
+}
+
+/// Bir saç kütlesine doku verir: stilin ayrım çizgileri + ince teller.
+/// [seeds] ayrımların başladığı noktalardır (stil belirler).
 void _hairTexture(Canvas c, _Rig r, _HairGeo g, Path region, _Flow flow, List<Offset> seeds, {int seed = 1, double len = 18}) {
   if (g.curly) {
     _curlTexture(c, r, region, seed: seed, radius: g.s.texture == HairTexture.coily ? 2.2 : 3.2);
     return;
   }
   final curl = g.wavy ? 0.8 + 1.2 * g.s.curl : 0.0;
+  _strands(c, r, region, flow, seed: seed, len: len * 0.75, curl: curl);
   final use = r.detailed ? seeds : [for (var i = 0; i < seeds.length; i += 2) seeds[i]];
-  _hairLines(c, r, region, flow, use, len: len, color: r.hairLine, width: 1.15, alpha: 0.62, curl: curl, seed: seed + 1);
+  _hairLines(c, r, region, flow, use, len: len, color: r.hairShadow, width: 1.3, alpha: 0.55, curl: curl, seed: seed + 1);
 }
 
-/// Saçtaki parlama: [oval]'in [start]..[start+sweep] yayında geniş yumuşak
-/// bir bant ve onun üstünde birkaç keskin kısa çizgi (anime/Bitmoji ışığı).
-void _sheen(Canvas c, _Rig r, Path region, Rect oval, double start, double sweep, {double width = 7, double strength = 1.0}) {
+/// Saçtaki parlama: [oval]'in [start]..[start+sweep] yayı boyunca uzanan
+/// geniş, yumuşak bir ışık bandı; [flow] verilirse bant, saç yönünde akan
+/// açık tellerden oluşur (anizotrop parlama).
+void _sheen(Canvas c, _Rig r, Path region, Rect oval, double start, double sweep, {double width = 7, double strength = 1.0, _Flow? flow}) {
   c.save();
   c.clipPath(region);
-  c.drawArc(oval, start, sweep, false, r.stroke(_alpha(r.hairLight, 0.42 * strength), width, blur: r.detailed ? 2.4 : 0));
-  final n = r.detailed ? 4 : 2;
-  for (var k = 0; k < n; k++) {
-    final t = 0.14 + 0.72 * k / math.max(1, n - 1);
-    final a = start + sweep * t;
-    final p = Offset(oval.center.dx + math.cos(a) * oval.width / 2, oval.center.dy + math.sin(a) * oval.height / 2);
-    final tg = _norm(Offset(-math.sin(a) * oval.width, math.cos(a) * oval.height));
-    final l = width * (1.0 + 0.5 * (k.isEven ? 1 : 0));
-    c.drawPath(
-      _taperPath([p - tg * l * 0.5, p, p + tg * l * 0.5], 0.3, 0.3, wMid: width * 0.32),
-      r.fill(_alpha(r.hairShine, 0.85 * strength)),
-    );
+  c.drawArc(oval, start, sweep, false, r.stroke(_alpha(r.hairLight, 0.30 * strength), width * 1.3, blur: r.detailed ? 3.2 : 0));
+  if (r.detailed) {
+    final rng = r.rngFor(oval.left.round() * 7 + 3);
+    final n = (48 * strength).round();
+    for (var k = 0; k < n; k++) {
+      final a = start + sweep * rng.nextDouble();
+      final rr = 1 + (rng.nextDouble() - 0.5) * width / math.max(8.0, oval.shortestSide / 2) * 1.2;
+      final p = Offset(oval.center.dx + math.cos(a) * oval.width / 2 * rr, oval.center.dy + math.sin(a) * oval.height / 2 * rr);
+      final d = flow != null ? flow(p) : _norm(Offset(math.cos(a), math.sin(a)));
+      final l = width * (0.45 + 0.6 * rng.nextDouble());
+      final pts = [p - d * (l * 0.5), p, p + d * (l * 0.5)];
+      c.drawPath(_taperPath(pts, 0.05, 0.05, wMid: 0.35 + 0.25 * rng.nextDouble()), r.fill(_alpha(r.hairShine, (0.12 + 0.24 * rng.nextDouble()) * strength)));
+    }
   }
   c.restore();
 }
 
-/// Kıvırcık/kıvrık doku: dağınık C biçimli bukleler (koyu) ve sol üstte
-/// birkaç açık bukle.
+/// Kıvırcık/kıvrık doku: sık dizilmiş bukleler; her bukle sol üstü ışık
+/// alan, sağ altı gölgede kalan bir halka. Aralarında derinlik gölgeleri.
 void _curlTexture(Canvas c, _Rig r, Path region, {required int seed, double radius = 3.0}) {
   final b = region.getBounds();
   final rng = r.rngFor(seed);
   final area = b.width * b.height;
-  final n = (area / (radius * radius * (r.detailed ? 16 : 40))).round().clamp(3, 140);
+  final n = (area / (radius * radius * (r.detailed ? 3.2 : 30))).round().clamp(3, 420);
   c.save();
   c.clipPath(region);
+  if (r.detailed) {
+    // Bukleler arası derinlik.
+    for (var i = 0; i < n ~/ 4; i++) {
+      final p = Offset(b.left + rng.nextDouble() * b.width, b.top + rng.nextDouble() * b.height);
+      c.drawCircle(p, radius * 1.1, r.soft(_alpha(r.hairShadow, 0.35), 1.6));
+    }
+  }
+  final darkP = r.stroke(_alpha(r.hairShadow, 0.65), r.detailed ? 0.85 : 1.1);
   for (var i = 0; i < n; i++) {
     final p = Offset(b.left + rng.nextDouble() * b.width, b.top + rng.nextDouble() * b.height);
     if (!region.contains(p)) continue;
-    final rad = radius * (0.75 + 0.5 * rng.nextDouble());
-    final start = math.pi * (0.1 + 0.6 * rng.nextDouble());
-    final light = (p.dx - b.left) / b.width < 0.45 && (p.dy - b.top) / b.height < 0.4 && rng.nextDouble() < 0.45;
-    c.drawArc(
-      Rect.fromCircle(center: p, radius: rad),
-      start,
-      math.pi * 1.25,
-      false,
-      r.stroke(_alpha(light ? r.hairShine : r.hairLine, light ? 0.7 : 0.55), light ? 1.3 : 1.1),
-    );
+    final rad = radius * (0.7 + 0.55 * rng.nextDouble());
+    final rect = Rect.fromCircle(center: p, radius: rad);
+    final rot = (rng.nextDouble() - 0.5) * 0.9;
+    final lit = (1 - (p.dx - b.left) / b.width) * 0.55 + (1 - (p.dy - b.top) / b.height) * 0.45;
+    c.drawArc(rect, math.pi * 0.05 + rot, math.pi * 1.15, false, darkP);
+    if (r.detailed) {
+      c.drawArc(rect.deflate(0.5), math.pi * 1.10 + rot, math.pi * 0.85, false,
+          r.stroke(_alpha(r.hairShine, 0.12 + 0.45 * lit * rng.nextDouble()), 0.8));
+    }
   }
   c.restore();
 }
@@ -393,9 +464,57 @@ void _castOnSkin(Canvas canvas, _Rig r, List<Path> parts, {Offset shift = const 
   canvas.save();
   canvas.clipPath(r.head);
   for (final p in parts) {
-    canvas.drawPath(p.shift(shift), r.soft(_alpha(r.skinShadow, 0.95), r.detailed ? 1.4 : 0));
+    canvas.drawPath(p.shift(shift), r.soft(_alpha(r.skinShadow, 0.80), r.detailed ? 2.2 : 0));
+    canvas.drawPath(p.shift(shift * 0.4), r.soft(_alpha(r.skinDeep, 0.30), r.detailed ? 1.0 : 0));
   }
   canvas.restore();
+}
+
+/// Siluetten taşan birkaç kabarık tel: [path]'in kenarından dışa ve akış
+/// yönüne kıvrılır. Sert kesik kenar hissini kırar.
+void _flyaways(Canvas c, _Rig r, Path path, _Flow flow, {required int seed, int count = 14, double len = 6, bool Function(Offset p)? where}) {
+  if (!r.detailed) return;
+  final rng = r.rngFor(seed + 7000);
+  final ms = path.computeMetrics().toList();
+  if (ms.isEmpty) return;
+  final m = ms.first;
+  var drawn = 0;
+  for (var k = 0; k < count * 4 && drawn < count; k++) {
+    final tg = m.getTangentForOffset(m.length * rng.nextDouble())!;
+    final p = tg.position;
+    if (where != null && !where(p)) continue;
+    var nrm = Offset(tg.vector.dy, -tg.vector.dx);
+    nrm = _outward(path, p, nrm);
+    final root = p - nrm * 1.5;
+    final d = _norm(flow(p) * 0.7 + nrm * 0.6);
+    final l = len * (0.5 + rng.nextDouble());
+    final bend = Offset(-d.dy, d.dx) * ((rng.nextDouble() - 0.5) * 2.0);
+    final pts = _quadPts(root, root + d * (l * 0.5) + bend, root + d * l + bend * 1.6, 6);
+    final col = rng.nextDouble() < 0.8 ? r.hairColor : _mix(r.hairColor, r.hairLight, 0.5);
+    c.drawPath(_taperPath(pts, 0.35, 0.05, wMid: 0.4), r.fill(_alpha(col, 0.55)));
+    drawn++;
+  }
+}
+
+/// Alın çizgisini yumuşatır: saç kütlesinin içinden alına doğru inen kısa,
+/// ince teller (bebek tüyü).
+void _softHairline(Canvas c, _Rig r, _HairGeo g, _Flow flow, {int seed = 1}) {
+  if (!r.detailed) return;
+  final line = g.hairlineFull(48);
+  final rng = r.rngFor(seed + 8000);
+  c.save();
+  c.clipPath(r.head);
+  for (var i = 2; i < line.length - 2; i++) {
+    for (var k = 0; k < 2; k++) {
+      final p = line[i] + Offset((rng.nextDouble() - 0.5) * 1.6, -1.2 - rng.nextDouble() * 1.5);
+      final f = flow(p);
+      final d = _norm(Offset(f.dx * 0.6, math.max(0.6, f.dy.abs())));
+      final l = 1.6 + rng.nextDouble() * 2.4;
+      final pts = _quadPts(p, p + d * (l * 0.5), p + d * l + Offset((rng.nextDouble() - 0.5) * 0.8, 0), 4);
+      c.drawPath(_taperPath(pts, 0.42, 0.04, wMid: 0.42), r.fill(_alpha(_mix(r.hairColor, r.hairShadow, 0.3), 0.30 + 0.30 * rng.nextDouble())));
+    }
+  }
+  c.restore();
 }
 
 // ======================================================================== ARKA
@@ -438,11 +557,21 @@ void _paintBackMass(Canvas canvas, _Rig r, _HairGeo g) {
   final dark = _mix(r.hairColor, r.hairShadow, 0.55);
   _hairFill(canvas, r, shaped, base: dark, shade: 0.6);
   if (!g.curly) {
-    _hairLines(canvas, r, shaped, _flowDown(g, spread: 0.35),
+    final flow = _flowDown(g, spread: 0.35);
+    _strands(canvas, r, shaped, flow, seed: 34, len: 24, curl: g.wavy ? 2.0 : 0, density: 0.8);
+    _hairLines(canvas, r, shaped, flow,
         _seedsIn(shaped, Rect.fromLTRB(_cx - W, 110, _cx + W, end - 10), r.detailed ? 8 : 3, rng),
-        len: 28, color: r.hairLine, width: 1.2, alpha: 0.55, curl: g.wavy ? 2.0 : 0, seed: 32);
+        len: 28, color: r.hairShadow, width: 1.4, alpha: 0.55, curl: g.wavy ? 2.0 : 0, seed: 32);
+    _flyaways(canvas, r, shaped, flow, seed: 35, count: 8, len: 7, where: (p) => p.dy > 100);
   } else {
     _curlTexture(canvas, r, shaped, seed: 33, radius: 3.2);
+  }
+  // Başın ve boynun arkadaki saça düşürdüğü derin gölge.
+  if (r.detailed) {
+    canvas.save();
+    canvas.clipPath(shaped);
+    canvas.drawRect(Rect.fromLTRB(_cx - r.neckHalf - 10, r.gonionY - 6, _cx + r.neckHalf + 10, end + 10), r.soft(_alpha(r.hairShadow, 0.55), 6));
+    canvas.restore();
   }
 }
 
@@ -478,10 +607,15 @@ void _paintHairFront(Canvas canvas, _Rig r) {
   for (final f in fringe) {
     _hairFill(canvas, r, f.path, base: f.tone);
     if (!g.curly) {
-      _hairLines(canvas, r, f.path, f.flow, f.lines, len: f.lineLen, color: r.hairLine, width: 1.15, alpha: 0.62, curl: g.wavy ? 1.2 : 0, seed: f.seed);
+      _strands(canvas, r, f.path, f.flow, seed: f.seed, len: f.lineLen * 0.7, curl: g.wavy ? 1.2 : 0);
+      _hairLines(canvas, r, f.path, f.flow, f.lines, len: f.lineLen, color: r.hairShadow, width: 1.3, alpha: 0.55, curl: g.wavy ? 1.2 : 0, seed: f.seed);
       if (f.sheen.isNotEmpty) {
-        _hairLines(canvas, r, f.path, f.flow, f.sheen, len: f.lineLen * 0.55, color: r.hairShine, width: 2.0, alpha: 0.7, seed: f.seed + 7);
+        final b = f.path.getBounds();
+        _sheen(canvas, r, f.path, Rect.fromLTRB(b.left - 6, b.top + 2, b.right + 6, b.bottom + b.height * 0.6), math.pi * 1.12, math.pi * 0.30,
+            width: 5, strength: 0.8, flow: f.flow);
       }
+      // Kâkül uçları: ince, dağınık teller.
+      _flyaways(canvas, r, f.path, f.flow, seed: f.seed + 3, count: 6, len: 3.5, where: (p) => p.dy > g.hl + 4);
     } else {
       _curlTexture(canvas, r, f.path, seed: f.seed, radius: 2.8);
     }
@@ -492,15 +626,13 @@ void _paintHairFront(Canvas canvas, _Rig r) {
   _paintTieFront(canvas, r, g);
 }
 
-/// Kel kafada hafif parlama.
+/// Kel kafada hafif parlama ve kafa derisinin serin, tıraşlı tonu.
 void _paintBaldShine(Canvas canvas, _Rig r) {
   if (!r.detailed) return;
   canvas.save();
   canvas.clipPath(r.head);
-  canvas.drawOval(
-    Rect.fromCenter(center: const Offset(_cx - 12, _Rig.skullTop + 12), width: 26, height: 10),
-    r.soft(_alpha(Colors.white, 0.35), 3),
-  );
+  r.glow(canvas, const Offset(_cx - 12, _Rig.skullTop + 13), 28, 11, _alpha(r.skinSpec, 0.55), 3.5);
+  r.glow(canvas, const Offset(_cx - 13, _Rig.skullTop + 11), 9, 3.5, _alpha(Colors.white, 0.35), 1.2);
   canvas.restore();
 }
 
@@ -527,17 +659,31 @@ void _paintBuzz(Canvas canvas, _Rig r, _HairGeo g) {
   area.close();
   canvas.save();
   canvas.clipPath(r.head);
-  final buzz = Color.alphaBlend(_alpha(r.hairColor, 0.62), r.skin);
-  canvas.drawPath(area, r.fill(buzz));
-  r.celShade(canvas, area, _alpha(r.hairShadow, 0.5), base: buzz, offset: const Offset(-6, -4));
+  // Kafa derisi saçın arasından görünür: kenarı yumuşak, yarı saydam gölge.
+  final buzz = _alpha(_mix(r.hairColor, r.skinCool, 0.25), 0.55);
+  canvas.drawPath(area, r.soft(buzz, r.detailed ? 1.0 : 0));
+  r.celShade(canvas, area, _alpha(r.hairShadow, 0.35), offset: const Offset(-6, -4));
   if (r.detailed) {
+    // Kısa kıl uçları: yoğun, çok küçük noktalar; ışık alan yerde birkaç parlama.
     final rng = r.rngFor(45);
     final b = area.getBounds();
-    for (var i = 0; i < 260; i++) {
+    final dots = <Offset>[];
+    for (var i = 0; i < 2600; i++) {
       final p = Offset(b.left + rng.nextDouble() * b.width, b.top + rng.nextDouble() * b.height);
-      if (!area.contains(p)) continue;
-      canvas.drawCircle(p, 0.35, r.fill(_alpha(r.hairLine, 0.35)));
+      if (area.contains(p)) dots.add(p);
     }
+    canvas.save();
+    canvas.clipPath(area);
+    canvas.drawPoints(
+      ui.PointMode.points,
+      dots,
+      Paint()
+        ..strokeWidth = 0.55
+        ..strokeCap = StrokeCap.round
+        ..color = _alpha(r.hairShadow, 0.40),
+    );
+    r.glow(canvas, const Offset(_cx - 12, _Rig.skullTop + 14), 26, 10, _alpha(r.skinSpec, 0.25), 3.5);
+    canvas.restore();
   }
   canvas.restore();
 }
@@ -680,8 +826,7 @@ void _paintCap(Canvas canvas, _Rig r, _HairGeo g, Path cap) {
   final fadeTop = g.fadeTop;
   final hasFade = s.fade != HairFade.none;
 
-  canvas.drawPath(cap, r.fill(r.hairColor));
-  r.celShade(canvas, cap, _alpha(r.hairShadow, 0.85), base: r.hairColor, offset: const Offset(-7, -6), blur: r.detailed ? 1.0 : 0);
+  _hairFill(canvas, r, cap, light: const Offset(-7, -6), outline: false);
 
   final flow = _capFlow(g, fr);
   final W = g.W;
@@ -716,32 +861,41 @@ void _paintCap(Canvas canvas, _Rig r, _HairGeo g, Path cap) {
       canvas.drawPath(
         _taperPath(_quadPts(Offset(x0, g.hairlineY((x0 - _cx).abs()) - 1), Offset(x0 + side * 6, top + 10 + k * 6), Offset(_cx + side * g.fh * (0.35 + k * 0.2), top + 6 + k * 8), 10),
             0.3, 0.2, wMid: 1.3),
-        r.fill(_alpha(r.hairLine, 0.6)),
+        r.soft(_alpha(r.hairShadow, 0.6), r.detailed ? 0.4 : 0),
       );
     }
   }
   if (!g.curly) {
     _sheen(canvas, r, cap, Rect.fromCenter(center: Offset(_cx - 2 + g.partX * 0.2, _HairGeo.yc - 2 - g.crest * 0.5), width: 2 * (W - 8), height: 2 * (ry - 8 + g.crest * 0.6)),
-        math.pi * 1.10, math.pi * 0.34);
+        math.pi * 1.10, math.pi * 0.34, flow: flow);
   }
 
-  // Ayrım çizgisi.
+  // Ayrım çizgisi: kafa derisinin göründüğü ince, yumuşak çizgi.
+  void parting(Path p) {
+    canvas.save();
+    canvas.clipPath(cap);
+    canvas.drawPath(p, r.stroke(_alpha(r.hairShadow, 0.85), 1.6, blur: 0.6));
+    canvas.drawPath(p, r.stroke(_alpha(_mix(r.skin, r.hairColor, 0.45), 0.75), 0.5));
+    canvas.restore();
+  }
+
   if ((fr == HairFringe.comb || fr == HairFringe.sweep || fr == HairFringe.sweepLong || fr == HairFringe.wave) && s.part != 0) {
     final px = _cx + g.partX;
-    canvas.drawPath(
-      Path()
-        ..moveTo(px, g.hl - 1)
-        ..quadraticBezierTo(px + g.side * 1.5, g.hl - 10, px - g.side * 2, g.topY + 9),
-      r.stroke(r.hairLine, r.lineW * 1.1),
-    );
+    parting(Path()
+      ..moveTo(px, g.hl - 1)
+      ..quadraticBezierTo(px + g.side * 1.5, g.hl - 10, px - g.side * 2, g.topY + 9));
   }
   if (fr == HairFringe.curtain || (s.part == 0 && g.longSides && fr != HairFringe.blunt)) {
-    canvas.drawPath(
-      Path()
-        ..moveTo(_cx, g.hl - 2)
-        ..quadraticBezierTo(_cx + 0.6, g.hl - 12, _cx - 0.5, g.topY + 10),
-      r.stroke(r.hairLine, r.lineW * 1.1),
-    );
+    parting(Path()
+      ..moveTo(_cx, g.hl - 2)
+      ..quadraticBezierTo(_cx + 0.6, g.hl - 12, _cx - 0.5, g.topY + 10));
+  }
+
+  // Siluetin üstünde kabarık teller; alın çizgisi açıktaysa tüy gibi yumuşak.
+  if (!g.curly) {
+    _flyaways(canvas, r, cap, flow, seed: 120 + r.cfg.hair, count: 12, len: 5, where: (p) => p.dy < _HairGeo.yc);
+    final openHairline = fr == HairFringe.none || fr == HairFringe.slick || fr == HairFringe.quiff || fr == HairFringe.pomp || fr == HairFringe.comb;
+    if (openHairline) _softHairline(canvas, r, g, flow, seed: 130 + r.cfg.hair);
   }
 
   // Fade: yanlar ten rengine doğru erir; kontur yalnız fade'in üstünde.
@@ -758,17 +912,17 @@ void _paintCap(Canvas canvas, _Rig r, _HairGeo g, Path cap) {
           ..shader = ui.Gradient.linear(
             Offset(0, fadeTop - 4),
             Offset(0, g.sideEndY),
-            [_alpha(r.skin, 0.0), _alpha(r.skin, skinStop * 0.85)],
+            [_alpha(_mix(r.skin, r.skinCool, 0.35), 0.0), _alpha(_mix(r.skin, r.skinCool, 0.35), skinStop * 0.85)],
           ),
       );
     });
     canvas.restore();
     canvas.save();
     canvas.clipRect(Rect.fromLTRB(0, 0, 200, fadeTop + 2));
-    canvas.drawPath(cap, r.stroke(r.hairLine, r.lineW));
+    canvas.drawPath(cap, r.edge(r.hairShadow, alpha: 0.45));
     canvas.restore();
   } else {
-    canvas.drawPath(cap, r.stroke(r.hairLine, r.lineW));
+    canvas.drawPath(cap, r.edge(r.hairShadow, alpha: 0.45));
   }
 }
 
@@ -1003,12 +1157,16 @@ void _paintSideLock(Canvas canvas, _Rig r, _HairGeo g, Path path, bool right) {
     _curlTexture(canvas, r, path, seed: 330 + (right ? 1 : 0), radius: 3.0);
     return;
   }
-  // Uzunlamasına tutam ayrımları: üstte başlar, uçlara iner.
+  // Uzunlamasına ince teller + birkaç derin tutam ayrımı.
   final flow = _flowDown(g, spread: 0.25);
+  _strands(canvas, r, path, flow, seed: 345 + (right ? 1 : 0), len: 26, curl: g.wavy ? 1.6 : 0);
   final seeds = [for (var i = 1; i <= 3; i++) Offset(_lerpD(b.left, b.right, i / 4), b.top + b.height * 0.28)];
-  _hairLines(canvas, r, path, flow, seeds, len: b.height * 0.75, color: r.hairLine, width: 1.2, alpha: 0.6, curl: g.wavy ? 1.6 : 0, seed: 340 + (right ? 1 : 0));
-  // Dikey parlama bandı.
-  final x = _lerpD(b.left, b.right, right ? 0.42 : 0.38);
-  _sheen(canvas, r, path, Rect.fromLTRB(x - 30, b.top + 10, x + 6, b.top + b.height * 0.9), math.pi * 0.85, math.pi * 0.35,
-      width: 5.5, strength: right ? 0.6 : 1.0);
+  _hairLines(canvas, r, path, flow, seeds, len: b.height * 0.75, color: r.hairShadow, width: 1.4, alpha: 0.55, curl: g.wavy ? 1.6 : 0, seed: 340 + (right ? 1 : 0));
+  // Parlama: tellere dik, yatay uzanan yumuşak bant (saç başın yuvarlağından
+  // dönerken ışığı yakalar); gölge tarafında sönük.
+  final bandY = b.top + b.height * 0.26;
+  _sheen(canvas, r, path, Rect.fromCenter(center: Offset(b.center.dx, bandY + 60), width: b.width * 3.2, height: 120), math.pi * 1.36, math.pi * 0.28,
+      width: 6, strength: right ? 0.45 : 0.9, flow: flow);
+  // Uçlarda dağınık teller.
+  _flyaways(canvas, r, path, flow, seed: 350 + (right ? 1 : 0), count: 8, len: 6, where: (p) => p.dy > b.top + b.height * 0.55);
 }

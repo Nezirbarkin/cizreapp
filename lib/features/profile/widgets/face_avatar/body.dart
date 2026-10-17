@@ -53,32 +53,51 @@ Path _torsoPath(_Rig r) {
 
 void _paintTorso(Canvas canvas, _Rig r) {
   final torso = _torsoPath(r);
-  canvas.drawPath(torso, r.fill(_mix(r.skin, r.skinShadow, 0.35)));
+  final by = _neckBaseY(r);
+  // Boyun yüzün gerisinde kalır: biraz daha koyu, aşağı doğru açılır.
+  canvas.drawPath(
+    torso,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(0, r.chinY - 20),
+        Offset(0, by + 20),
+        [_mix(r.skin, r.skinShadow, 0.55), _mix(r.skin, r.skinShadow, 0.25), _mix(r.skin, r.skinLight, 0.05)],
+        const [0.0, 0.55, 1.0],
+      ),
+  );
 
   canvas.save();
   canvas.clipPath(torso);
   // Çenenin boyuna düşürdüğü gölge: çene hattının aşağı kaydırılmış kopyası.
-  final jawShadow = Path.combine(PathOperation.difference, r.head.shift(const Offset(0, 9)), r.head);
-  canvas.drawPath(jawShadow, r.soft(_alpha(r.skinDeep, 0.40), 1.6));
-  // Sağ (gölge) taraf.
+  final jawShadow = Path.combine(PathOperation.difference, r.head.shift(const Offset(1.5, 10)), r.head);
+  canvas.drawPath(jawShadow, r.soft(_alpha(r.skinDeep, 0.55), r.detailed ? 3.0 : 0));
+  // Sağ (gölge) taraf: yumuşak geçiş.
   canvas.drawRect(
-    Rect.fromLTWH(_cx + r.neckHalf * 0.35, r.chinY - 30, 80, 100),
-    r.soft(_alpha(r.skinShadow, 0.55), 2.0),
+    Rect.fromLTWH(_cx + r.neckHalf * 0.30, r.chinY - 30, 80, 100),
+    r.soft(_alpha(r.skinShadow, 0.55), r.detailed ? 5.0 : 0),
   );
   if (r.detailed) {
-    // Köprücük çizgileri (açık yakalarda görünür).
-    final by = _neckBaseY(r);
     r.mirrored(canvas, (c, mir) {
+      // Boyun kasları (kulak arkasından köprücük ortasına inen iki hafif
+      // gölge) ve aralarındaki boğaz çukuru.
       c.drawPath(
         Path()
-          ..moveTo(_cx - 6, by + 6)
-          ..quadraticBezierTo(_cx - 20, by + 3.5, _cx - 38, by + 8),
-        r.stroke(_alpha(r.skinShadow, mir ? 0.75 : 0.55), 1.1),
+          ..moveTo(_cx - r.neckHalf + 2, r.chinY - 8)
+          ..quadraticBezierTo(_cx - r.neckHalf * 0.55, by - 4, _cx - 5, by + 4),
+        r.stroke(_alpha(r.skinShadow, mir ? 0.45 : 0.28), 3.2, blur: 2.2),
       );
+      // Köprücük: üstünde ışık, altında gölge.
+      final clav = Path()
+        ..moveTo(_cx - 6, by + 6)
+        ..quadraticBezierTo(_cx - 20, by + 3.5, _cx - 40, by + 8);
+      c.drawPath(clav.shift(const Offset(0, 1.4)), r.stroke(_alpha(r.skinShadow, mir ? 0.55 : 0.40), 1.6, blur: 1.0));
+      c.drawPath(clav.shift(const Offset(0, -0.6)), r.stroke(_alpha(r.skinLight, mir ? 0.12 : 0.35), 1.2, blur: 0.8));
     });
+    r.glow(canvas, Offset(_cx, by + 3), 7, 5, _alpha(r.skinShadow, 0.40), 1.6);
+    r.rimShade(canvas, torso, _alpha(r.skinShadow, 0.30), width: 6, blur: 3);
   }
   canvas.restore();
-  canvas.drawPath(torso, r.stroke(r.skinLine, r.lineW));
+  canvas.drawPath(torso, r.edge(r.skinDeep, alpha: 0.35));
 }
 
 // ------------------------------------------------------------------ kıyafet
@@ -183,40 +202,72 @@ void _paintClothing(Canvas canvas, _Rig r) {
       ..cubicTo(_cx + nh + 10, by - 20, _cx + nh + 25, by - 12, _cx + nh + 22, by + 8)
       ..close();
     canvas.drawPath(hood, r.fill(_tone(cloth, -0.16)));
-    canvas.drawPath(hood, r.stroke(line, r.lineW));
+    r.celShade(canvas, hood, _alpha(dark, 0.6), offset: const Offset(-6, -4));
+    canvas.drawPath(hood, r.edge(line, alpha: 0.45));
   }
 
-  canvas.drawPath(garment, r.fill(cloth));
+  canvas.drawPath(
+    garment,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(0, by - 10),
+        const Offset(0, 205),
+        [_tone(cloth, 0.06), cloth, _tone(cloth, -0.14)],
+        const [0.0, 0.5, 1.0],
+      ),
+  );
 
   canvas.save();
   canvas.clipPath(garment);
-  // Cel gölge: sağ omuz ve kol altı.
-  r.celShade(canvas, shape, _alpha(dark, 0.85), base: cloth, offset: const Offset(-9, -5), blur: 1.8);
+  // Hacim gölgesi: sağ omuz ve kol altı.
+  r.celShade(canvas, shape, _alpha(dark, 0.80), offset: const Offset(-9, -5), blur: 2.4);
+  r.rimShade(canvas, shape, _alpha(dark, 0.45), width: 9, blur: 4);
   // Boynun kumaşa düşürdüğü gölge.
-  canvas.drawOval(
-    Rect.fromCenter(center: Offset(_cx + 2, by + 3), width: r.neckHalf * 3.4, height: 13),
-    r.soft(_alpha(dark, 0.75), 2.4),
-  );
-  // Kol kıvrımları.
+  r.glow(canvas, Offset(_cx + 2, by + 3.5), r.neckHalf * 3.0, 12, _alpha(dark, 0.70), 3.0);
+  // Kol kıvrımları ve gövdede birkaç yumuşak kumaş kırışığı.
   r.mirrored(canvas, (c, mir) {
     c.drawPath(
       Path()
         ..moveTo(_cx - 76, by + 18)
         ..quadraticBezierTo(_cx - 66, by + 28, _cx - 70, 202),
-      r.stroke(_alpha(dark, mir ? 0.9 : 0.6), 1.3),
+      r.stroke(_alpha(dark, mir ? 0.8 : 0.5), 2.4, blur: 1.6),
     );
+    if (r.detailed) {
+      c.drawPath(
+        Path()
+          ..moveTo(_cx - 50, by + 30)
+          ..quadraticBezierTo(_cx - 40, by + 26, _cx - 30, by + 34),
+        r.stroke(_alpha(dark, mir ? 0.45 : 0.30), 2.0, blur: 1.6),
+      );
+      c.drawPath(
+        Path()
+          ..moveTo(_cx - 49, by + 28.4)
+          ..quadraticBezierTo(_cx - 40, by + 24.4, _cx - 31, by + 32),
+        r.stroke(_alpha(_tone(cloth, 0.25), mir ? 0.15 : 0.35), 1.2, blur: 1.0),
+      );
+    }
   });
   if (r.detailed) {
     // Sol omuzda ışık.
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(_cx - 52, by + 10), width: 34, height: 10),
-      r.soft(_alpha(_tone(cloth, 0.22), 0.55), 4),
+    r.glow(canvas, Offset(_cx - 52, by + 10), 36, 11, _alpha(_tone(cloth, 0.24), 0.55), 5);
+    // Kumaş dokusu: çok ince, düşük opaklıklı noktalar.
+    final rng = r.rngFor(91);
+    final pts = <Offset>[
+      for (var i = 0; i < 900; i++) Offset(rng.nextDouble() * 200, by - 12 + rng.nextDouble() * (214 - by)),
+    ];
+    canvas.drawPoints(
+      ui.PointMode.points,
+      pts,
+      Paint()
+        ..strokeWidth = 0.6
+        ..strokeCap = StrokeCap.round
+        ..color = _alpha(_tone(cloth, rng.nextBool() ? 0.3 : -0.3), 0.10),
     );
   }
   canvas.restore();
 
   _paintClothingDetails(canvas, r, kind, cloth, nl, by);
-  canvas.drawPath(garment, r.stroke(line, r.lineW));
+  canvas.drawPath(garment, r.edge(line, alpha: 0.50));
 }
 
 void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth, _Neckline nl, double by) {
@@ -263,13 +314,13 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
           ..quadraticBezierTo(_cx - nh - 9, by + 2, _cx - nh - 3, by - 7)
           ..close();
         c.drawPath(flap, r.fill(mir ? _tone(cloth, -0.14) : _tone(cloth, 0.08)));
-        c.drawPath(flap, r.stroke(line, w));
+        c.drawPath(flap, r.edge(line, alpha: 0.6, width: w));
       });
       break;
 
     case ClothingKind.henley:
       rib(2.6);
-      canvas.drawLine(Offset(_cx, by + 7), Offset(_cx, by + 28), r.stroke(line, w));
+      canvas.drawLine(Offset(_cx, by + 7), Offset(_cx, by + 28), r.edge(line, alpha: 0.6, width: w));
       for (final y in [by + 12, by + 19, by + 26]) {
         canvas.drawCircle(Offset(_cx + 2.2, y), 1.3, r.fill(light));
       }
@@ -309,16 +360,19 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
         r.soft(_alpha(dark, 0.8), 1.2),
       );
       canvas.restore();
-      canvas.drawPath(band, r.stroke(line, w));
+      canvas.drawPath(band, r.edge(line, alpha: 0.6, width: w));
       break;
 
     case ClothingKind.blazer:
       // İç gömlek + yaka klapaları.
       const shirt = Color(0xFFF4F1EC);
+      // Gömlek yalnız boyun dibinden aşağıda görünür (üstü boyun derisi).
+      canvas.save();
+      canvas.clipRect(Rect.fromLTRB(0, by - 7, 200, 214));
       canvas.drawPath(nl.hole, r.fill(shirt));
+      canvas.restore();
       canvas.save();
       canvas.clipPath(nl.hole);
-      canvas.drawRect(Rect.fromLTWH(_cx - 30, r.chinY - 30, 60, 40), r.fill(_mix(r.skin, r.skinShadow, 0.35)));
       final open = Path()
         ..moveTo(_cx - nh + 1, by - 20)
         ..lineTo(_cx - nh + 1, by - 1)
@@ -329,8 +383,9 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
       canvas.restore();
       canvas.save();
       canvas.clipPath(Path.combine(PathOperation.difference, nl.hole, open));
+      canvas.clipRect(Rect.fromLTRB(0, by - 7, 200, 214));
       canvas.drawRect(Rect.fromLTWH(0, by - 20, 200, 80), r.fill(shirt));
-      canvas.drawRect(Rect.fromLTWH(_cx, by - 20, 30, 80), r.fill(const Color(0xFFDCD8D0)));
+      canvas.drawRect(Rect.fromLTWH(_cx, by - 20, 30, 80), r.soft(const Color(0xFFDCD8D0), r.detailed ? 2.0 : 0));
       canvas.restore();
       r.mirrored(canvas, (c, mir) {
         final collar = Path()
@@ -339,7 +394,7 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
           ..lineTo(_cx - nh - 7, by + 5)
           ..close();
         c.drawPath(collar, r.fill(mir ? const Color(0xFFDCD8D0) : const Color(0xFFFFFFFF)));
-        c.drawPath(collar, r.stroke(const Color(0xFF8C8880), w * 0.8));
+        c.drawPath(collar, r.edge(const Color(0xFF8C8880), alpha: 0.7, width: w * 0.8));
       });
       r.mirrored(canvas, (c, mir) {
         final lapel = Path()
@@ -350,7 +405,7 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
           ..lineTo(_cx - 24, by + 2)
           ..close();
         c.drawPath(lapel, r.fill(_tone(cloth, mir ? -0.14 : 0.06)));
-        c.drawPath(lapel, r.stroke(line, w));
+        c.drawPath(lapel, r.edge(line, alpha: 0.6, width: w));
       });
       canvas.drawCircle(Offset(_cx + 3.5, by + 38), 1.6, r.fill(_tone(cloth, -0.4)));
       break;
@@ -364,7 +419,7 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
           ..lineTo(_cx - nh - 10, by + 4)
           ..close();
         c.drawPath(collar, r.fill(mir ? _tone(cloth, -0.12) : _tone(cloth, 0.12)));
-        c.drawPath(collar, r.stroke(line, w));
+        c.drawPath(collar, r.edge(line, alpha: 0.6, width: w));
       });
       final knot = Path()
         ..moveTo(_cx - 4, by + 1)
@@ -382,8 +437,8 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
       canvas.drawPath(blade, r.fill(tie));
       canvas.drawPath(knot, r.fill(_tone(tie, -0.12)));
       canvas.drawLine(Offset(_cx + 1.4, by + 10), Offset(_cx + 3.8, by + 33), r.stroke(_alpha(_tone(tie, -0.3), 0.8), 1.4));
-      canvas.drawPath(blade, r.stroke(_tone(tie, -0.5), w));
-      canvas.drawPath(knot, r.stroke(_tone(tie, -0.5), w));
+      canvas.drawPath(blade, r.edge(_tone(tie, -0.5), alpha: 0.6, width: w));
+      canvas.drawPath(knot, r.edge(_tone(tie, -0.5), alpha: 0.6, width: w));
       for (final y in [by + 20, by + 32]) {
         canvas.drawCircle(Offset(_cx + 13, y), 1.1, r.fill(light));
       }
@@ -407,13 +462,13 @@ void _paintClothingDetails(Canvas canvas, _Rig r, ClothingKind kind, Color cloth
 
     case ClothingKind.bomber:
       rib(4.4);
-      canvas.drawLine(Offset(_cx, by + 4), Offset(_cx, 204), r.stroke(line, w * 1.2));
+      canvas.drawLine(Offset(_cx, by + 4), Offset(_cx, 204), r.edge(line, alpha: 0.6, width: w * 1.2));
       canvas.drawRRect(
         RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(_cx, by + 7), width: 3.6, height: 6), const Radius.circular(1)),
         r.fill(const Color(0xFFCFD4DA)),
       );
       r.mirrored(canvas, (c, mir) {
-        c.drawLine(Offset(_cx - 58, by + 24), Offset(_cx - 42, by + 22), r.stroke(line, w));
+        c.drawLine(Offset(_cx - 58, by + 24), Offset(_cx - 42, by + 22), r.edge(line, alpha: 0.6, width: w));
       });
       break;
   }

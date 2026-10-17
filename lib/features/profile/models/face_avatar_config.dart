@@ -187,10 +187,10 @@ class FaceShapeSpec {
 
 /// Çizim motorunun taban ölçüleri (yarım genişlikler, 200 birimlik tuvalde).
 /// Fotoğraf analizi de yüz şeklini seçerken bunlara bakar.
-const double kFaceBaseForeheadHalf = 47.5;
-const double kFaceBaseCheekHalf = 50.5;
-const double kFaceBaseJawHalf = 41.0;
-const double kFaceBaseChinLength = 50.0; // göz hattı → çene
+const double kFaceBaseForeheadHalf = 42.5;
+const double kFaceBaseCheekHalf = 44.5;
+const double kFaceBaseJawHalf = 36.5;
+const double kFaceBaseChinLength = 62.0; // göz hattı → çene
 
 const List<FaceShapeSpec> kFaceShapes = [
   FaceShapeSpec('Oval', forehead: 1.00, cheek: 1.00, jaw: 0.95, chin: 1.00, corner: 0.15),

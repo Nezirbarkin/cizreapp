@@ -1,10 +1,11 @@
-// Avatar çizim motoru (Bitmoji tarzı): FaceAvatarConfig'teki parametrik
-// tarifleri (spec) sevimli ama kişiye benzeyen bir portreye çevirir.
+// Avatar çizim motoru (yarı gerçekçi portre): FaceAvatarConfig'teki
+// parametrik tarifleri (spec) kişiye benzeyen bir portreye çevirir.
 //
-// Görsel varlık (PNG/SVG) yoktur; her şey Canvas'ta düz renk, ışığın tersinde
-// "cel" gölge ve her parçanın kendi renginin koyusuyla çizilen ince konturla
-// üretilir. Katalog büyütmek (yeni saç/kaş/göz stili) dosya eklemek değil, tek
-// satır spec eklemek demektir.
+// Görsel varlık (PNG/SVG) yoktur; her şey Canvas'ta üretilir: yetişkin yüz
+// oranları, sol üstten gelen ışıkla yumuşak hacim gölgeleri, kontur yerine
+// yumuşak kenarlar, tek tek kıllardan kaş/kirpik/sakal, ince tellerden saç ve
+// lifli iris. Katalog büyütmek (yeni saç/kaş/göz stili) dosya eklemek değil,
+// tek satır spec eklemek demektir.
 //
 // Parçalar (`part`) tek kitaplığı paylaşır, böylece ortak geometri/renk
 // (`_Rig`) ve yardımcılar her yerden kullanılabilir:
@@ -131,17 +132,17 @@ class FaceAvatarPainter extends CustomPainter {
 /// Editör küçük resimlerinin yakınlaşacağı noktalar (200x200 tuvalde).
 /// Çizim motorunun geometrisiyle birlikte güncellenir.
 abstract final class FaceAvatarFocus {
-  static const Offset hair = Offset(100, 68);
-  static const Offset brows = Offset(100, 84);
-  static const Offset eyes = Offset(100, 94);
-  static const Offset nose = Offset(100, 110);
-  static const Offset lips = Offset(100, 126);
-  static const Offset beard = Offset(100, 126);
-  static const Offset glasses = Offset(100, 94);
-  static const Offset headwear = Offset(100, 50);
-  static const Offset jewelry = Offset(100, 132);
+  static const Offset hair = Offset(100, 66);
+  static const Offset brows = Offset(100, 80);
+  static const Offset eyes = Offset(100, 92);
+  static const Offset nose = Offset(100, 108);
+  static const Offset lips = Offset(100, 130);
+  static const Offset beard = Offset(100, 132);
+  static const Offset glasses = Offset(100, 92);
+  static const Offset headwear = Offset(100, 48);
+  static const Offset jewelry = Offset(100, 130);
   static const Offset detail = Offset(100, 106);
-  static const Offset clothing = Offset(100, 172);
+  static const Offset clothing = Offset(100, 178);
 }
 
 /// Canlı önizleme: yuvarlak çerçeve içinde avatar.

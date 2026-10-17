@@ -1,95 +1,133 @@
 part of '../face_avatar_painter.dart';
 
+// ============================================================================
+// KAŞ, GÖZ, BURUN, DUDAK
+//
+// Hiçbiri kontur çizgisiyle çizilmez: kaş tek tek kıllardan, göz ıslak göz
+// küresi + lifli iris + gölge düşüren kapaktan, burun ve dudak ise yalnız
+// ışık-gölgeyle (sırt ışığı, kanat çukuru, burun altı gölgesi, dudak hacmi)
+// oluşur. Işık sol üstten gelir.
+// ============================================================================
+
 // -------------------------------------------------------------------- kaşlar
-/// Sol kaşın (ekranda sol) gövdesi. Bitmoji kaşı: net kenarlı, iç ucu dolgun,
-/// dışa doğru incelen tek parça.
-Path _browPath(_Rig r) {
-  final spec = r.brow;
-  final th = (r.m.browThickness * spec.thickness).clamp(0.4, 2.2);
-  final xIn = _cx - (r.eyeDx - r.eyeW * 0.92);
-  final total = r.eyeW * 2.30 * spec.length;
-  final xOut = xIn - total;
-  final base = r.browBaseY;
-  final arch = spec.arch;
-  final tilt = spec.tilt;
+/// Sol kaşın (ekranda sol) geometrisi: iç uçtan (burun tarafı) dış uca
+/// kuadratik bir orta hat ve boyunca değişen kalınlık.
+class _BrowGeo {
+  final Offset p0, p1, p2;
+  final double th;
+  final BrowSpec spec;
 
-  final p0 = Offset(xIn, base + 2.0 - tilt * 0.4);
-  final p2 = Offset(xOut, base + 3.4 + tilt * 0.6);
-  final p1 = Offset(_lerpD(xIn, xOut, spec.peak), base - 3.6 * arch);
+  _BrowGeo._(this.p0, this.p1, this.p2, this.th, this.spec);
 
-  Offset centerAt(double t) {
+  factory _BrowGeo(_Rig r) {
+    final spec = r.brow;
+    final th = (r.m.browThickness * spec.thickness).clamp(0.4, 2.2);
+    final xIn = _cx - (r.eyeDx - r.eyeW * 0.92);
+    final total = r.eyeW * 2.30 * spec.length;
+    final xOut = xIn - total;
+    final base = r.browBaseY;
+    return _BrowGeo._(
+      Offset(xIn, base + 2.0 - spec.tilt * 0.4),
+      Offset(_lerpD(xIn, xOut, spec.peak), base - 3.6 * spec.arch),
+      Offset(xOut, base + 3.4 + spec.tilt * 0.6),
+      th.toDouble(),
+      spec,
+    );
+  }
+
+  Offset at(double t) {
     final u = 1 - t;
     return p0 * (u * u) + p1 * (2 * u * t) + p2 * (t * t);
   }
 
-  Offset tangentAt(double t) => _norm((p1 - p0) * (2 * (1 - t)) + (p2 - p1) * (2 * t));
+  /// İç uçtan dış uca doğru teğet.
+  Offset tangent(double t) => _norm((p1 - p0) * (2 * (1 - t)) + (p2 - p1) * (2 * t));
 
-  double halfThick(double t) {
+  /// Ekranda yukarı bakan normal.
+  Offset up(double t) {
+    final tg = tangent(t);
+    final n = Offset(-tg.dy, tg.dx);
+    return n.dy > 0 ? -n : n;
+  }
+
+  double half(double t) {
     final head = 1.0 - 0.18 * math.pow(t, 3.0);
     final tail = 1.0 - 0.80 * math.pow(t, 1.7) * spec.taper.clamp(0.4, 1.6) * 0.72;
-    return 1.75 * th * head * tail.clamp(0.20, 1.0);
+    return 1.6 * th * head * tail.clamp(0.20, 1.0);
   }
 
-  const steps = 16;
-  final upper = <Offset>[];
-  final lower = <Offset>[];
-  for (var i = 0; i <= steps; i++) {
-    final t = i / steps;
-    final p = centerAt(t);
-    final tg = tangentAt(t);
-    final nrm = Offset(tg.dy, -tg.dx); // yukarı
-    final h = halfThick(t);
-    upper.add(p + nrm * (h * 1.1));
-    lower.add(p - nrm * (h * 0.9));
+  Path path() {
+    const steps = 16;
+    final upper = <Offset>[];
+    final lower = <Offset>[];
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final p = at(t);
+      final n = up(t);
+      final h = half(t);
+      upper.add(p + n * (h * 1.05));
+      lower.add(p - n * (h * 0.95));
+    }
+    final path = Path()..moveTo(lower.first.dx, lower.first.dy);
+    final inner = upper.first;
+    path.quadraticBezierTo(inner.dx + 1.4, (inner.dy + lower.first.dy) / 2, inner.dx, inner.dy);
+    for (final p in upper.skip(1)) {
+      path.lineTo(p.dx, p.dy);
+    }
+    for (final p in lower.reversed) {
+      path.lineTo(p.dx, p.dy);
+    }
+    path.close();
+    return path;
   }
-  // İç uç yuvarlatılmış (köşeli kesik değil).
-  final path = Path()..moveTo(lower.first.dx, lower.first.dy);
-  final inner = upper.first;
-  path.quadraticBezierTo(inner.dx + 1.6, (inner.dy + lower.first.dy) / 2, inner.dx, inner.dy);
-  for (final p in upper.skip(1)) {
-    path.lineTo(p.dx, p.dy);
-  }
-  for (final p in lower.reversed) {
-    path.lineTo(p.dx, p.dy);
-  }
-  path.close();
-  return path;
 }
 
 void _paintBrows(Canvas canvas, _Rig r) {
+  final geo = _BrowGeo(r);
   final spec = r.brow;
-  final body = _browPath(r);
+  final body = geo.path();
+  final density = 1.0 - 0.45 * spec.sparse;
   r.mirrored(canvas, (c, mir) {
-    final col = _alpha(r.browColor, 1.0 - 0.45 * spec.sparse);
-    c.drawPath(body, r.fill(col));
-    if (!r.detailed) return;
-    // Alt kenarda hafif koyuluk + üstte birkaç kıl izi (doku).
+    if (!r.detailed) {
+      c.drawPath(body, r.fill(_alpha(r.browColor, 0.80 * density)));
+      return;
+    }
+    // Kılların altındaki deriye düşen yumuşak renk (kaşın "gölgesi"); iç
+    // başta daha silik.
     c.save();
     c.clipPath(body);
-    c.drawPath(body.shift(const Offset(0, -1.2)), r.stroke(_alpha(_tone(r.browColor, -0.25), 0.6), 1.0));
-    final b = body.getBounds();
-    final rng = r.rngFor(900 + r.cfg.brow);
-    final hairs = (14 * (1 - spec.sparse)).round() + 4;
-    for (var i = 0; i < hairs; i++) {
-      final x = b.right - rng.nextDouble() * b.width * 0.45;
-      final y = b.top + rng.nextDouble() * b.height;
-      c.drawLine(
-        Offset(x, y + 1.8),
-        Offset(x - 1.6 - rng.nextDouble(), y - 1.2),
-        r.stroke(_alpha(i.isEven ? _tone(r.browColor, 0.18) : _tone(r.browColor, -0.3), 0.55), 0.5),
-      );
-    }
+    c.drawPath(
+      body,
+      Paint()
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.9)
+        ..shader = ui.Gradient.linear(geo.p0, geo.p2, [
+          _alpha(r.browColor, 0.22 * density),
+          _alpha(r.browColor, 0.55 * density),
+          _alpha(r.browColor, 0.40 * density),
+        ], const [0.0, 0.4, 1.0]),
+    );
     c.restore();
-    if (spec.sparse > 0.3) {
-      // Seyrek kaş: gövdede ten rengi boşluklar.
-      final rng2 = r.rngFor(950 + r.cfg.brow);
-      c.save();
-      c.clipPath(body);
-      for (var i = 0; i < 6; i++) {
-        final x = b.left + rng2.nextDouble() * b.width;
-        c.drawLine(Offset(x, b.top), Offset(x + 1.2, b.bottom), r.stroke(_alpha(r.skin, 0.55), 0.8));
-      }
-      c.restore();
+    // Kıllar: iç başta yukarı-dışa ve kısa, gövdede dışa yatık; alt
+    // sıradakiler yukarı, üst sıradakiler aşağı eğilip orta hatta buluşur.
+    final rng = r.rngFor(900 + r.cfg.brow + (mir ? 13 : 0));
+    final n = ((95 + 45 * (geo.th - 1)) * density).round().clamp(30, 150);
+    final dark = _tone(r.browColor, -0.22);
+    final light = _tone(r.browColor, 0.14);
+    for (var i = 0; i < n; i++) {
+      final t = math.pow(rng.nextDouble(), 0.85).toDouble();
+      final s = rng.nextDouble() * 2 - 1;
+      final h = geo.half(t);
+      final up = geo.up(t);
+      final tg = geo.tangent(t);
+      final root = geo.at(t) + up * (h * 0.95 * s);
+      final head = 1 - ((t - 0.04) / 0.20).clamp(0.0, 1.0);
+      final body = _norm(tg + up * (-0.42 * s + 0.10));
+      final dir = _norm(_lerpO(body, _norm(up * 0.75 + tg * 0.65), head));
+      final len = (2.0 + 1.5 * rng.nextDouble()) * (0.75 + 0.25 * geo.th) * (1 - 0.35 * t) * (1 - 0.35 * head);
+      final tip = root + dir * len;
+      final mid = root + dir * (len * 0.5) + up * 0.18;
+      final col = i % 5 == 0 ? light : (i % 3 == 0 ? dark : r.browColor);
+      r.strand(c, [root, mid, tip], 0.42 + 0.12 * rng.nextDouble(), _alpha(col, (0.55 + 0.35 * rng.nextDouble()) * (0.75 + 0.25 * density)));
     }
   });
 }
@@ -110,32 +148,45 @@ void _paintEyes(Canvas canvas, _Rig r) {
   });
 }
 
-/// Göz açıklığı (sol göz çerçevesi: dış köşe negatif x'te). Üst kapak dolgun
-/// yay, alt kapak daha düz.
+double _lidCurve(EyeSpec spec) => 0.80 + 0.45 * spec.lidCurve;
+
+/// Göz açıklığı (sol göz çerçevesi: dış köşe negatif x'te). Üst kapağın
+/// tepesi burna yakın, alt kapağın en alçak yeri dış köşeye yakın (badem).
 Path _eyeOpening(Offset o, double w, double h, EyeSpec spec) {
-  final curve = 0.80 + 0.45 * spec.lidCurve;
+  final curve = _lidCurve(spec);
   final outer = Offset(o.dx - w, o.dy + h * 0.10);
-  final inner = Offset(o.dx + w, o.dy + h * 0.22);
+  final inner = Offset(o.dx + w, o.dy + h * 0.26);
   final topY = o.dy - h * curve;
-  final botY = o.dy + h * 0.86;
+  final botY = o.dy + h * 0.84;
   return Path()
     ..moveTo(outer.dx, outer.dy)
-    ..cubicTo(outer.dx + w * 0.18, topY + h * 0.05, o.dx - w * 0.30, topY, o.dx + w * 0.08, topY)
-    ..cubicTo(o.dx + w * 0.55, topY, inner.dx - w * 0.12, o.dy - h * 0.50, inner.dx, inner.dy)
-    ..cubicTo(inner.dx - w * 0.22, o.dy + h * 0.80, o.dx + w * 0.40, botY, o.dx - w * 0.05, botY)
-    ..cubicTo(o.dx - w * 0.55, botY, outer.dx + w * 0.16, o.dy + h * 0.60, outer.dx, outer.dy)
+    ..cubicTo(outer.dx + w * 0.20, topY + h * 0.10, o.dx - w * 0.30, topY, o.dx + w * 0.10, topY)
+    ..cubicTo(o.dx + w * 0.55, topY, inner.dx - w * 0.16, o.dy - h * 0.46, inner.dx, inner.dy)
+    ..cubicTo(inner.dx - w * 0.18, o.dy + h * 0.78, o.dx + w * 0.40, botY, o.dx - w * 0.10, botY)
+    ..cubicTo(o.dx - w * 0.55, botY, outer.dx + w * 0.16, o.dy + h * 0.58, outer.dx, outer.dy)
     ..close();
 }
 
 /// Üst kapak çizgisi (dış köşeden iç köşeye).
 List<Offset> _upperLidPts(Offset o, double w, double h, EyeSpec spec, {double lift = 0, double spread = 0}) {
-  final curve = 0.80 + 0.45 * spec.lidCurve;
+  final curve = _lidCurve(spec);
   final outer = Offset(o.dx - w - spread, o.dy + h * 0.10 - lift * 0.2);
-  final inner = Offset(o.dx + w + spread * 0.3, o.dy + h * 0.22 - lift * 0.3);
+  final inner = Offset(o.dx + w + spread * 0.3, o.dy + h * 0.26 - lift * 0.3);
   final topY = o.dy - h * curve - lift;
   return [
-    ..._cubicPts(outer, Offset(outer.dx + w * 0.18, topY + h * 0.05), Offset(o.dx - w * 0.30, topY), Offset(o.dx + w * 0.08, topY), 8),
-    ..._cubicPts(Offset(o.dx + w * 0.08, topY), Offset(o.dx + w * 0.55, topY), Offset(inner.dx - w * 0.12, o.dy - h * 0.50 - lift * 0.6), inner, 8).skip(1),
+    ..._cubicPts(outer, Offset(outer.dx + w * 0.20, topY + h * 0.10), Offset(o.dx - w * 0.30, topY), Offset(o.dx + w * 0.10, topY), 8),
+    ..._cubicPts(Offset(o.dx + w * 0.10, topY), Offset(o.dx + w * 0.55, topY), Offset(inner.dx - w * 0.16, o.dy - h * 0.46 - lift * 0.6), inner, 8).skip(1),
+  ];
+}
+
+/// Alt kapak çizgisi (iç köşeden dış köşeye).
+List<Offset> _lowerLidPts(Offset o, double w, double h, {double drop = 0}) {
+  final inner = Offset(o.dx + w, o.dy + h * 0.26);
+  final outer = Offset(o.dx - w, o.dy + h * 0.10);
+  final botY = o.dy + h * 0.84 + drop;
+  return [
+    ..._cubicPts(inner, Offset(inner.dx - w * 0.18, o.dy + h * 0.78 + drop), Offset(o.dx + w * 0.40, botY), Offset(o.dx - w * 0.10, botY), 8),
+    ..._cubicPts(Offset(o.dx - w * 0.10, botY), Offset(o.dx - w * 0.55, botY), Offset(outer.dx + w * 0.16, o.dy + h * 0.58 + drop * 0.5), outer, 8).skip(1),
   ];
 }
 
@@ -146,26 +197,31 @@ void _drawEye(Canvas canvas, _Rig r, Offset o, bool mir) {
   final lash = r.lash;
   // Işık sol üstten: ayna gözde parlama sağa kayar (ekranda sol üste sabit kalsın).
   final lx = mir ? 1.0 : -1.0;
-  final lidInk = _mix(r.lashColor, _Rig.ink, 0.5);
+  final lidInk = _mix(r.lashColor, _Rig.ink, 0.45);
+  final lidSkin = _mix(r.skin, r.skinShadow, 0.18);
 
-  // ---- far (göz kapağı rengi)
+  // ---- far (göz kapağı rengi): kapak üstünde yumuşak bulut
   if (lash.shadowStrength > 0) {
-    final lid = _upperLidPts(o, w * 1.06, h, spec, lift: h * 1.3);
+    final lid = _upperLidPts(o, w * 1.08, h, spec, lift: h * 1.5 + 1.5);
     final shadowPath = _spline([..._upperLidPts(o, w, h, spec), ...lid.reversed]);
     shadowPath.close();
-    canvas.drawPath(shadowPath, r.soft(_alpha(lash.shadow, lash.shadowStrength * 0.9), 1.8));
+    canvas.drawPath(shadowPath, r.soft(_alpha(lash.shadow, lash.shadowStrength * 0.75), 2.4));
   }
 
-  // ---- kapalı (gülen) göz: yukarı kıvrık yay
+  // ---- kapalı (gülen) göz: yukarı kıvrık kirpik hattı
   if (spec.closed) {
     final arc = Path()
-      ..moveTo(o.dx - w, o.dy + h * 0.45)
-      ..quadraticBezierTo(o.dx, o.dy - h * 1.15, o.dx + w, o.dy + h * 0.45);
-    canvas.drawPath(arc, r.stroke(lidInk, 2.2));
+      ..moveTo(o.dx - w, o.dy + h * 0.55)
+      ..quadraticBezierTo(o.dx, o.dy - h * 0.95, o.dx + w, o.dy + h * 0.55);
+    r.glow(canvas, Offset(o.dx, o.dy - h * 0.6), w * 2.2, h * 2.2, _alpha(r.skinShadow, 0.35), 2.0);
+    canvas.drawPath(arc, r.stroke(_alpha(lidInk, 0.9), 1.5, blur: 0.3));
+    canvas.drawPath(arc.shift(const Offset(0, -1.6)), r.stroke(_alpha(r.skinLight, 0.30), 1.0, blur: 0.6));
     if (lash.length > 0) {
-      for (var i = 0; i < 2; i++) {
-        final base = Offset(o.dx - w * (0.75 - i * 0.28), o.dy - h * (0.05 + i * 0.25));
-        _taper(canvas, [base, base + Offset(-1.6, -1.8), base + Offset(-3.2 - lash.length, -2.4 - lash.length)], 1.3, 0.2, r.fill(lidInk));
+      final pts = _quadPts(Offset(o.dx - w, o.dy + h * 0.55), Offset(o.dx, o.dy - h * 0.95), Offset(o.dx + w, o.dy + h * 0.55), 10);
+      for (var i = 1; i < 8; i++) {
+        final p = pts[i];
+        final len = 1.2 + 1.8 * lash.length * (1 - i / 10);
+        r.strand(canvas, [p, p + Offset(-0.6, 0.9), p + Offset(-1.4, 1.2 + len)], 0.5, _alpha(lidInk, 0.85));
       }
     }
     return;
@@ -175,143 +231,195 @@ void _drawEye(Canvas canvas, _Rig r, Offset o, bool mir) {
   if (r.blink >= 0.8) {
     final arc = Path()
       ..moveTo(o.dx - w, o.dy + h * 0.1)
-      ..quadraticBezierTo(o.dx, o.dy + h * 1.0, o.dx + w, o.dy + h * 0.22);
-    canvas.drawPath(arc, r.stroke(lidInk, 2.0 + lash.liner * 0.5));
-    if (lash.length > 0.5) {
-      for (var i = 0; i < 2; i++) {
-        final base = Offset(o.dx - w * (0.85 - i * 0.3), o.dy + h * (0.25 + i * 0.22));
-        _taper(canvas, [base, base + Offset(-1.6, 1.4), base + Offset(-3.0, 2.6 + lash.length)], 1.2, 0.2, r.fill(lidInk));
-      }
+      ..quadraticBezierTo(o.dx, o.dy + h * 1.0, o.dx + w, o.dy + h * 0.26);
+    r.glow(canvas, Offset(o.dx, o.dy - h * 0.2), w * 2.2, h * 2.4, _alpha(r.skinShadow, 0.30), 2.0);
+    canvas.drawPath(arc, r.stroke(_alpha(lidInk, 0.9), 1.4 + lash.liner * 0.5, blur: 0.3));
+    final pts = _quadPts(Offset(o.dx - w, o.dy + h * 0.1), Offset(o.dx, o.dy + h * 1.0), Offset(o.dx + w, o.dy + h * 0.26), 10);
+    for (var i = 1; i < 8; i++) {
+      final p = pts[i];
+      final len = 1.0 + 2.0 * lash.length * (1 - i / 10);
+      r.strand(canvas, [p, p + Offset(-0.5, 1.0), p + Offset(-1.2, 1.4 + len)], 0.5, _alpha(lidInk, 0.85));
     }
     return;
   }
 
   final opening = _eyeOpening(o, w, h, spec);
+  final curve = _lidCurve(spec);
+  final topY = o.dy - h * curve;
+  final openH = h * (curve + 0.84);
 
-  // ---- üst kapak kıvrımı (crease)
+  // ---- üst kapak derisi ve kıvrımı (crease): yumuşak gölge oluğu
   if (!spec.monolid) {
-    final lift = h * (spec.hooded ? 0.42 : 0.80) + 1.2;
-    final crease = _upperLidPts(o, w * 0.90, h, spec, lift: lift, spread: 0.4);
-    canvas.drawPath(
-      _spline(crease.sublist(1, crease.length - 2)),
-      r.stroke(_alpha(r.skinLine, 0.55), r.lineW * 0.85),
-    );
+    final lift = h * (spec.hooded ? 0.48 : 0.95) + 1.6;
+    final crease = _upperLidPts(o, w * 0.94, h, spec, lift: lift, spread: 0.6);
+    final creasePath = _spline(crease.sublist(1, crease.length - 1));
+    canvas.drawPath(creasePath, r.stroke(_alpha(r.skinShadow, 0.85), 1.4, blur: 0.8));
+    canvas.drawPath(creasePath.shift(const Offset(0, -1.2)), r.stroke(_alpha(r.skinLight, mir ? 0.12 : 0.30), 1.2, blur: 0.8));
+    // Kapak derisinin üst kısmı ışık alır.
+    r.glow(canvas, Offset(o.dx - w * 0.1, topY - lift * 0.45), w * 1.5, lift * 0.7, _alpha(r.skinLight, mir ? 0.10 : 0.25), 1.6);
   }
 
-  // ---- gözün beyazı
-  canvas.drawPath(opening, r.fill(const Color(0xFFFFFDFA)));
+  // ---- göz küresi: saf beyaz değil, köşelere doğru gri-pembe gölgeli
+  final irisR = w * 0.47;
+  final coverTop = ((2 * irisR - openH) * 0.72).clamp(0.4, 3.2);
+  final irisC = Offset(o.dx + w * 0.05, topY + irisR - coverTop);
+  canvas.drawPath(
+    opening,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        irisC,
+        w * 1.15,
+        [const Color(0xFFF6F0EA), const Color(0xFFEDE3DC), const Color(0xFFC9B6AE)],
+        const [0.0, 0.55, 1.0],
+      ),
+  );
   canvas.save();
   canvas.clipPath(opening);
 
-  final irisR = math.min(h * 1.0, w * 0.60);
-  final irisC = Offset(o.dx + w * 0.04, o.dy + h * 0.10);
-  final eyeColor = r.cfg.eyeColor;
+  // Göz pınarı (iç köşede pembe et).
+  r.glow(canvas, Offset(o.dx + w * 0.90, o.dy + h * 0.24), w * 0.38, h * 0.80, _alpha(const Color(0xFFE29A96), 0.85), 0.6);
 
-  // Ojo: altta açık, üstte koyu (kapak gölgesi), koyu dış halka.
+  // ---- iris
+  final eyeColor = r.cfg.eyeColor;
+  final limbus = _mix(eyeColor, const Color(0xFF0C0806), 0.62);
   canvas.drawCircle(
     irisC,
     irisR,
     Paint()
-      ..shader = ui.Gradient.linear(
-        irisC.translate(0, -irisR),
-        irisC.translate(0, irisR),
-        [_mix(eyeColor, Colors.black, 0.35), eyeColor, _mix(eyeColor, Colors.white, 0.30)],
-        const [0.0, 0.55, 1.0],
+      ..shader = ui.Gradient.radial(
+        irisC,
+        irisR,
+        [
+          _mix(eyeColor, const Color(0xFF6A4A22), 0.35),
+          _mix(eyeColor, Colors.white, 0.10),
+          eyeColor,
+          _mix(eyeColor, Colors.black, 0.30),
+          limbus,
+        ],
+        const [0.30, 0.48, 0.70, 0.88, 1.0],
       ),
   );
-  canvas.drawCircle(irisC, irisR - 0.45, r.stroke(_alpha(_mix(eyeColor, Colors.black, 0.6), 0.95), 0.9));
+  if (r.detailed) {
+    // Işınsal iris lifleri.
+    final rng = r.rngFor(611 + (mir ? 1 : 0));
+    final fibLight = _alpha(_mix(eyeColor, Colors.white, 0.45), 0.35);
+    final fibDark = _alpha(_mix(eyeColor, Colors.black, 0.45), 0.35);
+    for (var i = 0; i < 44; i++) {
+      final a = i / 44 * math.pi * 2 + rng.nextDouble() * 0.08;
+      final d = Offset(math.cos(a), math.sin(a));
+      final r0 = irisR * (0.38 + 0.08 * rng.nextDouble());
+      final r1 = irisR * (0.70 + 0.24 * rng.nextDouble());
+      canvas.drawLine(irisC + d * r0, irisC + d * r1, r.stroke(i.isEven ? fibLight : fibDark, 0.32));
+    }
+    // Limbus halkası (irisin koyu, yumuşak dış kenarı).
+    canvas.drawCircle(irisC, irisR * 0.93, r.stroke(_alpha(limbus, 0.55), irisR * 0.16, blur: 0.35));
+  }
   // Göz bebeği.
-  canvas.drawCircle(irisC, irisR * 0.46, r.fill(const Color(0xFF120C0A)));
-  // Parlamalar: büyük net + küçük.
-  canvas.drawCircle(irisC + Offset(irisR * 0.36 * lx, -irisR * 0.34), irisR * 0.30, r.fill(Colors.white));
-  canvas.drawCircle(irisC + Offset(-irisR * 0.30 * lx, irisR * 0.38), irisR * 0.13, r.fill(_alpha(Colors.white, 0.85)));
+  canvas.drawCircle(irisC, irisR * 0.36, r.soft(const Color(0xFF0B0807), 0.25));
 
-  // Üst kapağın göze düşürdüğü gölge.
-  final lidShade = Path()..addPolygon(_upperLidPts(o, w, h, spec), false);
-  canvas.drawPath(lidShade.shift(const Offset(0, 1.6)), r.stroke(_alpha(const Color(0xFF6E5A55), 0.32), 2.6, blur: 0.9));
+  // Üst kapağın göz küresine düşürdüğü gölge (gözü "ıslak küre" yapan şey).
+  final lidPts = _upperLidPts(o, w, h, spec);
+  final lidLine = Path()..addPolygon(lidPts, false);
+  canvas.drawPath(lidLine.shift(const Offset(0, 1.8)), r.stroke(_alpha(const Color(0xFF3A2620), 0.45), 3.4, blur: 1.4));
+  // Köşelerde göz küresi kararır.
+  r.glow(canvas, Offset(o.dx - w * 0.95, o.dy + h * 0.1), w * 0.7, h * 2.0, _alpha(const Color(0xFF8A6E66), 0.35), 1.6);
+
+  // Işık yansımaları: belirgin pencere yansıması + karşıda sönük ikincisi.
+  final hl = irisC + Offset(irisR * 0.34 * lx, -irisR * 0.30);
+  canvas.drawCircle(hl, irisR * 0.20, r.soft(_alpha(Colors.white, 0.95), 0.2));
+  if (r.detailed) {
+    canvas.drawCircle(irisC + Offset(-irisR * 0.38 * lx, irisR * 0.36), irisR * 0.16, r.soft(_alpha(Colors.white, 0.22), 0.6));
+  }
 
   // Kısmi göz kırpma: üst kapak aşağı iner.
   if (r.blink > 0) {
     final lidBottom = o.dy - h * 1.1 + (h * 2.1) * r.blink;
-    canvas.drawRect(Rect.fromLTRB(o.dx - w * 1.4, o.dy - h * 3, o.dx + w * 1.4, lidBottom), r.fill(r.skin));
-    canvas.drawLine(Offset(o.dx - w * 1.3, lidBottom), Offset(o.dx + w * 1.3, lidBottom), r.stroke(lidInk, 2.0));
+    canvas.drawRect(Rect.fromLTRB(o.dx - w * 1.4, o.dy - h * 3, o.dx + w * 1.4, lidBottom), r.fill(lidSkin));
+    canvas.drawLine(Offset(o.dx - w * 1.3, lidBottom), Offset(o.dx + w * 1.3, lidBottom), r.stroke(lidInk, 1.6));
   }
 
   // Kapaklı göz / tek kat: üstten sarkan cilt.
   if (spec.hooded || spec.monolid) {
-    final drop = spec.hooded ? h * 0.50 : h * 0.30;
+    final drop = spec.hooded ? h * 0.55 : h * 0.32;
     final lid = Path()
-      ..moveTo(o.dx - w * 1.2, o.dy - h * 0.5)
-      ..quadraticBezierTo(o.dx, o.dy - h * 1.1 + drop * 1.6, o.dx + w * 1.2, o.dy - h * 0.25)
+      ..moveTo(o.dx - w * 1.2, o.dy - h * 0.4)
+      ..quadraticBezierTo(o.dx, topY + drop * 1.6, o.dx + w * 1.2, o.dy - h * 0.15)
       ..lineTo(o.dx + w * 1.2, o.dy - h * 3)
       ..lineTo(o.dx - w * 1.2, o.dy - h * 3)
       ..close();
-    canvas.drawPath(lid, r.fill(_mix(r.skin, r.skinShadow, spec.hooded ? 0.5 : 0.25)));
+    canvas.drawPath(lid, r.fill(_mix(r.skin, r.skinShadow, spec.hooded ? 0.42 : 0.22)));
     if (spec.deepSet > 0) {
       canvas.drawPath(lid, r.fill(_alpha(r.skinShadow, 0.3 * spec.deepSet)));
     }
   }
   canvas.restore();
 
-  // ---- alt kapak: kısa ince çizgi (iç ve dış köşeye ulaşmaz)
-  canvas.drawPath(
-    Path()
-      ..moveTo(o.dx + w * 0.70, o.dy + h * 0.72)
-      ..cubicTo(o.dx + w * 0.35, o.dy + h * 0.98, o.dx - w * 0.35, o.dy + h * 0.98, o.dx - w * 0.82, o.dy + h * 0.55),
-    r.stroke(_alpha(r.skinLine, 0.45), r.lineW * 0.8),
-  );
+  // ---- alt kapak: ıslak kenar (açık pembe), altında yumuşak gölge
+  final lower = _lowerLidPts(o, w, h);
+  final lowerPath = _spline(lower.sublist(1, lower.length - 1));
+  canvas.drawPath(lowerPath.shift(const Offset(0, 0.9)), r.stroke(_alpha(_mix(r.skinWarm, Colors.white, 0.25), 0.75), 0.9, blur: 0.3));
+  canvas.drawPath(lowerPath.shift(const Offset(0, 1.9)), r.stroke(_alpha(r.skinShadow, 0.55), 1.0, blur: 0.6));
 
-  // ---- üst kapak çizgisi (kirpik hattı): kalın, dış köşede küçük kıvrım.
-  final lidW = 1.9 + 0.5 * lash.thickness * (lash.length > 0 ? 1 : 0.4) + lash.liner * 0.8;
-  final lidPts = _upperLidPts(o, w, h, spec);
-  canvas.drawPath(_taperPath(lidPts, lidW * 1.05, lidW * 0.55, wMid: lidW * 1.15), r.fill(lidInk));
-  // Dış köşedeki doğal kuyruk (her gözde).
-  final tailLen = 2.0 + 1.6 * lash.liner + (lash.winged ? 3.6 : 0);
-  final tailBase = lidPts.first;
+  // ---- üst kirpik hattı: koyu, kenarları yumuşak, dışa doğru kalınlaşan
+  final lidW = 1.15 + 0.25 * lash.thickness * (lash.length > 0 ? 1 : 0.4) + lash.liner * 0.9;
   canvas.drawPath(
-    _taperPath([tailBase.translate(1.4, -0.4), tailBase, tailBase + Offset(-tailLen, -tailLen * (lash.winged ? 0.75 : 0.45))], lidW * 0.9, 0.2),
-    r.fill(lidInk),
+    _taperPath(lidPts, lidW * 1.15, lidW * 0.45, wMid: lidW * 1.05),
+    r.soft(_alpha(lidInk, 0.92), 0.3),
   );
+  // Dış köşedeki doğal kuyruk / eyeliner kanadı.
+  if (lash.liner > 0 || lash.winged) {
+    final tailLen = 1.6 + 1.8 * lash.liner + (lash.winged ? 3.6 : 0);
+    final tailBase = lidPts.first;
+    canvas.drawPath(
+      _taperPath([tailBase.translate(1.6, -0.4), tailBase, tailBase + Offset(-tailLen, -tailLen * (lash.winged ? 0.75 : 0.45))], lidW * 0.9, 0.2),
+      r.soft(lidInk, 0.25),
+    );
+  }
 
   // Alt eyeliner.
   if (lash.lower) {
     canvas.drawPath(
-      Path()
-        ..moveTo(o.dx + w * 0.75, o.dy + h * 0.68)
-        ..cubicTo(o.dx + w * 0.35, o.dy + h * 0.98, o.dx - w * 0.4, o.dy + h * 0.98, o.dx - w * 0.95, o.dy + h * 0.45),
-      r.stroke(_alpha(lidInk, lash.liner > 0 ? 0.85 : 0.5), 0.9 + lash.liner * 0.3),
+      lowerPath.shift(const Offset(0, 1.2)),
+      r.stroke(_alpha(lidInk, lash.liner > 0 ? 0.70 : 0.40), 0.8 + lash.liner * 0.3, blur: 0.4),
     );
   }
 
-  _drawLashes(canvas, r, lidPts, lidInk);
+  _drawLashes(canvas, r, o, lidPts, lower, lidInk);
 }
 
-/// Kirpikler: dış köşede birkaç belirgin, kıvrık kalın kirpik (Bitmoji tarzı).
-void _drawLashes(Canvas canvas, _Rig r, List<Offset> lidPts, Color color) {
+/// Kirpikler: kapak boyunca çok sayıda ince, kıvrık tel; dış üçte birde
+/// uzun ve yoğun, iç köşede kısa. Alt kirpikler seyrek ve soluk.
+void _drawLashes(Canvas canvas, _Rig r, Offset o, List<Offset> lidPts, List<Offset> lowerPts, Color color) {
   final lash = r.lash;
-  if (lash.length <= 0) return;
-  final count = lash.length < 0.6 ? 2 : (lash.length < 1.2 ? 3 : 4);
-  final paint = r.fill(color);
+  // "Yok" seçiliyken bile gerçek gözde kısa kirpik vardır; yalnız kısa ve seyrek.
+  final length = math.max(lash.length, 0.18);
+  final rng = r.rngFor(640);
+  final count = r.detailed ? (16 + 14 * length).round() : 6;
+  final m = (_spline(lidPts).computeMetrics().toList()).first;
   for (var i = 0; i < count; i++) {
-    // Dış köşeden içeri doğru, kapak boyunca.
-    final idx = (i * 2 + 1).clamp(0, lidPts.length - 2);
-    final root = lidPts[idx];
-    final next = lidPts[idx + 1];
-    final tg = _norm(next - root);
-    final up = Offset(tg.dy, -tg.dx); // kapağa dik, yukarı
-    final len = (1.6 + 2.6 * lash.length) * (1.0 - i * 0.16);
-    final dir = _norm(up * 0.75 + tg * -0.65);
-    final tip = root + dir * len + Offset(-len * 0.25, 0);
-    final mid = root + dir * (len * 0.55);
-    _taper(canvas, [root, mid, tip], 1.25 * lash.thickness, 0.15, paint);
+    final t = (i + 0.3 * rng.nextDouble()) / count;
+    final tg = m.getTangentForOffset(m.length * t)!;
+    final root = tg.position;
+    final dirT = _norm(tg.vector); // dış köşeden iç köşeye
+    var up = Offset(dirT.dy, -dirT.dx);
+    if (up.dy > 0) up = -up;
+    // Dış köşeye yakın kirpikler uzun ve dışa yatık.
+    final outerW = math.pow(1 - t, 1.4).toDouble();
+    final len = (1.0 + 2.8 * length) * (0.45 + 0.75 * outerW) * (0.8 + 0.4 * rng.nextDouble());
+    final dir = _norm(up * 1.0 + dirT * -(0.25 + 0.75 * outerW));
+    final tip = root + dir * len + Offset(0, len * 0.18);
+    final mid = root + dir * (len * 0.55) + up * 0.2;
+    r.strand(canvas, [root, mid, tip], (0.42 + 0.14 * lash.thickness) * (r.detailed ? 1 : 1.4), _alpha(color, 0.75 + 0.2 * rng.nextDouble()));
   }
-  if (lash.lower && r.detailed) {
-    // Alt kirpik: üç küçük çizgi.
-    final o = Offset(lidPts[lidPts.length ~/ 2].dx, _Rig.eyeY);
-    for (var i = 0; i < 3; i++) {
-      final x = o.dx - r.eyeW * (0.3 + i * 0.22);
-      final y = _Rig.eyeY + r.eyeH * (0.92 - i * 0.08);
-      _taper(canvas, [Offset(x, y), Offset(x - 0.6, y + 1.4 + 0.6 * lash.length)], 0.8, 0.15, r.fill(_alpha(color, 0.8)));
+  if (r.detailed && (lash.lower || lash.length >= 0.8)) {
+    final nLow = lash.lower ? 9 : 5;
+    final ml = (_spline(lowerPts).computeMetrics().toList()).first;
+    for (var i = 0; i < nLow; i++) {
+      final t = 0.25 + 0.7 * (i + rng.nextDouble() * 0.5) / nLow;
+      final tg = ml.getTangentForOffset(ml.length * t)!;
+      final root = tg.position + const Offset(0, 1.0);
+      final len = (0.8 + 0.9 * lash.length) * (0.6 + 0.6 * t);
+      r.strand(canvas, [root, root + Offset(-0.4 * t, len * 0.5), root + Offset(-0.9 * t, len)], 0.30, _alpha(color, lash.lower ? 0.50 : 0.22));
     }
   }
 }
@@ -322,60 +430,76 @@ void _paintNose(Canvas canvas, _Rig r) {
   final spec = r.nose;
   final tipY = r.noseTipY;
   final baseY = r.noseBaseY;
-  final bridgeTop = _Rig.eyeY + 3;
-  final bw = 2.4 * spec.bridge;
+  final bridgeTop = _Rig.eyeY - 2;
+  final bw = 2.6 * spec.bridge;
+  final blur = r.detailed ? 1.0 : 0.0;
 
-  // Sırt gölgesi: ışık soldan, sağ yan gölgede (tek parça cel şekil).
-  final shade = Path()
-    ..moveTo(_cx + bw * 0.7, bridgeTop)
-    ..cubicTo(_cx + bw * 1.5, bridgeTop + 6, _cx + w * 0.55 + spec.bump * 1.2, tipY - 8, _cx + w * 0.78, tipY - 1.5)
-    ..cubicTo(_cx + w * 1.15, tipY + 1, _cx + w * 1.05, baseY, _cx + w * 0.55, baseY + 0.6)
-    ..lineTo(_cx + w * 0.30, baseY - 0.8)
-    ..cubicTo(_cx + w * 0.55, tipY - 2, _cx + bw * 0.4, tipY - 9, _cx + bw * 0.1, bridgeTop + 2)
-    ..close();
-  canvas.drawPath(shade, r.soft(_alpha(r.skinShadow, 0.95), r.detailed ? 1.1 : 0));
+  canvas.save();
+  canvas.clipPath(r.head);
 
-  // Kemer (bump): sırtta küçük çıkıntı çizgisi.
-  if (spec.bump > 0) {
+  // Sırtın iki yanı: gölge tarafı (sağ) belirgin, ışık tarafı (sol) silik.
+  for (final side in [1.0, -1.0]) {
+    final a = side > 0 ? 0.80 : 0.34;
+    final shade = Path()
+      ..moveTo(_cx + side * bw * 0.6, bridgeTop)
+      ..cubicTo(_cx + side * bw * 1.6, bridgeTop + 8, _cx + side * (w * 0.55 + spec.bump * 1.0), tipY - 9, _cx + side * w * 0.80, tipY - 1.5)
+      ..lineTo(_cx + side * w * 1.05, tipY - 3)
+      ..cubicTo(_cx + side * w * 0.9, tipY - 10, _cx + side * bw * 2.6, bridgeTop + 9, _cx + side * bw * 2.4, bridgeTop)
+      ..close();
+    canvas.drawPath(shade, r.soft(_alpha(r.skinShadow, a), r.detailed ? 2.2 : 0));
+  }
+  // Burun sırtı ışığı.
+  if (r.detailed) {
     canvas.drawPath(
       Path()
-        ..moveTo(_cx + bw * 0.9, _Rig.eyeY + 7)
-        ..quadraticBezierTo(_cx + bw * 1.6, _Rig.eyeY + 10, _cx + bw * 1.0, _Rig.eyeY + 13),
-      r.stroke(_alpha(r.skinLine, 0.5 * spec.bump), r.lineW * 0.8),
+        ..moveTo(_cx - 0.6, _Rig.eyeY + 3)
+        ..quadraticBezierTo(_cx - 1.4 - spec.bump * 0.6, (bridgeTop + tipY) / 2, _cx - 1.0, tipY - 3.5),
+      r.stroke(_alpha(r.skinSpec, 0.40), 1.8, blur: 1.1),
     );
   }
 
-  // Burun ucu: alt kısmında yumuşak gölge, üstte parlama.
+  // Kemer (bump): sırtta ışık alan çıkıntı ve altında gölge.
+  if (spec.bump > 0) {
+    r.glow(canvas, Offset(_cx - 0.6, _Rig.eyeY + 10), 3.2, 5, _alpha(r.skinSpec, 0.45 * spec.bump), 1.0);
+    r.glow(canvas, Offset(_cx + 1.4, _Rig.eyeY + 14), 3.4, 4, _alpha(r.skinShadow, 0.45 * spec.bump), 1.2);
+  }
+
+  // Burun ucu: top biçimli; altı gölgede, üstünde parlama, deri altı kızıllık.
   final tipR = 3.6 * spec.tip;
-  canvas.drawOval(
-    Rect.fromCenter(center: Offset(_cx, baseY + 0.4), width: w * 1.5, height: 2.6),
-    r.soft(_alpha(r.skinShadow, 0.9), r.detailed ? 0.9 : 0),
-  );
-  if (r.detailed) {
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(_cx - 1.4, tipY - tipR * 0.3), width: tipR * 1.1, height: tipR * 0.75),
-      r.soft(_alpha(r.skinLight, 0.85), 1.0),
-    );
-  }
+  r.glow(canvas, Offset(_cx, tipY - 0.5), tipR * 2.6, tipR * 2.0, _alpha(r.skinWarm, 0.30), 2.0);
+  // Ucun sağ yanı gölgede (top biçimi), altı daha da koyu.
+  r.glow(canvas, Offset(_cx + tipR * 0.75, tipY), tipR * 0.9, tipR * 1.5, _alpha(r.skinShadow, 0.45), 1.2);
+  r.glow(canvas, Offset(_cx + 0.6, baseY - 0.4), w * 1.45, 3.4, _alpha(r.skinDeep, 0.55), r.detailed ? 1.0 : 0);
 
-  // Kanatlar ve delikler: iki yanda kısa kıvrık çizgi + küçük koyu delik.
-  final visible = 1.0 + spec.upturn * 0.9;
+  // Kanatlar: yuvarlak tümsek; dış ve üst kenarında kanat oluğu gölgesi.
   r.mirrored(canvas, (c, mir) {
-    c.drawPath(
-      Path()
-        ..moveTo(_cx - w * 0.62, tipY - 2.6)
-        ..cubicTo(_cx - w * 1.18, tipY - 2.2, _cx - w * 1.22, baseY - 0.4, _cx - w * 0.72, baseY + 0.2),
-      r.stroke(_alpha(r.skinLine, mir ? 0.85 : 0.65), r.lineW * 0.95),
+    final wc = Offset(_cx - w * 0.80, baseY - 2.2);
+    final wr = w * 0.40 + 0.6;
+    c.drawArc(
+      Rect.fromCircle(center: wc, radius: wr + 0.4),
+      math.pi * 0.45,
+      math.pi * 1.25,
+      false,
+      r.stroke(_alpha(r.skinShadow, mir ? 0.95 : 0.70), 1.6, blur: 0.9),
     );
+    r.glow(c, wc + const Offset(0.3, -0.6), wr * 1.2, wr, _alpha(r.skinLight, mir ? 0.10 : 0.35), 1.0);
+    // Burun deliği: koyu, kenarı yumuşak, eğik.
+    final visible = 1.0 + spec.upturn * 0.9;
     c.save();
-    c.translate(_cx - w * 0.42, baseY - 0.4);
-    c.rotate(-0.30);
+    c.translate(_cx - w * 0.40, baseY - 0.5);
+    c.rotate(-0.32);
     c.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: 2.6 + 0.6 * spec.width, height: 1.15 * visible),
-      r.fill(_alpha(_mix(r.skinDeep, _Rig.ink, 0.35), 0.85)),
+      Rect.fromCenter(center: Offset.zero, width: 2.8 + 0.6 * spec.width, height: 1.25 * visible),
+      r.soft(_alpha(_mix(r.skinDeep, _Rig.ink, 0.45), 0.88), r.detailed ? 0.4 : 0),
     );
     c.restore();
   });
+  // Ucun parlaması (sol üst).
+  r.glow(canvas, Offset(_cx - 1.4, tipY - tipR * 0.45), tipR * 1.1, tipR * 0.75, _alpha(r.skinSpec, 0.75), blur);
+
+  // Burnun üst dudağa düşürdüğü gölge (ışık sol üstte → sağ alta düşer).
+  r.glow(canvas, Offset(_cx + 1.6, baseY + 2.6), w * 1.7, 3.6, _alpha(r.skinShadow, 0.42), r.detailed ? 1.6 : 0);
+  canvas.restore();
 }
 
 // ---------------------------------------------------------------------- ağız
@@ -384,9 +508,9 @@ void _paintMouth(Canvas canvas, _Rig r) {
   final w = r.mouthHalf;
   final y = r.mouthY;
   final smile = r.m.smile;
-  final lift = 3.0 * smile + 1.7 * lip.corner; // köşeler yukarı
-  final upper = 2.6 * lip.upper * r.m.lipFullness;
-  final lower = 4.2 * lip.lower * r.m.lipFullness;
+  final lift = 2.6 * smile + 1.5 * lip.corner; // köşeler yukarı
+  final upper = 3.0 * lip.upper * r.m.lipFullness;
+  final lower = 4.4 * lip.lower * r.m.lipFullness;
   final bow = lip.bow;
   final open = math.max(0.0, smile - 0.60) * 13.0 + (lip.corner > 1.2 ? 2.2 : 0); // gülümsemede dişler
 
@@ -407,10 +531,10 @@ void _paintMouth(Canvas canvas, _Rig r) {
   final upTop = y - upper - 0.4;
   final upperLip = Path()
     ..moveTo(cornerL.dx, cornerL.dy)
-    ..cubicTo(_cx - w * 0.75, cornerL.dy - upper * 0.55, _cx - w * 0.45, upTop + 0.4, _cx - w * 0.22, upTop - 0.25 * bow)
+    ..cubicTo(_cx - w * 0.75, cornerL.dy - upper * 0.50, _cx - w * 0.45, upTop + 0.4, _cx - w * 0.20, upTop - 0.25 * bow)
     ..quadraticBezierTo(_cx - w * 0.08, upTop - 0.2 * bow, _cx, upTop + 0.75 * bow)
-    ..quadraticBezierTo(_cx + w * 0.08, upTop - 0.2 * bow, _cx + w * 0.22, upTop - 0.25 * bow)
-    ..cubicTo(_cx + w * 0.45, upTop + 0.4, _cx + w * 0.75, cornerR.dy - upper * 0.55, cornerR.dx, cornerR.dy);
+    ..quadraticBezierTo(_cx + w * 0.08, upTop - 0.2 * bow, _cx + w * 0.20, upTop - 0.25 * bow)
+    ..cubicTo(_cx + w * 0.45, upTop + 0.4, _cx + w * 0.75, cornerR.dy - upper * 0.50, cornerR.dx, cornerR.dy);
   for (final p in topLine.reversed) {
     upperLip.lineTo(p.dx, p.dy);
   }
@@ -423,8 +547,8 @@ void _paintMouth(Canvas canvas, _Rig r) {
     lowerLip.lineTo(p.dx, p.dy);
   }
   lowerLip
-    ..cubicTo(_cx + w * 0.72, lowBottom - lower * 0.25, _cx + w * 0.36, lowBottom, _cx, lowBottom)
-    ..cubicTo(_cx - w * 0.36, lowBottom, _cx - w * 0.72, lowBottom - lower * 0.25, cornerL.dx, cornerL.dy)
+    ..cubicTo(_cx + w * 0.70, lowBottom - lower * 0.22, _cx + w * 0.36, lowBottom, _cx, lowBottom)
+    ..cubicTo(_cx - w * 0.36, lowBottom, _cx - w * 0.70, lowBottom - lower * 0.22, cornerL.dx, cornerL.dy)
     ..close();
 
   // Ağız içi + dişler (gülümserken).
@@ -437,55 +561,101 @@ void _paintMouth(Canvas canvas, _Rig r) {
       inside.lineTo(p.dx, p.dy);
     }
     inside.close();
-    canvas.drawPath(inside, r.fill(const Color(0xFF5A1E22)));
+    canvas.drawPath(inside, r.fill(const Color(0xFF3E1416)));
     canvas.save();
     canvas.clipPath(inside);
     // Dil.
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(_cx, mid + open * 1.05), width: w * 1.1, height: open * 0.9),
-      r.fill(const Color(0xFFC85A62)),
-    );
-    // Üst dişler: beyaz şerit.
+    r.glow(canvas, Offset(_cx, mid + open * 1.05), w * 1.2, open * 0.9, const Color(0xFFB0545A), 1.0);
+    // Üst dişler: kenarlara doğru gölgelenen kırık beyaz.
     final teethBottom = mid - open * 0.35 + open * 0.62;
-    canvas.drawRect(
-      Rect.fromLTRB(_cx - w, mid - open - 2, _cx + w, teethBottom),
-      r.fill(const Color(0xFFFFFFFF)),
+    final teeth = Rect.fromLTRB(_cx - w * 0.92, mid - open - 2, _cx + w * 0.92, teethBottom);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(teeth, const Radius.circular(1.2)),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(_cx - w, 0),
+          Offset(_cx + w, 0),
+          const [Color(0xFF9E928A), Color(0xFFEDE7DE), Color(0xFFF5F0E8), Color(0xFFDCD3C9), Color(0xFF8E827A)],
+          const [0.0, 0.28, 0.48, 0.72, 1.0],
+        ),
     );
-    canvas.drawLine(
-      Offset(_cx - w, teethBottom),
-      Offset(_cx + w, teethBottom),
-      r.stroke(_alpha(const Color(0xFFB8AFA8), 0.9), 0.7),
-    );
+    if (r.detailed) {
+      // Diş araları (yalnız ön dişler) ve üst dudağın dişlere gölgesi.
+      for (final dx in [-0.62, -0.36, -0.12, 0.12, 0.36, 0.62]) {
+        canvas.drawLine(Offset(_cx + w * dx, mid - open), Offset(_cx + w * dx * 1.02, teethBottom), r.stroke(_alpha(const Color(0xFF8A7E76), 0.35), 0.35));
+      }
+    }
+    canvas.drawRect(Rect.fromLTRB(_cx - w, mid - open - 3, _cx + w, mid - open * 0.35 + 1.4), r.soft(_alpha(const Color(0xFF5A3A36), 0.45), 0.9));
     canvas.restore();
   }
 
-  // Dudak dolguları.
-  canvas.drawPath(lowerLip, r.fill(r.lipBase));
-  canvas.drawPath(upperLip, r.fill(_mix(r.lipBase, r.lipDark, 0.38)));
-  // Alt dudak parlaması.
-  if (r.detailed) {
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(_cx - w * 0.18, y + open + lower * 0.55), width: w * 0.62, height: 1.6),
-      r.soft(_alpha(r.lipLight, 0.9), 0.8),
-    );
-  }
-  // Dudak kenarı (yalnız alt dudağın altında hafif).
+  final upCol = _mix(r.lipBase, r.lipDark, 0.34);
+  final edgeBlur = r.detailed ? 0.45 : 0.0;
+
+  // Alt dudak: dolgun, üst kısmı ışık alır, alt kenarı gölgeye döner.
+  final lb = lowerLip.getBounds();
   canvas.drawPath(
-    Path()
-      ..moveTo(_cx - w * 0.55, lowBottom - lower * 0.12)
-      ..quadraticBezierTo(_cx, lowBottom + 0.6, _cx + w * 0.55, lowBottom - lower * 0.12),
-    r.stroke(_alpha(_mix(r.lipDark, r.skinLine, 0.5), 0.45), r.lineW * 0.8),
+    lowerLip,
+    Paint()
+      ..maskFilter = edgeBlur > 0 ? MaskFilter.blur(BlurStyle.normal, edgeBlur) : null
+      ..shader = ui.Gradient.linear(
+        Offset(0, lb.top),
+        Offset(0, lb.bottom),
+        [_mix(r.lipBase, r.lipDark, 0.25), _mix(r.lipBase, r.lipLight, 0.18), r.lipBase, _mix(r.lipBase, r.lipDark, 0.30)],
+        const [0.0, 0.35, 0.70, 1.0],
+      ),
+  );
+  // Üst dudak: aşağı baktığı için koyu; üst kenarı (dudak sırtı) biraz açık.
+  final ub = upperLip.getBounds();
+  canvas.drawPath(
+    upperLip,
+    Paint()
+      ..maskFilter = edgeBlur > 0 ? MaskFilter.blur(BlurStyle.normal, edgeBlur) : null
+      ..shader = ui.Gradient.linear(
+        Offset(0, ub.top),
+        Offset(0, ub.bottom),
+        [_mix(upCol, r.lipLight, 0.12), upCol, _mix(upCol, r.lipDark, 0.35)],
+        const [0.0, 0.5, 1.0],
+      ),
   );
 
-  // Ağız hattı ve köşe çukurları.
+  if (r.detailed) {
+    canvas.save();
+    canvas.clipPath(lowerLip);
+    // Dikey dudak çizgileri (doku).
+    final rng = r.rngFor(733);
+    for (var i = 0; i < 14; i++) {
+      final x = _cx + (rng.nextDouble() * 2 - 1) * w * 0.75;
+      canvas.drawLine(Offset(x, y + 0.5), Offset(x + (x - _cx) * 0.04, lowBottom - 0.8), r.stroke(_alpha(r.lipDark, 0.12), 0.35));
+    }
+    // Alt dudak ışığı: geniş yumuşak + küçük nemli parlama.
+    r.glow(canvas, Offset(_cx - w * 0.18, y + open + lower * 0.48), w * 0.80, lower * 0.55, _alpha(r.lipLight, 0.55), 1.2);
+    r.glow(canvas, Offset(_cx - w * 0.22, y + open + lower * 0.42), w * 0.22, 0.9, _alpha(Colors.white, 0.45), 0.4);
+    canvas.restore();
+    // Üst dudak sırtının (vermilyon kenarı) ışığı.
+    canvas.drawPath(
+      Path()
+        ..moveTo(_cx - w * 0.75, cornerL.dy - upper * 0.45 - 0.6)
+        ..quadraticBezierTo(_cx - w * 0.40, upTop - 0.6, _cx - w * 0.20, upTop - 0.25 * bow - 0.7)
+        ..quadraticBezierTo(_cx - w * 0.08, upTop - 0.2 * bow - 0.7, _cx, upTop + 0.75 * bow - 0.7),
+      r.stroke(_alpha(r.skinLight, 0.40), 0.9, blur: 0.6),
+    );
+  }
+
+  // Dudakların buluştuğu koyu hat: ortada ve köşelerde en koyu, kenarı yumuşak.
   final line = Path()..addPolygon(open > 0.8 ? topLine : lineAt(0), false);
-  canvas.drawPath(line, r.stroke(_mix(r.lipDark, _Rig.ink, 0.55), r.lineW * 1.1));
+  final lineCol = _mix(r.lipDark, _Rig.ink, 0.45);
+  canvas.drawPath(line, r.stroke(_alpha(lineCol, 0.85), 1.0, blur: 0.4));
+  if (r.detailed) {
+    canvas.drawPath(line.shift(const Offset(0, 0.6)), r.stroke(_alpha(lineCol, 0.25), 1.6, blur: 0.9));
+  }
+  // Köşe çukurları.
   r.mirrored(canvas, (c, mir) {
     c.drawPath(
       Path()
-        ..moveTo(_cx - w - 0.2, cornerL.dy + 0.2)
-        ..quadraticBezierTo(_cx - w - 1.8, cornerL.dy - 0.4, _cx - w - 2.2, cornerL.dy - 1.8 - smile),
-      r.stroke(_alpha(r.skinLine, 0.6), r.lineW * 0.8),
+        ..moveTo(_cx - w + 0.4, cornerL.dy + 0.2)
+        ..quadraticBezierTo(_cx - w - 1.6, cornerL.dy - 0.4, _cx - w - 2.0, cornerL.dy - 1.6 - smile),
+      r.stroke(_alpha(r.skinShadow, mir ? 0.85 : 0.65), 1.2, blur: 0.6),
     );
   });
 }

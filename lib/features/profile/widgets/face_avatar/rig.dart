@@ -3,9 +3,10 @@ part of '../face_avatar_painter.dart';
 // ============================================================================
 // ORTAK GEOMETRİ, PALET VE ÇİZİM YARDIMCILARI
 //
-// Bitmoji tarzı: büyük kafa (karenin ~%62'si), iri gözler, yumuşak ama net
-// "cel" gölgeler ve her parçanın kendi renginin koyusuyla çizilen ince
-// konturu. Tüm koordinatlar 200x200 birimlik tuvaldedir.
+// Yarı gerçekçi portre: yetişkin yüz oranları (göz hattı kafanın ortasına
+// yakın, uzun alt yüz, badem göz), sert kontur yerine yumuşak kenar ve
+// katmanlı hacim gölgesi (ışık sol üstten). Tüm koordinatlar 200x200
+// birimlik tuvaldedir.
 // ============================================================================
 
 const double _cx = 100;
@@ -167,8 +168,8 @@ class _Rig {
 
   // ------------------------------------------------------------- geometri
   /// Kafatasının tepesi (saçsız) ve göz hattı.
-  static const double skullTop = 22;
-  static const double eyeY = 95;
+  static const double skullTop = 24;
+  static const double eyeY = 92;
 
   late final double cheekHalf = kFaceBaseCheekHalf * shape.cheek * m.faceWidth;
   late final double foreheadHalf =
@@ -176,22 +177,25 @@ class _Rig {
   late final double templeHalf = _lerpD(foreheadHalf, cheekHalf, 0.55);
   late final double jawHalf = kFaceBaseJawHalf * shape.jaw * m.jawWidth;
   late final double chinY = eyeY + kFaceBaseChinLength * shape.chin * m.chinLength;
-  late final double chinHalf = 15.5 * shape.chinWidth * (0.85 + 0.15 * m.jawWidth);
-  late final double gonionY = eyeY + 26 + 4 * shape.corner + (chinY - eyeY - kFaceBaseChinLength) * 0.45;
-  late final double eyeDx = 21.6 * m.eyeSpacing * (0.94 + 0.06 * shape.cheek);
-  late final double eyeW = 10.3 * m.eyeSize * eye.width;
-  late final double eyeH = 6.9 * m.eyeSize * eye.height;
-  late final double browBaseY = eyeY - 14.6 - (m.browHeight - 1) * 8 - brow.lift;
-  late final double noseBaseY = eyeY + 19.0 * nose.length * m.noseLength * (0.82 + 0.18 * m.chinLength);
-  late final double noseTipY = noseBaseY - 2.8;
-  late final double noseHalf = 6.6 * nose.width * m.noseWidth;
-  late final double mouthY = noseBaseY + (chinY - noseBaseY) * 0.42;
-  late final double mouthHalf = 12.8 * lip.width * m.mouthWidth;
-  late final double neckHalf = 16.5 + jawHalf * 0.05;
+  late final double chinHalf = 13.5 * shape.chinWidth * (0.85 + 0.15 * m.jawWidth);
+  late final double gonionY = eyeY + 32 + 4 * shape.corner + (chinY - eyeY - kFaceBaseChinLength) * 0.45;
+  late final double eyeDx = 19.8 * m.eyeSpacing * (0.94 + 0.06 * shape.cheek);
+  late final double eyeW = 9.9 * m.eyeSize * eye.width;
 
-  /// Kulak: yanağın dışına taşan küçük oval.
-  late final double earTop = eyeY - 7;
-  late final double earBottom = noseBaseY + 3;
+  /// Göz açıklığının yarı yüksekliği: açıklık genişliğin ~%42'si (gerçek
+  /// göz), iris açıklıktan biraz büyük olup üst kapağın altına girer.
+  late final double eyeH = 4.6 * m.eyeSize * eye.height;
+  late final double browBaseY = eyeY - 12.8 - (m.browHeight - 1) * 8 - brow.lift;
+  late final double noseBaseY = eyeY + 24.5 * nose.length * m.noseLength * (0.82 + 0.18 * m.chinLength);
+  late final double noseTipY = noseBaseY - 3.2;
+  late final double noseHalf = 7.0 * nose.width * m.noseWidth;
+  late final double mouthY = noseBaseY + (chinY - noseBaseY) * 0.36;
+  late final double mouthHalf = 14.2 * lip.width * m.mouthWidth;
+  late final double neckHalf = 12.0 + jawHalf * 0.40;
+
+  /// Kulak: kaş hizasından burun tabanına kadar.
+  late final double earTop = eyeY - 11;
+  late final double earBottom = noseBaseY + 1.5;
 
   /// Kafa silueti: tepe → alın → şakak → elmacık → çene köşesi → çene ucu.
   late final Path head = _buildHead();
@@ -327,12 +331,22 @@ class _Rig {
   /// 0 = çok açık ten, 1 = çok koyu.
   late final double skinDepth = (1 - (skinLum / 0.62)).clamp(0.0, 1.0);
 
-  /// Cel gölge: sıcak, hafif doygun.
-  late final Color skinShadow = _mix(skin, const Color(0xFFA0503A), 0.24 - 0.06 * skinDepth);
-  late final Color skinDeep = _mix(skin, const Color(0xFF4A1C10), 0.46 + 0.04 * skinDepth);
-  late final Color skinLine = _mix(skin, const Color(0xFF3C170C), 0.52 + 0.06 * skinDepth);
-  late final Color skinLight = _mix(skin, const Color(0xFFFFF4EA), 0.30 * (1 - 0.40 * skinDepth) + 0.06);
-  late final Color blush = _mix(skin, const Color(0xFFF0656A), 0.48 - 0.12 * skinDepth);
+  /// Gölge tonu: deride gölge koyulaşırken doygunlaşır ve kızarır (ışığın
+  /// derinin altında saçılması). Koyu tende daha derin, kahve-mor.
+  late final Color skinShadow = _mix(skin, Color.lerp(const Color(0xFF9A4632), const Color(0xFF3A1A12), skinDepth)!, 0.30 - 0.04 * skinDepth);
+  late final Color skinDeep = _mix(skin, const Color(0xFF3E160C), 0.50 + 0.06 * skinDepth);
+  late final Color skinLine = _mix(skin, const Color(0xFF3C170C), 0.50 + 0.08 * skinDepth);
+  late final Color skinLight = _mix(skin, const Color(0xFFFFF2E8), 0.26 * (1 - 0.35 * skinDepth) + 0.05);
+
+  /// Parlak noktalar (alın, burun sırtı, elmacık): koyu tende serin, belirgin.
+  late final Color skinSpec = _mix(skin, Color.lerp(const Color(0xFFFFF8F2), const Color(0xFFE6E2EE), skinDepth)!, 0.42 + 0.18 * skinDepth);
+
+  /// Derinin altından gelen kızıllık (kulak, burun ucu, yanak, dudak çevresi).
+  late final Color skinWarm = _mix(skin, const Color(0xFFD8463C), 0.30 - 0.10 * skinDepth);
+
+  /// Tıraşlı bölgenin serin gölgesi / göz altı mor-gri tonu.
+  late final Color skinCool = _mix(skin, const Color(0xFF5E6078), 0.22);
+  late final Color blush = _mix(skin, const Color(0xFFE85A62), 0.40 - 0.12 * skinDepth);
 
   late final Color lipBase = () {
     final chosen = kLipColors[cfg.lipColor.clamp(0, kLipColors.length - 1)];
@@ -347,9 +361,10 @@ class _Rig {
     const gray = Color(0xFFD5D8DC);
     const t = [0.0, 0.16, 0.45, 0.82];
     final c = _mix(cfg.hairColor, gray, t[age]);
-    // Simsiyah saç düz siyah leke gibi durmasın: Bitmoji'deki koyu arduvaz tonu.
+    // Simsiyah saç düz siyah leke gibi durmasın: çok koyu, hafif sıcak kahve
+    // taban (parlaması serin-gri olur, bkz. hairLight).
     final lum = c.computeLuminance();
-    if (lum < 0.03) return _mix(c, const Color(0xFF3A3B47), 0.38 * (1 - lum / 0.03));
+    if (lum < 0.03) return _mix(c, const Color(0xFF2E2622), 0.40 * (1 - lum / 0.03));
     return c;
   }();
   late final double hairLum = hairColor.computeLuminance();
@@ -388,8 +403,15 @@ class _Rig {
     return p;
   }
 
-  /// Konturun kalınlığı (küçük önizlemede biraz kalın ki görünsün).
-  double get lineW => detailed ? 1.05 : 1.5;
+  /// Kenar çizgisinin kalınlığı. Gerçekçi çizimde kontur yoktur; parçaların
+  /// sınırı yalnız ince, yumuşak bir koyulukla belirtilir (küçük önizlemede
+  /// biraz kalın ki görünsün).
+  double get lineW => detailed ? 0.7 : 1.2;
+
+  /// Yumuşak kenar: parçanın kendi renginin koyusuyla, hafif bulanık, yarı
+  /// saydam ince çizgi (eski sert konturun yerine).
+  Paint edge(Color c, {double alpha = 0.55, double width = -1}) =>
+      stroke(_alpha(c, c.a * alpha), width < 0 ? lineW : width, blur: 0.45);
 
   /// Sol tarafı çizdirir, sonra aynasını çizer. [isMirror] ikinci geçişte true
   /// olur — ışık yönüne bağlı öğeler (parlama, gölge) bunu kullanır.
@@ -404,16 +426,51 @@ class _Rig {
 
   math.Random rngFor(int salt) => math.Random(salt * 9973 + 17);
 
-  /// Cel gölge: [shape]'in, ışığa göre kaydırılmış kopyasının dışında kalan
-  /// kısmı ([offset] yönünde hilal). Boolean yol işlemi yerine şeklin tamamı
-  /// gölgelenir, kaydırılmış kopya [base] (şeklin taban rengi) ile yeniden
-  /// boyanır — aynı görüntü, çok daha ucuz. Bu yüzden şeklin dolgusundan
-  /// HEMEN SONRA, dokulardan önce çağrılmalıdır.
-  void celShade(Canvas canvas, Path shape, Color color, {required Color base, Offset offset = const Offset(-5, -3), double blur = 1.4}) {
+  /// Hacim gölgesi: [shape]'in, ışığa göre kaydırılmış kopyasının dışında
+  /// kalan kısmı ([offset] yönünde hilal). Ayrı katmanda gölge boyanır,
+  /// kaydırılmış kopya bulanık olarak silinir (dstOut): geçiş yumuşak bir
+  /// "terminatör" olur ve alttaki doku korunur, yani her an çağrılabilir.
+  /// [base] eski çağrılarla uyum içindir; kullanılmaz.
+  void celShade(Canvas canvas, Path shape, Color color, {Color? base, Offset offset = const Offset(-5, -3), double blur = 1.4}) {
+    final sigma = detailed ? math.max(blur * 2.2, 2.4) : 0.0;
+    final bounds = shape.getBounds().inflate(2);
     canvas.save();
     canvas.clipPath(shape);
+    canvas.saveLayer(bounds, Paint());
     canvas.drawPath(shape, fill(color));
-    canvas.drawPath(shape.shift(offset), soft(base, blur));
+    final cut = Paint()..blendMode = BlendMode.dstOut;
+    if (sigma > 0) cut.maskFilter = MaskFilter.blur(BlurStyle.normal, sigma);
+    canvas.drawPath(shape.shift(offset), cut);
     canvas.restore();
+    canvas.restore();
+  }
+
+  /// Kenar kararması (ortam kapanması): şeklin içinde, sınırına yakın yerleri
+  /// yumuşakça koyulaştırır; düz dolguya yuvarlak hacim verir.
+  void rimShade(Canvas canvas, Path shape, Color color, {double width = 8, double blur = 4}) {
+    if (!detailed) return;
+    canvas.save();
+    canvas.clipPath(shape);
+    canvas.drawPath(shape, stroke(color, width, blur: blur));
+    canvas.restore();
+  }
+
+  /// Yumuşak elips leke (ışık/gölge/kızarıklık).
+  void glow(Canvas canvas, Offset c, double w, double h, Color color, double blur, {double rotate = 0}) {
+    final p = soft(color, detailed ? blur : 0);
+    if (rotate == 0) {
+      canvas.drawOval(Rect.fromCenter(center: c, width: w, height: h), p);
+      return;
+    }
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(rotate);
+    canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: w, height: h), p);
+    canvas.restore();
+  }
+
+  /// İnce, ucu sivrilen tel (saç/kaş/sakal teli): kök kalın, uç incelir.
+  void strand(Canvas canvas, List<Offset> pts, double width, Color color) {
+    canvas.drawPath(_taperPath(pts, width, width * 0.15, wMid: width * 0.9), fill(color));
   }
 }
