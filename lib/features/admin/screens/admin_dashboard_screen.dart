@@ -56,6 +56,9 @@ import '../../../sehirici/admin/sehirici_admin_management_content.dart';
 import '../../news/widgets/news_management_content.dart';
 import '../widgets/admin_package_requests_tab.dart';
 import '../widgets/wallet_management_content.dart';
+import '../widgets/return_requests_tab_widget.dart';
+import '../../shop/services/return_request_service.dart';
+import '../../../core/widgets/order_return_badge.dart';
 import '../widgets/courier_payout_requests_section.dart';
 import '../widgets/reward_points_overview_section.dart';
 import '../widgets/users_with_balance_tab_widget.dart';
@@ -127,6 +130,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _newPostsCount = 0; // Menü görülmeden gelen yeni gönderi sayısı
   int _newProductsCount = 0; // Menü görülmeden gelen yeni ürün sayısı
   int _newOrdersCount = 0; // Menü görülmeden gelen yeni sipariş sayısı
+  int _pendingReturnsCount = 0; // Yönetici incelemesindeki iade talepleri
   int _newDigitalOrdersCount =
       0; // Menü görülmeden gelen yeni dijital (SMM) sipariş sayısı
   int _newGroupsCount = 0; // Menü görülmeden gelen yeni grup sayısı
@@ -190,6 +194,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     super.initState();
     _loadRealData();
     _setupRealtimeSubscription();
+    _loadPendingReturnsCount();
   }
 
   @override

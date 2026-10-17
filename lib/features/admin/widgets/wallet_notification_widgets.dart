@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/transfer_service.dart';
 import '../../shop/services/cancellation_request_service.dart';
-import '../../shop/services/return_request_service.dart';
 
 // ========== HAVALE ONAYLARI TAB ETİKETİ (bekleyen sayısı rozeti) ==========
 class TransferConfirmationsTabLabel extends StatefulWidget {
@@ -128,7 +127,6 @@ class _WalletNotificationBellState extends State<WalletNotificationBell> {
   final TransferService _transferService = TransferService();
   final CancellationRequestService _cancellationService =
       CancellationRequestService();
-  final ReturnRequestService _returnService = ReturnRequestService();
   int _totalPending = 0;
 
   @override
@@ -142,7 +140,6 @@ class _WalletNotificationBellState extends State<WalletNotificationBell> {
       final results = await Future.wait<int>([
         _transferService.getPendingCount(),
         _cancellationService.getPendingCount(),
-        _returnService.getPendingCount(),
       ]);
       if (!mounted) return;
       setState(() => _totalPending = results.fold(0, (a, b) => a + b));

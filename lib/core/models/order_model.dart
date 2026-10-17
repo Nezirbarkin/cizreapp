@@ -213,6 +213,13 @@ class Order {
   /// Platform kuryesiyle ücretsiz teslimatta satıcının alacağından kesilen
   /// teslimat bedeli (kuryeli satıcıda ve müşteri teslimatı ödediğinde 0).
   final double sellerDeliveryCharge;
+
+  /// İade durumu (DB tetikleyicisi doldurur): null | requested | approved |
+  /// partially_returned | returned. Sipariş durumu 'delivered' kalır.
+  final String? returnStatus;
+
+  /// Tamamlanan iadelerde müşteriye iade edilen toplam.
+  final double returnedAmount;
   
   // Satıcı kurye durumu (ilişkili veri)
   final bool? hasOwnCourier;
@@ -271,6 +278,8 @@ class Order {
     this.commissionDebt,
     this.commissionCalculatedAt,
     this.sellerDeliveryCharge = 0,
+    this.returnStatus,
+    this.returnedAmount = 0,
     this.hasOwnCourier,
     // Müşteri telefonu
     this.customerPhone,
@@ -372,6 +381,8 @@ class Order {
           ? DateTime.parse(json['commission_calculated_at'] as String)
           : null,
       sellerDeliveryCharge: (json['seller_delivery_charge'] as num?)?.toDouble() ?? 0,
+      returnStatus: json['return_status'] as String?,
+      returnedAmount: (json['returned_amount'] as num?)?.toDouble() ?? 0,
       // Sipariş satırı kurye durumunu seller_has_own_courier olarak taşır.
       hasOwnCourier: json['seller_has_own_courier'] as bool? ??
           json['has_own_courier'] as bool?,
@@ -421,6 +432,8 @@ class Order {
       'admin_delivery_fee': adminDeliveryFee,
       'seller_net_amount': sellerNetAmount,
       'seller_delivery_charge': sellerDeliveryCharge,
+      'return_status': returnStatus,
+      'returned_amount': returnedAmount,
       'commission_debt': commissionDebt,
       'commission_calculated_at': commissionCalculatedAt?.toIso8601String(),
       // Müşteri telefonu
@@ -472,6 +485,9 @@ class Order {
   double get totalAdminEarnings =>
       (adminCommission ?? 0) + (adminDeliveryFee ?? 0);
 
+  /// Siparişin tamamı iade edildi mi?
+  bool get isFullyReturned => returnStatus == 'returned';
+
   /// Satıcının bu siparişten ödediği toplam: komisyon + ücretsiz teslimat
   /// bedeli. Müşterinin ödediği teslimat ücreti satıcıdan kesilmez.
   double get sellerTotalDeductions =>
@@ -513,6 +529,8 @@ class Order {
     double? commissionDebt,
     DateTime? commissionCalculatedAt,
     double? sellerDeliveryCharge,
+    String? returnStatus,
+    double? returnedAmount,
     bool? hasOwnCourier,
     // Müşteri telefonu
     String? customerPhone,
@@ -562,6 +580,8 @@ class Order {
       commissionDebt: commissionDebt ?? this.commissionDebt,
       commissionCalculatedAt: commissionCalculatedAt ?? this.commissionCalculatedAt,
       sellerDeliveryCharge: sellerDeliveryCharge ?? this.sellerDeliveryCharge,
+      returnStatus: returnStatus ?? this.returnStatus,
+      returnedAmount: returnedAmount ?? this.returnedAmount,
       hasOwnCourier: hasOwnCourier ?? this.hasOwnCourier,
       customerPhone: customerPhone ?? this.customerPhone,
       couponId: couponId ?? this.couponId,

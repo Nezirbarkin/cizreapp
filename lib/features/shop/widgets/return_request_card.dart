@@ -44,20 +44,34 @@ class ReturnRequestCard extends StatelessWidget {
       case ReturnRequestStatus.approved:
         switch (viewer) {
           case ReturnCardViewer.customer:
+            if (request.isRefunded) {
+              return 'Tutar bakiyenize eklendi. Ürünleri satıcıya teslim edin.';
+            }
             return request.isSellerCashRefund
                 ? 'Ürünleri teslim ederken iade tutarını satıcıdan nakit alacaksınız.'
-                : 'İade tutarı bakiyenize eklendi. Ürünleri satıcıya teslim edin.';
+                : 'Ürünleri satıcıya teslim edin; satıcı teslim aldığını onaylayınca '
+                    'tutar bakiyenize eklenecek.';
           case ReturnCardViewer.seller:
+            if (request.isRefunded) {
+              return 'Yönetici müşteriye bakiyeden iade etti; nakit vermeyin. Ürünleri '
+                  'teslim alınca "Teslim Aldım" deyin.';
+            }
             return request.isSellerCashRefund
                 ? 'Ürünleri teslim alırken müşteriye iade tutarını nakit verin, sonra "Teslim Aldım" deyin.'
-                : 'Ürünleri müşteriden teslim alınca "Teslim Aldım" deyin.';
+                : 'Ürünleri müşteriden teslim alınca "Teslim Aldım" deyin; onayınızla '
+                    'tutar müşterinin bakiyesine iade edilir.';
           case ReturnCardViewer.admin:
-            return 'Satıcının ürünleri teslim alması bekleniyor.';
+            return request.isRefunded
+                ? 'Para iade edildi; satıcının ürünleri teslim alması bekleniyor.'
+                : 'Satıcının ürünleri teslim alması bekleniyor; para iadesi teslimde yapılır.';
         }
       case ReturnRequestStatus.completed:
+        final paid = request.isSellerCashRefund
+            ? 'Tutar satıcı tarafından nakit iade edildi.'
+            : 'Tutar müşterinin bakiyesine iade edildi.';
         return request.restocked
-            ? 'Ürünler satıcıya ulaştı ve stoğa geri eklendi.'
-            : 'Ürünler satıcıya ulaştı.';
+            ? 'Ürünler satıcıya ulaştı ve stoğa geri eklendi. $paid'
+            : 'Ürünler satıcıya ulaştı. $paid';
       case ReturnRequestStatus.rejected:
       case ReturnRequestStatus.cancelled:
         return null;

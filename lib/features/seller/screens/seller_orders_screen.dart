@@ -13,6 +13,8 @@ import '../../../core/services/email_service.dart';
 import '../../../core/services/contact_lookup_service.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
+import '../../../core/widgets/order_return_badge.dart';
+import 'seller_return_requests_screen.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
 class SellerOrdersScreen extends StatefulWidget {
@@ -1143,7 +1145,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
-                                _getStatusText(order.status),
+                                order.isFullyReturned ? 'İade Edildi' : _getStatusText(order.status),
                                 style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -1756,7 +1758,10 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
         ? OrderStatus.delivered
         : order.status;
     
-    final statusColor = _getStatusColor(displayStatus);
+    // Tamamı iade edilen sipariş "Teslim Edildi" değil "İade Edildi" görünür.
+    final statusColor = order.isFullyReturned
+        ? Colors.red.shade700
+        : _getStatusColor(displayStatus);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1804,7 +1809,11 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                           ),
                         ],
                       ),
-                      child: Icon(_getStatusIcon(displayStatus), color: Colors.white, size: 24),
+                      child: Icon(
+                        order.isFullyReturned ? Icons.assignment_return : _getStatusIcon(displayStatus),
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1831,12 +1840,26 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        _getStatusText(displayStatus),
+                        order.isFullyReturned ? 'İade Edildi' : _getStatusText(displayStatus),
                         style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
                   ],
                 ),
+                if (order.returnStatus != null) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OrderReturnBadge(
+                      returnStatus: order.returnStatus,
+                      returnedAmount: order.returnedAmount,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const SellerReturnRequestsScreen()),
+                      ),
+                    ),
+                  ),
+                ],
 
                 if (order.isPickup) ...[
                   const SizedBox(height: 10),

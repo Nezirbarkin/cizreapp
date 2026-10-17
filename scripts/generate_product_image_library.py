@@ -7,6 +7,7 @@ Kaynak listeler (4 x 500 urun; elle duzenlenebilir):
     scripts/product_image_library/market.txt     -> klasor "Market"     (markali)
     scripts/product_image_library/kozmetik.txt   -> klasor "Kozmetik"   (markali)
     scripts/product_image_library/zuccaciye.txt  -> klasor "Züccaciye"
+    scripts/product_image_library/aktar.txt      -> klasor "Aktar" (132; sitede gorseli olmayanlar)
   Satir bicimi:  Ad | arama kelimeleri | gorsel tarifi (Ingilizce)
 
 Akis:
@@ -79,6 +80,7 @@ SOURCES = [
     ("market.txt", "Market", True),
     ("kozmetik.txt", "Kozmetik", True),
     ("zuccaciye.txt", "Züccaciye", False),
+    ("aktar.txt", "Aktar", False),
 ]
 
 DEFAULT_MODEL = {

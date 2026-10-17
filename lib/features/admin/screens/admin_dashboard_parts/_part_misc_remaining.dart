@@ -294,6 +294,8 @@ extension on _AdminDashboardScreenState {
         return const AdminModeratorsContent();
       case 'Siparişler':
         return _buildOrdersContent();
+      case 'İade Talepleri':
+        return AdminReturnRequestsScreen(onChanged: _loadPendingReturnsCount);
       case 'Kurye Yönetimi':
         return DefaultTabController(
           length: 3,

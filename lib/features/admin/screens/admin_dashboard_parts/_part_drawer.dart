@@ -239,6 +239,16 @@ extension on _AdminDashboardScreenState {
                     },
                   ),
                   _buildDrawerItem(
+                    icon: Icons.assignment_return_rounded,
+                    title: 'İade Talepleri',
+                    isSelected: _selectedMenu == 'İade Talepleri',
+                    badgeCount: _pendingReturnsCount,
+                    onTap: () {
+                      setState(() => _selectedMenu = 'İade Talepleri');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _buildDrawerItem(
                     icon: Icons.delivery_dining,
                     title: 'Kurye Yönetimi',
                     isSelected: _selectedMenu == 'Kurye Yönetimi',

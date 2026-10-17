@@ -107,6 +107,8 @@ Admin bildirimleri: ' || (SELECT count(*) FROM public.notifications WHERE type =
   v_req := public.create_return_request(v_order, 'tamamı iade', NULL);
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   SELECT admin_credit, commission_debt INTO s1 FROM public.shops WHERE id = v_shop;
   v_out := v_out || E'\nİade sonrası: müşteriye=' || v_req.refund_amount || ' satıcıdan=' || v_req.seller_debit_amount ||
@@ -135,6 +137,8 @@ Admin bildirimleri: ' || (SELECT count(*) FROM public.notifications WHERE type =
     jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'quantity', 1)));
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   SELECT admin_credit, commission_debt INTO s1 FROM public.shops WHERE id = v_shop;
   v_out := v_out || E'\n  1 ürün iade: müşteriye=' || v_req.refund_amount || ' satıcıdan=' || v_req.seller_debit_amount ||
@@ -144,6 +148,8 @@ Admin bildirimleri: ' || (SELECT count(*) FROM public.notifications WHERE type =
   v_req := public.create_return_request(v_order, 'kalan', NULL);
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   SELECT admin_credit, commission_debt INTO s1 FROM public.shops WHERE id = v_shop;
   v_out := v_out || E'\n  kalan iade: müşteriye=' || v_req.refund_amount || ' satıcıdan=' || v_req.seller_debit_amount ||
@@ -168,6 +174,8 @@ Admin bildirimleri: ' || (SELECT count(*) FROM public.notifications WHERE type =
   v_req := public.create_return_request(v_order, 'tamamı', NULL);
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   SELECT admin_credit, commission_debt INTO s1 FROM public.shops WHERE id = v_shop;
   v_out := v_out || E'\n  tamamı iade: müşteriye=' || v_req.refund_amount || ' satıcıdan=' || v_req.seller_debit_amount ||

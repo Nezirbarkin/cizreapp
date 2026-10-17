@@ -7,6 +7,7 @@ import '../common/seller_stat_card.dart';
 import '../../utils/shop_contact_requirements.dart';
 import '../seller_announcements_section.dart';
 import '../shop_missing_info_banner.dart';
+import 'seller_returns_summary_card.dart';
 
 /// Satıcı panelinin "Genel Bakış" sekmesi (sunum katmanı).
 ///
@@ -375,6 +376,10 @@ class SellerOverviewTab extends StatelessWidget {
                 ],
               ),
             ],
+            const SizedBox(height: 16),
+
+            // İade edilen ürünler: incelemede / teslim bekleyen / tamamlanan
+            const SellerReturnsSummaryCard(),
             const SizedBox(height: 32),
 
             // Son Siparişler
@@ -413,10 +418,10 @@ class SellerOverviewTab extends StatelessWidget {
                       subtitle: Text(order['profiles']?['full_name'] ?? 'Bilinmeyen'),
                       trailing: Chip(
                         label: Text(
-                          _statusLabel(order['status']),
+                          _statusLabel(_effectiveStatus(order)),
                           style: const TextStyle(fontSize: 12),
                         ),
-                        backgroundColor: _statusColor(order['status']),
+                        backgroundColor: _statusColor(_effectiveStatus(order)),
                       ),
                     ),
                   );
@@ -508,8 +513,14 @@ class SellerOverviewTab extends StatelessWidget {
     );
   }
 
+  /// Tamamı iade edilen sipariş "Teslim Edildi" değil "İade Edildi" görünür.
+  String? _effectiveStatus(Map<String, dynamic> order) =>
+      order['return_status'] == 'returned' ? 'returned' : order['status'] as String?;
+
   Color _statusColor(String? status) {
     switch (status) {
+      case 'returned':
+        return Colors.red.shade100;
       case 'delivered':
       case 'completed':
         return Colors.green.shade100;
@@ -531,6 +542,8 @@ class SellerOverviewTab extends StatelessWidget {
 
   String _statusLabel(String? status) {
     switch (status) {
+      case 'returned':
+        return 'İade Edildi';
       case 'pending':
         return 'Beklemede';
       case 'confirmed':

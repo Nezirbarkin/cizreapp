@@ -375,10 +375,21 @@ extension on _AdminDashboardScreenState {
   }
 
   // --- _buildOrderCard ---
+  /// Yönetici incelemesindeki iade talebi sayısı (sol menü rozeti).
+  Future<void> _loadPendingReturnsCount() async {
+    final count = await ReturnRequestService().getPendingCount();
+    if (!mounted) return;
+    setState(() => _pendingReturnsCount = count);
+  }
+
   Widget _buildOrderCard(Map<String, dynamic> order) {
     final profile = order['profiles'] as Map<String, dynamic>?;
     final shop = order['shops'] as Map<String, dynamic>?;
-    final status = order['status'] as String? ?? 'pending';
+    final returnStatus = order['return_status'] as String?;
+    // Tamamı iade edilen sipariş "Tamamlandı" değil "İade Edildi" görünür.
+    final status = returnStatus == 'returned'
+        ? 'returned'
+        : (order['status'] as String? ?? 'pending');
     final totalAmount = (order['total'] as num?)?.toDouble() ?? 0;
     final adminCommission =
         (order['admin_commission'] as num?)?.toDouble() ?? 0;
@@ -461,6 +472,14 @@ extension on _AdminDashboardScreenState {
                   ),
                 ],
               ),
+              if (returnStatus != null) ...[
+                const SizedBox(height: 8),
+                OrderReturnBadge(
+                  returnStatus: returnStatus,
+                  returnedAmount: (order['returned_amount'] as num?)?.toDouble() ?? 0,
+                  onTap: () => setState(() => _selectedMenu = 'İade Talepleri'),
+                ),
+              ],
               const Divider(height: 16),
 
               // Müşteri Bilgisi
@@ -1060,6 +1079,11 @@ extension on _AdminDashboardScreenState {
         color = Colors.red;
         icon = Icons.cancel;
         label = 'İptal';
+        break;
+      case 'returned':
+        color = Colors.red.shade700;
+        icon = Icons.assignment_return;
+        label = 'İade Edildi';
         break;
       default:
         color = Colors.grey;

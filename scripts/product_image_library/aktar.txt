@@ -1,0 +1,157 @@
+# Aktar (markasız) — 132 ürün; asirhekim.com/urunlerimiz'de görseli OLMAYAN başlıklar (2026-10-16).
+# Görselli 43 başlık scripts/scrape_asirhekim.py ile kazındı. Biçim: Ad | arama kelimeleri | görsel tarifi (İngilizce)
+# Tek başına anlamsız başlıklar açıklayıcı yapıldı ("Hint" -> "Hint yağı"); sitedeki hali kelimelerde durur.
+
+# Kahve
+Türk kahvesi | kahve, türk kahvesi, öğütülmüş kahve | a small wooden bowl filled with very finely ground Turkish coffee powder, with a few roasted coffee beans in front of it
+Dibek kahvesi | kahve, dibek, dibek kahvesi | a small traditional stone mortar filled with coarse brown Turkish dibek coffee powder
+Espresso bazlı kahve | kahve, espresso, latte, cappuccino, Espresso bazlı kahveler | a white ceramic cup of cappuccino with smooth milk foam on a white saucer
+Filtre kahve | kahve, filtre kahve, Filtre bazlı kahveler | a clear glass mug of hot black filter coffee
+
+# Kuruyemiş
+Antep fıstığı | kuruyemiş, fıstık, antep fıstığı, şam fıstığı | a small wooden bowl filled with roasted pistachios in their opened shells, green kernels visible
+Siirt fıstığı | kuruyemiş, fıstık, siirt fıstığı | a small wooden bowl filled with large plump roasted Siirt pistachios in their split shells
+Süper karışık kuruyemiş | kuruyemiş, karışık kuruyemiş, karışık çerez | a small wooden bowl filled with a mix of roasted nuts and seeds: hazelnuts, almonds, peanuts, roasted chickpeas, pumpkin seeds and sunflower seeds
+Lüx karışık kuruyemiş | kuruyemiş, lüks karışık, karışık çerez, Lüx karışık | a small wooden bowl filled with a premium mix of cashews, almonds, hazelnuts, walnut halves and shelled pistachios
+Kaju | kuruyemiş, kaju fıstığı | a small wooden bowl filled with roasted whole cashew nuts
+Badem | kuruyemiş, badem, çiğ badem | a small wooden bowl filled with whole raw almonds
+Fındık | kuruyemiş, fındık, iç fındık | a small wooden bowl filled with whole roasted shelled hazelnuts
+Ceviz | kuruyemiş, ceviz, ceviz içi | a small wooden bowl filled with light walnut kernel halves
+Yer fıstığı | kuruyemiş, yer fıstığı, tuzlu fıstık | a small wooden bowl filled with roasted salted shelled peanuts
+Leblebi | kuruyemiş, leblebi, sarı leblebi | a small wooden bowl filled with yellow roasted chickpeas (Turkish leblebi)
+Kabak çekirdeği | kuruyemiş, çekirdek, kabak çekirdeği | a small wooden bowl filled with roasted white pumpkin seeds in their shells
+Ayçekirdeği | kuruyemiş, çekirdek, ay çekirdeği | a small wooden bowl filled with roasted black-and-grey striped sunflower seeds in their shells
+Cips | kuruyemiş, cips, patates cipsi | a small wooden bowl filled with golden crispy potato chips
+
+# Kuru Meyve
+Hurma | kuru meyve, hurma | a small wooden bowl filled with glossy soft brown dates
+Kuru kayısı | kuru meyve, kayısı, gün kurusu kayısı, Kayısı | a small wooden bowl filled with whole dried apricots
+Kuru üzüm | kuru meyve, üzüm, çekirdeksiz üzüm, Üzüm | a small wooden bowl filled with dark seedless raisins
+Kuru incir | kuru meyve, incir, Bursa inciri, İncir | a small wooden bowl filled with whole dried figs
+Keçiboynuzu | kuru meyve, keçiboynuzu, harnup | a neat bundle of dried dark brown carob pods
+Kuru mango | kuru meyve, mango, kurutulmuş mango, Mango | a small wooden bowl filled with orange dried mango slices
+Kuru ananas | kuru meyve, ananas, kurutulmuş ananas, Ananas | a small wooden bowl filled with yellow dried pineapple rings
+Kuru yer çileği | kuru meyve, çilek, kurutulmuş çilek, Yer çileği | a small wooden bowl filled with shriveled dehydrated strawberries, dark red, wrinkled and dry, clearly dried fruit and not fresh
+Kuru kivi | kuru meyve, kivi, kurutulmuş kivi, Kivi | a small wooden bowl filled with dehydrated kiwi slices: thin, flat, chewy, matte green slices with a light sugar coating, clearly dried fruit and not fresh
+Hindistan cevizi | kuru meyve, hindistan cevizi, kurutulmuş hindistan cevizi | a small wooden bowl filled with white dried coconut chips
+Tropikal meyve karışımı | kuru meyve, tropikal meyve, karışık kuru meyve, Tropikal meyveler | a small wooden bowl filled with a mix of chewy sugared dried tropical fruit pieces: dried mango strips, dried pineapple chunks, dried papaya cubes and dried kiwi slices, clearly dried fruit and not fresh
+İğde | kuru meyve, iğde | a small wooden bowl filled with dried oleaster fruits (Elaeagnus angustifolia): elongated oval fruits about 2 cm long with thin matte reddish-brown skin, a few cracked open showing pale yellow mealy flesh
+Kuru yaban mersini | kuru meyve, yaban mersini, Yaban mersini | a small wooden bowl filled with dried blueberries: small shriveled wrinkled dark purple berries that look like raisins, clearly dried fruit and not fresh
+
+# Lokum & Şekerleme
+Sade lokum | lokum, şekerleme, türk lokumu, sade | a neat stack of plain white Turkish delight cubes dusted with powdered sugar
+Fındıklı lokum | lokum, şekerleme, fındıklı, Fındıklı | a neat stack of Turkish delight cubes filled with whole hazelnuts, dusted with powdered sugar
+Güllü lokum | lokum, şekerleme, gül, Güllü | a neat stack of pink rose-flavored Turkish delight cubes dusted with powdered sugar
+Çifte kavrulmuş Antep fıstıklı lokum | lokum, şekerleme, çifte kavrulmuş, antep fıstıklı, Çifte kavrulmuş Antep | a neat stack of amber double-roasted Turkish delight cubes packed with green pistachios
+Bademli lokum | lokum, şekerleme, bademli, Bademli | a neat stack of Turkish delight cubes filled with whole almonds, dusted with powdered sugar
+Bisküvi arası lokum | lokum, şekerleme, bisküvili lokum, Bisküvi arası | several sandwich cookies made of two round plain butter biscuits with a thick layer of pink Turkish delight in between, the Turkish delight layer clearly visible from the side, stacked neatly
+Lüx lokum | lokum, şekerleme, lüks lokum, karışık lokum | an assortment of premium Turkish delight pieces with pistachio, hazelnut and rose, neatly arranged
+Antep fıstıklı sarma | lokum, şekerleme, sarma lokum, antep fıstıklı | slices of rolled Turkish delight with a green pistachio spiral center, coated in coconut flakes
+Fındıklı sarma | lokum, şekerleme, sarma lokum, fındıklı | slices of rolled Turkish delight with a hazelnut filled center, dusted with powdered sugar
+Antep muska | lokum, şekerleme, muska, antep fıstıklı | triangle-shaped Turkish delight pastries filled with green pistachio, neatly arranged
+Çifte kavrulmuş meyveli lokum | lokum, şekerleme, çifte kavrulmuş, meyveli, Çifte kavrulmuş meyveli | a neat stack of double-roasted Turkish delight cubes with colorful fruit pieces
+Cezerye | lokum, şekerleme, cezerye, havuç | bars of orange Turkish carrot cezerye candy with walnuts, coated in shredded coconut
+Jelibon | şekerleme, jelibon, yumuşak şeker | a small glass bowl filled with colorful gummy candies
+Cevizli sucuk | şekerleme, cevizli sucuk, pestil, köme | a few strands of Turkish walnut sucuk (walnuts coated in thickened grape molasses), one sliced to show walnuts inside
+Akide şekeri | şekerleme, akide, akide şekeri, şeker | a small glass bowl filled with colorful traditional Turkish akide hard candies
+Pişmaniye | şekerleme, pişmaniye, tatlı | a neat pile of fluffy white Turkish cotton candy floss halva (pismaniye)
+Saray helvası | helva, tahin helvası, şekerleme, Saray helva | a thick block of tahini halva with pistachios, one slice cut off
+Gofret | şekerleme, gofret, çikolatalı gofret | a neat stack of chocolate-coated wafer bars, one broken to show the layers
+Çikolata | şekerleme, çikolata, sütlü çikolata | a few squares of milk chocolate bar, neatly stacked
+Sütlü bademli draje | draje, şekerleme, bademli draje, çikolata | a small glass bowl filled with oval candies made of whole almonds fully enrobed in smooth glossy milk chocolate
+Sütlü fındıklı draje | draje, şekerleme, fındıklı draje, çikolata | a small glass bowl filled with round milk chocolate coated hazelnuts
+Sütlü üzümlü draje | draje, şekerleme, üzümlü draje, çikolata | a small glass bowl filled with small round glossy milk chocolate coated raisins that look like smooth chocolate balls
+Sütlü portakallı draje | draje, şekerleme, portakallı draje, çikolata | a small glass bowl filled with small glossy milk chocolate dragee candies, one cut in half showing a bright orange jelly center
+Kahveli draje | draje, şekerleme, kahve çekirdeği, çikolata | a small glass bowl filled with chocolate coated coffee beans
+Çakıl taşı draje | draje, şekerleme, çakıl taşı, çikolata | a small glass bowl filled with chocolate candies that look like smooth grey and white river pebbles
+Bonibon | draje, şekerleme, renkli draje, çikolata | a small glass bowl filled with colorful candy-coated chocolate lentils
+Bıldırcın leblebi | leblebi, şekerleme, şekerli leblebi | a small glass bowl filled with small white sugar-coated chickpeas
+Fildişi leblebi | leblebi, şekerleme, beyaz çikolatalı leblebi | a small glass bowl filled with roasted chickpeas coated in white chocolate
+Bitter leblebi | leblebi, şekerleme, bitter çikolatalı leblebi | a small glass bowl filled with roasted chickpeas coated in dark chocolate
+Hediyelik çikolata | çikolata, hediyelik, çikolata kutusu, Hediyeli çikolatalar | an open elegant gift box of assorted pralines and chocolates
+
+# Baharat
+Pul biber | baharat, pul biber, kırmızı biber, Pul biber çeşitleri | a small wooden bowl filled with red Turkish pepper flakes
+Karabiber | baharat, karabiber, tane karabiber | a small wooden bowl filled with whole black peppercorns
+Toz biber | baharat, toz biber, kırmızı toz biber | a small wooden bowl filled with fine red paprika powder
+İsot | baharat, isot, urfa biberi | a small wooden bowl filled with very dark purple-brown Urfa pepper flakes (isot)
+Sumak | baharat, sumak | a small wooden bowl filled with deep red ground sumac
+Zencefil | baharat, zencefil, toz zencefil | a small wooden bowl filled with pale ground ginger powder, a piece of fresh ginger root in front
+Zerdeçal | baharat, zerdeçal, toz zerdeçal | a small wooden bowl filled with bright yellow-orange turmeric powder
+Çörekotu | baharat, çörek otu, siyah tohum | a small wooden bowl filled with tiny black nigella seeds
+Keten tohumu | baharat, keten tohumu, tohum | a small wooden bowl filled with tiny flat glossy brown flax seeds (linseed), each seed only a few millimeters long
+Chia tohumu | baharat, chia, tohum | a small wooden bowl filled with tiny grey and black chia seeds
+Kimyon | baharat, kimyon, toz kimyon | a small wooden bowl filled with ground cumin, with a few whole cumin seeds in front
+Tarçın | baharat, tarçın, çubuk tarçın | a small wooden bowl filled with ground cinnamon, with a few cinnamon sticks in front
+Kekik | baharat, kekik, kuru kekik | a small wooden bowl filled with dried green thyme leaves
+Nane | baharat, nane, kuru nane | a small wooden bowl filled with crushed dried mint leaves
+Limon tuzu | baharat, limon tuzu, sitrik asit | a small glass bowl filled with white citric acid crystals
+Susam | baharat, susam | a small wooden bowl filled with hulled white sesame seeds
+Köftelik baharat | baharat, köfte baharatı, karışık baharat | a small wooden bowl filled with a reddish-brown mixed meatball spice blend
+Kakao | kakao, toz kakao | a small wooden bowl filled with dark brown cocoa powder
+Kına | kına, toz kına | a small wooden bowl filled with green henna powder
+Karanfil | baharat, karanfil, tane karanfil | a small wooden bowl filled with whole dried cloves
+
+# Bakliyat
+Fasulye | bakliyat, kuru fasulye, beyaz fasulye | a small wooden bowl filled with dry white beans
+Nohut | bakliyat, nohut | a small wooden bowl filled with dry chickpeas
+Pirinç | bakliyat, pirinç, baldo pirinç | a small wooden bowl filled with uncooked white rice
+Bulgur | bakliyat, bulgur, pilavlık bulgur | a small wooden bowl filled with coarse golden bulgur wheat
+Mercimek | bakliyat, mercimek, kırmızı mercimek | a small wooden bowl filled with dry split red lentils: tiny flat round orange-red discs
+Aşurelik buğday | bakliyat, buğday, aşurelik, dövme buğday | a small wooden bowl filled with whole hulled wheat grains
+
+# Doğal Ürünler
+Doğal sirke | doğal ürün, sirke, ev yapımı sirke, Sirke çeşitleri | a clear glass bottle with a cork stopper filled with golden natural fruit vinegar
+Doğal pekmez | doğal ürün, pekmez, Pekmez çeşitleri | a glass jar filled with thick dark brown grape molasses, a wooden honey dipper resting on top
+Bitkisel öz | doğal ürün, öz, bitki özü, Öz çeşitleri | a small amber glass bottle of dark herbal concentrate
+Bitkisel şurup | doğal ürün, şurup, bitkisel şurup, Şurup çeşitleri | an amber glass syrup bottle with a measuring cap
+Nar ekşisi | doğal ürün, nar ekşisi, sos | a glass bottle of dark red pomegranate molasses, with a halved pomegranate in front
+Meyve özü | doğal ürün, meyve özü, Meyve özleri | a clear glass bottle filled with deep red fruit concentrate, with a few red berries in front
+Doğal tuz | doğal ürün, tuz, deniz tuzu, Doğal tuzlar | a small wooden bowl filled with coarse white natural sea salt crystals
+Kaya tuzu | doğal ürün, kaya tuzu, himalaya tuzu, Kaya tuzları | a small wooden bowl filled with chunks of pink rock salt
+
+# Doğal Kozmetik
+Doğal sabun | doğal kozmetik, sabun, el yapımı sabun, Doğal sabunlar | a stack of three handmade natural soap bars in olive green, cream and lavender colors
+Doğal şampuan | doğal kozmetik, şampuan, Doğal şampuanlar | an amber plastic shampoo bottle with a pump
+Doğal diş macunu | doğal kozmetik, diş macunu, Doğal diş macunları | a white toothpaste tube with a green leaf design, next to a bamboo toothbrush
+Doğal cilt bakım ürünü | doğal kozmetik, cilt bakımı, serum, Doğal cilt bakım ürünleri | an amber glass dropper bottle of facial serum
+Doğal roll-on | doğal kozmetik, roll-on, deodorant | a small clear glass roll-on deodorant bottle with a rollerball top and a white cap
+Doğal ağız bakım ürünü | doğal kozmetik, ağız bakımı, gargara, Doğal ağız bakım ürünleri | a clear bottle of green herbal mouthwash
+Doğal saç bakım ürünü | doğal kozmetik, saç bakımı, saç yağı, Doğal saç bakım ürünleri | an amber glass bottle of herbal hair care oil with a dropper
+Doğal krem | doğal kozmetik, krem, nemlendirici, Doğal kremler | an open white jar of thick natural face cream
+Kolonya | doğal kozmetik, kolonya, limon kolonyası | a classic clear glass bottle of Turkish lemon cologne with a silver cap
+Doğal duş jeli | doğal kozmetik, duş jeli, Duş jelleri | a tall clear bottle of natural shower gel with a pump
+
+# Doğal Yağlar
+Çörekotu yağı | doğal yağ, çörek otu yağı, bitkisel yağ | a small amber glass dropper bottle of black seed oil with a few black nigella seeds in front
+Kantaron yağı | doğal yağ, kantaron yağı, sarı kantaron | a small clear glass bottle of deep red St. John's wort oil with a few yellow St. John's wort flowers in front
+Kekik yağı | doğal yağ, kekik yağı, uçucu yağ | a small amber glass dropper bottle of thyme oil with a sprig of fresh thyme in front
+Karanfil yağı | doğal yağ, karanfil yağı, uçucu yağ | a small amber glass dropper bottle of clove oil with a few whole cloves in front
+Lavanta yağı | doğal yağ, lavanta yağı, uçucu yağ, Lavanta | a small amber glass dropper bottle of lavender oil with a sprig of purple lavender in front
+Biberiye yağı | doğal yağ, biberiye yağı, uçucu yağ, Biberiye | a small amber glass dropper bottle of rosemary oil with a sprig of fresh rosemary in front
+Defne yağı | doğal yağ, defne yağı, Defne | a small amber glass bottle of laurel oil with a few green bay leaves in front
+Hindistan cevizi yağı | doğal yağ, hindistan cevizi yağı | a small glass jar of solid white coconut oil with half a coconut in front
+Keten tohumu yağı | doğal yağ, keten tohumu yağı | a small amber glass bottle of golden flaxseed oil with a few brown flax seeds in front
+Kabak çekirdeği yağı | doğal yağ, kabak çekirdeği yağı | a small amber glass bottle of dark green pumpkin seed oil with a few green pumpkin seeds in front
+Argan yağı | doğal yağ, argan yağı, saç yağı, Argan | a small amber glass dropper bottle of golden argan oil with a few argan nuts in front
+Hint yağı | doğal yağ, hint yağı, Hint | a small amber glass bottle of pale castor oil with a few speckled castor beans in front
+Karınca yağı | doğal yağ, karınca yağı, Karınca | a small amber glass dropper bottle of clear cosmetic oil
+Çay ağacı yağı | doğal yağ, çay ağacı yağı, uçucu yağ, Çay ağacı | a small amber glass dropper bottle of tea tree oil with a few green tea tree leaves in front
+
+# Yöresel Ürünler
+Tarhana | yöresel, tarhana, ev tarhanası | a small wooden bowl filled with orange-red homemade Turkish tarhana soup powder
+Erişte | yöresel, erişte, ev eriştesi | a small wooden bowl filled with homemade Turkish egg noodles (eriste) cut into short strips
+Kabak kurusu | yöresel, kabak kurusu, dolmalık kuru, Kabak kuruları | several sun-dried hollowed zucchini shells, pale beige, thin and wrinkled, threaded on a cotton string like a garland
+Patlıcan kurusu | yöresel, patlıcan kurusu, dolmalık kuru, Patlıcan kuruları | a string of hollowed sun-dried dark purple eggplant shells for stuffing
+Biber kurusu | yöresel, biber kurusu, dolmalık kuru, Biber kuruları | a string of sun-dried red peppers
+Domates salçası | yöresel, salça, domates salçası, ev salçası | an open glass jar filled with thick red homemade tomato paste
+Biber salçası | yöresel, salça, biber salçası, ev salçası | an open glass jar filled with thick dark red homemade pepper paste
+
+# Takviye Edici Gıdalar
+Doğal macun | takviye, macun, bitkisel macun, Doğal macun çeşitleri | an open glass jar of thick dark herbal paste with a spoon
+Sıvı bitki ekstraktı | takviye, bitki ekstraktı, ekstrakt, Sıvı bitki ekstratları | a small amber glass dropper bottle of liquid herbal extract with a few green herb leaves in front
+Pastil | takviye, pastil, bitkisel pastil | a small glass bowl filled with round flat translucent amber herbal throat lozenges
+Takviye edici kapsül | takviye, kapsül, bitkisel kapsül, Takviye edici kapsüller | an amber supplement bottle with green herbal capsules spilling in front of it
+Ballı çerez | takviye, ballı çerez, ballı kuruyemiş, Ballı çerezler | a small glass jar of mixed nuts covered in golden honey
+Kolajen | takviye, kolajen, kolajen tozu | a white supplement jar with a scoop of fine white collagen powder in front
+Omega 3 | takviye, omega 3, balık yağı | an amber supplement bottle with golden fish oil softgel capsules spilling in front of it

@@ -1,5 +1,7 @@
 import 'package:cizreapp/core/models/order_model.dart';
 import 'package:cizreapp/core/widgets/commission_info_widget.dart';
+import 'package:cizreapp/core/widgets/order_return_badge.dart';
+import 'package:cizreapp/features/seller/widgets/dashboard/seller_returns_summary_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -72,6 +74,57 @@ void main() {
     expect(find.text('Kupon İndirimi'), findsOneWidget);
     expect(find.text('-₺10.00'), findsNWidgets(2)); // komisyon + kupon
     expect(find.text('₺80.00'), findsOneWidget);
+  });
+
+  testWidgets('iade durumu: tamamı iade edilen sipariş "İade edildi" rozeti alır', (tester) async {
+    final order = Order.fromJson({
+      'id': 'o2',
+      'status': 'delivered',
+      'payment_method': 'balance',
+      'subtotal': 8,
+      'total': 8,
+      'return_status': 'returned',
+      'returned_amount': 8,
+      'created_at': '2026-10-16T09:00:00Z',
+      'updated_at': '2026-10-16T09:00:00Z',
+    });
+    expect(order.status, OrderStatus.delivered);
+    expect(order.isFullyReturned, isTrue);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          OrderReturnBadge(returnStatus: order.returnStatus, returnedAmount: order.returnedAmount),
+          const OrderReturnBadge(returnStatus: 'approved'),
+          const OrderReturnBadge(returnStatus: null),
+        ]),
+      ),
+    ));
+    expect(find.text('İade edildi · ₺8.00'), findsOneWidget);
+    expect(find.text('İade onaylandı · ürün teslim bekleniyor'), findsOneWidget);
+  });
+
+  testWidgets('satıcı Genel Bakış iade kartı sayıları ve tutarları gösterir', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SellerReturnsSummaryCard(
+          summaryLoader: () async => {
+            'pending': 1,
+            'awaiting_receipt': 2,
+            'completed': 3,
+            'refunded_total': 63,
+            'seller_debit_total': 56,
+          },
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('İade Edilen Ürünler'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(find.text('₺63.00'), findsOneWidget);
+    expect(find.text('₺56.00'), findsOneWidget);
+    expect(find.textContaining('2 iadede ürünleri teslim alınca'), findsOneWidget);
   });
 
   testWidgets('kuryeli: teslimat ücreti satıcıya kalır', (tester) async {

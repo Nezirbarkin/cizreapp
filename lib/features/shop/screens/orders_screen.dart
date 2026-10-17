@@ -7,6 +7,7 @@ import '../services/order_service.dart';
 import '../../market/widgets/pending_review_dialog.dart';
 import '../../market/services/shop_review_service.dart';
 import '../../market/screens/my_return_requests_screen.dart';
+import '../../../core/widgets/order_return_badge.dart';
 import 'digital_orders_screen.dart' show DigitalOrdersContent;
 
 class OrdersScreen extends StatefulWidget {
@@ -329,8 +330,11 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
 
   Widget _buildOrderCard(Order order, int index) {
     final theme = Theme.of(context);
-    final statusColor = _getStatusColor(order.status);
-    final statusIcon = _getStatusIcon(order.status);
+    // Tamamı iade edilen sipariş "Teslim Edildi" değil "İade Edildi" görünür.
+    final statusColor =
+        order.isFullyReturned ? Colors.red.shade700 : _getStatusColor(order.status);
+    final statusIcon =
+        order.isFullyReturned ? Icons.assignment_return : _getStatusIcon(order.status);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -425,7 +429,7 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
                           Icon(statusIcon, size: 16, color: statusColor),
                           const SizedBox(width: 6),
                           Text(
-                            order.status.label,
+                            order.isFullyReturned ? 'İade Edildi' : order.status.label,
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -437,6 +441,17 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
                     ),
                   ],
                 ),
+                if (order.returnStatus != null) ...[
+                  const SizedBox(height: 8),
+                  OrderReturnBadge(
+                    returnStatus: order.returnStatus,
+                    returnedAmount: order.returnedAmount,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MyReturnRequestsScreen()),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 
                 // Detaylar

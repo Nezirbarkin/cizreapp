@@ -4,6 +4,11 @@
 -- Başarı = 'TESTS_PASSED ...' istisnası: DO bloğu RAISE EXCEPTION ile biter,
 -- testin yazdığı her şey (sipariş kalemleri, bakiye, mağaza hesabı, stok,
 -- bildirimler) geri alınır.
+--
+-- DİKKAT: Bu test CLI oturumunda çalışır; uygulamanın (PostgREST) yüklediği
+-- safeupdate eklentisi burada YOK. Fonksiyonlara WHERE'siz UPDATE/DELETE
+-- eklenirse test geçer ama uygulama "UPDATE requires a WHERE clause" alır
+-- (bkz. 20261016000012). Tam tablo güncellemesinde `WHERE true` kullanın.
 DO $test$
 DECLARE
   v_order     uuid;
@@ -186,11 +191,17 @@ BEGIN
   IF v_n <> 0 THEN RAISE EXCEPTION '[5] geri çekilen talebin yönetici bildirimi kaldı'; END IF;
   v_checks := v_checks + 1;
 
-  -- ── [6] satıcı ve müşteri onaylayamaz; yönetici onaylar ─────────────────
+  -- ── [6] satıcı onaylayamaz; yönetici onayı PARA HAREKETİ YAPMAZ; satıcı
+  --        teslim alınca iade + satıcı payı işlenir ──────────────────────────
   EXECUTE 'SET LOCAL ROLE authenticated';
   v_req := public.create_return_request(v_order, 'Ürün A hasarlı geldi',
     jsonb_build_array(jsonb_build_object('order_item_id', v_item_a, 'quantity', 1)));
   v_req1 := v_req.id;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'requested' THEN
+    RAISE EXCEPTION '[6] sipariş iade durumu requested değil';
+  END IF;
+  EXECUTE 'SET LOCAL ROLE authenticated';
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
   BEGIN
     PERFORM public.approve_return_request(v_req1, NULL);
@@ -207,22 +218,46 @@ BEGIN
   EXECUTE 'RESET ROLE';
   SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
   SELECT admin_credit INTO v_credit1 FROM public.shops WHERE id = v_shop;
+  IF v_req.status <> 'approved' OR v_req.balance_transaction_id IS NOT NULL
+     OR v_bal1 <> v_bal0 OR v_credit1 <> 100 THEN
+    RAISE EXCEPTION '[6] onayda para hareket etti: durum % bakiye +% kredi %', v_req.status, v_bal1 - v_bal0, v_credit1;
+  END IF;
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION '[6] sipariş iade durumu approved değil';
+  END IF;
+  SELECT count(*) INTO v_n FROM public.notifications
+   WHERE entity_id = v_req1::text
+     AND ((type = 'return_approved' AND user_id = v_customer AND content LIKE '%teslim aldığını onaylayınca%')
+       OR (type = 'return_approved_seller' AND user_id = v_owner AND content LIKE '%Teslim Aldım%'));
+  IF v_n <> 2 THEN RAISE EXCEPTION '[6] müşteri/satıcı onay bildirimi %', v_n; END IF;
+
+  -- Satıcı teslim aldı → para burada
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req1, false);
+  EXECUTE 'RESET ROLE';
+  SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
+  SELECT admin_credit INTO v_credit1 FROM public.shops WHERE id = v_shop;
   v_exp := v_req.refund_amount - round(v_req.refund_amount * v_share, 2);
-  IF v_req.status <> 'approved' OR v_req.balance_transaction_id IS NULL
+  IF v_req.status <> 'completed' OR v_req.balance_transaction_id IS NULL
      OR v_bal1 - v_bal0 <> v_req.refund_amount
      OR v_req.seller_debit_amount <> v_exp
      OR v_credit1 <> 100 - v_exp THEN
-    RAISE EXCEPTION '[6] onay hesabı yanlış: durum % bakiye +% iade % satıcı % (beklenen %) kredi %',
+    RAISE EXCEPTION '[6] teslim hesabı yanlış: durum % bakiye +% iade % satıcı % (beklenen %) kredi %',
       v_req.status, v_bal1 - v_bal0, v_req.refund_amount, v_req.seller_debit_amount, v_exp, v_credit1;
   END IF;
   IF (SELECT payment_status::text FROM public.orders WHERE id = v_order) = 'refunded' THEN
     RAISE EXCEPTION '[6] kısmi iadede ödeme refunded oldu';
   END IF;
-  SELECT count(*) INTO v_n FROM public.notifications
-   WHERE entity_id = v_req1::text
-     AND ((type = 'return_approved' AND user_id = v_customer)
-       OR (type = 'return_approved_seller' AND user_id = v_owner));
-  IF v_n <> 2 THEN RAISE EXCEPTION '[6] müşteri/satıcı bildirimi %', v_n; END IF;
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'partially_returned'
+     OR (SELECT returned_amount FROM public.orders WHERE id = v_order) <> v_req.refund_amount THEN
+    RAISE EXCEPTION '[6] sipariş kısmi iade durumu yanlış';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type = 'return_completed' AND user_id = v_customer AND entity_id = v_req1::text
+                    AND content LIKE '%bakiyenize eklendi%') THEN
+    RAISE EXCEPTION '[6] teslim/iade bildirimi yok';
+  END IF;
   v_log := v_log || ' satıcı1=' || v_req.seller_debit_amount;
   v_checks := v_checks + 1;
 
@@ -249,23 +284,36 @@ BEGIN
                   WHERE type = 'return_rejected' AND user_id = v_customer AND entity_id = v_req.id::text) THEN
     RAISE EXCEPTION '[7] red bildirimi yok';
   END IF;
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'partially_returned' THEN
+    RAISE EXCEPTION '[7] red sonrası sipariş iade durumu yanlış';
+  END IF;
   v_checks := v_checks + 1;
 
-  -- ── [8] son talep: tam kalan tutar, ödeme refunded, satıcı payı tamamlanır
+  -- ── [8] son talep: yabancı teslim alamaz; satıcı stoğa ekleyerek teslim
+  --        alır → tam kalan tutar, ödeme refunded, satıcı payı tamamlanır ──
   EXECUTE 'SET LOCAL ROLE authenticated';
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_customer, 'role', 'authenticated')::text, true);
   v_req := public.create_return_request(v_order, 'Kalanları da iade ediyorum', NULL);
   v_req2 := v_req.id;
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req2, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_other, 'role', 'authenticated')::text, true);
+  BEGIN
+    PERFORM public.mark_return_received(v_req2, true);
+    RAISE EXCEPTION '[8] yabancı teslim alabildi';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req2, true);
   EXECUTE 'RESET ROLE';
+  IF v_req.status <> 'completed' OR NOT v_req.restocked THEN RAISE EXCEPTION '[8] tamamlanmadı'; END IF;
   SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
   SELECT admin_credit INTO v_credit1 FROM public.shops WHERE id = v_shop;
   IF v_bal1 - v_bal0 <> v_goods THEN
     RAISE EXCEPTION '[8] toplam iade % (beklenen %)', v_bal1 - v_bal0, v_goods;
   END IF;
   IF (SELECT sum(seller_debit_amount) FROM public.return_requests
-       WHERE order_id = v_order AND status IN ('approved', 'completed')) <> v_goods - 7 THEN
+       WHERE order_id = v_order AND status = 'completed') <> v_goods - 7 THEN
     RAISE EXCEPTION '[8] satıcıdan düşülen toplam yanlış';
   END IF;
   IF v_credit1 <> 100 - (v_goods - 7) THEN
@@ -273,6 +321,14 @@ BEGIN
   END IF;
   IF (SELECT payment_status::text FROM public.orders WHERE id = v_order) <> 'refunded' THEN
     RAISE EXCEPTION '[8] tam iadede ödeme refunded olmadı';
+  END IF;
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'returned'
+     OR (SELECT returned_amount FROM public.orders WHERE id = v_order) <> v_goods THEN
+    RAISE EXCEPTION '[8] sipariş "iade edildi" olmadı';
+  END IF;
+  SELECT stock_quantity INTO v_stock1 FROM public.products WHERE id = v_product;
+  IF v_stock1 <> v_stock0 + 1 THEN
+    RAISE EXCEPTION '[8] stok % → % (yalnız ikinci talepteki 1 adet eklenmeliydi)', v_stock0, v_stock1;
   END IF;
   v_log := v_log || ' toplam=' || (v_bal1 - v_bal0) || ' kredi=' || v_credit1;
   v_checks := v_checks + 1;
@@ -289,26 +345,16 @@ BEGIN
   END;
   v_checks := v_checks + 1;
 
-  -- ── [10] teslim alma: yabancı yapamaz, satıcı stoğa ekleyerek kapatır ───
-  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_other, 'role', 'authenticated')::text, true);
-  BEGIN
-    PERFORM public.mark_return_received(v_req2, true);
-    RAISE EXCEPTION '[10] yabancı teslim alabildi';
-  EXCEPTION WHEN insufficient_privilege THEN NULL;
-  END;
+  -- ── [10] tamamlanmış talep tekrar teslim alınamaz (çifte iade yok) ──────
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
-  v_req := public.mark_return_received(v_req2, true);
-  IF v_req.status <> 'completed' OR NOT v_req.restocked THEN RAISE EXCEPTION '[10] tamamlanmadı'; END IF;
-  v_req := public.mark_return_received(v_req1, false) ;
+  BEGIN
+    PERFORM public.mark_return_received(v_req2, false);
+    RAISE EXCEPTION '[10] tamamlanmış talep tekrar işlendi';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS v_state = MESSAGE_TEXT;
+    IF v_state NOT LIKE 'Yalnızca yönetici onaylı%' THEN RAISE; END IF;
+  END;
   EXECUTE 'RESET ROLE';
-  SELECT stock_quantity INTO v_stock1 FROM public.products WHERE id = v_product;
-  IF v_stock1 <> v_stock0 + 1 THEN
-    RAISE EXCEPTION '[10] stok % → % (yalnız ikinci talepteki 1 adet eklenmeliydi)', v_stock0, v_stock1;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.notifications
-                  WHERE type = 'return_completed' AND user_id = v_customer AND entity_id = v_req2::text) THEN
-    RAISE EXCEPTION '[10] tamamlandı bildirimi yok';
-  END IF;
   v_checks := v_checks + 1;
 
   -- ── [11] onaylı iadesi olan sipariş admin iptaline kapalı ───────────────
@@ -374,6 +420,8 @@ BEGIN
   END IF;
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   IF v_req.commission_refund_amount <> 2 OR v_req.seller_debit_amount <> 0
      OR v_req.balance_transaction_id IS NOT NULL
@@ -382,8 +430,8 @@ BEGIN
       v_req.seller_debit_amount, (SELECT commission_debt FROM public.shops WHERE id = v_shop);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.notifications
-                  WHERE type = 'return_approved' AND entity_id = v_req.id::text
-                    AND content LIKE '%satıcıdan nakit%') THEN
+                  WHERE type = 'return_completed' AND entity_id = v_req.id::text
+                    AND content LIKE '%nakit iade edildi%') THEN
     RAISE EXCEPTION '[13] müşteri bildirimi nakit iadeyi söylemiyor';
   END IF;
 
@@ -392,6 +440,8 @@ BEGIN
   v_req := public.create_return_request(v_order, 'Kalanlar da', NULL);
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   v_req := public.approve_return_request(v_req.id, NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
   EXECUTE 'RESET ROLE';
   SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
   IF v_req.refund_amount <> 50 OR v_req.commission_refund_amount <> 5
@@ -406,6 +456,71 @@ BEGIN
       (SELECT cash_payment_revenue FROM public.shops WHERE id = v_shop), v_bal1 - v_bal0;
   END IF;
   v_log := v_log || ' nakit_borç=7→5→0';
+  v_checks := v_checks + 1;
+
+  -- ── [14] yönetici satıcıyı beklemeden hemen iade eder (kapıda nakit dahil):
+  --        müşteriye bakiyeden ödenir, satıcı payı borca yazılır; satıcının
+  --        sonraki "Teslim Aldım"ı parayı tekrar oynatmaz ───────────────────
+  DELETE FROM public.return_requests WHERE order_id = v_order;
+  UPDATE public.orders SET payment_status = 'paid' WHERE id = v_order;
+  UPDATE public.shops SET commission_debt = 7, admin_credit = 0 WHERE id = v_shop;
+  SELECT balance INTO v_bal0 FROM public.user_balances WHERE user_id = v_customer;
+
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_customer, 'role', 'authenticated')::text, true);
+  v_req := public.create_return_request(v_order, 'A bozuk',
+    jsonb_build_array(jsonb_build_object('order_item_id', v_item_a, 'quantity', 1)));
+  IF v_req.refund_method <> 'seller_cash' THEN RAISE EXCEPTION '[14] fikstür nakit değil'; END IF;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  BEGIN
+    PERFORM public.admin_refund_return_now(v_req.id, NULL);
+    RAISE EXCEPTION '[14] satıcı hemen iade yapabildi';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  v_req := public.admin_refund_return_now(v_req.id, 'Hemen iade');
+  EXECUTE 'RESET ROLE';
+  SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
+  IF v_req.status <> 'approved' OR v_req.refunded_at IS NULL OR v_req.refund_method <> 'balance'
+     OR v_bal1 - v_bal0 <> 20 OR v_req.commission_refund_amount <> 2 OR v_req.seller_debit_amount <> 18
+     OR (SELECT commission_debt FROM public.shops WHERE id = v_shop) <> 25 THEN
+    RAISE EXCEPTION '[14] hemen iade yanlış: durum % yöntem % bakiye +% komisyon % satıcı % borç %',
+      v_req.status, v_req.refund_method, v_bal1 - v_bal0, v_req.commission_refund_amount,
+      v_req.seller_debit_amount, (SELECT commission_debt FROM public.shops WHERE id = v_shop);
+  END IF;
+  IF (SELECT return_status FROM public.orders WHERE id = v_order) IS DISTINCT FROM 'approved'
+     OR (SELECT returned_amount FROM public.orders WHERE id = v_order) <> 20 THEN
+    RAISE EXCEPTION '[14] sipariş iade durumu yanlış';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type = 'return_approved_seller' AND user_id = v_owner AND entity_id = v_req.id::text
+                    AND content LIKE '%nakit VERMEYİN%') THEN
+    RAISE EXCEPTION '[14] satıcıya "nakit vermeyin" bildirimi yok';
+  END IF;
+
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  BEGIN
+    PERFORM public.admin_refund_return_now(v_req.id, NULL);
+    RAISE EXCEPTION '[14] ikinci kez iade yapıldı';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS v_state = MESSAGE_TEXT;
+    IF v_state NOT LIKE '%zaten ödendi%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated')::text, true);
+  v_req := public.mark_return_received(v_req.id, false);
+  v_json := public.seller_return_summary();
+  EXECUTE 'RESET ROLE';
+  SELECT balance INTO v_bal1 FROM public.user_balances WHERE user_id = v_customer;
+  IF v_req.status <> 'completed' OR v_bal1 - v_bal0 <> 20
+     OR (SELECT commission_debt FROM public.shops WHERE id = v_shop) <> 25 THEN
+    RAISE EXCEPTION '[14] teslim sonrası para tekrar oynadı: bakiye +% borç %',
+      v_bal1 - v_bal0, (SELECT commission_debt FROM public.shops WHERE id = v_shop);
+  END IF;
+  IF (v_json ->> 'completed')::int < 1 OR (v_json ->> 'refunded_total')::numeric < 20 THEN
+    RAISE EXCEPTION '[14] satıcı iade özeti yanlış: %', v_json;
+  END IF;
+  v_log := v_log || ' hemen_iade=+20 borç=7→25';
   v_checks := v_checks + 1;
 
   RAISE EXCEPTION 'TESTS_PASSED % kontrol;%', v_checks, v_log;

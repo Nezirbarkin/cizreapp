@@ -319,11 +319,11 @@ class _ReturnRequestSheetState extends State<ReturnRequestSheet> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Talebiniz yönetici onayına gider. Onaylanınca tutar '
-                            'CizreApp bakiyenize eklenir ve satıcıya bildirilir '
+                            'Talebiniz yönetici onayına gider. Onaylanınca ürünleri '
+                            'satıcıya teslim edersiniz; satıcı teslim aldığını '
+                            'onaylayınca tutar CizreApp bakiyenize eklenir '
                             '(kuryeli satıcıya kapıda ödediyseniz tutarı satıcı '
-                            'nakit iade eder); ürünleri satıcıya teslim etmeniz '
-                            'gerekir. Teslimat ücreti iade edilmez.',
+                            'nakit iade eder). Teslimat ücreti iade edilmez.',
                             style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
                           ),
                         ),

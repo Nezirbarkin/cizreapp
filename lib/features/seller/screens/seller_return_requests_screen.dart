@@ -7,10 +7,10 @@ import '../widgets/common/seller_list_skeleton.dart';
 
 /// Satıcı İade Yönetimi Ekranı
 ///
-/// İadeyi yönetici onaylar/reddeder (para iadesi ve satıcı payının düşülmesi
-/// onay anında DB'de yapılır). Satıcı talepleri izler; onaylanan iadede
-/// ürünleri müşteriden teslim alınca "Teslim Aldım" der (isteğe bağlı stoğa
-/// geri ekleme).
+/// İadeyi yönetici onaylar/reddeder (onayda para hareket etmez). Satıcı
+/// onaylanan iadede ürünleri müşteriden teslim alınca "Teslim Aldım" der;
+/// para iadesi ve satıcı payının düşülmesi bu anda DB'de yapılır (isteğe
+/// bağlı stoğa geri ekleme).
 class SellerReturnRequestsScreen extends StatefulWidget {
   const SellerReturnRequestsScreen({super.key});
 
@@ -64,16 +64,21 @@ class _SellerReturnRequestsScreenState extends State<SellerReturnRequestsScreen>
                 '${request.totalQuantity} ürün müşteriden teslim alındı olarak işaretlenecek. '
                 'İade süreci tamamlanır.',
               ),
-              if (request.isSellerCashRefund) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Müşteriye ₺${request.refundAmount.toStringAsFixed(2)} nakit iade ettiğinizden emin olun.',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.orange.shade900,
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                request.isRefunded
+                    ? 'Para iadesi yönetici tarafından müşterinin bakiyesine yapıldı; '
+                        'müşteriye nakit vermeyin. Yalnız teslim alındı olarak işaretlenir.'
+                    : request.isSellerCashRefund
+                    ? 'Müşteriye ₺${request.refundAmount.toStringAsFixed(2)} nakit iade ettiğinizden '
+                        'emin olun. Bu tutarın komisyonu borcunuzdan düşülür.'
+                    : 'Onayınızla ₺${request.refundAmount.toStringAsFixed(2)} müşterinin bakiyesine '
+                        'iade edilir ve bu tutardaki payınız (komisyon hariç) hesabınızdan düşülür.',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.orange.shade900,
                 ),
-              ],
+              ),
               const SizedBox(height: 8),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,

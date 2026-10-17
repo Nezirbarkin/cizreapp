@@ -102,6 +102,10 @@ class ReturnRequest {
   final String? adminResponse;
   final DateTime? reviewedAt;
   final DateTime? receivedAt;
+
+  /// Para iadesinin yapıldığı an (satıcının teslim alması ya da yöneticinin
+  /// "Hemen İade Et"i). null = henüz ödenmedi.
+  final DateTime? refundedAt;
   final bool restocked;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -130,6 +134,7 @@ class ReturnRequest {
     this.adminResponse,
     this.reviewedAt,
     this.receivedAt,
+    this.refundedAt,
     this.restocked = false,
     required this.createdAt,
     this.updatedAt,
@@ -142,6 +147,9 @@ class ReturnRequest {
 
   bool get isFullReturn => returnScope == 'full';
   bool get isSellerCashRefund => refundMethod == 'seller_cash';
+
+  /// Müşteriye para iadesi yapıldı mı?
+  bool get isRefunded => refundedAt != null;
   int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
 
   static DateTime? _date(dynamic v) =>
@@ -166,6 +174,7 @@ class ReturnRequest {
       adminResponse: json['admin_response'] as String?,
       reviewedAt: _date(json['reviewed_at']),
       receivedAt: _date(json['received_at']),
+      refundedAt: _date(json['refunded_at']),
       restocked: json['restocked'] as bool? ?? false,
       createdAt: _date(json['created_at']) ?? DateTime.now(),
       updatedAt: _date(json['updated_at']),
@@ -352,6 +361,28 @@ class ReturnRequestService {
       },
     );
     return _single(response);
+  }
+
+  /// Satıcıyı beklemeden müşteriye hemen iade (bekleyen talebi de onaylar).
+  /// Kapıda nakitte de bakiyeye iade edilir; satıcı payı borcuna yazılır.
+  Future<ReturnRequest> refundNow({
+    required String requestId,
+    String? adminResponse,
+  }) async {
+    final response = await _supabase.rpc(
+      'admin_refund_return_now',
+      params: {
+        'p_request_id': requestId,
+        'p_admin_response': adminResponse,
+      },
+    );
+    return _single(response);
+  }
+
+  /// Satıcının Genel Bakış iade özeti (seller_return_summary).
+  Future<Map<String, dynamic>> getSellerSummary() async {
+    final response = await _supabase.rpc('seller_return_summary');
+    return Map<String, dynamic>.from(response as Map? ?? const {});
   }
 
   Future<ReturnRequest> reject({

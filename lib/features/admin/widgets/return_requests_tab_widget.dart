@@ -7,15 +7,19 @@ import '../../shop/widgets/return_request_card.dart';
 ///
 /// Müşterinin tümü/seçili ürünler için açtığı iade talepleri buraya düşer.
 /// İşlem (DB tarafında atomik RPC):
-/// - Onayla: approve_return_request
-///     ├─ iade tutarı müşterinin bakiyesine eklenir (add_to_balance 'refund')
-///     ├─ satıcının bu tutardaki payı mağaza hesabından düşülür
-///     ├─ sipariş tamamen iade edildiyse payment_status = 'refunded'
-///     └─ müşteriye ve satıcıya bildirim
+/// - Onayla: approve_return_request → para hareketi YOK; müşteriye ve
+///   satıcıya bildirim ("ürünü teslim edin / teslim alınca onaylayın").
 /// - Reddet: reject_return_request → müşteriye bildirim
-/// - Onaylanmış iadede satıcı yerine "Teslim alındı" işaretlenebilir.
+/// - Teslim alındı (satıcı ya da onun yerine yönetici): mark_return_received
+///     ├─ iade tutarı müşterinin bakiyesine eklenir (kuryeli satıcının kapıda
+///     │  tahsilatında satıcı nakit iade eder, komisyon borcundan düşer)
+///     ├─ satıcıdan iade − komisyon geri alınır
+///     └─ sipariş tamamen iade edildiyse payment_status = 'refunded'
 class ReturnRequestsTabWidget extends StatefulWidget {
-  const ReturnRequestsTabWidget({super.key});
+  /// Onay/ret/teslim sonrası (ör. sol menü rozetini yenilemek için).
+  final VoidCallback? onChanged;
+
+  const ReturnRequestsTabWidget({super.key, this.onChanged});
 
   @override
   State<ReturnRequestsTabWidget> createState() => _ReturnRequestsTabWidgetState();
@@ -41,6 +45,7 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
 
   Future<void> _load() async {
     setState(() => _isLoading = true);
+    widget.onChanged?.call();
     try {
       final list = await _service.getAdminReturnRequests(status: _status);
       if (!mounted) return;
@@ -75,41 +80,46 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
   }
 
   Future<void> _approve(ReturnRequest req) async {
-    // null = vazgeçildi, '' = notsuz onay
-    final note = await showDialog<String?>(
+    // null = vazgeçildi; note '' = notsuz onay; checked = hemen iade et
+    final result = await showDialog<_NoteResult?>(
       context: context,
       builder: (ctx) => _NoteDialog(
         title: 'İadeyi Onayla',
         message: 'Sipariş #${req.orderNumber ?? req.orderId.substring(0, 8)} · '
             '${req.totalQuantity} ürün (${_paymentLabel(req.paymentMethod)})\n\n'
-            '${req.isSellerCashRefund ? 'Kuryeli satıcı kapıda tahsil etmişti: '
+            'Onayda para hareket etmez. Müşteri ürünleri satıcıya teslim eder; '
+            '${req.isSellerCashRefund ? 'kuryeli satıcı kapıda tahsil ettiği için '
                 '₺${req.refundAmount.toStringAsFixed(2)} müşteriye SATICI tarafından nakit '
-                'iade edilir, bakiyeye iade yapılmaz. Bu tutarın komisyonu satıcının '
-                'komisyon borcundan düşülecek.' : '₺${req.refundAmount.toStringAsFixed(2)} '
-                'müşterinin CizreApp bakiyesine OTOMATİK eklenecek; satıcının bu tutardaki '
-                'payı mağaza hesabından düşülecek.'} Müşteriye ve satıcıya bildirim gider.',
+                'iade edilir ve satıcı teslim aldığını onaylayınca bu tutarın komisyonu '
+                'satıcının borcundan düşülür.' : 'satıcı teslim aldığını onaylayınca '
+                '₺${req.refundAmount.toStringAsFixed(2)} müşterinin CizreApp bakiyesine '
+                'OTOMATİK eklenir ve satıcının payı mağaza hesabından düşülür.'} '
+            'Müşteriye ve satıcıya bildirim gider.',
         fieldLabel: 'Not (isteğe bağlı, müşteri görür)',
-        confirmLabel: 'Onayla ve İade Et',
+        checkboxLabel: 'Satıcıyı beklemeden müşteriye hemen iade et',
+        checkboxHint: 'Tutar şimdi müşterinin bakiyesine eklenir, satıcının payı '
+            'hesabından düşülür; ürünler yine satıcıya teslim edilir.',
+        confirmLabel: 'Onayla',
         confirmColor: Colors.green,
         minLength: 0,
       ),
     );
-    if (note == null || !mounted) return;
+    if (result == null || !mounted) return;
+    final note = result.note.isEmpty ? null : result.note;
 
     try {
-      final result = await _service.approve(
-        requestId: req.id,
-        adminResponse: note.isEmpty ? null : note,
-      );
+      final updated = result.checked
+          ? await _service.refundNow(requestId: req.id, adminResponse: note)
+          : await _service.approve(requestId: req.id, adminResponse: note);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            result.isSellerCashRefund
-                ? 'Onaylandı. Satıcı ₺${result.refundAmount.toStringAsFixed(2)} nakit iade edecek; '
-                    'komisyon borcundan ₺${result.commissionRefundAmount.toStringAsFixed(2)} düşüldü.'
-                : 'Onaylandı. ₺${result.refundAmount.toStringAsFixed(2)} bakiyeye iade edildi, '
-                    'satıcıdan ₺${result.sellerDebitAmount.toStringAsFixed(2)} düşüldü.',
+            result.checked
+                ? 'Onaylandı ve ₺${updated.refundAmount.toStringAsFixed(2)} müşterinin '
+                    'bakiyesine iade edildi; satıcıdan ₺${updated.sellerDebitAmount.toStringAsFixed(2)} düşüldü.'
+                : 'Onaylandı. Satıcı ürünleri teslim alınca ₺${updated.refundAmount.toStringAsFixed(2)} '
+                    '${updated.isSellerCashRefund ? 'satıcı tarafından nakit' : 'bakiyeye'} iade edilecek.',
           ),
           backgroundColor: Colors.green,
         ),
@@ -128,7 +138,7 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
   }
 
   Future<void> _reject(ReturnRequest req) async {
-    final note = await showDialog<String?>(
+    final result = await showDialog<_NoteResult?>(
       context: context,
       builder: (ctx) => const _NoteDialog(
         title: 'İadeyi Reddet',
@@ -139,10 +149,10 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
         minLength: 3,
       ),
     );
-    if (note == null || !mounted) return;
+    if (result == null || !mounted) return;
 
     try {
-      await _service.reject(requestId: req.id, adminResponse: note);
+      await _service.reject(requestId: req.id, adminResponse: result.note);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -162,13 +172,69 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
     }
   }
 
+  /// Onaylı ama parası ödenmemiş talepte satıcıyı beklemeden hemen iade.
+  Future<void> _refundNow(ReturnRequest req) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hemen İade Et'),
+        content: Text(
+          '₺${req.refundAmount.toStringAsFixed(2)} satıcının ürünleri teslim almasını beklemeden '
+          'müşterinin CizreApp bakiyesine şimdi eklenir; satıcının payı (komisyon hariç) '
+          'hesabından düşülür.'
+          '${req.isSellerCashRefund ? '\n\nSipariş kapıda nakit ödenmişti: satıcı müşteriye nakit '
+              'VERMEYECEK, iade payı satıcının borcuna yazılır.' : ''}'
+          '\n\nSatıcı ürünleri teslim alınca yine "Teslim Aldım" der; para tekrar hareket etmez.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Şimdi İade Et'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final updated = await _service.refundNow(requestId: req.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '₺${updated.refundAmount.toStringAsFixed(2)} müşterinin bakiyesine iade edildi; '
+            'satıcıdan ₺${updated.sellerDebitAmount.toStringAsFixed(2)} düşüldü.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İade başarısız: ${returnErrorMessage(e)}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _markReceived(ReturnRequest req) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Teslim Alındı'),
-        content: const Text(
+        content: Text(
           'Ürünlerin satıcıya ulaştığını satıcı adına işaretliyorsunuz. '
+          '${req.isRefunded ? 'Para iadesi daha önce yapıldı; tekrar ödeme olmaz.' : req.isSellerCashRefund ? 'Satıcının müşteriye ₺${req.refundAmount.toStringAsFixed(2)} nakit iade ettiği kabul edilir ve komisyonu borcundan düşülür.' : '₺${req.refundAmount.toStringAsFixed(2)} müşterinin bakiyesine eklenir, satıcının payı hesabından düşülür.'} '
           'Stok değiştirilmez.',
         ),
         actions: [
@@ -271,12 +337,23 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
                                       foregroundColor: Colors.white,
                                     ),
                                   ),
-                                ] else if (r.status == ReturnRequestStatus.approved)
+                                ] else if (r.status == ReturnRequestStatus.approved) ...[
+                                  if (!r.isRefunded)
+                                    ElevatedButton.icon(
+                                      onPressed: () => _refundNow(r),
+                                      icon: const Icon(Icons.account_balance_wallet, size: 16),
+                                      label: const Text('Hemen İade Et'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                    ),
                                   OutlinedButton.icon(
                                     onPressed: () => _markReceived(r),
                                     icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                                    label: const Text('Teslim Alındı İşaretle'),
+                                    label: Text(r.isRefunded ? 'Teslim Alındı İşaretle' : 'Teslim Alındı'),
                                   ),
+                                ],
                               ],
                             );
                           },
@@ -291,6 +368,14 @@ class _ReturnRequestsTabWidgetState extends State<ReturnRequestsTabWidget> {
 /// Notlu onay/red diyaloğu. Controller diyaloğun kendi State'inde yaşar;
 /// kapanış animasyonu sürerken dışarıda dispose edilmesin diye.
 /// Vazgeçince null, onayda (boş olabilen) not döner.
+/// _NoteDialog sonucu: not (boş olabilir) + isteğe bağlı onay kutusu.
+class _NoteResult {
+  final String note;
+  final bool checked;
+
+  const _NoteResult(this.note, this.checked);
+}
+
 class _NoteDialog extends StatefulWidget {
   final String title;
   final String? message;
@@ -299,6 +384,8 @@ class _NoteDialog extends StatefulWidget {
   final String confirmLabel;
   final Color confirmColor;
   final int minLength;
+  final String? checkboxLabel;
+  final String? checkboxHint;
 
   const _NoteDialog({
     required this.title,
@@ -308,6 +395,8 @@ class _NoteDialog extends StatefulWidget {
     required this.confirmLabel,
     required this.confirmColor,
     required this.minLength,
+    this.checkboxLabel,
+    this.checkboxHint,
   });
 
   @override
@@ -317,6 +406,7 @@ class _NoteDialog extends StatefulWidget {
 class _NoteDialogState extends State<_NoteDialog> {
   final TextEditingController _ctrl = TextEditingController();
   String? _error;
+  bool _checked = false;
 
   @override
   void dispose() {
@@ -348,6 +438,16 @@ class _NoteDialogState extends State<_NoteDialog> {
                 errorText: _error,
               ),
             ),
+            if (widget.checkboxLabel != null)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _checked,
+                onChanged: (v) => setState(() => _checked = v ?? false),
+                title: Text(widget.checkboxLabel!, style: const TextStyle(fontSize: 14)),
+                subtitle: widget.checkboxHint == null
+                    ? null
+                    : Text(widget.checkboxHint!, style: const TextStyle(fontSize: 12)),
+              ),
           ],
         ),
       ),
@@ -367,7 +467,7 @@ class _NoteDialogState extends State<_NoteDialog> {
               setState(() => _error = 'En az ${widget.minLength} karakter');
               return;
             }
-            Navigator.pop(context, note);
+            Navigator.pop(context, _NoteResult(note, _checked));
           },
           child: Text(widget.confirmLabel),
         ),
@@ -428,15 +528,20 @@ class _ReturnRequestsTabLabelState extends State<ReturnRequestsTabLabel> {
   }
 }
 
-/// Bildirimden açılan bağımsız admin iade ekranı.
+/// Admin "İade Talepleri" ekranı: sol menüden ve bildirimden açılır.
 class AdminReturnRequestsScreen extends StatelessWidget {
-  const AdminReturnRequestsScreen({super.key});
+  final VoidCallback? onChanged;
+
+  const AdminReturnRequestsScreen({super.key, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('İade Talepleri')),
-      body: const ReturnRequestsTabWidget(),
+      appBar: AppBar(
+        title: const Text('İade Talepleri'),
+        backgroundColor: Colors.white,
+      ),
+      body: ReturnRequestsTabWidget(onChanged: onChanged),
     );
   }
 }

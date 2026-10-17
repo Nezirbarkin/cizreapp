@@ -575,11 +575,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       ReturnRequestStatus.approved => (
           Colors.green,
           Icons.check_circle,
-          latest.isSellerCashRefund
+          latest.isRefunded
+              ? 'İadeniz yapıldı, ₺${latest.refundAmount.toStringAsFixed(2)} bakiyenize eklendi. '
+                  'Ürünleri satıcıya teslim edin.'
+              : latest.isSellerCashRefund
               ? 'İadeniz onaylandı. Ürünleri teslim ederken ₺${latest.refundAmount.toStringAsFixed(2)} '
                   'iade tutarını satıcıdan nakit alacaksınız.'
-              : 'İadeniz onaylandı, ₺${latest.refundAmount.toStringAsFixed(2)} bakiyenize '
-                  'eklendi. Ürünleri satıcıya teslim edin.',
+              : 'İadeniz onaylandı. Ürünleri satıcıya teslim edin; satıcı teslim aldığını '
+                  'onaylayınca ₺${latest.refundAmount.toStringAsFixed(2)} bakiyenize eklenecek.',
         ),
       ReturnRequestStatus.completed => (
           Colors.blue,
