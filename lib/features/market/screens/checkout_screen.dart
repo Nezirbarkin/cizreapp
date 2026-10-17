@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:provider/provider.dart';
@@ -10,17 +12,18 @@ import '../../../core/models/coupon_model.dart';
 import '../../../core/models/address_model.dart';
 import '../../../core/models/invoice_info_model.dart';
 import '../../../core/services/app_about_service.dart';
-import '../../../core/services/payment_service.dart';
 import '../../../core/services/balance_service.dart';
 import '../../../core/services/verification_service.dart';
 import '../../../core/services/payment_method_settings_service.dart';
 import '../../../core/services/invoice_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/widgets/invoice_info_widget.dart';
+import '../../../models/checkout_session_model.dart';
+import '../../../services/checkout_service.dart';
 import '../providers/address_provider.dart';
 import '../providers/cart_provider.dart';
-import '../../shop/services/order_service.dart';
 import '../../shop/screens/payment_webview_screen.dart';
+import '../services/cart_checkout_request.dart';
 import '../services/cart_service.dart';
 import 'address_management_screen.dart';
 
@@ -45,10 +48,12 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final OrderService _orderService = OrderService();
+  // Sipariş yalnız sunucu oturumuyla oluşturulur (prepare → commit); eski
+  // istemci-INSERT akışı (OrderService.createOrder) bu ekranda kullanılmaz.
+  late final CheckoutService _checkoutService =
+      CheckoutService(Supabase.instance.client);
   final CartService _cartService = CartService();
   final AppAboutService _aboutService = AppAboutService();
-  final PaymentService _paymentService = PaymentService();
   final BalanceService _balanceService = BalanceService();
   final VerificationService _verificationService = VerificationService();
   final InvoiceService _invoiceService = InvoiceService();
@@ -114,33 +119,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   /// "Gel Al" seçiliyken gösterim amaçlı teslimat ücreti/toplam. `summary`
   /// `CartProvider`dan geldiği için pickup seçimini bilmez - ekranda tutarlı
-  /// görünsün diye burada override edilir (siparişe giden gerçek tutarlar
-  /// zaten `_cartService.getCartSummary(deliveryFee: 0)` ile ayrıca hesaplanır).
+  /// görünsün diye burada override edilir (siparişin gerçek tutarlarını
+  /// sunucu `prepare_checkout_session`'da hesaplar; onay penceresi onları
+  /// gösterir).
   double _effectiveDeliveryFee(CartSummary summary) =>
       _isPickupSelected ? 0.0 : summary.deliveryFee;
 
   double _effectiveTotal(CartSummary summary) =>
       summary.total - summary.deliveryFee + _effectiveDeliveryFee(summary);
-
-  /// "Gel Al" seçiliyse müşterinin ev adresi yerine sabit bir pickup etiketi
-  /// gönderilir (kurye/satıcı ekranlarında kafa karışıklığı yaratmasın diye).
-  String _deliveryAddressTextFor(Address selectedAddress) {
-    if (_isPickupSelected) {
-      return 'Gel Al - Mağazadan Teslim (${widget.shopName})';
-    }
-    return selectedAddress.fullAddress;
-  }
-
-  /// Verilen ara toplam için bu dükkanın kupon indirmini döndürür.
-  /// subtotal ile sınırlı, 0'a clamp'li. Kupon yoksa 0.
-  double _couponDiscountFor(double subtotal) {
-    final c = _appliedCoupon;
-    if (c == null) return 0.0;
-    final d = c.discountFor(subtotal);
-    if (d < 0) return 0.0;
-    if (d > subtotal) return subtotal;
-    return d;
-  }
 
   @override
   void initState() {
@@ -534,16 +520,62 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // approvalCodeEnabled = false ise direkt devam et
     }
 
-    // Onay kodu gerekmedi veya doğrulandı, devam et
-    // ESKİ: `_cartService.getCartSummary` kupon indirimini bilmiyor (servis
-    // DB'den okur, kupon state CartProvider'da) — dialog kuponsuz fiyat
-    // gösteriyordu ama INSERT'e indirimli tutar gidiyordu (kullanıcı
-    // "fiyat değişti" diye şaşırıyordu). CartProvider.summary kuponu
-    // _couponsByShop'tan toplar; dialogda onu kullan.
-    final summary = cartProvider.summary;
-    
-    showDialog(
-      // ignore: use_build_context_synchronously
+    // Bakiye SİSTEMİ master anahtarı (balance_enabled) ayrıdır; radyo
+    // yalnızca order_balance_enabled ile görünür ama sistem kapalıysa
+    // ödeme yapılmamalı.
+    if (_selectedPaymentMethod == PaymentMethod.balance) {
+      final balanceInfo = await _loadBalanceInfo();
+      if (!((balanceInfo?['enabled'] as bool?) ?? false)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bakiye ile ödeme şu an kullanılamıyor.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+
+    // Tutarlar sunucuda hesaplanır: önce oturum açılır, onay penceresi
+    // sunucunun döndürdüğü fiyatları gösterir (istemci tutar göndermez).
+    setState(() => _isPlacingOrder = true);
+    CheckoutSession? session;
+    try {
+      session = await _prepareSession(selectedAddress);
+    } on CheckoutException catch (e) {
+      _showCheckoutError(e);
+    } catch (e) {
+      _showCheckoutError(CheckoutException('prepare_failed', e.toString()));
+    } finally {
+      if (mounted) setState(() => _isPlacingOrder = false);
+    }
+    if (session == null || !mounted) return;
+
+    // Bakiye yetersizse siparişe hiç geçme (sunucu da ayrıca reddeder).
+    if (session.isBalance) {
+      final balanceInfo = await _loadBalanceInfo();
+      final availableBalance = (balanceInfo?['balance'] as double?) ?? 0;
+      if (availableBalance < session.serverTotal) {
+        unawaited(_checkoutService.cancelCheckoutSession(session.id));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yetersiz bakiye! Mevcut: ₺${availableBalance.toStringAsFixed(2)}, Gerekli: ₺${session.serverTotal.toStringAsFixed(2)}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+
+    final quote = session;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Siparişi Onayla'),
@@ -577,29 +609,37 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 },
               ),
               const Divider(height: 24),
-              // Ürünler
-              ...summary.items.map((item) => Padding(
+              // Ürünler (sunucu fiyatıyla)
+              ...quote.items.map((item) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
                       child: Text(
-                        '${item.quantity}x ${item.productName ?? "Ürün"}',
+                        '${item.quantity}x ${item.productName.isEmpty ? "Ürün" : item.productName}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    Text('₺${(item.effectivePrice * item.quantity).toStringAsFixed(2)}'),
+                    Text('₺${item.lineTotal.toStringAsFixed(2)}'),
                   ],
                 ),
               )),
+              if (quote.endedFlashProductNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Flaş fırsatı sona erdi, normal fiyat uygulandı: '
+                  '${quote.endedFlashProductNames.join(', ')}',
+                  style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+                ),
+              ],
               const Divider(height: 24),
               // Ara toplam
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Ara Toplam:'),
-                  Text('₺${summary.subtotal.toStringAsFixed(2)}'),
+                  Text('₺${quote.serverSubtotal.toStringAsFixed(2)}'),
                 ],
               ),
               const SizedBox(height: 4),
@@ -607,16 +647,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Teslimat:'),
-                  Text('₺${_effectiveDeliveryFee(summary).toStringAsFixed(2)}'),
+                  Text('₺${quote.serverDeliveryFee.toStringAsFixed(2)}'),
                 ],
               ),
-              if (summary.discount > 0) ...[
+              if (quote.serverCouponDiscount > 0) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('İndirim:', style: TextStyle(color: Colors.green)),
-                    Text('-₺${summary.discount.toStringAsFixed(2)}', style: const TextStyle(color: Colors.green)),
+                    Text('-₺${quote.serverCouponDiscount.toStringAsFixed(2)}', style: const TextStyle(color: Colors.green)),
                   ],
                 ),
               ],
@@ -626,7 +666,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 children: [
                   const Text('TOPLAM:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   Text(
-                    '₺${_effectiveTotal(summary).toStringAsFixed(2)}',
+                    '₺${quote.serverTotal.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -662,14 +702,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('İptal'),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _confirmOrder(selectedAddress, cartProvider);
-            },
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
@@ -679,6 +716,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ],
       ),
     );
+
+    if (confirmed != true) {
+      // Flaş rezervasyonu 15 dk beklemesin.
+      unawaited(_checkoutService.cancelCheckoutSession(quote.id));
+      return;
+    }
+    if (!mounted) return;
+    await _confirmOrder(quote, cartProvider);
   }
 
   Widget _buildConfirmationRow(IconData icon, String label, String value) {
@@ -696,17 +741,114 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Future<void> _confirmOrder(Address selectedAddress, CartProvider cartProvider) async {
+  /// Bu dükkanın sepet satırlarından sunucu oturumu açar. Tutar, teslimat,
+  /// kupon ve Gel Al hesabı `prepare_checkout_session`'da yapılır.
+  Future<CheckoutSession> _prepareSession(Address selectedAddress) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) {
+      throw CheckoutException('auth_required', 'Lütfen giriş yapın');
+    }
+    // Yalnız bu dükkanın satırları: mağaza içi sepetten gelindiğinde ana
+    // sepette başka dükkanların ürünleri de olabilir (eskiden hepsi bu
+    // dükkanın siparişine yazılıyordu).
+    final items = (await _cartService.getCart(userId))
+        .where((item) => item.shopId == widget.shopId)
+        .toList();
+    if (items.isEmpty) {
+      throw CheckoutException('empty_cart', 'Sepetiniz boş');
+    }
+    final coupon = _appliedCoupon;
+    return _checkoutService.prepareCheckout(
+      buildCartCheckoutRequest(
+        items: items,
+        addressId: selectedAddress.id,
+        paymentMethod: _selectedPaymentMethod,
+        idempotencyKey: CheckoutService.generateIdempotencyKey(prefix: 'cart'),
+        coupons: [if (coupon != null) coupon],
+        pickupShopIds: [if (_isPickupSelected) widget.shopId],
+        notes: _notesController.text,
+        invoiceInfo: _selectedInvoiceInfo,
+      ),
+    );
+  }
+
+  /// Oturum açılırken gelen hatayı seçili ödeme yönteminin eski mesaj
+  /// biçimiyle gösterir.
+  void _showCheckoutError(CheckoutException e) {
+    if (!mounted) return;
+    if (e.code == 'min_order_amount') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.userMessage),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+    final prefix = switch (_selectedPaymentMethod) {
+      PaymentMethod.balance => 'Bakiye ödeme hatası',
+      PaymentMethod.online => 'Ödeme başlatılamadı',
+      _ => 'Sipariş oluşturulurken hata',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$prefix: ${e.userMessage}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  /// Sipariş oluşunca sepetten bu dükkanın satırları silinir. Flaş talepleri
+  /// geri VERİLMEZ: sunucu commit'i talebi tüketip satışı saydı.
+  Future<void> _clearOrderedItems(CartProvider cartProvider) async {
+    try {
+      final onlyThisShop =
+          cartProvider.items.every((item) => item.shopId == widget.shopId);
+      if (onlyThisShop) {
+        await cartProvider.clearCart(releaseFlashSales: false);
+      } else {
+        await cartProvider.clearShopCart(widget.shopId, releaseFlashSales: false);
+      }
+      debugPrint('✅ Sepet temizlendi');
+    } catch (cartError) {
+      // Sepet temizleme hatası kritik değil — sipariş oluşmuş, kullanıcı
+      // sepeti sonra kendi temizleyebilir. Sadece log bırak.
+      debugPrint('⚠️ Sepet temizleme hatası (sipariş etkilenmez): $cartError');
+    }
+  }
+
+  /// Sipariş sonrası ana sayfaya dönüş + başarı mesajı.
+  void _finishWithSuccess(String message) {
+    if (!mounted) return;
+    // Messenger ve ana ekranın CartProvider'ı POP'TAN ÖNCE çözülür.
+    // Bkz. [_readAncestorCart].
+    final messenger = ScaffoldMessenger.of(context);
+    final rootCart = _readAncestorCart(context);
+
+    // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    rootCart?.loadCart();
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  Future<void> _confirmOrder(CheckoutSession session, CartProvider cartProvider) async {
     setState(() => _isPlacingOrder = true);
 
     try {
-      // Online ödeme seçildiyse iyzico akışını başlat
-      if (_selectedPaymentMethod == PaymentMethod.online) {
-        await _initiateOnlinePayment(selectedAddress, cartProvider);
-      } else if (_selectedPaymentMethod == PaymentMethod.balance) {
-        await _processBalancePayment(selectedAddress, cartProvider);
+      // Ödeme yöntemi oturumda sabittir (prepare'de seçilen).
+      if (session.isOnline) {
+        await _initiateOnlinePayment(session, cartProvider);
+      } else if (session.isBalance) {
+        await _processBalancePayment(session, cartProvider);
       } else {
-        await _placeOrder(selectedAddress, cartProvider);
+        await _placeOrder(session, cartProvider);
       }
     } finally {
       // Her durumda (_isPlacingOrder) sıfırla — erken return'ları da kapsar
@@ -716,188 +858,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  /// Bakiye ile ödeme işle
-  Future<void> _processBalancePayment(Address selectedAddress, CartProvider cartProvider) async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      setState(() => _isPlacingOrder = false);
-      return;
-    }
-
+  /// Bakiye ile ödeme: sipariş(ler) + bakiye düşümü sunucuda tek işlemde.
+  /// Bakiye yetmezse hiçbir sipariş açılmaz (eskiden açılıp iptal ediliyordu).
+  Future<void> _processBalancePayment(CheckoutSession session, CartProvider cartProvider) async {
     try {
-      // Sepeti getir. "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
-      final cartSummary = await _cartService.getCartSummary(
-        user.id,
-        deliveryFee: _isPickupSelected ? 0.0 : null,
+      final result = await _checkoutService.commitBalanceOrder(session.id);
+      await _clearOrderedItems(cartProvider);
+      _finishWithSuccess(
+        'Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${result.amountPaid.toStringAsFixed(2)})',
       );
-      if (cartSummary.items.isEmpty) {
-        throw Exception('Sepetiniz boş');
-      }
-
-      // Kupon: eskiden bakiye ödemesinde kupon tamamen atlanıyordu
-      // (discount: cartSummary.discount = ürün tasarrufu, kupon yok).
-      // Şimdi gerçek kupon indirimi uygulanır ve total ona göre düşülür.
-      final appliedCoupon = _appliedCoupon;
-      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
-      final realTotal =
-          cartSummary.subtotal - couponDiscount + cartSummary.deliveryFee;
-
-      // Bakiyeyi kontrol et
-      final balanceInfo = await _loadBalanceInfo();
-      final availableBalance = (balanceInfo?['balance'] as double?) ?? 0;
-      // Bakiye SİSTEMİ master anahtarı (balance_enabled) ayrıdır; radyo
-      // yalnızca order_balance_enabled ile görünür ama sistem kapalıysa
-      // ödeme yapılmalı. Eskiden bu kontrol atlanıyordu.
-      final balanceSystemEnabled = (balanceInfo?['enabled'] as bool?) ?? false;
-      if (!balanceSystemEnabled) {
-        setState(() => _isPlacingOrder = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Bakiye ile ödeme şu an kullanılamıyor.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        return;
-      }
-
-      if (availableBalance < realTotal) {
-        setState(() => _isPlacingOrder = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Yetersiz bakiye! Mevcut: ₺${availableBalance.toStringAsFixed(2)}, Gerekli: ₺${realTotal.toStringAsFixed(2)}'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        return;
-      }
-
-      // Siparişi oluştur (balance ödeme yöntemiyle)
-      final order = await _orderService.createOrder(
-        userId: user.id,
-        shopId: widget.shopId,
-        items: cartSummary.items.map((item) => OrderItem(
-          id: '',
-          orderId: '',
-          productId: item.productId,
-          productName: item.productName ?? 'Ürün',
-          price: item.effectivePrice, // flaş sale ise flaş, yoksa indirimli (discount_price), yoksa normal fiyat
-          quantity: item.quantity,
-          productImageUrl: item.productImageUrl,
-          shopId: item.shopId,
-          shopName: item.shopName,
-          createdAt: DateTime.now(),
-          flashSaleId: item.flashSaleId,
-          flashPrice: item.flashPrice,
-        )).toList(),
-        deliveryAddressText: _deliveryAddressTextFor(selectedAddress),
-        addressId: selectedAddress.id,
-        subtotal: cartSummary.subtotal,
-        deliveryFee: cartSummary.deliveryFee,
-        discount: couponDiscount,
-        total: realTotal,
-        commissionAmount: cartSummary.subtotal * 0.10,
-        paymentMethod: PaymentMethod.balance,
-        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-        customerPhone: selectedAddress.phone,
-        invoiceInfo: _selectedInvoiceInfo,
-        couponId: appliedCoupon?.id,
-        couponDiscount: couponDiscount,
-        isPickup: _isPickupSelected,
+    } on CheckoutException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.code == 'insufficient_balance'
+                ? e.userMessage
+                : 'Bakiye ödeme hatası: ${e.userMessage}',
+          ),
+          backgroundColor:
+              e.code == 'insufficient_balance' ? Colors.orange : Colors.red,
+        ),
       );
-
-      if (order != null) {
-        // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
-        try {
-          await Supabase.instance.client.rpc('apply_campaign_rewards_for_order', params: {
-            'p_order_id': order.id,
-          });
-        } catch (campaignError) {
-          debugPrint('⚠️ Kampanya ödülü uygulanamadı: $campaignError');
-        }
-
-        // Bakiyeden düş - BAŞARISIZSA siparişi iptal et
-        bool balanceDeducted = false;
-        try {
-          await _balanceService.useBalanceForOrder(
-            orderId: order.id,
-            amount: realTotal,
-            orderTotal: realTotal,
-          );
-          balanceDeducted = true;
-          debugPrint('✅ Bakiye ile ödeme tamamlandı, bakiyeden ₺${realTotal.toStringAsFixed(2)} düşüldü');
-        } catch (balanceError) {
-          debugPrint('❌ Bakiye düşme hatası (sipariş iptal ediliyor): $balanceError');
-          // Atomik olmayan ödeme: siparişi iptal et, nedeniyle birlikte.
-          try {
-            await _orderService.cancelOrder(
-              order.id,
-              reason: 'Bakiye düşme başarısız: $balanceError',
-            );
-            debugPrint('✅ Sipariş bakiye hatası nedeniyle iptal edildi: ${order.id}');
-          } catch (cancelError) {
-            debugPrint('❌ Sipariş iptal hatası: $cancelError');
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Bakiye yetersiz veya ödeme başarısız. Sipariş iptal edildi, lütfen tekrar deneyin.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-        }
-
-        // Sepeti temizle SADECE ödeme başarılıysa (HATA-3: hata yakalama eklendi)
-        if (balanceDeducted) {
-          // Kuponu "kullanıldı" olarak işaretle (bakiye yolu eskiden atlıyordu).
-          if (appliedCoupon != null && couponDiscount > 0) {
-            try {
-              await Supabase.instance.client.rpc('use_coupon', params: {
-                'p_coupon_id': appliedCoupon.id,
-                'p_order_id': order.id,
-                'p_user_id': user.id,
-                'p_discount_amount': couponDiscount,
-              });
-            } catch (e) {
-              debugPrint('❌ use_coupon RPC başarısız (bakiye): $e');
-            }
-          }
-          try {
-            await _cartService.clearCart(user.id);
-            await cartProvider.clearCart();
-            debugPrint('✅ Sepet temizlendi');
-          } catch (cartError) {
-            // Sepet temizleme hatası kritik değil — sipariş oluşmuş, kullanıcı
-            // sepeti sonra kendi temizleyebilir. Sadece log bırak.
-            debugPrint('⚠️ Sepet temizleme hatası (sipariş etkilenmez): $cartError');
-          }
-
-          if (mounted) {
-            // Messenger ve ana ekranın CartProvider'ı POP'TAN ÖNCE çözülür.
-            // Bkz. [_readAncestorCart].
-            final messenger = ScaffoldMessenger.of(context);
-            final rootCart = _readAncestorCart(context);
-
-            // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
-            Navigator.of(context).popUntil((route) => route.isFirst);
-            rootCart?.loadCart();
-
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text('Siparişiniz bakiyenizden ödenerek oluşturuldu! (₺${realTotal.toStringAsFixed(2)})'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        }
-      }
-      
     } catch (e) {
-      setState(() => _isPlacingOrder = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Bakiye ödeme hatası: $e'), backgroundColor: Colors.red),
@@ -906,107 +889,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  /// Online ödeme (iyzico) akışını başlat
-  Future<void> _initiateOnlinePayment(Address selectedAddress, CartProvider cartProvider) async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      setState(() => _isPlacingOrder = false);
-      return;
-    }
-
+  /// Online ödeme (iyzico): oturum kimliğiyle başlatılır; tutar, ürün ve
+  /// alıcı bilgisi sunucuda oturumdan/profilden okunur. Sipariş iyzico geri
+  /// çağrısında oturumdan oluşturulur.
+  Future<void> _initiateOnlinePayment(CheckoutSession session, CartProvider cartProvider) async {
     try {
-      // Sepeti getir. "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
-      final cartSummary = await _cartService.getCartSummary(
-        user.id,
-        deliveryFee: _isPickupSelected ? 0.0 : null,
-      );
-      if (cartSummary.items.isEmpty) {
-        throw Exception('Sepetiniz boş');
-      }
-
-      // Kullanıcı profil bilgilerini al
-      // Kendi profili: email/phone profiles uzerinde authenticated'a
-      // kapatilacak (20260907110001); tam satir get_my_profile() ile gelir.
-      final profileRaw = await Supabase.instance.client.rpc('get_my_profile');
-      final profileResponse = profileRaw == null
-          ? <String, dynamic>{}
-          : Map<String, dynamic>.from(profileRaw as Map);
-
-      final fullName = (profileResponse['full_name'] as String?) ?? 'Müşteri';
-      final nameParts = fullName.split(' ');
-      final firstName = nameParts.isNotEmpty ? nameParts.first : 'Müşteri';
-      final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : 'Müşteri';
-      final email = (profileResponse['email'] as String?) ?? user.email ?? 'musteri@cizreapp.com';
-      final phone = (profileResponse['phone'] as String?) ?? selectedAddress.phone;
-
-      // Kupon: eskiden coupon_discount alanına ürün tasarrufu
-      // (cartSummary.discount) yazılıyordu — yanlış. Gerçek kupon indirimi
-      // hesaplanıp total ona göre düşülür ve coupon_id gönderilir.
-      final appliedCoupon = _appliedCoupon;
-      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
-      final realTotal =
-          cartSummary.subtotal - couponDiscount + cartSummary.deliveryFee;
-
-      // Sipariş verilerini hazırla
-      final orderData = {
-        'shop_id': widget.shopId,
-        'items': cartSummary.items.map((item) => {
-          'product_id': item.productId,
-          'product_name': item.productName ?? 'Ürün',
-          'quantity': item.quantity,
-          'price': item.effectivePrice, // indirimli (discount_price) varsa onu kullan
-          'flash_sale_id': item.flashSaleId,
-          'flash_price': item.flashPrice,
-        }).toList(),
-        'delivery_address_text': selectedAddress.fullAddress,
-        'delivery_address_id': selectedAddress.id,
-        'total': realTotal,
-        'subtotal': cartSummary.subtotal,
-        'delivery_fee': cartSummary.deliveryFee,
-        'coupon_id': appliedCoupon?.id,
-        'coupon_discount': couponDiscount,
-        'note': _notesController.text.isNotEmpty ? _notesController.text : null,
-      };
-
-      // Buyer bilgileri
-      final buyer = {
-        'id': user.id,
-        'name': firstName,
-        'surname': lastName,
-        'email': email,
-        'phone': phone,
-        'identityNumber': '11111111111',
-        'address': selectedAddress.fullAddress,
-        'city': 'Şırnak',
-        'country': 'Turkey',
-        'zipCode': '73200',
-      };
-
       debugPrint('💳 MARKET CHECKOUT: iyzico ödeme başlatılıyor...');
 
-      // iyzico ödeme başlat
-      final result = await _paymentService.initializePayment(
-        orderData: orderData,
-        buyer: buyer,
+      final result = await _checkoutService.initOnlinePayment(
+        checkoutSessionId: session.id,
+        idempotencyKey: CheckoutService.generateIdempotencyKey(prefix: 'pay'),
       );
 
-      setState(() => _isPlacingOrder = false);
-
       if (!mounted) return;
+      setState(() => _isPlacingOrder = false);
 
       // WebView ekranına git
       final paymentResult = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
           builder: (context) => PaymentWebViewScreen(
-            paymentUrl: result.paymentPageUrl,
-            paymentTransactionId: result.paymentTransactionId,
-            conversationId: result.conversationId,
+            paymentUrl: result.paymentPageUrl ?? '',
+            paymentTransactionId: result.paymentTransactionId ?? '',
+            conversationId: result.conversationId ?? '',
             onPaymentSuccess: () async {
               // Sepeti temizle
-              await _cartService.clearCart(user.id);
               if (mounted) {
-                await cartProvider.clearCart();
+                await _clearOrderedItems(cartProvider);
               }
             },
           ),
@@ -1014,9 +923,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
 
       debugPrint('💳 MARKET CHECKOUT: WebView kapandı, result: $paymentResult');
-
+    } on CheckoutException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ödeme başlatılamadı: ${e.userMessage}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
-      setState(() => _isPlacingOrder = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1028,187 +944,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  Future<void> _placeOrder(Address? selectedAddress, CartProvider cartProvider) async {
-    if (selectedAddress == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen teslimat adresi seçin')),
-      );
-      return;
-    }
-
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) {
-      setState(() => _isPlacingOrder = false);
+  /// Kapıda nakit / kart: sipariş sunucuda oturumdan oluşturulur (kupon
+  /// kullanımı, kampanya ödülü ve satıcı bildirimi dahil).
+  Future<void> _placeOrder(CheckoutSession session, CartProvider cartProvider) async {
+    try {
+      await _checkoutService.commitCodOrder(session.id);
+      await _clearOrderedItems(cartProvider);
+      _finishWithSuccess('Siparişiniz başarıyla oluşturuldu!');
+    } on CheckoutException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lütfen giriş yapın')),
+          SnackBar(content: Text('Sipariş oluşturulurken hata: ${e.userMessage}')),
         );
-      }
-      return;
-    }
-
-    try {
-      // Sepeti getir ve teslimat ücretiyle birlikte toplam hesapla.
-      // "Gel Al" seçiliyse teslimat ücretini 0'a sabitle.
-      final cartSummary = await _cartService.getCartSummary(
-        userId,
-        deliveryFee: _isPickupSelected ? 0.0 : null,
-      );
-      if (cartSummary.items.isEmpty) {
-        throw Exception('Sepetiniz boş');
-      }
-
-      // Müşteri telefon numarasını seçili adresten al
-      final customerPhone = selectedAddress.phone;
-
-      // Dükkan bilgisini çek ve minimum tutarı kontrol et
-      final shop = await Supabase.instance.client
-          .from('shops')
-          .select('min_order_amount, name')
-          .eq('id', widget.shopId)
-          .single();
-      
-      final minOrderAmount = (shop['min_order_amount'] as num?)?.toDouble() ?? 0.0;
-      final shopName = shop['name'] as String? ?? 'Dükkan';
-      
-      if (minOrderAmount > 0 && cartSummary.subtotal < minOrderAmount) {
-        final remaining = minOrderAmount - cartSummary.subtotal;
-        
-        setState(() => _isPlacingOrder = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '$shopName\n'
-                'Minimum sipariş tutarı: ₺${minOrderAmount.toStringAsFixed(2)}\n'
-                'Mevcut tutar: ₺${cartSummary.subtotal.toStringAsFixed(2)}\n'
-                'Eksik tutar: ₺${remaining.toStringAsFixed(2)}',
-              ),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Sipariş öğelerini hazırla
-      final orderItems = cartSummary.items.map((item) {
-        return OrderItem(
-          id: '',
-          orderId: '',
-          productId: item.productId,
-          productName: item.productName ?? 'Ürün',
-          price: item.effectivePrice, // indirimli (discount_price) varsa onu kullan
-          quantity: item.quantity,
-          productImageUrl: item.productImageUrl,
-          shopId: item.shopId,
-          shopName: item.shopName,
-          createdAt: DateTime.now(),
-          flashSaleId: item.flashSaleId,
-          flashPrice: item.flashPrice,
-        );
-      }).toList();
-
-      // Kupon (varsa): widget.couponsByShop'tan shop-scoped uygulanmış
-      // kuponu al. Eskiden taze CartProvider'dan okunup hep null geliyordu
-      // ve kupon sessizce kayboluyordu.
-      //
-      // DİKKAT: orders.discount alanına yalnızca GERÇEK kupon indirimi
-      // yazılır. cartSummary.discount ürün gösterim tasarrufudur
-      // (oldPrice-effectivePrice) ve zaten subtotal'a yansımıştır; onu
-      // tekrar discount'a yazmak "subtotal - discount + delivery = total"
-      // denklemini bozuyordu.
-      final appliedCoupon = _appliedCoupon;
-      final couponDiscount = _couponDiscountFor(cartSummary.subtotal);
-      final realDiscount = couponDiscount; // kupon indirimi
-      final realTotal =
-          cartSummary.subtotal - realDiscount + cartSummary.deliveryFee;
-
-      // Siparişi oluştur
-      final order = await _orderService.createOrder(
-        userId: userId,
-        shopId: widget.shopId,
-        items: orderItems,
-        deliveryAddressText: _deliveryAddressTextFor(selectedAddress),
-        addressId: selectedAddress.id,
-        subtotal: cartSummary.subtotal,
-        deliveryFee: cartSummary.deliveryFee,
-        discount: realDiscount,
-        total: realTotal,
-        commissionAmount: cartSummary.subtotal * 0.10, // %10 komisyon
-        paymentMethod: _selectedPaymentMethod,
-        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-        customerPhone: customerPhone,
-        invoiceInfo: _selectedInvoiceInfo,
-        couponId: appliedCoupon?.id,
-        couponDiscount: couponDiscount,
-        isPickup: _isPickupSelected,
-      );
-
-      // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
-      if (order != null) {
-        try {
-          await Supabase.instance.client.rpc('apply_campaign_rewards_for_order', params: {
-            'p_order_id': order.id,
-          });
-        } catch (campaignError) {
-          debugPrint('⚠️ Kampanya ödülü uygulanamadı: $campaignError');
-        }
-      }
-
-      // use_coupon RPC çağrısı — kuponu "kullanıldı" olarak işaretle.
-      // Eskiden appliedCoupon hep null olduğundan bu çağrı ölü koddu.
-      if (order != null && appliedCoupon != null && couponDiscount > 0) {
-        try {
-          await Supabase.instance.client.rpc('use_coupon', params: {
-            'p_coupon_id': appliedCoupon.id,
-            'p_order_id': order.id,
-            'p_user_id': userId,
-            'p_discount_amount': couponDiscount,
-          });
-          debugPrint('✅ use_coupon RPC başarılı: ${appliedCoupon.code}');
-        } catch (e) {
-          debugPrint('❌ use_coupon RPC başarısız: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Kupon kullanımı kaydedilemedi, lütfen destek ile iletişime geçin.',
-                ),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-          rethrow;
-        }
-      }
-
-      if (order != null) {
-        // Sepeti temizle (hem database hem UI state)
-        await _cartService.clearCart(userId);
-        await cartProvider.clearCart(); // CartProvider'ı da temizle
-
-        if (mounted) {
-          // Messenger ve ana ekranın CartProvider'ı POP'TAN ÖNCE çözülür.
-          // Bkz. [_readAncestorCart].
-          final messenger = ScaffoldMessenger.of(context);
-          final rootCart = _readAncestorCart(context);
-
-          // Ana sayfaya dön ve MainScreen'deki CartProvider'ı da yenile
-          Navigator.of(context).popUntil((route) => route.isFirst);
-          rootCart?.loadCart();
-
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Siparişiniz başarıyla oluşturuldu!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       }
     } catch (e) {
-      setState(() => _isPlacingOrder = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Sipariş oluşturulurken hata: $e')),

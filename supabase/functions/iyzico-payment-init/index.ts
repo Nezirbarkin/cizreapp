@@ -77,6 +77,12 @@ interface PaymentInitRequest {
   shipping_address?: AddressInfo;
 }
 
+// Sunucu-otoriteli oturum (2026-10-17): istemci yalnız oturum kimliği gönderir.
+interface SessionInitRequest {
+  checkout_session_id?: string;
+  idempotency_key?: string;
+}
+
 // ────────── iyzico İmza Oluşturma (SHA-256 HMAC - iyzico v2) ──────────
 
 async function generateAuthorizationHeaderV2(
@@ -378,6 +384,169 @@ async function initializeIyzicoCheckout(
   };
 }
 
+// ────────── Oturumlu Ödeme Başlatma ──────────
+//
+// Tutar, ürünler, adres ve alıcı bilgisi istemciden ALINMAZ:
+// private.server_checkout_sessions anlık görüntüsünden ve profilden okunur.
+// Sipariş, iyzico geri çağrısında complete_online_payment → commit_online_order
+// ile bu oturumdan oluşturulur (callback_data.checkout_session_id).
+
+function jsonResponse(body: Record<string, unknown>, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function initSessionPayment(
+  supabase: any,
+  user: { id: string; email?: string | null },
+  body: SessionInitRequest,
+  clientIp: string
+): Promise<Response> {
+  const sessionId = body.checkout_session_id!;
+
+  const { data: rows, error: sessionError } = await supabase.rpc(
+    "get_checkout_session_for_payment",
+    { p_session_id: sessionId, p_user_id: user.id }
+  );
+  const session = Array.isArray(rows) ? rows[0] : rows;
+  if (sessionError || !session) {
+    return jsonResponse(
+      { error: "session_not_found", message: "Ödeme oturumu bulunamadı, lütfen tekrar deneyin." },
+      404
+    );
+  }
+  if (session.payment_method !== "online") {
+    return jsonResponse(
+      { error: "invalid_session", message: "Bu oturum online ödeme için açılmamış." },
+      400
+    );
+  }
+  if (session.status !== "pending" || new Date(session.expires_at).getTime() < Date.now()) {
+    return jsonResponse(
+      { error: "session_expired", message: "Ödeme oturumunun süresi doldu, lütfen tekrar deneyin." },
+      409
+    );
+  }
+
+  const total = Number(session.server_total);
+  if (!(total > 0)) {
+    return jsonResponse({ error: "invalid_amount", message: "Geçersiz sipariş tutarı." }, 400);
+  }
+
+  const snapshotItems = (session.items_snapshot ?? []) as Array<Record<string, any>>;
+  const address = (session.delivery_address_snapshot ?? {}) as Record<string, any>;
+  const firstOrder = ((session.sub_orders ?? []) as Array<Record<string, any>>)[0] ?? {};
+
+  const orderData: OrderData & { customer_phone?: string | null } = {
+    shop_id: firstOrder.shop_id ?? snapshotItems[0]?.shop_id,
+    items: snapshotItems.map((it) => ({
+      product_id: it.product_id,
+      product_name: String(it.product_name ?? "Ürün"),
+      quantity: Number(it.quantity),
+      price: Number(it.unit_price),
+    })),
+    delivery_address_text: firstOrder.delivery_address_text ?? address.full_address ?? "",
+    delivery_address_id: session.address_id ?? undefined,
+    subtotal: Number(session.server_subtotal),
+    delivery_fee: Number(session.server_delivery_fee),
+    coupon_discount: Number(session.server_coupon_discount ?? 0),
+    total,
+    note: session.notes ?? undefined,
+    customer_phone: address.phone ?? null,
+  };
+
+  // Alıcı bilgisi profilden (eski istemci kendisi gönderiyordu).
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email, phone")
+    .eq("id", user.id)
+    .maybeSingle();
+  const fullName =
+    String(profile?.full_name ?? address.full_name ?? "Müşteri").trim() || "Müşteri";
+  const nameParts = fullName.split(/\s+/);
+  const buyer: BuyerInfo = {
+    id: user.id,
+    name: nameParts[0] || "Müşteri",
+    surname: nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Müşteri",
+    email: profile?.email ?? user.email ?? "musteri@cizreapp.com",
+    phone: profile?.phone ?? address.phone ?? "",
+    identityNumber: "11111111111",
+    address: orderData.delivery_address_text,
+    city: address.city || "Şırnak",
+    country: "Turkey",
+    zipCode: address.postal_code || "73200",
+  };
+
+  const conversationId = generateConversationId();
+  const paymentTransactionId = await createPaymentTransaction(
+    supabase,
+    user.id,
+    conversationId,
+    orderData,
+    clientIp
+  );
+
+  const { error: storeError } = await supabase
+    .from("payment_transactions")
+    .update({
+      checkout_session_id: sessionId,
+      expected_amount: total,
+      idempotency_key: body.idempotency_key ?? null,
+      callback_data: {
+        order_data: orderData,
+        user_id: user.id,
+        checkout_session_id: sessionId,
+        stored_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", paymentTransactionId);
+  if (storeError) {
+    throw new Error(`Oturum ödeme kaydı yazılamadı: ${storeError.message}`);
+  }
+
+  const iyzicoResult = await initializeIyzicoCheckout(
+    { user_id: user.id, order_data: orderData, buyer },
+    conversationId,
+    clientIp
+  );
+
+  await supabase
+    .from("payment_transactions")
+    .update({ token: iyzicoResult.token, updated_at: new Date().toISOString() })
+    .eq("id", paymentTransactionId);
+
+  // Oturum ödemeye bağlanır: artık "iptal" edilemez, geri çağrıda sipariş açılır.
+  await supabase.rpc("link_checkout_session_payment", {
+    p_session_id: sessionId,
+    p_payment_transaction_id: paymentTransactionId,
+    p_expected_paid_price: total,
+    p_expected_currency: "TRY",
+    p_expected_conversation_id: conversationId,
+    p_expected_basket_id: `B_${conversationId}`,
+    p_iyzico_environment: IYZICO_API_URL.includes("sandbox") ? "sandbox" : "production",
+  });
+
+  console.log("✅ Oturumlu ödeme başlatıldı:", {
+    paymentTransactionId,
+    conversationId,
+    itemCount: orderData.items.length,
+  });
+
+  return jsonResponse(
+    {
+      status: "success",
+      payment_page_url: iyzicoResult.paymentPageUrl,
+      token: iyzicoResult.token,
+      token_expire_time: iyzicoResult.tokenExpireTime,
+      conversation_id: conversationId,
+      payment_transaction_id: paymentTransactionId,
+    },
+    200
+  );
+}
+
 // ────────── Ana Handler ──────────
 
 serve(async (req: Request) => {
@@ -425,6 +594,18 @@ serve(async (req: Request) => {
 
     // Request body'yi parse et
     const requestData: PaymentInitRequest = await req.json();
+
+    // Yeni istemci: { checkout_session_id, idempotency_key } (tutar göndermez).
+    // Eski sözleşme (order_data + buyer) aşağıda değişmeden çalışır.
+    const sessionRequest = requestData as unknown as SessionInitRequest;
+    if (typeof sessionRequest.checkout_session_id === "string" &&
+        sessionRequest.checkout_session_id.length > 0) {
+      const sessionClientIp =
+        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        req.headers.get("x-real-ip") ||
+        "127.0.0.1";
+      return await initSessionPayment(supabase, user, sessionRequest, sessionClientIp);
+    }
 
     // Zorunlu alan kontrolü
     if (!requestData.order_data || !requestData.buyer) {

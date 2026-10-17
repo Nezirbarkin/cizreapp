@@ -55,7 +55,8 @@ class CheckoutItemSnapshot {
       variantId: json['variant_id'] as String?,
       unitPrice: json['unit_price'] as num? ?? 0,
       flashPrice: json['flash_price'] as num?,
-      lineTotal: json['line_total'] as num? ?? 0,
+      // RPC satır toplamını 'subtotal' adıyla da döndürür.
+      lineTotal: (json['line_total'] ?? json['subtotal']) as num? ?? 0,
       lineDiscount: json['line_discount'] as num? ?? 0,
       commissionAmount: json['commission_amount'] as num? ?? 0,
       isFlashSale: json['is_flash_sale'] as bool? ?? false,
@@ -65,11 +66,50 @@ class CheckoutItemSnapshot {
   }
 }
 
+/// Oturumdaki mağaza başına sipariş dökümü (sunucu hesaplar; commit her biri
+/// için ayrı sipariş açar).
+@immutable
+class CheckoutSubOrder {
+  final String shopId;
+  final String shopName;
+  final num subtotal;
+  final num deliveryFee;
+  final String? couponId;
+  final num couponDiscount;
+  final num total;
+  final bool isPickup;
+
+  const CheckoutSubOrder({
+    required this.shopId,
+    required this.shopName,
+    required this.subtotal,
+    required this.deliveryFee,
+    this.couponId,
+    required this.couponDiscount,
+    required this.total,
+    required this.isPickup,
+  });
+
+  factory CheckoutSubOrder.fromJson(Map<String, dynamic> json) {
+    return CheckoutSubOrder(
+      shopId: json['shop_id'] as String? ?? '',
+      shopName: json['shop_name'] as String? ?? 'Dükkan',
+      subtotal: json['subtotal'] as num? ?? 0,
+      deliveryFee: json['delivery_fee'] as num? ?? 0,
+      couponId: json['coupon_id'] as String?,
+      couponDiscount: json['coupon_discount'] as num? ?? 0,
+      total: json['total'] as num? ?? 0,
+      isPickup: json['is_pickup'] as bool? ?? false,
+    );
+  }
+}
+
 enum CheckoutSessionStatus { draft, active, completed, expired, cancelled }
 
 CheckoutSessionStatus _statusFromString(String? raw) {
   switch (raw) {
     case 'completed':
+    case 'committed':
       return CheckoutSessionStatus.completed;
     case 'expired':
       return CheckoutSessionStatus.expired;
@@ -110,6 +150,13 @@ class CheckoutSession {
   final DateTime? expiresAt;
   final DateTime createdAt;
 
+  /// Mağaza başına döküm (çok mağazalı sepette her biri ayrı sipariş olur).
+  final List<CheckoutSubOrder> subOrders;
+
+  /// Sunucu uyarıları; ör. `{code: 'flash_ended', product_name: ...}` —
+  /// flaş fırsatı bittiyse ürün normal fiyattan fiyatlanır.
+  final List<Map<String, dynamic>> warnings;
+
   const CheckoutSession({
     required this.id,
     required this.userId,
@@ -130,22 +177,31 @@ class CheckoutSession {
     required this.status,
     this.expiresAt,
     required this.createdAt,
+    this.subOrders = const [],
+    this.warnings = const [],
   });
 
   factory CheckoutSession.fromJson(Map<String, dynamic> json) {
-    final itemsRaw = json['items_snapshot'] as List<dynamic>? ?? [];
+    // prepare_checkout_session satırı: session_id / items / sub_orders.
+    // Tablo satırı biçimi (id / items_snapshot) de kabul edilir.
+    final itemsRaw =
+        (json['items'] ?? json['items_snapshot']) as List<dynamic>? ?? [];
+    final subOrdersRaw = json['sub_orders'] as List<dynamic>? ?? [];
+    final warningsRaw = json['warnings'] as List<dynamic>? ?? [];
     return CheckoutSession(
-      id: json['id'] as String,
+      id: (json['session_id'] ?? json['id']) as String,
       userId: json['user_id'] as String? ?? '',
       addressId: json['address_id'] as String?,
-      paymentMethod: json['payment_method'] as String? ?? 'cod',
+      paymentMethod: json['payment_method'] as String? ?? 'cash',
       couponId: json['coupon_id'] as String?,
       couponCode: json['coupon_code'] as String?,
       serverSubtotal: json['server_subtotal'] as num? ?? 0,
       serverDeliveryFee: json['server_delivery_fee'] as num? ?? 0,
       serverCouponDiscount: json['server_coupon_discount'] as num? ?? 0,
       serverTotal: json['server_total'] as num? ?? 0,
-      serverCommissionTotal: json['server_commission_total'] as num? ?? 0,
+      serverCommissionTotal: (json['server_commission_amount'] ??
+              json['server_commission_total']) as num? ??
+          0,
       expectedPaidPrice: json['expected_paid_price'] as num?,
       paymentTransactionId: json['payment_transaction_id'] as String?,
       items: itemsRaw
@@ -159,6 +215,13 @@ class CheckoutSession {
           : null,
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
+      subOrders: subOrdersRaw
+          .map((e) => CheckoutSubOrder.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      warnings: warningsRaw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList(),
     );
   }
 
@@ -170,7 +233,17 @@ class CheckoutSession {
 
   bool get isBalance => paymentMethod == 'balance';
   bool get isOnline => paymentMethod == 'online';
-  bool get isCod => paymentMethod == 'cod' || paymentMethod == 'cash_on_delivery';
+  bool get isCod =>
+      paymentMethod == 'cash' ||
+      paymentMethod == 'card_on_delivery' ||
+      paymentMethod == 'cod' ||
+      paymentMethod == 'cash_on_delivery';
+
+  /// Fırsatı biten flaş ürünlerinin adları (normal fiyata dönen kalemler).
+  List<String> get endedFlashProductNames => warnings
+      .where((w) => w['code'] == 'flash_ended')
+      .map((w) => (w['product_name'] as String?) ?? 'Ürün')
+      .toList();
 
   CheckoutSession copyWith({
     String? id,
@@ -213,6 +286,8 @@ class CheckoutSession {
       status: status ?? this.status,
       expiresAt: expiresAt ?? this.expiresAt,
       createdAt: createdAt ?? this.createdAt,
+      subOrders: subOrders,
+      warnings: warnings,
     );
   }
 }
@@ -223,13 +298,20 @@ class CheckoutSession {
 class CheckoutSessionRequest {
   final List<CheckoutItemRequest> items;
   final String addressId;
-  final String paymentMethod; // 'cod' | 'online' | 'balance'
+  /// 'cash' | 'card_on_delivery' | 'balance' | 'online' (sunucu 'cod'u nakit sayar)
+  final String paymentMethod;
   final String idempotencyKey;
   final String? couponId;
   final String? couponCode;
   final String? notes;
   final Map<String, dynamic>? invoiceData;
   final String? orderGroupId;
+
+  /// Mağaza başına uygulanan kuponlar (shop_coupons.id); mağaza başına en fazla bir.
+  final List<String> couponIds;
+
+  /// "Gel Al" seçilen mağazalar (yalnız bakiye ödemesiyle).
+  final List<String> pickupShopIds;
 
   const CheckoutSessionRequest({
     required this.items,
@@ -241,7 +323,13 @@ class CheckoutSessionRequest {
     this.notes,
     this.invoiceData,
     this.orderGroupId,
+    this.couponIds = const [],
+    this.pickupShopIds = const [],
   });
+
+  /// [couponId] (tekli eski alan) + [couponIds], tekrarsız.
+  List<String> get allCouponIds =>
+      {...couponIds, if (couponId != null) couponId!}.toList();
 
   Map<String, dynamic> toJson() {
     return {
@@ -254,6 +342,8 @@ class CheckoutSessionRequest {
       if (notes != null) 'notes': notes,
       if (invoiceData != null) 'invoice_data': invoiceData,
       if (orderGroupId != null) 'order_group_id': orderGroupId,
+      if (couponIds.isNotEmpty) 'coupon_ids': couponIds,
+      if (pickupShopIds.isNotEmpty) 'pickup_shop_ids': pickupShopIds,
     };
   }
 }

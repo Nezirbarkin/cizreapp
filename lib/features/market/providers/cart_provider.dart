@@ -254,12 +254,19 @@ class CartProvider with ChangeNotifier {
   /// Yalnızca bir mağazanın sepetini temizle (diğer mağazaların ürünlerine
   /// dokunmadan). Mağaza-içi "kendi sepet" ekranındaki "Sepeti Temizle"
   /// butonu için — `clearCart()` TÜM sepeti sildiği için burada kullanılamaz.
-  Future<void> clearShopCart(String shopId) async {
+  ///
+  /// [releaseFlashSales]: bkz. [clearCart]; sipariş sonrası `false` verilir.
+  Future<void> clearShopCart(
+    String shopId, {
+    bool releaseFlashSales = true,
+  }) async {
     try {
       final shopItems = _items.where((it) => it.shopId == shopId).toList();
 
       for (final item in shopItems) {
-        if (item.flashSaleId != null && item.quantity > 0) {
+        if (releaseFlashSales &&
+            item.flashSaleId != null &&
+            item.quantity > 0) {
           try {
             await _flashSaleService.releaseFlashSale(
               saleId: item.flashSaleId!,
@@ -405,12 +412,19 @@ class CartProvider with ChangeNotifier {
     }
   }
 
-  // Sepeti temizle
-  Future<void> clearCart() async {
+  /// Sepeti temizle.
+  ///
+  /// [releaseFlashSales]: kullanıcı sepeti boşalttığında flaş talepleri
+  /// stoğa geri verilir (varsayılan). Başarılı siparişten sonra `false`
+  /// verilir: sunucu oturumu (commit) talebi zaten tüketip satışı saydı;
+  /// burada release çağırmak satılan adedi geri vermeye çalışırdı.
+  Future<void> clearCart({bool releaseFlashSales = true}) async {
     try {
       // Tüm flaş satışlı satırlar için stoğu geri ver.
       for (final item in _items) {
-        if (item.flashSaleId != null && item.quantity > 0) {
+        if (releaseFlashSales &&
+            item.flashSaleId != null &&
+            item.quantity > 0) {
           try {
             await _flashSaleService.releaseFlashSale(
               saleId: item.flashSaleId!,
