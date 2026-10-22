@@ -22,6 +22,10 @@ import '../providers/cart_provider.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/screens/payment_webview_screen.dart';
 import '../services/cart_service.dart';
+import '../services/scheduled_order_service.dart';
+import '../widgets/scheduled_slot_picker.dart';
+import '../../../core/models/shop_model.dart';
+import '../../../core/utils/schedule_format.dart';
 import 'address_management_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -73,6 +77,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // gösterilir. Seçiliyse teslimat ücreti alınmaz ve kurye devreye girmez.
   bool _shopPickupEnabled = false;
   bool _isPickupSelected = false;
+
+  // Randevulu sipariş: admin global anahtarı + dükkan izin veriyorsa
+  // "Teslimat zamanı" kartı gösterilir. null = hemen.
+  final ScheduledOrderService _scheduledService = ScheduledOrderService();
+  bool _scheduleAvailable = false;
+  bool _shopClosedNow = false;
+  DateTime? _scheduledFor;
 
   // Bakiye durumu. "Gel Al" siparişleri peşin olarak bakiyeden tahsil edilir,
   // bu yüzden seçeneğin gösterilip gösterilmeyeceğine karar vermek ve yetersiz
@@ -168,16 +179,35 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     try {
       final response = await Supabase.instance.client
           .from('shops')
-          .select('pickup_enabled')
+          .select(
+            'id, owner_id, name, pickup_enabled, is_open, working_hours, '
+            'scheduled_orders_enabled, scheduled_orders_admin_blocked',
+          )
           .eq('id', widget.shopId)
           .maybeSingle();
+      // Randevulu sipariş: admin global anahtarı + dükkan ayarı.
+      final shop = response == null ? null : _tryShop(response);
+      final scheduleOn = shop != null &&
+          shop.acceptsScheduledOrders &&
+          await _scheduledService.globallyEnabled();
       if (mounted) {
         setState(() {
           _shopPickupEnabled = response?['pickup_enabled'] as bool? ?? false;
+          _scheduleAvailable = scheduleOn;
+          _shopClosedNow = shop != null && !shop.isOpen;
+          if (!scheduleOn) _scheduledFor = null;
         });
       }
     } catch (e) {
       debugPrint('⚠️ Gel Al bilgisi alınamadı: $e');
+    }
+  }
+
+  static Shop? _tryShop(Map<String, dynamic> row) {
+    try {
+      return Shop.fromJson(row);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -563,6 +593,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               else
                 _buildConfirmationRow(Icons.location_on, 'Adres:', selectedAddress.title),
               _buildConfirmationRow(
+                Icons.schedule,
+                _isPickupSelected ? 'Teslim Alma:' : 'Teslimat:',
+                _scheduledFor == null
+                    ? 'Hemen'
+                    : 'Randevu ${ScheduleFormat.full(_scheduledFor!)}',
+              ),
+              _buildConfirmationRow(
                 Icons.payment,
                 'Ödeme:',
                 // Bakiye ayrı ele alınmalı: eskiden else dalına düşüp "Online
@@ -700,6 +737,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isPlacingOrder = true);
 
     try {
+      // Randevu seçildiyse sipariş/ödeme başlamadan saat yeniden doğrulanır
+      // (seçimle onay arasında saat dolmuş olabilir).
+      final scheduledFor = _scheduledFor;
+      if (scheduledFor != null) {
+        final err = await _scheduledService.validate(widget.shopId, scheduledFor);
+        if (err != null) {
+          if (mounted) {
+            setState(() => _scheduledFor = null);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(err), backgroundColor: Colors.orange),
+            );
+          }
+          return;
+        }
+      }
+
       // Online ödeme seçildiyse iyzico akışını başlat
       if (_selectedPaymentMethod == PaymentMethod.online) {
         await _initiateOnlinePayment(selectedAddress, cartProvider);
@@ -807,6 +860,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         couponId: appliedCoupon?.id,
         couponDiscount: couponDiscount,
         isPickup: _isPickupSelected,
+        scheduledFor: _scheduledFor,
       );
 
       if (order != null) {
@@ -966,6 +1020,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         'coupon_id': appliedCoupon?.id,
         'coupon_discount': couponDiscount,
         'note': _notesController.text.isNotEmpty ? _notesController.text : null,
+        // Randevulu sipariş: ödeme sonrası siparişe complete_online_payment yazar.
+        if (_scheduledFor != null)
+          'scheduled_for': _scheduledFor!.toUtc().toIso8601String(),
       };
 
       // Buyer bilgileri
@@ -1144,6 +1201,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         couponId: appliedCoupon?.id,
         couponDiscount: couponDiscount,
         isPickup: _isPickupSelected,
+        scheduledFor: _scheduledFor,
       );
 
       // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
@@ -1424,6 +1482,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 if (_isPickupSelected) _buildPickupBalanceNotice(orderTotal),
               ],
             ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (_scheduleAvailable) ...[
+          ScheduledDeliveryCard(
+            shopId: widget.shopId,
+            shopName: widget.shopName,
+            value: _scheduledFor,
+            isPickup: _isPickupSelected,
+            shopClosedNow: _shopClosedNow,
+            service: _scheduledService,
+            onChanged: (v) => setState(() => _scheduledFor = v),
           ),
           const SizedBox(height: 16),
         ],

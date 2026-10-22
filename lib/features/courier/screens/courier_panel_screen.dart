@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/models/courier_assignment_model.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/announcement_voice_service.dart';
+import '../../../core/widgets/scheduled_order_badge.dart';
 import '../../../core/services/courier_notification_service.dart';
 import '../../../core/services/courier_location_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
@@ -1577,6 +1579,7 @@ class _CourierHomeTabState extends State<CourierHomeTab> {
         setState(
           () => _serviceNotices = List<Map<String, dynamic>>.from(notices),
         );
+        AnnouncementVoiceService.instance.announceCourierNotices(_serviceNotices);
       }
     } catch (e) {
       debugPrint('Uyarılar yükleme hatası: $e');
@@ -1933,6 +1936,8 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                   'longitude': r['shop_longitude'],
                 },
                 'created_at': r['created_at'],
+                // Randevulu sipariş: havuza saatine yaklaşınca düşer.
+                'scheduled_for': r['scheduled_for'],
                 // RPC order status döndürmez; havuz yalnızca
                 // confirmed/preparing/ready siparişleri içerir.
                 'status': 'ready',
@@ -2419,6 +2424,11 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
                               ],
                             ),
                           ),
+                        ],
+                        if (DateTime.tryParse('${order['scheduled_for'] ?? ''}')
+                            case final scheduledAt?) ...[
+                          const SizedBox(height: 4),
+                          ScheduledOrderBadge(scheduledFor: scheduledAt, compact: true),
                         ],
                       ],
                     ),
@@ -3192,6 +3202,9 @@ class _CourierOrdersTabState extends State<CourierOrdersTab>
           : msg.contains('courier_documents_not_approved')
           ? 'Sipariş alabilmek için önce kimlik evraklarınızın admin '
                 'tarafından onaylanması gerekiyor.'
+          : msg.contains('scheduled_too_early')
+          ? 'Bu randevulu sipariş henüz alınamaz; randevu saatine yaklaşınca '
+                'tekrar listede görünür.'
           : 'Sipariş alınamadı: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

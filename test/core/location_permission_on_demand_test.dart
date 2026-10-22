@@ -73,8 +73,12 @@ class _FakeGeolocator extends GeolocatorPlatform {
     return permission;
   }
 
+  /// Telefonun konum (GPS) servisi açık mı.
+  bool serviceEnabled = true;
+  int openLocationSettingsCalls = 0;
+
   @override
-  Future<bool> isLocationServiceEnabled() async => true;
+  Future<bool> isLocationServiceEnabled() async => serviceEnabled;
 
   @override
   Future<Position?> getLastKnownPosition({
@@ -95,7 +99,10 @@ class _FakeGeolocator extends GeolocatorPlatform {
   Future<bool> openAppSettings() async => true;
 
   @override
-  Future<bool> openLocationSettings() async => true;
+  Future<bool> openLocationSettings() async {
+    openLocationSettingsCalls++;
+    return true;
+  }
 }
 
 /// Bellek içi PKCE deposu (varsayılanı testte asılı kalır).
@@ -351,6 +358,79 @@ void main() {
       expect(result, isTrue);
       expect(disclosure(), findsNothing);
       expect(geo.requestCalls, 0);
+    });
+
+    // Görev 4 (2026-10-22): Şehiriçi / Kurye Çağır girişinde izin + GPS.
+    testWidgets('ensure varsayılan olarak GPS bakmaz (mevcut çağıranlar aynı)', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({_nearbyConsent: true});
+      geo.permission = LocationPermission.whileInUse;
+      geo.serviceEnabled = false;
+      final context = await host(tester);
+      expect(await LocationDisclosureService.ensure(context, LocationPurpose.nearby), isTrue);
+      expect(find.text('Konum servisi kapalı'), findsNothing);
+    });
+
+    testWidgets('checkService: GPS kapalıysa "Konumu Aç" sorulur, false döner', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({_nearbyConsent: true});
+      geo.permission = LocationPermission.whileInUse;
+      geo.serviceEnabled = false;
+      final context = await host(tester);
+      final result = LocationDisclosureService.ensure(
+        context,
+        LocationPurpose.nearby,
+        checkService: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Konum servisi kapalı'), findsOneWidget);
+      await tester.tap(find.text('Konumu Aç'));
+      await tester.pumpAndSettle();
+      expect(await result, isFalse);
+      expect(geo.openLocationSettingsCalls, 1);
+    });
+
+    testWidgets('promptOnEntry: hazırsa sessiz, değilse sorar; Vazgeç oturumda hatırlanır', (
+      tester,
+    ) async {
+      LocationDisclosureService.debugResetEntryPrompts();
+      final context = await host(tester);
+
+      // Hazır değil → açıklama; Vazgeç → false.
+      var r = LocationDisclosureService.promptOnEntry(
+        context, LocationPurpose.nearby, screenKey: 'send_package');
+      await tester.pumpAndSettle();
+      expect(disclosure(), findsOneWidget);
+      await tester.tap(find.text('Vazgeç'));
+      await tester.pumpAndSettle();
+      expect(await r, isFalse);
+
+      // Aynı ekrana tekrar girişte sorulmaz.
+      r = LocationDisclosureService.promptOnEntry(
+        context, LocationPurpose.nearby, screenKey: 'send_package');
+      await tester.pumpAndSettle();
+      expect(disclosure(), findsNothing);
+      expect(await r, isFalse);
+
+      // Başka ekran (Şehiriçi) yine sorar; kabul → sistem izni → true.
+      r = LocationDisclosureService.promptOnEntry(
+        context, LocationPurpose.nearby, screenKey: 'sehirici_map');
+      await tester.pumpAndSettle();
+      expect(disclosure(), findsOneWidget);
+      await tester.tap(disclosure());
+      await tester.pumpAndSettle();
+      expect(await r, isTrue);
+      expect(geo.requestCalls, 1);
+
+      // Artık hazır: hiçbir şey göstermeden true.
+      r = LocationDisclosureService.promptOnEntry(
+        context, LocationPurpose.nearby, screenKey: 'send_package');
+      await tester.pumpAndSettle();
+      expect(disclosure(), findsNothing);
+      expect(await r, isTrue);
+      LocationDisclosureService.debugResetEntryPrompts();
     });
   });
 

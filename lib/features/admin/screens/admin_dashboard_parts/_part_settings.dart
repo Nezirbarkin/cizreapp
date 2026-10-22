@@ -31,6 +31,8 @@ extension on _AdminDashboardScreenState {
           ),
           const SizedBox(height: 12),
           _buildOrderControlCard(),
+          const SizedBox(height: 12),
+          const AdminScheduledOrdersCard(),
 
           const SizedBox(height: 24),
 
@@ -41,6 +43,16 @@ extension on _AdminDashboardScreenState {
           ),
           const SizedBox(height: 12),
           _buildStartupAnnouncementCard(),
+
+          const SizedBox(height: 24),
+
+          // Sesli Duyurular Bölümü
+          const Text(
+            'Sesli Duyurular',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          const VoiceAnnounceSettingsCard(),
 
           const SizedBox(height: 24),
 
@@ -364,7 +376,7 @@ extension on _AdminDashboardScreenState {
       future: Supabase.instance.client
           .from('app_about_settings')
           .select(
-            'startup_announcement_enabled, startup_announcement_title, startup_announcement_message, startup_announcement_type, startup_announcement_button_text',
+            'startup_announcement_enabled, startup_announcement_title, startup_announcement_message, startup_announcement_type, startup_announcement_button_text, startup_announcement_voice_text',
           )
           .single()
           .catchError(
@@ -398,6 +410,9 @@ extension on _AdminDashboardScreenState {
             (announcementData['startup_announcement_type'] ?? 'info') as String;
         final buttonText =
             (announcementData['startup_announcement_button_text'] ?? 'Tamam')
+                as String;
+        final voiceText =
+            (announcementData['startup_announcement_voice_text'] ?? '')
                 as String;
 
         Color getColor(String t) {
@@ -556,6 +571,7 @@ extension on _AdminDashboardScreenState {
                         message,
                         type,
                         buttonText,
+                        voiceText,
                       ),
                       icon: const Icon(Icons.edit),
                       label: const Text('Duyuruyu Düzenle'),
@@ -584,10 +600,12 @@ extension on _AdminDashboardScreenState {
     String currentMessage,
     String currentType,
     String currentButton,
+    String currentVoiceText,
   ) {
     final titleController = TextEditingController(text: currentTitle);
     final messageController = TextEditingController(text: currentMessage);
     final buttonController = TextEditingController(text: currentButton);
+    final voiceController = TextEditingController(text: currentVoiceText);
     String selectedType = currentType;
 
     showDialog(
@@ -625,6 +643,20 @@ extension on _AdminDashboardScreenState {
                     labelText: 'Buton Metni (varsayılan: Tamam)',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.smart_button),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: voiceController,
+                  maxLength: 1000,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Sesli okunacak metin (isteğe bağlı)',
+                    helperText:
+                        'Boşsa başlık + mesaj okunur. {ad} yazarsanız kullanıcının adı oraya gelir.',
+                    helperMaxLines: 2,
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.record_voice_over),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -701,6 +733,10 @@ extension on _AdminDashboardScreenState {
                             buttonController.text.trim().isEmpty
                             ? 'Tamam'
                             : buttonController.text.trim(),
+                        'startup_announcement_voice_text':
+                            voiceController.text.trim().isEmpty
+                            ? null
+                            : voiceController.text.trim(),
                         'startup_announcement_updated_at': DateTime.now()
                             .toIso8601String(),
                       })

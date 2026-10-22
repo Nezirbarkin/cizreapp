@@ -11,6 +11,8 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/services/shared_tts.dart';
+
 /// Bildirim düğmesi olaylarının ARKA PLAN izolatından ANA izolata
 /// taşındığı portun adı.
 ///
@@ -1637,7 +1639,9 @@ class OkeySoundService {
     final existing = _tts;
     if (existing != null) return existing;
 
-    final tts = FlutterTts();
+    // Sesli duyurularla AYNI örnek (bkz. sharedFlutterTts): ikinci bir örnek
+    // platform kanalının geri çağrılarını ele geçirirdi.
+    final tts = sharedFlutterTts();
     // iOS: masada arka plan müziği çalıyor. Varsayılan kategori müziği
     // KESERDİ; ambient + mixWithOthers ile anons müziğin ÜSTÜNE biner.
     if (!kIsWeb && Platform.isIOS) {

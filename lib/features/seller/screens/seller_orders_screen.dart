@@ -14,6 +14,8 @@ import '../../../core/services/contact_lookup_service.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 import '../../../core/widgets/order_return_badge.dart';
+import '../../../core/widgets/scheduled_order_badge.dart';
+import '../../../core/utils/schedule_format.dart';
 import 'seller_return_requests_screen.dart';
 
 /// Satıcı Sipariş Yönetimi Ekranı - Yenilenmiş Modern Tasarım
@@ -52,6 +54,19 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
   // Sipariş ID'sine göre kurye bilgileri
   Map<String, Map<String, dynamic>> _courierInfoMap = {};
 
+  /// Randevulu sipariş platform kuryesine saatinden kaç dk önce verilebilir
+  /// (admin ayarı; sunucu `assign_order_to_courier` aynı kuralı uygular).
+  int _scheduledCourierLeadMinutes = 60;
+
+  /// Randevulu siparişte kurye çağırmak için henüz erken mi?
+  bool _tooEarlyForCourier(Order order) {
+    final at = order.scheduledFor;
+    if (at == null) return false;
+    return DateTime.now().isBefore(
+      at.subtract(Duration(minutes: _scheduledCourierLeadMinutes)),
+    );
+  }
+
   late TabController _tabController;
 
   final List<OrderStatus?> _statusFilters = [
@@ -77,6 +92,17 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       }
     });
     _loadShopAndOrders();
+    _loadScheduledCourierLead();
+  }
+
+  Future<void> _loadScheduledCourierLead() async {
+    try {
+      final res = await Supabase.instance.client.rpc('scheduled_courier_lead_minutes');
+      final v = res is num ? res.toInt() : int.tryParse('$res');
+      if (v != null && mounted) setState(() => _scheduledCourierLeadMinutes = v);
+    } catch (_) {
+      // Varsayılan 60 dk; son kararı zaten sunucu verir.
+    }
   }
 
   @override
@@ -1884,6 +1910,17 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
                   ),
                 ],
 
+                if (order.scheduledFor != null) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ScheduledOrderBadge(
+                      scheduledFor: order.scheduledFor!,
+                      isPickup: order.isPickup,
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 16),
                 Container(height: 1, color: Colors.grey.shade200),
                 const SizedBox(height: 16),
@@ -2227,10 +2264,14 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
     final courierIsDelivered = courierStatus == 'delivered';
     // "Gel Al" siparişinde müşteri mağazadan bizzat teslim alacağı için
     // kurye hiçbir aşamada devreye girmemeli.
-    final showCallCourierButton = !_hasOwnCourier &&
+    final callCourierEligible = !_hasOwnCourier &&
         !order.isPickup &&
         order.status == OrderStatus.ready &&
         courierStatus == null;
+    // Randevulu sipariş: platform kuryesi saatine yaklaşınca çağrılabilir;
+    // o zamana kadar düğme yerine "kurye şu saatten itibaren" bilgisi.
+    final courierTooEarly = callCourierEligible && _tooEarlyForCourier(order);
+    final showCallCourierButton = callCourierEligible && !courierTooEarly;
 
     // Kurye teslim ettiyse (kuryesi olmayan satıcıda)
     if (!_hasOwnCourier && courierIsDelivered && order.status == OrderStatus.onTheWay) {
@@ -2348,6 +2389,7 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
               ),
             if (showCallCourierButton)
               _buildCallCourierButton(order),
+            if (courierTooEarly) _buildCourierLaterChip(order),
           ],
         );
 
@@ -2415,6 +2457,37 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  /// Randevulu siparişte kurye henüz çağrılamıyorsa gösterilen bilgi.
+  Widget _buildCourierLaterChip(Order order) {
+    final from = order.scheduledFor!
+        .subtract(Duration(minutes: _scheduledCourierLeadMinutes));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.deepPurple.shade100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.schedule, size: 16, color: Colors.deepPurple.shade400),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Kurye ${ScheduleFormat.full(from)} itibarıyla çağrılabilir',
+              style: TextStyle(
+                color: Colors.deepPurple.shade700,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Kurye çağır butonu - kuryesi olmayan satıcılar için
@@ -2561,16 +2634,20 @@ class _SellerOrdersScreenState extends State<SellerOrdersScreen>
       final msg = e.toString();
       final alreadyAssigned = msg.contains('already_assigned');
       final noCourier = msg.contains('no_courier_available');
+      final tooEarly = msg.contains('scheduled_too_early');
       final userMsg = alreadyAssigned
           ? 'Bu sipariş zaten bir kuryeye atanmış'
           : noCourier
               ? 'Şu an müsait kurye bulunamadı. Lütfen sonra tekrar deneyin.'
-              : 'Kurye çağırma hatası: $e';
+              : tooEarly
+                  ? 'Randevulu sipariş: kurye, randevu saatinden '
+                      '$_scheduledCourierLeadMinutes dk önce çağrılabilir.'
+                  : 'Kurye çağırma hatası: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(userMsg),
-            backgroundColor: (alreadyAssigned || noCourier)
+            backgroundColor: (alreadyAssigned || noCourier || tooEarly)
                 ? Colors.orange.shade400
                 : Colors.red.shade400,
           ),

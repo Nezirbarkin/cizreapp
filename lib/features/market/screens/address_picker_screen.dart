@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../../core/models/address_model.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../../../core/services/maps_api_key_service.dart';
 import '../../../core/theme/app_map_style.dart';
 import '../../../core/widgets/map_controls.dart';
@@ -275,11 +276,15 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
         }
       }
 
-      // Mevcut konumu al
+      // Mevcut konumu al. Ekran açılışındaki (etkileşimsiz) okuma Android
+      // "Konum Doğruluğu" penceresini dokunuşsuz açmamalı: sessiz ayarlar.
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
+        locationSettings: interactive
+            ? const LocationSettings(accuracy: LocationAccuracy.high)
+            : UserDistanceService.silentSettings(
+                accuracy: LocationAccuracy.high,
+                timeLimit: const Duration(seconds: 8),
+              ),
       );
       if (!mounted) return;
 
@@ -309,9 +314,15 @@ class _AddressPickerScreenState extends State<AddressPickerScreen> {
       }
     } catch (e) {
       debugPrint('❌ Konum alma hatası: $e');
-      if (mounted) {
+      // Açılıştaki sessiz denemede (ör. GPS kapalı) kullanıcı bir şey
+      // istemedi; ham hata gösterilmez. Düğmeyle istendiyse bildirilir.
+      if (mounted && interactive) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Konum alınamadı: $e')),
+          const SnackBar(
+            content: Text(
+              'Konum alınamadı. Konum servisinin açık olduğundan emin olun.',
+            ),
+          ),
         );
       }
     } finally {

@@ -61,7 +61,10 @@ class AdminNotificationService {
     required String iconType,
     List<String> userIds = const [],
     DateTime? scheduledFor,
+    String? voiceText,
+    String? voiceGender,
   }) async {
+    final voice = voiceText?.trim() ?? '';
     final res = await _db.rpc('admin_send_notification', params: {
       'p_audience': audience.key,
       'p_title': title.trim(),
@@ -69,6 +72,10 @@ class AdminNotificationService {
       'p_icon_type': iconType,
       'p_user_ids': audience == AdminNotifAudience.personal ? userIds : null,
       'p_scheduled_for': scheduledFor?.toUtc().toIso8601String(),
+      // Sesli alanlar yalnız doluysa gönderilir: sunucu henüz eski imzadaysa
+      // sesli olmayan gönderim yine çalışır.
+      if (voice.isNotEmpty) 'p_voice_text': voice,
+      if (voiceGender != null) 'p_voice_gender': voiceGender,
     });
     return AdminNotifSendResult.fromJson(Map<String, dynamic>.from(res as Map));
   }
@@ -76,6 +83,8 @@ class AdminNotificationService {
   /// Metni/ikonu düzeltir. Gönderilmişse alıcıların bildirim kutusundaki metin
   /// de güncellenir (giden push geri alınamaz). [renotify]: okunmadı yapıp en
   /// üste alır ve push'u yeniden gönderir. Zamanlanmışsa [scheduledFor] yeni zaman.
+  /// [updateVoice] true ise sesli metin/ses de [voiceText]/[voiceGender] ile
+  /// değiştirilir (yeniden bildirimden ÖNCE, push yeni sesli metni taşısın).
   Future<void> update(
     String campaignId, {
     required String title,
@@ -83,7 +92,18 @@ class AdminNotificationService {
     required String iconType,
     DateTime? scheduledFor,
     bool renotify = false,
+    bool updateVoice = false,
+    String? voiceText,
+    String? voiceGender,
   }) async {
+    if (updateVoice) {
+      final voice = voiceText?.trim() ?? '';
+      await _db.rpc('admin_set_campaign_voice', params: {
+        'p_campaign_id': campaignId,
+        'p_voice_text': voice.isEmpty ? null : voice,
+        'p_voice_gender': voiceGender,
+      });
+    }
     await _db.rpc('admin_update_notification_campaign', params: {
       'p_campaign_id': campaignId,
       'p_title': title.trim(),

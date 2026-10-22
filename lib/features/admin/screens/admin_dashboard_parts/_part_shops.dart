@@ -1042,6 +1042,18 @@ extension on _AdminDashboardScreenState {
                                   ? Colors.green
                                   : Colors.orange,
                             ),
+                            if (shop['scheduled_orders_admin_blocked'] == true)
+                              _shopTagPill(
+                                icon: Icons.event_busy,
+                                text: 'Randevu kapalı (admin)',
+                                color: Colors.red,
+                              )
+                            else if (shop['scheduled_orders_enabled'] == true)
+                              _shopTagPill(
+                                icon: Icons.event_available,
+                                text: 'Randevulu sipariş',
+                                color: Colors.deepPurple,
+                              ),
                             _shopTagPill(
                               icon: Icons.payments_outlined,
                               text:
@@ -1167,6 +1179,9 @@ extension on _AdminDashboardScreenState {
           case 'category':
             _showShopCategoryDialog(shop);
             break;
+          case 'scheduled':
+            _toggleShopScheduledBlock(shop);
+            break;
           case 'delete':
             _showDeleteShopDialog(shop);
             break;
@@ -1211,10 +1226,50 @@ extension on _AdminDashboardScreenState {
           'Ana kategori',
           color: Colors.teal,
         ),
+        _shopMenuItem(
+          'scheduled',
+          shop['scheduled_orders_admin_blocked'] == true
+              ? Icons.event_available
+              : Icons.event_busy,
+          shop['scheduled_orders_admin_blocked'] == true
+              ? 'Randevulu siparişe izin ver'
+              : 'Randevulu siparişi kapat',
+          color: Colors.deepPurple,
+        ),
         const PopupMenuDivider(height: 1),
         _shopMenuItem('delete', Icons.delete_outline, 'Sil', color: Colors.red),
       ],
     );
+  }
+
+  // --- _toggleShopScheduledBlock ---
+  /// Bu mağazada randevulu siparişi admin olarak kapatır/açar. Satıcı bu
+  /// alanı değiştiremez (guard_shop_financial_columns eski değere döndürür).
+  Future<void> _toggleShopScheduledBlock(Map<String, dynamic> shop) async {
+    final next = !(shop['scheduled_orders_admin_blocked'] as bool? ?? false);
+    try {
+      await Supabase.instance.client
+          .from('shops')
+          .update({'scheduled_orders_admin_blocked': next})
+          .eq('id', shop['id'].toString());
+      if (!mounted) return;
+      setState(() => shop['scheduled_orders_admin_blocked'] = next);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            next
+                ? '${shop['name'] ?? 'Mağaza'}: randevulu sipariş kapatıldı'
+                : '${shop['name'] ?? 'Mağaza'}: randevulu siparişe izin verildi',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Güncellenemedi: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   // --- _showShopCategoryDialog (Görev 4.5) ---

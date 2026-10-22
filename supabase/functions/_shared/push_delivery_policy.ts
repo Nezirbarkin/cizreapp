@@ -1,16 +1,28 @@
 // Push worker'ın saf, ağ erişimi gerektirmeyen teslimat kuralları.
 
+export const DEFAULT_CHANNEL_ID = 'high_importance_channel'
+
+// Kullanıcı 'Bildirim sesi'ni kapattıysa bu kanal kullanılır. Kanalı istemci
+// (push_notification_service.dart) sessiz olarak oluşturur; kanal sesi Android'de
+// sonradan değiştirilemediği için ses tercihi ayrı bir kanalla taşınır.
+export const SILENT_CHANNEL_ID = 'silent_notifications'
+
 export interface FcmMessage {
   token: string
   notification: { title: string; body: string }
   data: Record<string, string>
   android: {
     priority: 'high'
-    notification: { sound: 'default'; channel_id: 'high_importance_channel' }
+    notification: { sound?: 'default'; channel_id: string }
   }
   apns: {
-    payload: { aps: { sound: 'default'; badge: number } }
+    payload: { aps: { sound?: 'default'; badge: number } }
   }
+}
+
+export interface FcmMessageOptions {
+  /** true: ses çalmadan (sessiz kanal, APNs sesi yok) teslim et. */
+  silent?: boolean
 }
 
 export function buildFcmMessage(
@@ -18,7 +30,22 @@ export function buildFcmMessage(
   title: string,
   body: string,
   data: Record<string, string>,
+  options: FcmMessageOptions = {},
 ): FcmMessage {
+  if (options.silent) {
+    return {
+      token,
+      notification: { title, body },
+      data,
+      android: {
+        priority: 'high',
+        notification: { channel_id: SILENT_CHANNEL_ID },
+      },
+      apns: {
+        payload: { aps: { badge: 1 } },
+      },
+    }
+  }
   return {
     token,
     notification: { title, body },
@@ -27,13 +54,20 @@ export function buildFcmMessage(
       priority: 'high',
       notification: {
         sound: 'default',
-        channel_id: 'high_importance_channel',
+        channel_id: DEFAULT_CHANNEL_ID,
       },
     },
     apns: {
       payload: { aps: { sound: 'default', badge: 1 } },
     },
   }
+}
+
+/** Bildirim sesi açık mı? Yalnız açıkça false olan tercih sessize alır (fail-open). */
+export function isPushSoundEnabled(
+  preferences: Record<string, unknown> | null,
+): boolean {
+  return !preferences || preferences.notification_sound_enabled !== false
 }
 
 export interface ClassifiedFcmFailure {

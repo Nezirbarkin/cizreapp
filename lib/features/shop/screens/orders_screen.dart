@@ -8,6 +8,7 @@ import '../../market/widgets/pending_review_dialog.dart';
 import '../../market/services/shop_review_service.dart';
 import '../../market/screens/my_return_requests_screen.dart';
 import '../../../core/widgets/order_return_badge.dart';
+import '../../../core/widgets/scheduled_order_badge.dart';
 import 'digital_orders_screen.dart' show DigitalOrdersContent;
 
 class OrdersScreen extends StatefulWidget {
@@ -552,7 +553,14 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
                     color: Colors.grey.shade600,
                   ),
                 ),
-                
+                if (order.scheduledFor != null) ...[
+                  const SizedBox(height: 8),
+                  ScheduledOrderBadge(
+                    scheduledFor: order.scheduledFor!,
+                    isPickup: order.isPickup,
+                  ),
+                ],
+
                 // "Gel Al" teslim onayı - sipariş bu onayla kapanır.
                 // "Siparişiniz Hazır" bildirimi kullanıcıyı bu ekrana
                 // getirdiği için buton burada da bulunmak zorunda.

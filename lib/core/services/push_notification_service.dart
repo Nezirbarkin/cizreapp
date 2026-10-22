@@ -5,8 +5,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'announcement_voice_service.dart';
 import 'notification_service.dart';
+import 'voice_announce_settings_service.dart';
 
 /// Android bildirim kanalı (Android 8+ için zorunlu)
 const AndroidNotificationChannel _highImportanceChannel =
@@ -19,6 +22,19 @@ const AndroidNotificationChannel _highImportanceChannel =
       enableVibration: true,
       showBadge: true,
     );
+
+/// Kullanıcı "Bildirim sesi"ni kapattığında kullanılan kanal. Android'de kanal
+/// sesi sonradan değiştirilemediği için ses tercihi ayrı kanalla taşınır;
+/// sunucu (process-notification-outbox) da aynı kimliği kullanır.
+const AndroidNotificationChannel _silentChannel = AndroidNotificationChannel(
+  'silent_notifications',
+  'Sessiz Bildirimler',
+  description: 'Bildirim sesi kapalıyken gelen bildirimler (titreşimli, sessiz).',
+  importance: Importance.high,
+  playSound: false,
+  enableVibration: true,
+  showBadge: true,
+);
 
 class PushNotificationService {
   static final FirebaseMessaging _firebaseMessaging =
@@ -69,6 +85,7 @@ class PushNotificationService {
         _showLocalNotification(message);
         // Callback çağır - bildirim sayısı güncellensin
         onNewNotification?.call();
+        _announceAdminMessage(message);
       });
 
       // 5. Background message opened handler - Bildirime tıklanınca
@@ -164,6 +181,7 @@ class PushNotificationService {
             >();
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(_highImportanceChannel);
+          await androidPlugin.createNotificationChannel(_silentChannel);
           debugPrint('✅ Android bildirim kanalı oluşturuldu');
         }
       }
@@ -290,28 +308,34 @@ class PushNotificationService {
 
       debugPrint('📬 Foreground bildirim gösteriliyor: ${notification.title}');
 
-      // icon_type'a göre özel ikon rengini al
-      final iconType = message.data['icon_type'] as String?;
+      // icon_type'a göre özel ikon rengini al. Sunucu metadata'yı
+      // meta_<anahtar> olarak düzleştirir; eski yük biçimi de desteklenir.
+      final iconType = (message.data['icon_type'] ??
+          message.data['meta_icon_type']) as String?;
       final Color iconColor = _getIconColor(iconType);
+
+      // Kullanıcı "Bildirim sesi"ni kapattıysa sessiz kanal.
+      final soundOn = await isSoundEnabledLocally();
+      final channel = soundOn ? _highImportanceChannel : _silentChannel;
 
       // İkon tipine göre küçük renk göstergesi için badge rengi ayarla
       final androidDetails = AndroidNotificationDetails(
-        'high_importance_channel',
-        'Önemli Bildirimler',
-        channelDescription: 'Bu kanal önemli bildirimler için kullanılır.',
+        channel.id,
+        channel.name,
+        channelDescription: channel.description,
         importance: Importance.high,
         priority: Priority.high,
         showWhen: true,
-        playSound: true,
+        playSound: soundOn,
         enableVibration: true,
         icon: '@mipmap/ic_launcher',
         color: iconColor,
       );
 
-      const iosDetails = DarwinNotificationDetails(
+      final iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
-        presentSound: true,
+        presentSound: soundOn,
         threadIdentifier: 'cizreapp_notifications',
       );
 
@@ -340,6 +364,59 @@ class PushNotificationService {
     } catch (e) {
       debugPrint('❌ Local bildirim gösterme hatası: $e');
     }
+  }
+
+  static const String _soundPrefPrefix = 'notification_sound_enabled_';
+
+  /// Bildirim Ayarları ekranı "Bildirim sesi" tercihini yükleyince/değiştirince
+  /// çağırır (ön planda gösterilen yerel bildirim bu önbelleğe bakar; arka
+  /// plandaki push'u sunucu aynı tercihle sessiz gönderir).
+  static Future<void> cacheSoundEnabled(String userId, bool enabled) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool('$_soundPrefPrefix$userId', enabled);
+    } catch (_) {}
+  }
+
+  static Future<bool> isSoundEnabledLocally() async {
+    try {
+      final uid = Supabase.instance.client.auth.currentUser?.id;
+      if (uid == null) return true;
+      final p = await SharedPreferences.getInstance();
+      final cached = p.getBool('$_soundPrefPrefix$uid');
+      if (cached != null) return cached;
+      // Bu cihazda ilk kez: tercihi bir kez sunucudan okuyup sakla.
+      final row = await Supabase.instance.client
+          .from('notification_preferences')
+          .select('notification_sound_enabled')
+          .eq('user_id', uid)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 3));
+      final enabled = row?['notification_sound_enabled'] as bool? ?? true;
+      await p.setBool('$_soundPrefPrefix$uid', enabled);
+      return enabled;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Uygulama açıkken gelen yönetici bildirimini sesli okur (ayarlar izin
+  /// veriyorsa). Bildirim sesi önce duyulsun diye kısa gecikmeyle başlar.
+  static void _announceAdminMessage(RemoteMessage message) {
+    final data = message.data;
+    final type = data['type'];
+    if (type != 'admin_broadcast' && type != 'admin_notification') return;
+    final id = data['meta_campaign_id'] ?? data['notification_id'];
+    Future.delayed(const Duration(milliseconds: 700), () {
+      AnnouncementVoiceService.instance.announce(
+        area: VoiceArea.adminNotifications,
+        title: message.notification?.title,
+        body: message.notification?.body,
+        voiceText: data['meta_voice_text'],
+        gender: data['meta_voice_gender'],
+        dedupKey: id == null ? null : 'admin:$id',
+      );
+    });
   }
 
   /// İkon tipine göre bildirim rengini döndür
@@ -462,6 +539,7 @@ class PushNotificationService {
       case 'order_status':
       case 'order_confirmed':
       case 'new_order':
+      case 'scheduled_order_reminder':
       case 'seller_new_digital_order':
       case 'seller_product_out_of_stock':
       case 'digital_order_status':

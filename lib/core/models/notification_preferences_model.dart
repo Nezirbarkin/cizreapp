@@ -18,6 +18,12 @@ class NotificationPreferences {
   /// Takip ettiğim / abone olduğum mağaza canlı yayına başlayınca bildirim
   /// (varsayılan açık).
   final bool liveStreamsEnabled;
+
+  /// Uygulama açıkken yönetici duyurularını sesli oku (varsayılan açık).
+  final bool voiceAnnouncementsEnabled;
+
+  /// Push bildirim sesi; kapalıysa bildirimler sessiz kanaldan gelir.
+  final bool notificationSoundEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -36,6 +42,8 @@ class NotificationPreferences {
     this.groupMemberJoinedEnabled = true,
     this.cartPriceDropEnabled = true,
     this.liveStreamsEnabled = true,
+    this.voiceAnnouncementsEnabled = true,
+    this.notificationSoundEnabled = true,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -56,6 +64,8 @@ class NotificationPreferences {
       groupMemberJoinedEnabled: json['group_member_joined_enabled'] as bool? ?? true,
       cartPriceDropEnabled: json['cart_price_drop_enabled'] as bool? ?? true,
       liveStreamsEnabled: json['live_streams_enabled'] as bool? ?? true,
+      voiceAnnouncementsEnabled: json['voice_announcements_enabled'] as bool? ?? true,
+      notificationSoundEnabled: json['notification_sound_enabled'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -77,6 +87,8 @@ class NotificationPreferences {
       'group_member_joined_enabled': groupMemberJoinedEnabled,
       'cart_price_drop_enabled': cartPriceDropEnabled,
       'live_streams_enabled': liveStreamsEnabled,
+      'voice_announcements_enabled': voiceAnnouncementsEnabled,
+      'notification_sound_enabled': notificationSoundEnabled,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -97,6 +109,8 @@ class NotificationPreferences {
     bool? groupMemberJoinedEnabled,
     bool? cartPriceDropEnabled,
     bool? liveStreamsEnabled,
+    bool? voiceAnnouncementsEnabled,
+    bool? notificationSoundEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -115,6 +129,8 @@ class NotificationPreferences {
       groupMemberJoinedEnabled: groupMemberJoinedEnabled ?? this.groupMemberJoinedEnabled,
       cartPriceDropEnabled: cartPriceDropEnabled ?? this.cartPriceDropEnabled,
       liveStreamsEnabled: liveStreamsEnabled ?? this.liveStreamsEnabled,
+      voiceAnnouncementsEnabled: voiceAnnouncementsEnabled ?? this.voiceAnnouncementsEnabled,
+      notificationSoundEnabled: notificationSoundEnabled ?? this.notificationSoundEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

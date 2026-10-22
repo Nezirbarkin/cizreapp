@@ -73,6 +73,7 @@ class _SehiriciLineDetailScreenState extends State<SehiriciLineDetailScreen> {
                   height: 320,
                   showCouriers: false,
                   borderRadius: 22,
+                  requestLocationOnEntry: true,
                 ),
               ),
             ),

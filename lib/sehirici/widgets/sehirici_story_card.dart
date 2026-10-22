@@ -517,6 +517,8 @@ class _SehiriciMapDialog extends StatelessWidget {
                 showLineChips: true,
                 onHighlightChanged: provider.highlightLine,
                 borderRadius: 0,
+                // Tam ekran Şehiriçi: girişte konum izni/GPS istenir.
+                requestLocationOnEntry: true,
               ),
             ),
 

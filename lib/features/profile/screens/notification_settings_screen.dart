@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/notification_preferences_model.dart';
 import '../../../core/services/notification_preferences_service.dart';
+import '../../../core/services/announcement_voice_service.dart';
+import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/voice_announce_settings_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -18,10 +21,31 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool _isLoading = true;
   NotificationPreferences? _preferences;
 
+  /// Admin sesli duyuruları tamamen kapattıysa "Sesli duyurular" anahtarı gizlenir.
+  bool _voiceFeatureEnabled = VoiceAnnounceSettingsService.current.enabled;
+
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    VoiceAnnounceSettingsService.fetch().then((s) {
+      if (mounted && s.enabled != _voiceFeatureEnabled) {
+        setState(() => _voiceFeatureEnabled = s.enabled);
+      }
+    });
+  }
+
+  /// Ses tercihleri cihazda da tutulur: ön plandaki bildirim ve sesli okuma
+  /// ağ beklemeden karar verir.
+  void _cacheSoundPrefs(String userId, NotificationPreferences prefs) {
+    AnnouncementVoiceService.cacheUserAutoEnabled(
+      userId,
+      prefs.voiceAnnouncementsEnabled,
+    );
+    PushNotificationService.cacheSoundEnabled(
+      userId,
+      prefs.notificationSoundEnabled,
+    );
   }
 
   Future<void> _loadPreferences() async {
@@ -35,6 +59,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
 
     try {
       final prefs = await _preferencesService.getUserPreferences(userId);
+      if (prefs != null) _cacheSoundPrefs(userId, prefs);
       setState(() {
         _preferences = prefs;
         _isLoading = false;
@@ -119,6 +144,19 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
           await _preferencesService.updatePreferences(
             userId: userId,
             liveStreamsEnabled: value,
+          );
+          break;
+        case 'voice_announcements':
+          await _preferencesService.updatePreferences(
+            userId: userId,
+            voiceAnnouncementsEnabled: value,
+          );
+          if (!value) await AnnouncementVoiceService.instance.stop();
+          break;
+        case 'notification_sound':
+          await _preferencesService.updatePreferences(
+            userId: userId,
+            notificationSoundEnabled: value,
           );
           break;
       }
@@ -266,6 +304,30 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                       value: _preferences!.promotionalEnabled,
                       onChanged: (value) => _updatePreference('promotional', value),
                     ),
+
+                    const SizedBox(height: 24),
+
+                    // Ses
+                    _buildSectionHeader('Ses'),
+                    _buildSwitchTile(
+                      title: 'Bildirim Sesi',
+                      subtitle: 'Kapalıyken bildirimler sessiz gelir (titreşim sürer)',
+                      icon: Icons.notifications_active,
+                      iconColor: Colors.blueGrey,
+                      value: _preferences!.notificationSoundEnabled,
+                      onChanged: (value) => _updatePreference('notification_sound', value),
+                    ),
+                    if (_voiceFeatureEnabled)
+                      _buildSwitchTile(
+                        title: 'Sesli Duyurular',
+                        subtitle:
+                            'Uygulama açıkken yönetimden gelen duyuruları adınla sesli okur. '
+                            'Kapalıyken de duyurulardaki "Dinle" düğmesi çalışır.',
+                        icon: Icons.record_voice_over,
+                        iconColor: Colors.deepPurple,
+                        value: _preferences!.voiceAnnouncementsEnabled,
+                        onChanged: (value) => _updatePreference('voice_announcements', value),
+                      ),
 
                     const SizedBox(height: 32),
 

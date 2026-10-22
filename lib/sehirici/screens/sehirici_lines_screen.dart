@@ -95,6 +95,7 @@ class _SehiriciLinesScreenState extends State<SehiriciLinesScreen> {
                               showLineChips: true,
                               onHighlightChanged: provider.highlightLine,
                               borderRadius: 22,
+                              requestLocationOnEntry: true,
                             ),
                           ),
                         ),

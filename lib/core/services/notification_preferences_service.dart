@@ -79,6 +79,8 @@ class NotificationPreferencesService {
     bool? groupMemberJoinedEnabled,
     bool? cartPriceDropEnabled,
     bool? liveStreamsEnabled,
+    bool? voiceAnnouncementsEnabled,
+    bool? notificationSoundEnabled,
   }) async {
     try {
       final Map<String, dynamic> updates = {
@@ -97,6 +99,12 @@ class NotificationPreferencesService {
       if (groupMemberJoinedEnabled != null) updates['group_member_joined_enabled'] = groupMemberJoinedEnabled;
       if (cartPriceDropEnabled != null) updates['cart_price_drop_enabled'] = cartPriceDropEnabled;
       if (liveStreamsEnabled != null) updates['live_streams_enabled'] = liveStreamsEnabled;
+      if (voiceAnnouncementsEnabled != null) {
+        updates['voice_announcements_enabled'] = voiceAnnouncementsEnabled;
+      }
+      if (notificationSoundEnabled != null) {
+        updates['notification_sound_enabled'] = notificationSoundEnabled;
+      }
 
       await _supabase
           .from('notification_preferences')

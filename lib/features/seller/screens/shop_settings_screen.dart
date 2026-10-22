@@ -10,6 +10,7 @@ import '../../market/screens/address_picker_screen.dart';
 import '../utils/shop_contact_requirements.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_section_card.dart';
+import '../widgets/seller_scheduled_orders_section.dart';
 
 class ShopSettingsScreen extends StatefulWidget {
   const ShopSettingsScreen({super.key});
@@ -518,6 +519,23 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                       _buildDeliverySection(),
                       const SizedBox(height: 24),
                       _buildWorkingHoursSection(),
+                      const SizedBox(height: 24),
+                      SellerScheduledOrdersSection(
+                        shopData: _shopData!,
+                        onSave: ({
+                          required bool enabled,
+                          required int slotMinutes,
+                          required int maxDays,
+                          required int minLeadMinutes,
+                        }) =>
+                            _shopService.updateScheduledOrderSettings(
+                          shopId: _shopData!['id'],
+                          enabled: enabled,
+                          slotMinutes: slotMinutes,
+                          maxDays: maxDays,
+                          minLeadMinutes: minLeadMinutes,
+                        ),
+                      ),
                       const SizedBox(height: 40),
                     ],
                   ),

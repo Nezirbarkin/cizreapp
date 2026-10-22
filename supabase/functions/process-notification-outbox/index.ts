@@ -29,6 +29,7 @@ import {
   buildFcmMessage,
   classifyFcmFailure,
   isPushEnabledForType,
+  isPushSoundEnabled,
 } from '../_shared/push_delivery_policy.ts'
 
 const FIREBASE_SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
@@ -174,9 +175,10 @@ async function sendFcm(
   title: string,
   body: string,
   data: Record<string, string>,
+  silent = false,
 ): Promise<FcmResult> {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
-  const message = buildFcmMessage(token, title, body, data)
+  const message = buildFcmMessage(token, title, body, data, { silent })
 
   const response = await fetch(url, {
     method: 'POST',
@@ -443,6 +445,8 @@ serve(async (req: Request) => {
         let allUnregistered = true
         let lastError: string | null = null
         let cleanedAny = false
+        // Kullanıcı "Bildirim sesi"ni kapattıysa sessiz kanaldan gönder.
+        const silent = !isPushSoundEnabled(preferences)
 
         for (const token of tokens) {
           try {
@@ -453,6 +457,7 @@ serve(async (req: Request) => {
               row.title,
               row.content,
               data,
+              silent,
             )
             if (result.success) {
               anySuccess = true

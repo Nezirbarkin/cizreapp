@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/services/courier_stream_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../../../core/theme/app_map_style.dart';
 import '../../../core/utils/map_marker_icons.dart';
 import '../../../core/widgets/map_controls.dart';
@@ -109,10 +110,11 @@ class _CouriersMapFullScreenState extends State<CouriersMapFullScreen> {
       if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
         throw StateError('konum izni yok');
       }
+      // Otomatik okuma: doğruluk penceresini dokunuşsuz açmayan ayarlar.
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
+        locationSettings: UserDistanceService.silentSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         ),
       );
       if (mounted) {

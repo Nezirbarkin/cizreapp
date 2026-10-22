@@ -40,7 +40,10 @@ class AppAboutSettings {
   final String startupAnnouncementType;
   final String startupAnnouncementButtonText;
   final DateTime? startupAnnouncementUpdatedAt;
-  
+
+  /// Açılış duyurusu için ayrı sesli metin (boşsa başlık + mesaj okunur).
+  final String? startupAnnouncementVoiceText;
+
   // API Keys
   final String? googleMapsApiKey;
   
@@ -97,6 +100,7 @@ class AppAboutSettings {
     this.startupAnnouncementType = 'info',
     this.startupAnnouncementButtonText = 'Tamam',
     this.startupAnnouncementUpdatedAt,
+    this.startupAnnouncementVoiceText,
     this.googleMapsApiKey,
     this.animationPrimaryDurationMs = 6000,
     this.animationSecondaryDurationMs = 3000,
@@ -153,6 +157,7 @@ class AppAboutSettings {
       startupAnnouncementUpdatedAt: json['startup_announcement_updated_at'] != null
           ? DateTime.parse(json['startup_announcement_updated_at'] as String)
           : null,
+      startupAnnouncementVoiceText: json['startup_announcement_voice_text'] as String?,
       googleMapsApiKey: json['google_maps_api_key'] as String?,
       animationPrimaryDurationMs: json['animation_primary_duration_ms'] as int? ?? 6000,
       animationSecondaryDurationMs: json['animation_secondary_duration_ms'] as int? ?? 3000,
@@ -193,6 +198,7 @@ class AppAboutSettings {
       'startup_announcement_type': startupAnnouncementType,
       'startup_announcement_button_text': startupAnnouncementButtonText,
       'startup_announcement_updated_at': startupAnnouncementUpdatedAt?.toIso8601String(),
+      'startup_announcement_voice_text': startupAnnouncementVoiceText,
       'google_maps_api_key': googleMapsApiKey,
       'animation_primary_duration_ms': animationPrimaryDurationMs,
       'animation_secondary_duration_ms': animationSecondaryDurationMs,
@@ -227,6 +233,7 @@ class AppAboutSettings {
     String? startupAnnouncementType,
     String? startupAnnouncementButtonText,
     DateTime? startupAnnouncementUpdatedAt,
+    String? startupAnnouncementVoiceText,
     String? googleMapsApiKey,
     bool? balanceEnabled,
     bool? cardTopupEnabled,
@@ -267,6 +274,7 @@ class AppAboutSettings {
       startupAnnouncementType: startupAnnouncementType ?? this.startupAnnouncementType,
       startupAnnouncementButtonText: startupAnnouncementButtonText ?? this.startupAnnouncementButtonText,
       startupAnnouncementUpdatedAt: startupAnnouncementUpdatedAt ?? this.startupAnnouncementUpdatedAt,
+      startupAnnouncementVoiceText: startupAnnouncementVoiceText ?? this.startupAnnouncementVoiceText,
       googleMapsApiKey: googleMapsApiKey ?? this.googleMapsApiKey,
       balanceEnabled: balanceEnabled ?? this.balanceEnabled,
       cardTopupEnabled: cardTopupEnabled ?? this.cardTopupEnabled,

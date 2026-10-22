@@ -52,6 +52,7 @@ Shop _shop({
   bool pinned = false,
   bool verified = false,
   bool pickup = false,
+  bool ownCourier = false,
   bool accepting = true,
   bool manualOpen = true,
   Map<String, dynamic>? hours,
@@ -73,6 +74,7 @@ Shop _shop({
   isPinned: pinned,
   isVerified: verified,
   pickupEnabled: pickup,
+  hasOwnCourier: ownCourier,
   isAcceptingOrders: accepting,
   isOpen: manualOpen,
   workingHours: hours,
@@ -402,6 +404,13 @@ void main() {
       expect(all.coupon, isTrue);
     });
 
+    test('kurye rozeti: kendi kuryesi / CizreApp kuryesi', () {
+      expect(_info(_shop()).ownCourier, isFalse);
+      expect(_info(_shop(ownCourier: true)).ownCourier, isTrue);
+      expect(shopCourierLabel(true), 'Kendi kuryesi');
+      expect(shopCourierLabel(false), 'CizreApp kuryesi');
+    });
+
     test('ücretli öne çıkarma da "Sponsor" sayılır (Görev 3.2)', () {
       final paid = ShopCardInfo.from(_shop(), globalOrdersEnabled: true, paidSponsored: true);
       expect(paid.sponsored, isTrue);
@@ -590,6 +599,17 @@ void main() {
       expect(find.byIcon(Icons.verified_rounded), findsNothing);
       // tek satır çizildi: slogan yoksa boş slogan satırı da yok
       expect(find.byIcon(Icons.near_me_rounded), findsNothing);
+    });
+
+    testWidgets('kartta kurye çipi kimin teslim ettiğini gösterir', (t) async {
+      size(t, 390);
+      await t.pumpWidget(_host(ShopCard(shop: _shop())));
+      expect(find.text('CizreApp kuryesi'), findsOneWidget);
+      expect(find.byIcon(Icons.verified_user_rounded), findsOneWidget);
+
+      await t.pumpWidget(_host(ShopCard(shop: _shop(name: 'Kuryeli', ownCourier: true))));
+      expect(find.text('Kendi kuryesi'), findsOneWidget);
+      expect(find.text('CizreApp kuryesi'), findsNothing);
     });
 
     testWidgets('Sponsor şeridi yalnızca sabitli dükkanda', (t) async {

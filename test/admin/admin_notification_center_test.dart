@@ -71,6 +71,8 @@ class _FakeService extends AdminNotificationService {
     required String iconType,
     List<String> userIds = const [],
     DateTime? scheduledFor,
+    String? voiceText,
+    String? voiceGender,
   }) async {
     sent.add({
       'audience': audience,
@@ -79,6 +81,8 @@ class _FakeService extends AdminNotificationService {
       'icon': iconType,
       'userIds': userIds,
       'scheduledFor': scheduledFor,
+      'voiceText': voiceText,
+      'voiceGender': voiceGender,
     });
     return AdminNotifSendResult(
       campaignId: 'new',
@@ -98,6 +102,9 @@ class _FakeService extends AdminNotificationService {
     required String iconType,
     DateTime? scheduledFor,
     bool renotify = false,
+    bool updateVoice = false,
+    String? voiceText,
+    String? voiceGender,
   }) async {
     updated.add({
       'id': campaignId,
@@ -105,6 +112,9 @@ class _FakeService extends AdminNotificationService {
       'content': content,
       'icon': iconType,
       'renotify': renotify,
+      'updateVoice': updateVoice,
+      'voiceText': voiceText,
+      'voiceGender': voiceGender,
     });
   }
 
@@ -455,7 +465,29 @@ void main() {
       expect(s['title'], 'Yeni komisyon');
       expect(s['icon'], 'announcement');
       expect(s['scheduledFor'], isNull);
+      expect(s['voiceText'], '');
+      expect(s['voiceGender'], isNull);
       expect(result(), '12 kişiye gönderildi');
+    });
+
+    testWidgets('sesli okuma: ayrı sesli metin ve ses seçimi gönderilir', (t) async {
+      final svc = _FakeService(const []);
+      await openComposer(t, svc);
+
+      await t.enterText(find.byType(TextField).at(0), 'Kampanya');
+      await t.enterText(find.byType(TextField).at(1), 'Bugün indirim var.');
+      await t.enterText(find.byType(TextField).at(2), 'Merhaba {ad}, indirim seni bekliyor');
+      await t.tap(find.text('Erkek'));
+      await t.pumpAndSettle();
+
+      await t.tap(find.byIcon(Icons.send_rounded));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Gönder').last);
+      await t.pumpAndSettle();
+
+      final s = svc.sent.single;
+      expect(s['voiceText'], 'Merhaba {ad}, indirim seni bekliyor');
+      expect(s['voiceGender'], 'male');
     });
 
     testWidgets('şablon başlığı, mesajı ve ikonu doldurur', (t) async {

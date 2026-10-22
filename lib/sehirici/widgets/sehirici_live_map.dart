@@ -122,6 +122,11 @@ class SehiriciLiveMap extends StatefulWidget {
   /// (her halka güncellemesi bitmap'i baştan çizdirir). iOS/web'de yok sayılır.
   final bool liteMode;
 
+  /// Ekrana girişte konum izni/GPS iste (yalnız konumun asıl iş olduğu tam
+  /// ekran Şehiriçi haritaları). Ana sayfa kartı, admin ve şoför paneli
+  /// haritaları false bırakır: oralarda konum yalnız düğmeyle istenir.
+  final bool requestLocationOnEntry;
+
   const SehiriciLiveMap({
     super.key,
     required this.lines,
@@ -144,6 +149,7 @@ class SehiriciLiveMap extends StatefulWidget {
     this.overlayPadding = EdgeInsets.zero,
     this.borderRadius = 18,
     this.liteMode = false,
+    this.requestLocationOnEntry = false,
   });
 
   @override
@@ -186,7 +192,7 @@ class _StopSpec {
 }
 
 class _SehiriciLiveMapState extends State<SehiriciLiveMap>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   /// Araç marker'ını taşımak için gereken en küçük yer değiştirme (metre).
   /// Sabit araçta GPS zıplamasını süzecek kadar büyük, gerçek hareketi
   /// anında gösterecek kadar küçük.
@@ -331,6 +337,12 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
     _initializeTripData();
     _rebuild();
     _initUserLocationOnEntry();
+    if (widget.requestLocationOnEntry) {
+      // Şehiriçi'ne girmek kullanıcının eylemi: izin/GPS kapalıysa burada
+      // sorulur (bir kare sonra; diyalog için Navigator hazır olmalı).
+      WidgetsBinding.instance.addObserver(this);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _promptLocationOnEntry());
+    }
     _loadStandaloneStops();
 
     // Şoför konum güncellemelerini realtime dinle (yalnız canlı iz açıksa).
@@ -349,6 +361,9 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
 
   @override
   void dispose() {
+    if (widget.requestLocationOnEntry) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     _isMapReady = false;
     _iconGeneration++;
 
@@ -1617,6 +1632,38 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
   // ─────────────────────────────────────────────
   // Kullanıcı konumu
   // ─────────────────────────────────────────────
+
+  /// [SehiriciLiveMap.requestLocationOnEntry]: girişte izin/GPS iste; hazırsa
+  /// sessizce mavi noktayı göster. GPS kapalı kalırsa "Konum servisi kapalı"
+  /// bandı (Aç düğmeli) görünür.
+  Future<void> _promptLocationOnEntry() async {
+    if (!mounted) return;
+    final ok = await LocationDisclosureService.promptOnEntry(
+      context,
+      LocationPurpose.nearby,
+      screenKey: 'sehirici_map',
+    );
+    if (!mounted) return;
+    if (ok) {
+      if (_locationServiceOff) setState(() => _locationServiceOff = false);
+      await _initUserLocationOnEntry();
+    } else {
+      await _checkLocationServiceAndShowBanner();
+    }
+  }
+
+  /// Kullanıcı ayarlardan (GPS / izin) dönünce konumu sessizce yeniden oku.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (_userPosition != null) return;
+    LocationDisclosureService.isReadyWithService(LocationPurpose.nearby)
+        .then((ready) async {
+      if (!ready || !mounted) return;
+      if (_locationServiceOff) setState(() => _locationServiceOff = false);
+      await _initUserLocationOnEntry();
+    });
+  }
 
   /// Harita açılışında konum otomatik İSTENMEZ (sistem diyaloğu açılmaz).
   /// Ancak kullanıcı daha önce izin verdiyse, harita açılır açılmaz sessizce

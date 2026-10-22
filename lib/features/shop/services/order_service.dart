@@ -41,6 +41,8 @@ class OrderService {
     String? couponId, // Uygulanan kupon (orders.coupon_id)
     double couponDiscount = 0, // Kupon indirimi (orders.coupon_discount)
     bool isPickup = false, // "Gel Al": true ise müşteri mağazadan teslim alacak
+    // Randevulu sipariş: null = hemen. Sunucu tetikleyicisi doğrular.
+    DateTime? scheduledFor,
   }) async {
     try {
       debugPrint('🛒 ORDER: Sipariş oluşturuluyor...');
@@ -122,6 +124,8 @@ class OrderService {
         'coupon_discount': couponDiscount,
         // "Gel Al": true ise müşteri mağazadan teslim alacak, kurye devreye girmez.
         'is_pickup': isPickup,
+        if (scheduledFor != null)
+          'scheduled_for': scheduledFor.toUtc().toIso8601String(),
         // Komisyon alanları trigger tarafından otomatik doldurulacak.
         'status': 'pending',
         'notes': notes,
@@ -685,6 +689,7 @@ class OrderService {
     Map<String, String?>? couponIdByShop, // shopId -> kupon id (orders.coupon_id)
     Map<String, double>? couponDiscountByShop, // shopId -> kupon indirimi (orders.coupon_discount)
     Map<String, bool>? pickupByShop, // shopId -> "Gel Al" seçildi mi
+    Map<String, DateTime>? scheduledForByShop, // shopId -> randevu zamanı (yoksa hemen)
   }) async {
     try {
       debugPrint('🛒 MULTI-SHOP ORDER: Çok dükkanlı sipariş oluşturuluyor...');
@@ -792,6 +797,8 @@ class OrderService {
             if (couponId != null) 'coupon_id': couponId,
             'coupon_discount': couponDiscount,
             'is_pickup': isPickup,
+            if (scheduledForByShop?[shopId] != null)
+              'scheduled_for': scheduledForByShop![shopId]!.toUtc().toIso8601String(),
             'status': 'pending',
             'notes': notes,
             'order_group_id': orderGroupId,

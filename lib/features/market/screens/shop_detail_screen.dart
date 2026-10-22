@@ -18,6 +18,7 @@ import '../../../shared/widgets/flash_discount_badge.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../widgets/flash_aware_price_row.dart';
 import '../widgets/product_sort_bar.dart';
+import '../widgets/shop_courier_info.dart';
 import '../services/flash_sale_service.dart';
 import '../services/product_service.dart';
 import '../services/shop_review_service.dart';
@@ -1373,6 +1374,16 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                         ),
                       ),
                     ],
+
+                    // Teslimatı kim yapıyor: dükkanın kendi kuryesi mi,
+                    // CizreApp kuryesi mi (dokununca açıklama).
+                    const SizedBox(height: 10),
+                    ShopCourierInfoStrip(
+                      // NULL = platform kuryesi (sunucu da COALESCE(…, false)).
+                      ownCourier: _shop!.hasOwnCourier ?? false,
+                      shopName: _shop!.name,
+                      pickupEnabled: _shop!.pickupEnabled,
+                    ),
 
                     const SizedBox(height: 12),
 

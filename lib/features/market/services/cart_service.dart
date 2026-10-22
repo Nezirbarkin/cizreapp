@@ -326,18 +326,25 @@ class CartService {
     try {
       final response = await _supabase
           .from('shops')
-          .select('delivery_fee, free_delivery_min_amount, pickup_enabled')
+          .select(
+            'delivery_fee, free_delivery_min_amount, pickup_enabled, '
+            'scheduled_orders_enabled, scheduled_orders_admin_blocked',
+          )
           .eq('id', shopId)
           .single();
 
       final deliveryFee = (response['delivery_fee'] as num?)?.toDouble() ?? 15.0;
       final freeDeliveryMinAmount = (response['free_delivery_min_amount'] as num?)?.toDouble() ?? 0.0;
       final pickupEnabled = response['pickup_enabled'] as bool? ?? false;
+      // Randevulu sipariş dükkan ayarı (admin global anahtarı ekranda ayrıca bakılır).
+      final scheduledEnabled = (response['scheduled_orders_enabled'] as bool? ?? false) &&
+          !(response['scheduled_orders_admin_blocked'] as bool? ?? false);
 
       return {
         'delivery_fee': deliveryFee,
         'free_delivery_min_amount': freeDeliveryMinAmount,
         'pickup_enabled': pickupEnabled,
+        'scheduled_enabled': scheduledEnabled,
       };
     } catch (e) {
       // ignore: avoid_print
@@ -499,6 +506,7 @@ class CartService {
         final baseDeliveryFee = (deliveryInfo['delivery_fee'] as num?)?.toDouble() ?? 15.0;
         final freeDeliveryMinAmount = (deliveryInfo['free_delivery_min_amount'] as num?)?.toDouble() ?? 0.0;
         final pickupEnabled = deliveryInfo['pickup_enabled'] as bool? ?? false;
+        final scheduledEnabled = deliveryInfo['scheduled_enabled'] as bool? ?? false;
         final shopName = shopItems.first.shopName ?? 'Dükkan';
         
         // Ara toplam hesapla — `effectivePrice` kullan (discount_price varsa onu)
@@ -528,6 +536,7 @@ class CartService {
           discount: clampedDiscount,
           couponCode: coupon?.code,
           pickupEnabled: pickupEnabled,
+          scheduledEnabled: scheduledEnabled,
         );
       }
 
@@ -557,6 +566,10 @@ class ShopCartSummary {
   /// true ise checkout ekranında bu dükkan için pickup seçeneği gösterilebilir.
   final bool pickupEnabled;
 
+  /// Dükkan randevulu sipariş alıyor mu (dükkan ayarı; admin global anahtarı
+  /// checkout ekranında ayrıca kontrol edilir).
+  final bool scheduledEnabled;
+
   ShopCartSummary({
     required this.shopId,
     required this.shopName,
@@ -569,6 +582,7 @@ class ShopCartSummary {
     this.discount = 0,
     this.couponCode,
     this.pickupEnabled = false,
+    this.scheduledEnabled = false,
   });
 
   int get itemCount => items.fold<int>(0, (sum, item) => sum + item.quantity);

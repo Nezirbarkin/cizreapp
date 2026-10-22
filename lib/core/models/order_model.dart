@@ -247,6 +247,12 @@ class Order {
   // "Gel Al": true ise müşteri mağazadan bizzat teslim alacak (kurye yok)
   final bool isPickup;
 
+  /// Randevulu sipariş: müşterinin seçtiği teslim (Gel Al'da teslim alma)
+  /// zamanı; null = hemen.
+  final DateTime? scheduledFor;
+
+  bool get isScheduled => scheduledFor != null;
+
   Order({
     required this.id,
     required this.userId,
@@ -298,6 +304,7 @@ class Order {
     this.invoiceAddress,
     this.invoiceEmail,
     this.isPickup = false,
+    this.scheduledFor,
   });
 
   /// Fatura bilgisi var mı?
@@ -403,6 +410,9 @@ class Order {
       invoiceAddress: json['invoice_address'] as String?,
       invoiceEmail: json['invoice_email'] as String?,
       isPickup: json['is_pickup'] as bool? ?? false,
+      scheduledFor: json['scheduled_for'] == null
+          ? null
+          : DateTime.tryParse(json['scheduled_for'].toString()),
     );
   }
 
@@ -453,6 +463,7 @@ class Order {
       'invoice_address': invoiceAddress,
       'invoice_email': invoiceEmail,
       'is_pickup': isPickup,
+      'scheduled_for': scheduledFor?.toUtc().toIso8601String(),
     };
   }
 
@@ -549,6 +560,7 @@ class Order {
     String? invoiceAddress,
     String? invoiceEmail,
     bool? isPickup,
+    DateTime? scheduledFor,
   }) {
     return Order(
       id: id ?? this.id,
@@ -596,6 +608,7 @@ class Order {
       invoiceAddress: invoiceAddress ?? this.invoiceAddress,
       invoiceEmail: invoiceEmail ?? this.invoiceEmail,
       isPickup: isPickup ?? this.isPickup,
+      scheduledFor: scheduledFor ?? this.scheduledFor,
     );
   }
 }

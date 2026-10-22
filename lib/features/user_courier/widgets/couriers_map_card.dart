@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/courier_stream_service.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../screens/couriers_map_full_screen.dart';
 import '../../../core/theme/app_map_style.dart';
 import '../../../core/utils/map_marker_icons.dart';
@@ -24,7 +25,12 @@ class CouriersMapCard extends StatefulWidget {
     this.deliveryLat,
     this.deliveryLng,
     this.routePoints = const [],
+    this.locationRefreshTick = 0,
   });
+
+  /// Ekran konum iznini sonradan alınca artırır: kart kullanıcı konumunu
+  /// yeniden okuyup haritayı oraya ortalar.
+  final int locationRefreshTick;
 
   @override
   State<CouriersMapCard> createState() => _CouriersMapCardState();
@@ -123,10 +129,12 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
         throw StateError('konum izni yok');
       }
 
+      // Otomatik okuma: Android "Konum Doğruluğu" penceresini dokunuşsuz
+      // açmayan ayarlar + süre sınırı (sınırsız 'best' istek takılabiliyordu).
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 0,
+        locationSettings: UserDistanceService.silentSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         ),
       );
 
@@ -585,6 +593,11 @@ class _CouriersMapCardState extends State<CouriersMapCard> {
   @override
   void didUpdateWidget(CouriersMapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.locationRefreshTick != widget.locationRefreshTick) {
+      _getUserLocation().then((_) {
+        if (mounted) _recenterOnUser();
+      });
+    }
     final routeChanged = oldWidget.routePoints != widget.routePoints;
     if (oldWidget.pickupLat != widget.pickupLat ||
         oldWidget.pickupLng != widget.pickupLng ||

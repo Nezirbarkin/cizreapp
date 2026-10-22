@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/widgets/invoice_info_widget.dart';
+import '../../../core/widgets/scheduled_order_badge.dart';
 import '../../shop/services/cancellation_request_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/services/return_request_service.dart';
@@ -1231,6 +1232,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   const SizedBox(height: 12),
                 ],
               ),
+            if (_currentOrder.scheduledFor != null) ...[
+              ScheduledOrderBadge(
+                scheduledFor: _currentOrder.scheduledFor!,
+                isPickup: _currentOrder.isPickup,
+              ),
+              const SizedBox(height: 12),
+            ],
             if (_currentOrder.estimatedDeliveryTime != null)
               _buildInfoRow(
                 'Tahmini Teslimat',

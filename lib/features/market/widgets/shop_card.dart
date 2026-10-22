@@ -38,9 +38,14 @@ class ShopCardInfo {
     required this.coupon,
     required this.sponsored,
     required this.notice,
+    this.ownCourier,
   });
 
   final ShopStatusKind status;
+
+  /// Teslimatı kim yapıyor: true = dükkanın kendi kuryesi, false = CizreApp
+  /// (platform) kuryesi, null = bilinmiyor (çip gösterilmez).
+  final bool? ownCourier;
 
   /// Açıklamanın ilk satırı. Satıcılar açıklamaya telefon, emoji, kullanım
   /// talimatı gibi uzun metinler yapıştırıyor; kartta yalnızca slogan kalır.
@@ -139,9 +144,15 @@ class ShopCardInfo {
       // Admin sabitlemesi ya da bu listede ücretli öne çıkarma (Görev 3.2).
       sponsored: shop.isPinned || paidSponsored,
       notice: notice,
+      // NULL = platform kuryesi (kurye RPC'leri de COALESCE(…, false) kullanır).
+      ownCourier: shop.hasOwnCourier ?? false,
     );
   }
 }
+
+/// Kurye rozeti metni (kart çipi ve dükkan sayfası rozeti aynı dili kullanır).
+String shopCourierLabel(bool ownCourier) =>
+    ownCourier ? 'Kendi kuryesi' : 'CizreApp kuryesi';
 
 /// "₺29" / "₺12,50". Kuruşlu tutarı tam sayıya yuvarlamak yanıltıcı olur
 /// (ör. 0,08 → "₺0"); bu yüzden yalnızca tam sayıysa kuruşsuz yazılır.
@@ -327,6 +338,13 @@ class ShopCard extends StatelessWidget {
     if (info.freeOver != null) parts.add('teslimat ${info.freeOver!}');
     if (info.minOrder != null) parts.add(info.minOrder!);
     if (info.pickup) parts.add('gel al seçeneği var');
+    if (info.ownCourier != null) {
+      parts.add(
+        info.ownCourier!
+            ? 'dükkan kendi kuryesiyle teslim ediyor'
+            : 'CizreApp kuryesiyle teslim ediliyor',
+      );
+    }
     if (info.coupon) parts.add('kupon var');
     return parts.join(', ');
   }
@@ -362,6 +380,14 @@ class ShopCard extends StatelessWidget {
           icon: Icons.storefront_rounded,
           label: 'Gel Al',
           tone: _ChipTone.blue,
+        ),
+      if (info.ownCourier != null)
+        _ShopChip(
+          icon: info.ownCourier!
+              ? Icons.two_wheeler_rounded
+              : Icons.verified_user_rounded,
+          label: shopCourierLabel(info.ownCourier!),
+          tone: info.ownCourier! ? _ChipTone.neutral : _ChipTone.indigo,
         ),
     ];
 
@@ -720,7 +746,7 @@ class _MetaItem extends StatelessWidget {
   }
 }
 
-enum _ChipTone { neutral, green, blue }
+enum _ChipTone { neutral, green, blue, indigo }
 
 class _ShopChip extends StatelessWidget {
   const _ShopChip({
@@ -747,6 +773,9 @@ class _ShopChip extends StatelessWidget {
       case _ChipTone.blue:
         bg = Colors.blue.shade50;
         fg = Colors.blue.shade700;
+      case _ChipTone.indigo:
+        bg = Colors.indigo.shade50;
+        fg = Colors.indigo.shade700;
     }
 
     return Container(

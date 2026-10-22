@@ -34,6 +34,9 @@ import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
 import '../../chat/services/presence_service.dart';
 import '../../../core/services/app_about_service.dart';
+import '../../../core/services/announcement_voice_service.dart';
+import '../../../core/services/voice_announce_settings_service.dart';
+import '../../../core/widgets/voice_listen_button.dart';
 import '../../../shared/widgets/add_to_cart_fab.dart';
 import '../../news/services/news_service.dart';
 import '../../news/screens/news_detail_screen.dart';
@@ -198,6 +201,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       if (!mounted) return;
 
+      // Sesli okuma: aynı duyuru (aynı güncelleme zamanı) bir kez okunur.
+      final voiceKey =
+          'startup:${updatedAt?.toIso8601String() ?? title.hashCode}';
+      final voiceText = settings.startupAnnouncementVoiceText;
+      AnnouncementVoiceService.instance.announce(
+        area: VoiceArea.startup,
+        title: title,
+        body: message,
+        voiceText: voiceText,
+        dedupKey: voiceKey,
+      );
+
       // Dialog göster
       showDialog(
         context: context,
@@ -224,8 +239,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
           content: Text(message),
           actions: [
+            VoiceListenButton(
+              listenKey: voiceKey,
+              title: title,
+              body: message,
+              voiceText: voiceText,
+              color: _getAnnouncementColor(type),
+            ),
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                // Pencere kapanınca okuma da susar.
+                if (AnnouncementVoiceService.instance.speakingKey.value ==
+                    voiceKey) {
+                  AnnouncementVoiceService.instance.stop();
+                }
+                Navigator.pop(context);
+              },
               style: TextButton.styleFrom(
                 foregroundColor: _getAnnouncementColor(type),
                 padding: const EdgeInsets.symmetric(

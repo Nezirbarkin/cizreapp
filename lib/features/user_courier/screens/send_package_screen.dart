@@ -9,6 +9,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/address_model.dart';
+import '../../../core/services/announcement_voice_service.dart';
+import '../../../core/services/location_disclosure_service.dart';
 import '../../../core/services/maps_api_key_service.dart';
 import '../../market/screens/address_picker_screen.dart';
 import 'package_history_screen.dart';
@@ -22,7 +24,16 @@ class SendPackageScreen extends StatefulWidget {
   State<SendPackageScreen> createState() => _SendPackageScreenState();
 }
 
-class _SendPackageScreenState extends State<SendPackageScreen> {
+class _SendPackageScreenState extends State<SendPackageScreen>
+    with WidgetsBindingObserver {
+  /// Konum izni + GPS hazır mı (null = henüz bakılmadı). Kurye Çağır'a
+  /// girmek kullanıcının eylemi olduğu için girişte sorulur; reddedilirse
+  /// ekran konumsuz çalışmaya devam eder ve üstte "İzin ver" bandı çıkar.
+  bool? _locationReady;
+
+  /// Konum sonradan açılınca harita kartı kullanıcıya yeniden ortalansın.
+  int _locationTick = 0;
+
   final _senderNameController = TextEditingController();
   final _senderPhoneController = TextEditingController();
   final _recipientController = TextEditingController();
@@ -110,6 +121,73 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
     _loadPricing();
     _loadServiceNotices();
     _refreshNearbyCouriers();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _promptLocationOnEntry());
+  }
+
+  Future<void> _promptLocationOnEntry() async {
+    if (!mounted) return;
+    final ok = await LocationDisclosureService.promptOnEntry(
+      context,
+      LocationPurpose.nearby,
+      screenKey: 'send_package',
+    );
+    _applyLocationReady(ok);
+  }
+
+  /// Banttaki "İzin ver": kullanıcının açık eylemi (oturumda reddetmiş olsa da).
+  Future<void> _requestLocation() async {
+    final ok = await LocationDisclosureService.ensure(
+      context,
+      LocationPurpose.nearby,
+      checkService: true,
+    );
+    _applyLocationReady(ok);
+  }
+
+  void _applyLocationReady(bool ok) {
+    if (!mounted) return;
+    setState(() {
+      if (ok && _locationReady != true) _locationTick++;
+      _locationReady = ok;
+    });
+  }
+
+  /// Ayarlardan (GPS/izin) dönünce bant kendiliğinden kalksın.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || _locationReady != false) return;
+    LocationDisclosureService.isReadyWithService(LocationPurpose.nearby).then((ok) {
+      if (ok) _applyLocationReady(true);
+    });
+  }
+
+  Widget _buildLocationBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.location_off_outlined, color: Colors.amber.shade900),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Konum kapalı. Haritada konumunu ve yakındaki kuryeleri doğru görmek için izin ver.',
+              style: TextStyle(fontSize: 12.5, color: Colors.amber.shade900),
+            ),
+          ),
+          TextButton(
+            onPressed: _requestLocation,
+            child: const Text('İzin ver', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Yakın kuryeler future'unu yeniden oluşturur (pull-to-refresh vb. için).
@@ -149,6 +227,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
         setState(
           () => _serviceNotices = List<Map<String, dynamic>>.from(notices),
         );
+        AnnouncementVoiceService.instance.announceCourierNotices(_serviceNotices);
       }
     } catch (e) {
       debugPrint('Uyarılar yükleme hatası: $e');
@@ -1001,6 +1080,8 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_locationReady == false) _buildLocationBanner(),
+
                   // Admin uyarıları
                   _buildServiceNotices(),
 
@@ -1046,6 +1127,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
                         deliveryLat: _deliveryAddress?.latitude,
                         deliveryLng: _deliveryAddress?.longitude,
                         routePoints: _routePoints,
+                        locationRefreshTick: _locationTick,
                       ),
                       const SizedBox(height: 12),
                       // Yakın kuryeler listesi
@@ -1222,6 +1304,7 @@ class _SendPackageScreenState extends State<SendPackageScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _senderNameController.dispose();
     _senderPhoneController.dispose();
     _recipientController.dispose();

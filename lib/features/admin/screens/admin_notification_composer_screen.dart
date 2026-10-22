@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/admin_notification_model.dart';
 import '../../../core/services/admin_notification_service.dart';
+import '../../../core/services/voice_announce_settings_service.dart';
+import '../../../core/widgets/voice_listen_button.dart';
 import '../widgets/admin_notification_widgets.dart';
 import '../widgets/admin_ui.dart';
 
@@ -58,7 +60,11 @@ class _AdminNotificationComposerScreenState
 
   late final TextEditingController _titleC;
   late final TextEditingController _bodyC;
+  late final TextEditingController _voiceC;
   final TextEditingController _userQueryC = TextEditingController();
+
+  /// Bu bildirimin sesi: null = admin varsayılanı, 'female' | 'male'.
+  String? _voiceGender;
 
   late String _iconKey;
   late AdminNotifAudience _audience;
@@ -99,13 +105,15 @@ class _AdminNotificationComposerScreenState
     final s = widget.source;
     _titleC = TextEditingController(text: s?.title ?? '');
     _bodyC = TextEditingController(text: s?.content ?? '');
+    _voiceC = TextEditingController(text: s?.voiceText ?? '');
+    _voiceGender = s?.voiceGender;
     _iconKey = s?.iconType ?? 'announcement';
     _audience = s?.audience ?? AdminNotifAudience.allUsers;
     if (_editingScheduled) {
       _scheduleOn = true;
       _when = s!.scheduledFor;
     }
-    for (final c in [_titleC, _bodyC]) {
+    for (final c in [_titleC, _bodyC, _voiceC]) {
       c.addListener(() => setState(() {}));
     }
     if (!_isEdit) {
@@ -122,6 +130,7 @@ class _AdminNotificationComposerScreenState
     _debounce?.cancel();
     _titleC.dispose();
     _bodyC.dispose();
+    _voiceC.dispose();
     _userQueryC.dispose();
     super.dispose();
   }
@@ -355,13 +364,19 @@ class _AdminNotificationComposerScreenState
       final body = _bodyC.text;
       String message;
       if (_isEdit) {
+        final src = widget.source!;
+        final voiceChanged = _voiceC.text.trim() != (src.voiceText ?? '').trim() ||
+            _voiceGender != src.voiceGender;
         await _service.update(
-          widget.source!.id,
+          src.id,
           title: title,
           content: body,
           iconType: _iconKey,
           scheduledFor: _editingScheduled && _scheduleOn ? _when : null,
           renotify: _editingSent && _renotify,
+          updateVoice: voiceChanged,
+          voiceText: _voiceC.text,
+          voiceGender: _voiceGender,
         );
         message = _editingSent && _renotify
             ? 'Bildirim güncellendi ve yeniden gönderildi'
@@ -374,6 +389,8 @@ class _AdminNotificationComposerScreenState
           iconType: _iconKey,
           userIds: _picked.keys.toList(),
           scheduledFor: _scheduleOn ? _when : null,
+          voiceText: _voiceC.text,
+          voiceGender: _voiceGender,
         );
         if (r.isScheduled) {
           message = 'Zamanlandı: ${adminDateTime(r.scheduledFor)}';
@@ -444,6 +461,7 @@ class _AdminNotificationComposerScreenState
       if (!_isEdit) _templatesSection(),
       _iconSection(),
       _contentSection(),
+      _voiceSection(),
       if (!wide) preview,
       _isEdit ? _lockedAudienceSection() : _audienceSection(),
       if (_showSchedule || _editingSent) _deliverySection(),
@@ -723,6 +741,59 @@ class _AdminNotificationComposerScreenState
             maxLength: _bodyMax,
             textCapitalization: TextCapitalization.sentences,
             decoration: _dec(label: 'Mesaj', hint: 'Kullanıcılara iletmek istediğiniz metin'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Sesli okuma ------------------------------------------------------------
+
+  Widget _voiceSection() {
+    Widget genderChip(String? key, String label, IconData icon) => ChoiceChip(
+          label: Text(label, style: const TextStyle(fontSize: 12.5)),
+          avatar: Icon(icon, size: 16),
+          selected: _voiceGender == key,
+          onSelected: (_) => setState(() => _voiceGender = key),
+        );
+
+    return _Section(
+      icon: Icons.record_voice_over_outlined,
+      title: 'Sesli okuma',
+      subtitle: 'Uygulama açıksa bildirim alıcının adıyla sesli okunur; '
+          'bildirimde ayrıca "Dinle" düğmesi çıkar.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _voiceC,
+            minLines: 2,
+            maxLines: 5,
+            maxLength: 1000,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: _dec(
+              label: 'Sesli okunacak metin (isteğe bağlı)',
+              hint: 'Boşsa başlık ve mesaj okunur. {ad} yazarsanız kişinin adı gelir.',
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              genderChip(null, 'Varsayılan ses', Icons.tune_rounded),
+              genderChip(VoiceGender.female.key, VoiceGender.female.label, Icons.face_3),
+              genderChip(VoiceGender.male.key, VoiceGender.male.label, Icons.face_6),
+              VoiceListenButton(
+                listenKey: 'admin_composer_preview',
+                title: _titleC.text,
+                body: _bodyC.text,
+                voiceText: _voiceC.text,
+                gender: _voiceGender,
+                color: AdminUi.brand,
+              ),
+            ],
           ),
         ],
       ),

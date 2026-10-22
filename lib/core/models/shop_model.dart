@@ -54,6 +54,21 @@ class Shop {
   // "Gel Al" (mağazadan teslim) satıcı tarafından aktif mi
   final bool pickupEnabled;
 
+  /// Randevulu sipariş: satıcı açtı mı; saat aralığı (dk), kaç gün ileri,
+  /// en az hazırlık süresi (dk). Seçilebilir saatleri sunucu üretir
+  /// (`get_shop_schedule_slots`); bu alanlar ayar ekranı ve rozet içindir.
+  final bool scheduledOrdersEnabled;
+  final int scheduledSlotMinutes;
+  final int scheduledMaxDays;
+  final int scheduledMinLeadMinutes;
+
+  /// Admin bu dükkanda randevulu siparişi kapattı (satıcı değiştiremez).
+  final bool scheduledOrdersAdminBlocked;
+
+  /// Dükkan ayarı olarak randevu alınabilir mi (global anahtar ayrıca gerekir).
+  bool get acceptsScheduledOrders =>
+      scheduledOrdersEnabled && !scheduledOrdersAdminBlocked;
+
   /// Ücretli öne çıkarma bitişleri (Görev 3.2). Yalnız sunucu yazar; listeler
   /// satırla birlikte okur, süresi geçmişse geçersizdir. Admin sabitlemesi
   /// ([isPinned]) bunlardan ayrıdır.
@@ -100,6 +115,11 @@ class Shop {
     this.sellerCategories = const [],
     this.isPinned = false,
     this.pickupEnabled = false,
+    this.scheduledOrdersEnabled = false,
+    this.scheduledSlotMinutes = 60,
+    this.scheduledMaxDays = 3,
+    this.scheduledMinLeadMinutes = 60,
+    this.scheduledOrdersAdminBlocked = false,
     this.sponsoredListUntil,
     this.sponsoredCategoryUntil,
   }) : _isOpenManual = isOpen;
@@ -285,6 +305,11 @@ class Shop {
     List<String>? sellerCategories,
     bool? isPinned,
     bool? pickupEnabled,
+    bool? scheduledOrdersEnabled,
+    int? scheduledSlotMinutes,
+    int? scheduledMaxDays,
+    int? scheduledMinLeadMinutes,
+    bool? scheduledOrdersAdminBlocked,
     DateTime? sponsoredListUntil,
     DateTime? sponsoredCategoryUntil,
   }) {
@@ -328,6 +353,12 @@ class Shop {
       sellerCategories: sellerCategories ?? this.sellerCategories,
       isPinned: isPinned ?? this.isPinned,
       pickupEnabled: pickupEnabled ?? this.pickupEnabled,
+      scheduledOrdersEnabled: scheduledOrdersEnabled ?? this.scheduledOrdersEnabled,
+      scheduledSlotMinutes: scheduledSlotMinutes ?? this.scheduledSlotMinutes,
+      scheduledMaxDays: scheduledMaxDays ?? this.scheduledMaxDays,
+      scheduledMinLeadMinutes: scheduledMinLeadMinutes ?? this.scheduledMinLeadMinutes,
+      scheduledOrdersAdminBlocked:
+          scheduledOrdersAdminBlocked ?? this.scheduledOrdersAdminBlocked,
       sponsoredListUntil: sponsoredListUntil ?? this.sponsoredListUntil,
       sponsoredCategoryUntil: sponsoredCategoryUntil ?? this.sponsoredCategoryUntil,
     );
@@ -374,6 +405,11 @@ class Shop {
       'seller_categories': sellerCategories,
       'is_pinned': isPinned,
       'pickup_enabled': pickupEnabled,
+      'scheduled_orders_enabled': scheduledOrdersEnabled,
+      'scheduled_slot_minutes': scheduledSlotMinutes,
+      'scheduled_max_days': scheduledMaxDays,
+      'scheduled_min_lead_minutes': scheduledMinLeadMinutes,
+      'scheduled_orders_admin_blocked': scheduledOrdersAdminBlocked,
     };
   }
 
@@ -448,6 +484,12 @@ class Shop {
           : const [],
       isPinned: json['is_pinned'] as bool? ?? false,
       pickupEnabled: json['pickup_enabled'] as bool? ?? false,
+      scheduledOrdersEnabled: json['scheduled_orders_enabled'] as bool? ?? false,
+      scheduledSlotMinutes: (json['scheduled_slot_minutes'] as num?)?.toInt() ?? 60,
+      scheduledMaxDays: (json['scheduled_max_days'] as num?)?.toInt() ?? 3,
+      scheduledMinLeadMinutes: (json['scheduled_min_lead_minutes'] as num?)?.toInt() ?? 60,
+      scheduledOrdersAdminBlocked:
+          json['scheduled_orders_admin_blocked'] as bool? ?? false,
       sponsoredListUntil: parseSponsorTime(json['sponsored_list_until']),
       sponsoredCategoryUntil: parseSponsorTime(json['sponsored_category_until']),
     );

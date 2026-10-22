@@ -42,6 +42,7 @@ import '../widgets/okey_tile_widget.dart';
 import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
+import '../../core/services/announcement_voice_service.dart';
 
 /// 101 Okey oyun masası — yatay (landscape) düzen.
 class OkeyGameScreen extends StatefulWidget {
@@ -64,6 +65,9 @@ class _OkeyGameScreenState extends State<OkeyGameScreen> {
   @override
   void initState() {
     super.initState();
+    // Masanın kendi sesli anonsları var: yönetici duyuruları burada
+    // kendiliğinden okunmaz (bildirim yine gelir, "Dinle" çalışır).
+    AnnouncementVoiceService.enterQuietZone();
     // Masa yatay ekranda oynanır (gerçek 101 Okey uygulamalarındaki gibi).
     // Mobilde bunu işletim sistemi yapar:
     SystemChrome.setPreferredOrientations([
@@ -102,6 +106,7 @@ class _OkeyGameScreenState extends State<OkeyGameScreen> {
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
       OkeyLandscapeLock.release();
     });
+    AnnouncementVoiceService.exitQuietZone();
     super.dispose();
   }
 

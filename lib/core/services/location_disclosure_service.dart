@@ -80,40 +80,89 @@ class LocationDisclosureService {
   ///
   /// [context] mounted değilse veya kullanıcı reddederse `false` döner —
   /// çağıran taraf bu durumda **hiçbir konum isteği yapmamalıdır**.
+  ///
+  /// [checkService] true ise izin alındıktan sonra telefonun konum (GPS)
+  /// servisi de kontrol edilir; kapalıysa "Konumu Aç" penceresi gösterilip
+  /// `false` döner. Varsayılan false: mevcut çağıranlar servisi kendisi ele
+  /// alıyor (ör. Şehiriçi "Konumuma git", kurye paylaşımı).
   static Future<bool> ensure(
     BuildContext context,
-    LocationPurpose purpose,
-  ) {
+    LocationPurpose purpose, {
+    bool checkService = false,
+  }) {
     final running = _inFlight[purpose];
     if (running != null) return running;
 
-    final future = _ensure(context, purpose);
+    final future = _ensure(context, purpose, checkService: checkService);
     _inFlight[purpose] = future;
     return future.whenComplete(() => _inFlight.remove(purpose));
   }
 
   static Future<bool> _ensure(
     BuildContext context,
-    LocationPurpose purpose,
-  ) async {
+    LocationPurpose purpose, {
+    required bool checkService,
+  }) async {
     // Web'de tarayıcı kendi izin akışını yürütür ve Play politikası
     // kapsamı dışındadır; yine de açıklama gösterilir (aşağıda), çünkü
     // kullanıcı beklentisi platformdan bağımsızdır.
     final alreadyConsented = await _hasConsent(purpose);
     final hasPermission = await _hasSystemPermission();
 
-    if (alreadyConsented && hasPermission) return true;
+    var granted = alreadyConsented && hasPermission;
+    if (!granted) {
+      if (!context.mounted) return false;
 
-    if (!context.mounted) return false;
+      final accepted = await _showDisclosure(context, purpose);
+      if (!accepted) return false;
 
-    final accepted = await _showDisclosure(context, purpose);
-    if (!accepted) return false;
+      await _saveConsent(purpose);
+      if (!context.mounted) return false;
 
-    await _saveConsent(purpose);
-    if (!context.mounted) return false;
+      granted = await _requestSystemPermission(context);
+    }
+    if (!granted || !checkService) return granted;
 
-    return _requestSystemPermission(context);
+    if (await _serviceEnabled()) return true;
+    if (context.mounted) await _showServicePrompt(context);
+    return false;
   }
+
+  // ───────────────────────────────────────────────────────────────────
+  // Ekrana girişte izin (yalnız konumun asıl iş olduğu ekranlar)
+  // ───────────────────────────────────────────────────────────────────
+
+  /// Bu oturumda girişte sorulup "Vazgeç" denen ekranlar: aynı ekrana her
+  /// girişte tekrar sorulmaz (ekrandaki "Konumu aç" bandı ile elle istenir).
+  static final Set<String> _entryDeclined = <String>{};
+
+  /// Konumun ekranın asıl işi olduğu yerlere (Şehiriçi haritası, Kurye Çağır)
+  /// GİRİŞTE çağrılır — oraya girmek kullanıcının açık eylemidir. İzin ve
+  /// GPS zaten hazırsa hiçbir şey göstermeden `true` döner; değilse açıklama
+  /// + sistem izni + gerekirse "Konumu Aç" penceresi. Kullanıcı vazgeçerse
+  /// [screenKey] bu oturumda bir daha girişte sorulmaz.
+  ///
+  /// Ana sayfa, uygulama açılışı, zamanlayıcı ve geri dönüş gibi otomatik
+  /// tetikleyicilerde KULLANILMAZ (oralarda yalnız [isReady]).
+  static Future<bool> promptOnEntry(
+    BuildContext context,
+    LocationPurpose purpose, {
+    required String screenKey,
+  }) async {
+    if (await isReady(purpose) && await _serviceEnabled()) return true;
+    if (_entryDeclined.contains(screenKey)) return false;
+    if (!context.mounted) return false;
+    final ok = await ensure(context, purpose, checkService: true);
+    if (!ok) _entryDeclined.add(screenKey);
+    return ok;
+  }
+
+  /// İzin ve GPS hazır mı (hiçbir şey göstermez).
+  static Future<bool> isReadyWithService(LocationPurpose purpose) async =>
+      await isReady(purpose) && await _serviceEnabled();
+
+  @visibleForTesting
+  static void debugResetEntryPrompts() => _entryDeclined.clear();
 
   /// Onay ve izin durumunu, kullanıcıya hiçbir şey göstermeden kontrol eder.
   /// Ekran açılışında "konum kapalı" rozeti göstermek gibi pasif kullanımlar
@@ -134,6 +183,17 @@ class LocationDisclosureService {
     } catch (e) {
       debugPrint('Konum izni durumu okunamadı: $e');
       return false;
+    }
+  }
+
+  static Future<bool> _serviceEnabled() async {
+    try {
+      return await Geolocator.isLocationServiceEnabled();
+    } catch (e) {
+      // Okunamıyorsa (ör. web) açık say: asıl konum okuması zaten hatayı
+      // kendisi ele alır; burada kullanıcıyı boş yere ayarlara göndermeyiz.
+      debugPrint('Konum servisi durumu okunamadı: $e');
+      return true;
     }
   }
 
@@ -481,6 +541,42 @@ class LocationDisclosureService {
         await Geolocator.openAppSettings();
       } catch (e) {
         debugPrint('Ayarlar açılamadı: $e');
+      }
+    }
+  }
+
+  /// İzin var ama telefonun konum (GPS) servisi kapalı.
+  static Future<void> _showServicePrompt(BuildContext context) async {
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        icon: const Icon(Icons.location_off_outlined, size: 32),
+        title: const Text('Konum servisi kapalı'),
+        content: const Text(
+          'Bu ekran konumunuzu kullanıyor. Telefonunuzun konum (GPS) '
+          'servisini açıp geri döndüğünüzde konumunuz haritada görünür.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Konumu Aç'),
+          ),
+        ],
+      ),
+    );
+
+    if (open == true) {
+      try {
+        await Geolocator.openLocationSettings();
+      } catch (e) {
+        debugPrint('Konum ayarları açılamadı: $e');
       }
     }
   }

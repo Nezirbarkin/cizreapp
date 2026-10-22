@@ -170,12 +170,20 @@ class AdminNotification {
     this.editedAt,
     this.createdByName,
     this.recipientNames = const [],
+    this.voiceText,
+    this.voiceGender,
   });
 
   final String id;
   final String title;
   final String content;
   final String iconType;
+
+  /// Ayrı sesli okunacak metin (yoksa başlık + içerik okunur).
+  final String? voiceText;
+
+  /// `female` | `male` | null (admin varsayılan sesi).
+  final String? voiceGender;
   final AdminNotifAudience audience;
   final bool isScheduled;
   final DateTime? scheduledFor;
@@ -243,6 +251,8 @@ class AdminNotification {
       liveCount: _int(j['live_count']),
       createdByName: j['created_by_name'] as String?,
       recipientNames: names,
+      voiceText: j['voice_text'] as String?,
+      voiceGender: j['voice_gender'] as String?,
     );
   }
 }

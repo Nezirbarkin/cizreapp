@@ -19,6 +19,8 @@ import '../providers/cart_provider.dart';
 import '../../shop/services/order_service.dart';
 import '../services/cart_service.dart';
 import '../services/multi_shop_checkout_mapper.dart';
+import '../services/scheduled_order_service.dart';
+import '../widgets/scheduled_slot_picker.dart';
 import 'address_management_screen.dart';
 import 'shop_detail_screen.dart';
 
@@ -71,6 +73,12 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
   // dükkanlar için gösterilir; seçiliyse o dükkanın teslimat ücreti alınmaz.
   final Map<String, bool> _pickupByShop = {};
 
+  // Randevulu sipariş: shopId -> seçilen zaman (yoksa hemen). Kart yalnız
+  // admin global anahtarı açık ve dükkan randevu alıyorsa gösterilir.
+  final Map<String, DateTime> _scheduledByShop = {};
+  final ScheduledOrderService _scheduledService = ScheduledOrderService();
+  bool _scheduleGlobal = false;
+
   /// `summary`'nin pickup seçimine göre görüntü/hesaplama için düzeltilmiş
   /// hâli. `_shopSummaries` DB'den gelen ham veriyi taşır; pickup seçimi
   /// yalnız ekranda tutulur, burada üstüne bindirilir.
@@ -88,6 +96,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
       discount: summary.discount,
       couponCode: summary.couponCode,
       pickupEnabled: summary.pickupEnabled,
+      scheduledEnabled: summary.scheduledEnabled,
     );
   }
 
@@ -110,6 +119,9 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
     super.initState();
     _loadCartData();
     _loadPaymentSettings();
+    _scheduledService.globallyEnabled().then((on) {
+      if (mounted && on != _scheduleGlobal) setState(() => _scheduleGlobal = on);
+    });
   }
 
   @override
@@ -217,6 +229,25 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         throw Exception('Kullanıcı oturumu bulunamadı');
       }
 
+      // Randevular sipariş başlamadan doğrulanır: siparişler dükkan dükkan
+      // eklendiği için ortada bir dükkanın saati reddedilirse yarım grup kalırdı.
+      for (final entry in _scheduledByShop.entries.toList()) {
+        final err = await _scheduledService.validate(entry.key, entry.value);
+        if (err != null) {
+          if (mounted) {
+            final name = _shopSummaries[entry.key]?.shopName ?? 'Dükkan';
+            setState(() {
+              _scheduledByShop.remove(entry.key);
+              _isPlacingOrder = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('$name: $err'), backgroundColor: Colors.orange),
+            );
+          }
+          return;
+        }
+      }
+
       // Bakiye ile ödeme kontrolü
       if (_selectedPaymentMethod == PaymentMethod.balance) {
         if (_userBalance < _effectiveGrandTotal) {
@@ -236,6 +267,8 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
       }
 
       // Minimum sipariş tutarı kontrolü - Tüm dükkanları kontrol et
+      // (randevu doğrulaması await ettiği için ekran hâlâ açık mı bakılır)
+      if (!mounted) return;
       final cartProvider = Provider.of<CartProvider>(context, listen: false);
       final failedShops = <String, double>{};
 
@@ -336,6 +369,7 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
         couponIdByShop: couponIdByShop,
         couponDiscountByShop: couponDiscountByShop,
         pickupByShop: Map<String, bool>.from(_pickupByShop),
+        scheduledForByShop: Map<String, DateTime>.from(_scheduledByShop),
       );
 
       // "2 al biri bakiye" gibi kampanyalı ürünler varsa ödülü bakiyeye yansıt.
@@ -1299,6 +1333,22 @@ class _MultiShopCheckoutScreenState extends State<MultiShopCheckoutScreen> {
                 ),
               ),
             ],
+            if (_scheduleGlobal && summary.scheduledEnabled)
+              ScheduledDeliveryCard(
+                dense: true,
+                shopId: summary.shopId,
+                shopName: summary.shopName,
+                value: _scheduledByShop[summary.shopId],
+                isPickup: _pickupByShop[summary.shopId] ?? false,
+                service: _scheduledService,
+                onChanged: (v) => setState(() {
+                  if (v == null) {
+                    _scheduledByShop.remove(summary.shopId);
+                  } else {
+                    _scheduledByShop[summary.shopId] = v;
+                  }
+                }),
+              ),
             const Divider(height: 24),
 
             // Ürünler

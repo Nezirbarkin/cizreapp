@@ -30,6 +30,18 @@ import '../../../okey/screens/okey_room_screen.dart';
 import '../../../okey/widgets/okey_module_gate.dart';
 import 'package:intl/intl.dart';
 import '../../../core/utils/image_url.dart';
+import '../../../core/widgets/voice_listen_button.dart';
+
+/// Kişisel bildirim satırı olarak zaten gelmiş admin duyurularının kimlikleri
+/// (`notifications.metadata.broadcast_id`). "Duyurular" kartı bunları tekrar
+/// göstermez.
+@visibleForTesting
+Set<String> adminBroadcastIdsIn(Iterable<model.NotificationModel> notifications) {
+  return {
+    for (final n in notifications)
+      if (n.metadata?['broadcast_id'] != null) '${n.metadata!['broadcast_id']}',
+  };
+}
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -75,7 +87,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Herkese açık admin duyurularını yükle (üye olmayan da görebilir)
+      // Admin duyuruları. Sunucu (RLS, admin_audience_includes_me) yalnız bu
+      // kullanıcının kitlesine giden duyuruları döndürür: satıcı duyurusu
+      // müşteriye, kurye duyurusu satıcıya görünmez.
       try {
         final broadcastsResponse = await Supabase.instance.client
             .from('admin_broadcasts')
@@ -101,10 +115,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           debugPrint('🔔 İlk admin bildirimi: ${adminNotifs.first.title}, entity_id: ${adminNotifs.first.entityId}');
         }
 
+        // Kullanıcıya kişisel bildirim satırı olarak da gelen duyuru (aynı
+        // kampanya) "Duyurular" kartında ikinci kez gösterilmez.
+        final deliveredBroadcastIds = adminBroadcastIdsIn(notifications);
+
         if (mounted) {
           setState(() {
             _notifications = notifications;
             _unreadCount = unreadCount;
+            _adminBroadcasts = _adminBroadcasts
+                .where((b) => !deliveredBroadcastIds.contains('${b['id']}'))
+                .toList();
             _isLoading = false;
           });
         }
@@ -547,7 +568,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       case 'new_order':
-        // Satıcıya yeni sipariş bildirimi - satıcı siparişlerine git
+      case 'scheduled_order_reminder':
+        // Satıcıya yeni sipariş / randevu saati yaklaşan sipariş bildirimi -
+        // satıcı siparişlerine git
         if (mounted) {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const SellerOrdersScreen()));
         }
@@ -873,6 +896,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.local_shipping;
       case 'new_order':
         return Icons.shopping_bag;
+      case 'scheduled_order_reminder':
+        return Icons.alarm;
       case 'seller_new_digital_order':
         return Icons.inventory_2;
       case 'seller_product_out_of_stock':
@@ -1318,6 +1343,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ),
         actions: [
+          VoiceListenButton(
+            listenKey: 'admin:${broadcast['id']}',
+            title: title,
+            body: content,
+            voiceText: broadcast['voice_text'] as String?,
+            gender: broadcast['voice_gender'] as String?,
+            color: color,
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Kapat'),
@@ -1702,6 +1735,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ),
         actions: [
+          // Yönetici bildirimi: sesli dinleme (anahtar otomatik okumayla aynı).
+          if (notification.entityId?.startsWith('admin_icon:') ?? false)
+            VoiceListenButton(
+              listenKey:
+                  'admin:${notification.metadata?['campaign_id'] ?? notification.id}',
+              title: notification.title,
+              body: notification.body,
+              voiceText: notification.metadata?['voice_text'] as String?,
+              gender: notification.metadata?['voice_gender'] as String?,
+              color: color,
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Kapat'),

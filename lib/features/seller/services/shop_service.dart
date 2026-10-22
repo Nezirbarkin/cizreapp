@@ -70,6 +70,35 @@ class ShopService {
     }
   }
 
+  /// Randevulu sipariş ayarları. Admin engeli (`scheduled_orders_admin_blocked`)
+  /// burada yazılmaz; satıcı yazsa da sunucu koruması eski değere döndürür.
+  Future<void> updateScheduledOrderSettings({
+    required String shopId,
+    required bool enabled,
+    required int slotMinutes,
+    required int maxDays,
+    required int minLeadMinutes,
+  }) async {
+    try {
+      final result = await _supabase
+          .from('shops')
+          .update({
+            'scheduled_orders_enabled': enabled,
+            'scheduled_slot_minutes': slotMinutes,
+            'scheduled_max_days': maxDays,
+            'scheduled_min_lead_minutes': minLeadMinutes,
+          })
+          .eq('id', shopId)
+          .select('id');
+
+      if (result.isEmpty) {
+        throw Exception('Mağaza bulunamadı veya güncelleme yetkiniz yok');
+      }
+    } catch (e) {
+      throw Exception('Randevulu sipariş ayarları kaydedilemedi: $e');
+    }
+  }
+
   /// Çalışma saatlerini güncelle
   Future<void> updateWorkingHours({
     required String shopId,

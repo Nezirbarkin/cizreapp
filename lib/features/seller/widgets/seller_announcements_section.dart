@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/seller_announcement_model.dart';
+import '../../../core/services/announcement_voice_service.dart';
 import '../../../core/services/seller_announcement_service.dart';
+import '../../../core/services/voice_announce_settings_service.dart';
+import '../../../core/widgets/voice_listen_button.dart';
 import 'seller_announcement_card.dart';
 
 /// Satıcı panelinin "Genel Bakış" sekmesinin en üstündeki duyuru bölümü.
@@ -53,6 +56,19 @@ class _SellerAnnouncementsSectionState
       _service.markSeen(
         list.where((a) => a.isNew && a.id != null).map((a) => a.id!).toList(),
       );
+      // En üstteki YENİ duyuru bir kez sesli okunur (admin/satıcı ayarı izin
+      // veriyorsa).
+      for (final a in list) {
+        if (a.isNew && a.id != null) {
+          AnnouncementVoiceService.instance.announce(
+            area: VoiceArea.seller,
+            title: a.title,
+            body: a.message,
+            dedupKey: 'seller:${a.id}',
+          );
+          break;
+        }
+      }
     } catch (e) {
       // Duyuru bölümü ikincil bir alan; hata panelin geri kalanını bozmasın.
       debugPrint('⚠️ satıcı duyuruları yüklenemedi: $e');
@@ -127,6 +143,20 @@ class _SellerAnnouncementsSectionState
                         fontWeight: FontWeight.w700,
                         color: Colors.orange.shade900,
                       ),
+                    ),
+                  ),
+                  const Spacer(),
+                  // Görünen duyuruları sesli dinlet.
+                  SizedBox(
+                    height: 24,
+                    child: VoiceListenButton(
+                      listenKey: 'seller_announcements',
+                      compact: true,
+                      color: Colors.orange.shade800,
+                      title: 'Yönetimden duyurular',
+                      body: visible
+                          .map((a) => '${a.title}. ${a.message}')
+                          .join(' '),
                     ),
                   ),
                 ],

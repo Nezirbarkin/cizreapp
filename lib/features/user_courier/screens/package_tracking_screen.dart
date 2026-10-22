@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/location_disclosure_service.dart';
+import '../../../core/services/user_distance_service.dart';
 import '../../../core/theme/app_map_style.dart';
 import '../../../core/widgets/map_controls.dart';
 
@@ -77,10 +78,11 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
   }
 
   Future<void> _readUserLocation() async {
+    // Otomatik okuma: doğruluk penceresini dokunuşsuz açmayan ayarlar.
     final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 0,
+      locationSettings: UserDistanceService.silentSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
       ),
     );
     if (!mounted) return;
@@ -227,10 +229,12 @@ class _PackageTrackingScreenState extends State<PackageTrackingScreen> {
       if (!await LocationDisclosureService.isReady(LocationPurpose.nearby)) {
         return;
       }
+      // 10 sn'lik zamanlayıcı: sessiz ayarlar + süre sınırı (sınırsız istek
+      // bir sonraki tura binebiliyordu).
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 5,
+        locationSettings: UserDistanceService.silentSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 8),
         ),
       );
 

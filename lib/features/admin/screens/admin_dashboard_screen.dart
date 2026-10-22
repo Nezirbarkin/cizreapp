@@ -24,6 +24,8 @@ import '../../profile/screens/profile_screen.dart';
 import '../../market/services/category_service.dart';
 import '../services/admin_shops_service.dart';
 import '../widgets/reports_content.dart';
+import '../widgets/voice_announce_settings_card.dart';
+import '../widgets/admin_scheduled_orders_card.dart';
 import 'shop_detail_admin_screen.dart';
 import '../widgets/support_tickets_content.dart';
 import '../widgets/daily_deals_content.dart';
