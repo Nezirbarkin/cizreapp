@@ -10,6 +10,7 @@ import '../../market/screens/market_screen.dart';
 import '../../market/screens/product_detail_screen.dart';
 import '../../market/screens/all_discounted_products_screen.dart';
 import '../../social/screens/social_screen.dart';
+import '../../social/services/post_impression_tracker.dart';
 import '../../market/screens/cart_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../market/providers/cart_provider.dart';
@@ -108,10 +109,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadNotificationCount();
       _loadExploreAccess();
-      Future.delayed(const Duration(milliseconds: 800), () {
+      Future.delayed(const Duration(milliseconds: 800), () async {
         if (!mounted) return;
-        _checkStartupAnnouncement();
         PendingReviewChecker.checkAndShowPendingReviews(context);
+        // İki otomatik okuma birbirini keser: karşılama yalnız açılış
+        // duyurusu gösterilmediyse okunur.
+        final announced = await _checkStartupAnnouncement();
+        if (!announced && mounted) _announceUnreadWelcome();
       });
     });
   }
@@ -149,28 +153,70 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // Uygulama arka plana geçti - çevrimdışı yap
         _privacyService.onAppPaused();
         PresenceService.instance.pauseGlobal();
+        // Bekleyen gönderi görüntülenmeleri kaybolmasın.
+        PostImpressionTracker.instance.flush();
         break;
       default:
         break;
     }
   }
 
-  Future<void> _checkStartupAnnouncement() async {
+  /// Yeni üyenin karşılama mesajı push'u uygulama kapalıyken geldiyse, ilk
+  /// açılışta okunmamış en yeni adım bir kez sesli okunur (anahtar push'taki
+  /// okumayla aynı: iki kez okunmaz). Yalnız 5 günden yeni hesaplarda istek atar.
+  Future<void> _announceUnreadWelcome() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+      final created = DateTime.tryParse(user.createdAt);
+      if (created == null ||
+          DateTime.now().toUtc().difference(created.toUtc()) >
+              const Duration(days: 5)) {
+        return;
+      }
+      final row = await Supabase.instance.client
+          .from('notifications')
+          .select('id, title, content, metadata')
+          .eq('user_id', user.id)
+          .eq('type', 'new_member')
+          .eq('is_read', false)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      if (row == null || !mounted) return;
+      final meta = row['metadata'] is Map
+          ? Map<String, dynamic>.from(row['metadata'] as Map)
+          : const <String, dynamic>{};
+      await AnnouncementVoiceService.instance.announce(
+        area: VoiceArea.adminNotifications,
+        title: row['title'] as String?,
+        body: row['content'] as String?,
+        voiceText: meta['voice_text'] as String?,
+        gender: meta['voice_gender'] as String?,
+        dedupKey: 'new_member:${row['id']}',
+      );
+    } catch (e) {
+      debugPrint('Karşılama mesajı okunamadı: $e');
+    }
+  }
+
+  /// Açılış duyurusunu gösterir; gösterildiyse true.
+  Future<bool> _checkStartupAnnouncement() async {
     try {
       // ⚡ AÇILIŞ OPTİMİZASYONU (2026-08-14): Aynı ayarları MarketScreen de
       // çekiyor; AppAboutService'in bellek cache'i sayesinde burada ek bir ağ
       // isteği atılmaz (cache boşsa tek istek düşer, davranış aynı).
       final settings = await AppAboutService().getAboutSettings();
 
-      if (settings == null || !mounted) return;
+      if (settings == null || !mounted) return false;
 
       final announcementEnabled = settings.startupAnnouncementEnabled;
-      if (!announcementEnabled) return;
+      if (!announcementEnabled) return false;
 
       final title = settings.startupAnnouncementTitle;
       final message = settings.startupAnnouncementMessage;
       if (title == null || message == null || title.isEmpty || message.isEmpty) {
-        return;
+        return false;
       }
 
       final type = settings.startupAnnouncementType;
@@ -193,13 +239,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               lastShownDate != null &&
               lastShownDate.isAtSameMomentAs(updatedAt);
         }
-        if (alreadyShown) return;
+        if (alreadyShown) return false;
 
         // Göster ve kaydet
         await prefs.setString(lastShownKey, updatedAt.toIso8601String());
       }
 
-      if (!mounted) return;
+      if (!mounted) return false;
 
       // Sesli okuma: aynı duyuru (aynı güncelleme zamanı) bir kez okunur.
       final voiceKey =
@@ -270,8 +316,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ],
         ),
       );
+      return true;
     } catch (e) {
       debugPrint('Açılış duyurusu kontrol hatası: $e');
+      return false;
     }
   }
 

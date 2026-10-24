@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/favorite_models.dart';
 import '../models/product_model.dart';
 import '../models/post_model.dart' show Post;
+import '../models/shop_model.dart';
 import '../services/favorite_service.dart';
 
 /// Favori Provider - Favorileri yönetir
@@ -12,6 +13,11 @@ class FavoritesProvider with ChangeNotifier {
   List<PostFavorite> _postFavorites = [];
   Map<String, bool> _productFavoritedCache = {}; // productId -> isFavorited
   Map<String, bool> _postFavoritedCache = {}; // postId -> isFavorited
+  List<Shop> _favoriteShops = [];
+  final Set<String> _favoriteShopIds = {};
+  bool _shopsLoaded = false;
+  Future<void>? _shopsLoading;
+  final Set<String> _shopInFlight = {};
 
   bool _isLoading = false;
   String? _error;
@@ -24,7 +30,62 @@ class FavoritesProvider with ChangeNotifier {
 
   int get productFavoritesCount => _productFavorites.length;
   int get postFavoritesCount => _postFavorites.length;
-  int get totalFavoritesCount => _productFavorites.length + _postFavorites.length;
+  int get totalFavoritesCount =>
+      _productFavorites.length + _postFavorites.length + _favoriteShops.length;
+
+  List<Shop> get favoriteShops => _favoriteShops;
+  int get shopFavoritesCount => _favoriteShops.length;
+  bool get shopsLoaded => _shopsLoaded;
+  bool isShopFavorited(String shopId) => _favoriteShopIds.contains(shopId);
+
+  /// Favori dükkânlar (Favoriler > Dükkânlar ve dükkân sayfasındaki kalp).
+  /// [force] yoksa oturumda bir kez yüklenir; eşzamanlı çağrılar tek istek.
+  Future<void> loadShopFavorites({bool force = false}) {
+    if (_shopsLoaded && !force) return Future.value();
+    return _shopsLoading ??= () async {
+      try {
+        _favoriteShops = await _favoriteService.getShopFavorites();
+        _favoriteShopIds
+          ..clear()
+          ..addAll(_favoriteShops.map((s) => s.id));
+        _shopsLoaded = true;
+      } catch (e) {
+        _error = e.toString();
+      } finally {
+        _shopsLoading = null;
+        notifyListeners();
+      }
+    }();
+  }
+
+  /// Dükkânı favorilere ekle / çıkar (iyimser; hata olursa geri döner).
+  Future<bool> toggleShopFavorite(Shop shop) async {
+    if (!_shopInFlight.add(shop.id)) return isShopFavorited(shop.id);
+    final add = !_favoriteShopIds.contains(shop.id);
+    void apply(bool on) {
+      if (on) {
+        _favoriteShopIds.add(shop.id);
+        if (!_favoriteShops.any((s) => s.id == shop.id)) _favoriteShops.insert(0, shop);
+      } else {
+        _favoriteShopIds.remove(shop.id);
+        _favoriteShops.removeWhere((s) => s.id == shop.id);
+      }
+    }
+
+    apply(add);
+    notifyListeners();
+    try {
+      await _favoriteService.setShopFavorite(shop.id, add);
+      return add;
+    } catch (e) {
+      apply(!add);
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      _shopInFlight.remove(shop.id);
+    }
+  }
 
   /// Kullanıcının tüm favorilerini yükler
   Future<void> loadFavorites() async {
@@ -225,6 +286,10 @@ class FavoritesProvider with ChangeNotifier {
     _postFavorites = [];
     _productFavoritedCache.clear();
     _postFavoritedCache.clear();
+    _favoriteShops = [];
+    _favoriteShopIds.clear();
+    _shopsLoaded = false;
+    _shopsLoading = null;
     _isLoading = false;
     _error = null;
     notifyListeners();

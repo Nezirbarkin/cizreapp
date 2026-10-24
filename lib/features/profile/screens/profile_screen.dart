@@ -27,6 +27,7 @@ import '../services/profile_service.dart';
 import 'edit_profile_screen.dart';
 import '../../social/screens/create_post_screen.dart';
 import 'blocked_users_screen.dart';
+import 'muted_users_screen.dart';
 import 'my_reports_screen.dart';
 import '../../chat/services/chat_service.dart';
 import '../../chat/screens/chat_detail_screen.dart';
@@ -39,6 +40,11 @@ import '../../../ilanlar/screens/my_ilanlar_screen.dart';
 import '../widgets/profile_post_grid.dart';
 import '../widgets/profile_share_sheet.dart';
 import '../../social/widgets/social_post_card.dart';
+import '../../social/widgets/impression_probe.dart';
+import '../../social/widgets/post_insights_sheet.dart';
+import '../../social/widgets/edit_post_sheet.dart';
+import '../../social/screens/hashtag_feed_screen.dart';
+import '../../social/services/post_impression_tracker.dart';
 import '../../social/widgets/send_to_friend_sheet.dart';
 import 'user_profile_screen.dart';
 
@@ -1346,7 +1352,13 @@ class _ProfileScreenState extends State<ProfileScreen>
           final post = _userPosts[index];
           return Padding(
             padding: const EdgeInsets.only(bottom: 16),
-            child: SocialPostCard(
+            child: ImpressionProbe(
+              id: post.id,
+              onSeen: () => PostImpressionTracker.instance.markSeen(
+                post.id,
+                authorId: post.userId,
+              ),
+              child: SocialPostCard(
               post: post,
               fullName: fullName,
               username: username,
@@ -1368,6 +1380,13 @@ class _ProfileScreenState extends State<ProfileScreen>
               onSend: () => sendPostToFriend(context, post),
               onSave: () => _savePost(post),
               onShare: () => _sharePost(post),
+              onViewsTap: isOwnProfile
+                  ? () => showPostInsightsSheet(context, post)
+                  : null,
+              onHashtagTap: (tag) => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HashtagFeedScreen(tag: tag)),
+              ),
               trailing: isOwnProfile
                   ? IconButton(
                       icon: Icon(
@@ -1378,6 +1397,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       onPressed: () => _showPostMenu(post.id),
                     )
                   : null,
+              ),
             ),
           );
         }, childCount: _userPosts.length),
@@ -1439,6 +1459,44 @@ class _ProfileScreenState extends State<ProfileScreen>
                         SnackBar(content: Text(AppErrorHandler.handleError(e))),
                       );
                     }
+                  },
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final index = _userPosts.indexWhere((p) => p.id == postId);
+                if (index == -1) return const SizedBox.shrink();
+                return ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Düzenle'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final updated = await showEditPostSheet(this.context, _userPosts[index]);
+                    if (updated == null || !mounted) return;
+                    setState(() {
+                      final i = _userPosts.indexWhere((p) => p.id == postId);
+                      if (i != -1) {
+                        _userPosts[i] = _userPosts[i].copyWith(
+                          content: updated.content,
+                          editedAt: updated.editedAt,
+                        );
+                      }
+                    });
+                  },
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final index = _userPosts.indexWhere((p) => p.id == postId);
+                if (index == -1) return const SizedBox.shrink();
+                return ListTile(
+                  leading: const Icon(Icons.insights_rounded, color: Color(0xFF7C3AED)),
+                  title: const Text('İstatistikler'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showPostInsightsSheet(this.context, _userPosts[index]);
                   },
                 );
               },
@@ -1754,6 +1812,28 @@ class _ProfileScreenState extends State<ProfileScreen>
                   MaterialPageRoute(
                     builder: (context) => const BlockedUsersScreen(),
                   ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.volume_off_outlined, color: Colors.blueGrey.shade400, size: 20),
+              ),
+              title: const Text(
+                'Sessize alınanlar',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MutedUsersScreen()),
                 );
               },
             ),

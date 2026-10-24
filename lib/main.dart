@@ -65,6 +65,8 @@ import 'core/services/storage_service.dart';
 import 'core/services/permission_service.dart';
 import 'core/models/cached_post_model.dart';
 import 'features/chat/services/chat_service.dart';
+import 'features/social/services/post_impression_tracker.dart';
+import 'features/social/services/muted_users_service.dart';
 import 'features/chat/services/presence_service.dart';
 import 'core/services/version_check_service.dart';
 import 'core/widgets/force_update_dialog.dart';
@@ -579,6 +581,8 @@ class _CizreAppState extends State<CizreApp> {
         // Kullanıcıya ait, uygulama boyunca yaşayan durumu bırak: sonraki
         // kullanıcı (ya da misafir) öncekinin favorilerini görmesin.
         ChatService.clearCache();
+        PostImpressionTracker.instance.reset();
+        MutedUsersService.instance.reset();
         if (mounted) {
           Provider.of<FavoritesProvider>(context, listen: false)
               .resetForSignOut();

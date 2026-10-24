@@ -127,6 +127,7 @@ class NotificationModel {
     switch (type) {
       case 'like':
       case 'post_like':
+      case 'comment_like':
         return 'favorite';
       // Hikaye tepkileri DB trigger'ı tarafından 'story_like' tipiyle
       // yazılıyor; eşleme olmadığı için jenerik zil ikonu görünüyordu.
@@ -176,6 +177,8 @@ class NotificationModel {
         return 'star_rate';
       case 'admin_notification':
         return 'campaign';
+      case 'new_member':
+        return 'card_giftcard';
       case 'group_join_request':
         return 'group_add';
       case 'group_member_joined':
@@ -208,6 +211,7 @@ class NotificationModel {
     switch (type) {
       case 'like':
       case 'post_like':
+      case 'comment_like':
         return 'red';
       case 'story_like':
         return 'pink';
@@ -253,6 +257,8 @@ class NotificationModel {
         return 'amber';
       case 'admin_notification':
         return 'blue';
+      case 'new_member':
+        return 'pink';
       case 'group_join_request':
         return 'deepOrange';
       case 'group_member_joined':

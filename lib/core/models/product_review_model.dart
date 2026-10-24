@@ -25,6 +25,9 @@ class ProductReview {
   final int helpfulCount;
   final bool? isHelpful; // Mevcut kullanıcı oyu verdi mi?
 
+  // Satıcı panelinde yorumun hangi ürüne ait olduğu (products(name) embed'i).
+  final String? productName;
+
   ProductReview({
     required this.id,
     required this.productId,
@@ -41,6 +44,7 @@ class ProductReview {
     this.isApproved = true,
     this.helpfulCount = 0,
     this.isHelpful,
+    this.productName,
   });
 
   factory ProductReview.fromJson(Map<String, dynamic> json) {
@@ -62,6 +66,8 @@ class ProductReview {
       isApproved: json['is_approved'] as bool? ?? true,
       helpfulCount: json['helpful_count'] as int? ?? 0,
       isHelpful: json['is_helpful'] as bool?,
+      productName: json['product_name'] as String? ??
+          (json['products'] is Map ? (json['products'] as Map)['name'] as String? : null),
     );
   }
 
@@ -126,6 +132,7 @@ class ProductReview {
       isApproved: isApproved ?? this.isApproved,
       helpfulCount: helpfulCount ?? this.helpfulCount,
       isHelpful: isHelpful ?? this.isHelpful,
+      productName: productName,
     );
   }
 }

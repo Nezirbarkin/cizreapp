@@ -9,6 +9,7 @@ import '../../../core/services/storage_service.dart';
 import '../../../core/utils/app_error_handler.dart';
 import '../../../core/utils/image_compression_helper.dart';
 import '../../music/models/attached_music.dart';
+import 'muted_users_service.dart';
 
 class StoryService {
   /// Klasik begeni tepkisi. story_likes.emoji sutununun DB varsayilani da ayni.
@@ -63,8 +64,9 @@ class StoryService {
         _sharedUser == userId &&
         _sharedAt != null &&
         now.difference(_sharedAt!) < _shareWindow) {
-      // Kopya: çağıranlar listeyi yerinde değiştirebiliyor.
-      return shared.then((list) => List<Story>.of(list));
+      // Kopya: çağıranlar listeyi yerinde değiştirebiliyor. Sessize
+      // alınanlar bellekteki kümeyle çıkarılır (ek istek yok).
+      return shared.then(_withoutMuted);
     }
     final future = _fetchStories();
     _shared = future;
@@ -74,8 +76,11 @@ class StoryService {
     future.then<void>((_) {}, onError: (Object _) {
       if (identical(_shared, future)) _shared = null;
     });
-    return future.then((list) => List<Story>.of(list));
+    return future.then(_withoutMuted);
   }
+
+  static List<Story> _withoutMuted(List<Story> list) =>
+      List<Story>.of(MutedUsersService.instance.filterStories(list, (s) => s.userId));
 
   Future<List<Story>> _fetchStories() async {
     try {

@@ -123,6 +123,7 @@ class NotificationPreferencesService {
 
       switch (notificationType) {
         case 'like':
+        case 'comment_like': // Yorumun beğenildi (sunucu da bu tercihe bakar)
           return prefs.likesEnabled;
         case 'comment':
           return prefs.commentsEnabled;

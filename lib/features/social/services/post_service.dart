@@ -53,8 +53,10 @@ class PostService {
     try {
       // Feed'de sadece admin sabitlediği gönderiler üstte gösterilir
       // Kullanıcının kendi sabitlediği gönderiler normal olarak tarihe göre sıralanır
+      // feed_posts_with_profiles = posts_with_profiles − sessize alınanlar −
+      // gizlenen gönderiler (sunucuda süzülür; sayfalama bozulmaz).
       final response = await _supabase
-          .from('posts_with_profiles')
+          .from('feed_posts_with_profiles')
           .select()
           .order('admin_pinned', ascending: false, nullsFirst: false)
           .order('created_at', ascending: false)
@@ -192,20 +194,98 @@ class PostService {
     }
   }
 
-  // Gönderi güncelle
-  Future<Post?> updatePost(String postId, Map<String, dynamic> updates) async {
-    try {
-      final response = await _supabase
-          .from('posts')
-          .update(updates)
-          .eq('id', postId)
-          .select()
-          .maybeSingle();
+  /// Gönderi metnini düzenler. Sunucu `edited_at`'i damgalar
+  /// (b_posts_mark_edited); dönen alanlar mevcut gönderiye birleştirilir.
+  /// RLS yalnız sahibine izin verir: satır dönmezse yetki yoktur.
+  Future<Post> updatePostContent(Post post, String content) async {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty && post.images.isEmpty) {
+      throw Exception('Gönderi metni boş olamaz');
+    }
+    final row = await _supabase
+        .from('posts')
+        .update({'content': trimmed})
+        .eq('id', post.id)
+        .select('id, content, edited_at, updated_at')
+        .maybeSingle();
+    if (row == null) throw Exception('Bu gönderiyi düzenleme yetkiniz yok');
+    return post.copyWith(
+      content: row['content'] as String? ?? trimmed,
+      editedAt: DateTime.tryParse('${row['edited_at'] ?? ''}')?.toUtc() ??
+          DateTime.now().toUtc(),
+      updatedAt: DateTime.tryParse('${row['updated_at'] ?? ''}')?.toUtc(),
+    );
+  }
 
-      if (response == null) return null;
-      return Post.fromJson(response);
+  /// `#etiket` içeren gönderiler (yeniden eskiye; gizli hesap / engel RLS'te süzülür).
+  Future<List<Post>> getPostsByHashtag(String tag, {int limit = 20, int offset = 0}) async {
+    final res = await _supabase.rpc(
+      'posts_by_hashtag',
+      params: {'p_tag': tag, 'p_limit': limit, 'p_offset': offset},
+    );
+    if (res is! List) return const [];
+    final posts = <Post>[];
+    for (final row in res.whereType<Map>()) {
+      try {
+        posts.add(Post.fromJson(Map<String, dynamic>.from(row)));
+      } catch (_) {
+        // Bozuk satır tüm listeyi boşaltmasın.
+      }
+    }
+    return posts;
+  }
+
+  /// "Gönderiyi gizle" / "İlgilenmiyorum": yalnız benim akışımdan çıkar
+  /// ([reason]: 'hidden' | 'not_interested').
+  Future<void> hidePost(String postId, {String reason = 'hidden'}) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) throw Exception('Giriş yapmalısınız');
+    await _supabase.from('hidden_posts').upsert(
+      {'user_id': uid, 'post_id': postId, 'reason': reason},
+      onConflict: 'user_id,post_id',
+      ignoreDuplicates: true,
+    );
+  }
+
+  Future<void> unhidePost(String postId) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+    await _supabase.from('hidden_posts').delete().eq('user_id', uid).eq('post_id', postId);
+  }
+
+  /// Gönderi metninde arama (Türkçe katlamalı, en yeni önce, en çok 30).
+  Future<List<Post>> searchPosts(String query, {int limit = 20}) async {
+    if (query.trim().length < 2) return const [];
+    final res = await _supabase.rpc(
+      'search_posts',
+      params: {'p_q': query.trim(), 'p_limit': limit},
+    );
+    if (res is! List) return const [];
+    final posts = <Post>[];
+    for (final row in res.whereType<Map>()) {
+      try {
+        posts.add(Post.fromJson(Map<String, dynamic>.from(row)));
+      } catch (_) {}
+    }
+    return posts;
+  }
+
+  /// Son [days] günün en çok kullanılan etiketleri: (etiket, gönderi sayısı).
+  Future<List<MapEntry<String, int>>> getTrendingHashtags({int days = 7, int limit = 10}) async {
+    try {
+      final res = await _supabase.rpc(
+        'trending_hashtags',
+        params: {'p_days': days, 'p_limit': limit},
+      );
+      if (res is! List) return const [];
+      return [
+        for (final e in res.whereType<Map>())
+          if (e['tag'] is String)
+            MapEntry(e['tag'] as String, (e['posts'] as num?)?.toInt() ?? 0),
+      ];
     } catch (e) {
-      throw Exception('Gönderi güncellenirken hata: $e');
+      debugPrint('Gündem etiketleri yüklenemedi: $e');
+      return const [];
     }
   }
 
@@ -402,6 +482,39 @@ class PostService {
     } catch (e) {
       throw Exception('Yorumlar yüklenirken hata: $e');
     }
+  }
+
+  /// Kullanıcının beğendiği yorumlar (gönderinin yorum listesi için tek istek).
+  Future<Set<String>> getLikedCommentIds(String userId, List<String> commentIds) async {
+    if (commentIds.isEmpty) return {};
+    try {
+      final response = await _supabase
+          .from('post_comment_likes')
+          .select('comment_id')
+          .eq('user_id', userId)
+          .inFilter('comment_id', commentIds);
+      return (response as List).map((j) => j['comment_id'] as String).toSet();
+    } catch (e) {
+      debugPrint('Beğenilen yorumlar yüklenemedi: $e');
+      return {};
+    }
+  }
+
+  /// Yorum beğen (zaten beğenildiyse sessizce başarılı; sayaç/bildirim sunucuda).
+  Future<void> likeComment(String commentId, String userId) async {
+    await _supabase.from('post_comment_likes').upsert(
+      {'comment_id': commentId, 'user_id': userId},
+      onConflict: 'comment_id,user_id',
+      ignoreDuplicates: true,
+    );
+  }
+
+  Future<void> unlikeComment(String commentId, String userId) async {
+    await _supabase
+        .from('post_comment_likes')
+        .delete()
+        .eq('comment_id', commentId)
+        .eq('user_id', userId);
   }
 
   // Yorum sil

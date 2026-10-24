@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/shop_model.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/models/shop_review_model.dart';
+import '../../../core/providers/favorites_provider.dart';
 import '../../../core/services/order_availability_service.dart';
 import '../../../core/services/user_distance_service.dart';
 import '../../../core/utils/app_error_handler.dart';
@@ -83,6 +84,12 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     _analyticsService.recordShopView(widget.shopId);
     _searchController.addListener(_onSearchChanged);
     ActiveFlashSaleCache.instance.byProduct.addListener(_onFlashPricesChanged);
+    // Favori kalbi için (oturumda bir kez yüklenir).
+    if (Supabase.instance.client.auth.currentUser != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.read<FavoritesProvider>().loadShopFavorites();
+      });
+    }
   }
 
   @override
@@ -724,6 +731,17 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     _availableCategories = categories..sort();
   }
 
+  /// Daraltılmış barda sağdaki eylemlerin genişliği (başlık bunun altına
+  /// girmesin): ♡ (üyeye) + paylaş + arama/kapat (IconButton 48'er) + sepet
+  /// (24 ikon + 2×4 iç + 8 sağ boşluk = 40) + 8 nefes payı.
+  double get _collapsedTitleEndPadding {
+    final showFavorite = !_isSearching &&
+        _shop != null &&
+        Supabase.instance.client.auth.currentUser != null;
+    final showShare = !_isSearching && _shop != null;
+    return (showFavorite ? 48.0 : 0) + (showShare ? 48.0 : 0) + 48 + 40 + 8;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -777,6 +795,42 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     )
                   : null,
               actions: [
+                // Favori dükkân (Favoriler > Dükkânlar). Misafire yok.
+                if (!_isSearching &&
+                    _shop != null &&
+                    Supabase.instance.client.auth.currentUser != null)
+                  Builder(builder: (context) {
+                    final favorites = context.watch<FavoritesProvider>();
+                    final isFav = favorites.isShopFavorited(_shop!.id);
+                    return IconButton(
+                      tooltip: isFav ? 'Favorilerden çıkar' : 'Favorilere ekle',
+                      icon: Icon(
+                        isFav ? Icons.favorite : Icons.favorite_border,
+                        color: Colors.white,
+                      ),
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final added = await favorites.toggleShopFavorite(_shop!);
+                          messenger
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                              SnackBar(
+                                content: Text(added
+                                    ? 'Dükkân favorilere eklendi'
+                                    : 'Dükkân favorilerden çıkarıldı'),
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                        } catch (_) {
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Favori kaydedilemedi')),
+                          );
+                        }
+                      },
+                    );
+                  }),
                 // Mağaza paylaş butonu
                 if (!_isSearching && _shop != null)
                   IconButton(
@@ -939,22 +993,69 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   },
                 ),
               ],
-              flexibleSpace: FlexibleSpaceBar(
-                title: Text(
-                  _shop!.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                background: _shop!.bannerUrl != null
-                    ? CachedNetworkImage(
-                        memCacheWidth: 1000,
-                        imageUrl: _shop!.bannerUrl!,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        child: const Icon(Icons.store, size: 80),
+              // Dükkân adı kapak fotoğrafında yazmaz (altında zaten kartta
+              // var); yalnız kaydırıp bar daralınca üst barda görünür.
+              // FlexibleSpaceBar başlığı eylem ikonlarını hesaba katmadığı için
+              // sağ boşluk ikonların toplam genişliği kadar: uzun ad ♡ /
+              // paylaş / arama / sepetin altına girmez.
+              flexibleSpace: LayoutBuilder(
+                builder: (context, constraints) {
+                  final topInset = MediaQuery.paddingOf(context).top;
+                  final minHeight = kToolbarHeight + topInset;
+                  final maxHeight = 200 + topInset;
+                  final expanded = ((constraints.maxHeight - minHeight) /
+                          (maxHeight - minHeight))
+                      .clamp(0.0, 1.0);
+                  // Bar tam daralınca görünür, açılmaya başlayınca hızla söner;
+                  // aramada başlık yerini arama kutusuna bırakır.
+                  final titleOpacity =
+                      _isSearching ? 0.0 : (1 - expanded * 4).clamp(0.0, 1.0);
+                  return FlexibleSpaceBar(
+                    expandedTitleScale: 1,
+                    titlePadding: EdgeInsetsDirectional.only(
+                      start: 72,
+                      end: _collapsedTitleEndPadding,
+                      bottom: 16,
+                    ),
+                    title: Opacity(
+                      opacity: titleOpacity,
+                      child: Text(
+                        _shop!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white),
                       ),
+                    ),
+                    background: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_shop!.bannerUrl != null)
+                          CachedNetworkImage(
+                            memCacheWidth: 1000,
+                            imageUrl: _shop!.bannerUrl!,
+                            fit: BoxFit.cover,
+                          )
+                        else
+                          Container(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            child: const Icon(Icons.store, size: 80),
+                          ),
+                        // Açık renkli banner'da beyaz geri / ♡ / paylaş /
+                        // arama / sepet ikonları kayboluyordu: üstte hafif
+                        // koyu geçiş.
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.center,
+                              colors: [Color(0x73000000), Color(0x00000000)],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
 

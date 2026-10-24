@@ -75,6 +75,19 @@ String firstNonEmpty(
   return fallback;
 }
 
+/// Görüntülenme: görünüm/RPC düz `views_count`; ham posts embed'inde
+/// `post_stats(views_count)` alt nesnesi (tek nesne ya da liste).
+int _viewsCountOf(Map<String, dynamic> json) {
+  final direct = json['views_count'];
+  if (direct is num) return direct.toInt();
+  var stats = json['post_stats'];
+  if (stats is List) stats = stats.isEmpty ? null : stats.first;
+  if (stats is Map && stats['views_count'] is num) {
+    return (stats['views_count'] as num).toInt();
+  }
+  return 0;
+}
+
 class Post {
   final String id;
   final String userId;
@@ -107,6 +120,13 @@ class Post {
   final int likesCount;
   final int commentsCount;
   final int sharesCount;
+
+  /// Akışta görülme sayısı (kişi başı günde bir; DB: post_stats.views_count,
+  /// görünümde `views_count`). Kendi gönderisi sayılmaz.
+  final int viewsCount;
+
+  /// İçeriğin son düzenlendiği an (DB: posts.edited_at; sunucu damgalar).
+  final DateTime? editedAt;
   final bool isActive;
   final bool isPinned;
   final bool adminPinned; // Admin sabitledi (feed'de sabitlenmiş görünür)
@@ -136,6 +156,8 @@ class Post {
     this.likesCount = 0,
     this.commentsCount = 0,
     this.sharesCount = 0,
+    this.viewsCount = 0,
+    this.editedAt,
     this.isActive = true,
     this.isPinned = false,
     this.adminPinned = false,
@@ -164,6 +186,8 @@ class Post {
     int? likesCount,
     int? commentsCount,
     int? sharesCount,
+    int? viewsCount,
+    DateTime? editedAt,
     bool? isActive,
     bool? isPinned,
     bool? adminPinned,
@@ -191,6 +215,8 @@ class Post {
       likesCount: likesCount ?? this.likesCount,
       commentsCount: commentsCount ?? this.commentsCount,
       sharesCount: sharesCount ?? this.sharesCount,
+      viewsCount: viewsCount ?? this.viewsCount,
+      editedAt: editedAt ?? this.editedAt,
       isActive: isActive ?? this.isActive,
       isPinned: isPinned ?? this.isPinned,
       adminPinned: adminPinned ?? this.adminPinned,
@@ -221,6 +247,8 @@ class Post {
       'likes_count': likesCount,
       'comments_count': commentsCount,
       'shares_count': sharesCount,
+      'views_count': viewsCount,
+      if (editedAt != null) 'edited_at': editedAt!.toIso8601String(),
       'is_active': isActive,
       'is_pinned': isPinned,
       'admin_pinned': adminPinned,
@@ -297,6 +325,10 @@ class Post {
       likesCount: json['likes_count'] as int? ?? 0,
       commentsCount: json['comments_count'] as int? ?? 0,
       sharesCount: json['shares_count'] as int? ?? 0,
+      viewsCount: _viewsCountOf(json),
+      editedAt: json['edited_at'] == null
+          ? null
+          : DateTime.tryParse(json['edited_at'].toString())?.toUtc(),
       isActive: json['is_active'] as bool? ?? true,
       isPinned: json['is_pinned'] as bool? ?? false,
       adminPinned: json['admin_pinned'] as bool? ?? false,
@@ -334,6 +366,9 @@ class PostComment {
   /// Null ise ana (üst düzey) yorumdur.
   final String? parentCommentId;
 
+  /// Yorum beğeni sayısı (DB: post_comments.likes_count; sunucu tutar).
+  final int likesCount;
+
   PostComment({
     required this.id,
     required this.postId,
@@ -345,7 +380,22 @@ class PostComment {
     this.authorFullName,
     this.authorAvatarUrl,
     this.parentCommentId,
+    this.likesCount = 0,
   });
+
+  PostComment copyWith({int? likesCount}) => PostComment(
+        id: id,
+        postId: postId,
+        userId: userId,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        authorUsername: authorUsername,
+        authorFullName: authorFullName,
+        authorAvatarUrl: authorAvatarUrl,
+        parentCommentId: parentCommentId,
+        likesCount: likesCount ?? this.likesCount,
+      );
 
   /// Gösterilecek ad: tam ad > kullanıcı adı > jenerik.
   String get displayName {
@@ -371,6 +421,7 @@ class PostComment {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       if (parentCommentId != null) 'parent_comment_id': parentCommentId,
+      'likes_count': likesCount,
     };
   }
 
@@ -397,6 +448,7 @@ class PostComment {
       authorAvatarUrl:
           (json['author_avatar_url'] ?? profileMap['avatar_url']) as String?,
       parentCommentId: json['parent_comment_id'] as String?,
+      likesCount: (json['likes_count'] as num?)?.toInt() ?? 0,
     );
   }
 }

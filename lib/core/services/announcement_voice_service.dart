@@ -170,6 +170,7 @@ class AnnouncementVoiceService {
   // --- Saf yardımcılar --------------------------------------------------------
 
   /// "Ayşe Nur Kaya" → "Ayşe"; ad yoksa kullanıcı adı; ikisi de yoksa null.
+  /// Kayıt sırasında verilen geçici "misafir_xxxx" adı okunmaz.
   @visibleForTesting
   static String? firstNameOf(String? fullName, String? username) {
     final full = fullName?.trim() ?? '';
@@ -178,7 +179,8 @@ class AnnouncementVoiceService {
       if (first.isNotEmpty) return first;
     }
     final u = username?.trim() ?? '';
-    return u.isEmpty ? null : u;
+    if (u.isEmpty || u.toLowerCase().startsWith('misafir_')) return null;
+    return u;
   }
 
   /// Okunacak metni kurar.

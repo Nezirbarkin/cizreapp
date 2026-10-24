@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/new_member_route.dart';
 import 'announcement_voice_service.dart';
 import 'notification_service.dart';
 import 'voice_announce_settings_service.dart';
@@ -400,13 +401,19 @@ class PushNotificationService {
     }
   }
 
-  /// Uygulama açıkken gelen yönetici bildirimini sesli okur (ayarlar izin
-  /// veriyorsa). Bildirim sesi önce duyulsun diye kısa gecikmeyle başlar.
+  /// Uygulama açıkken gelen yönetici bildirimini ve yeni üye karşılama
+  /// mesajını sesli okur (ayarlar izin veriyorsa). Bildirim sesi önce duyulsun
+  /// diye kısa gecikmeyle başlar.
   static void _announceAdminMessage(RemoteMessage message) {
     final data = message.data;
     final type = data['type'];
-    if (type != 'admin_broadcast' && type != 'admin_notification') return;
-    final id = data['meta_campaign_id'] ?? data['notification_id'];
+    final isWelcome = type == 'new_member';
+    if (type != 'admin_broadcast' && type != 'admin_notification' && !isWelcome) {
+      return;
+    }
+    final id = isWelcome
+        ? data['notification_id']
+        : data['meta_campaign_id'] ?? data['notification_id'];
     Future.delayed(const Duration(milliseconds: 700), () {
       AnnouncementVoiceService.instance.announce(
         area: VoiceArea.adminNotifications,
@@ -414,7 +421,7 @@ class PushNotificationService {
         body: message.notification?.body,
         voiceText: data['meta_voice_text'],
         gender: data['meta_voice_gender'],
-        dedupKey: id == null ? null : 'admin:$id',
+        dedupKey: id == null ? null : (isWelcome ? 'new_member:$id' : 'admin:$id'),
       );
     });
   }
@@ -494,6 +501,7 @@ class PushNotificationService {
       case 'comment':
       case 'post_comment':
       case 'comment_reply':
+      case 'comment_like':
       case 'mention':
       case 'post_mention':
       case 'post':
@@ -527,6 +535,7 @@ class PushNotificationService {
       case 'cart_price_drop':
       case 'price_drop':
       case 'stock_back': // Beklenen ürün stoğa girdi
+      case 'product_review_reply': // Satıcı ürün yorumuna cevap verdi
         if (entityId != null && entityId.isNotEmpty) {
           _navigateToProduct(context, entityId);
         } else {
@@ -616,6 +625,20 @@ class PushNotificationService {
 
       case 'admin_notification':
         _navigateToMainScreen(context);
+        break;
+
+      // Yeni üye karşılama serisi: adımın ekranı (profil, gönderi, Okey…).
+      case 'new_member':
+        final welcomeRoute = NewMemberRoute.tryParse(data['meta_route']);
+        if (welcomeRoute != null) {
+          openNewMemberRoute(
+            navigatorKey!.currentState!,
+            welcomeRoute,
+            resetToMain: true,
+          );
+        } else {
+          _navigateToMainScreen(context);
+        }
         break;
 
       default:

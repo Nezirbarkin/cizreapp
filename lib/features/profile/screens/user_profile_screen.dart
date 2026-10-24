@@ -40,6 +40,12 @@ import '../widgets/profile_share_sheet.dart';
 import '../widgets/mutual_followers_line.dart';
 import '../../social/widgets/heart_animation_overlay.dart';
 import '../../social/widgets/social_post_card.dart';
+import '../../social/widgets/impression_probe.dart';
+import '../../social/widgets/post_insights_sheet.dart';
+import '../../social/widgets/edit_post_sheet.dart';
+import '../../social/services/muted_users_service.dart';
+import '../../social/screens/hashtag_feed_screen.dart';
+import '../../social/services/post_impression_tracker.dart';
 import '../../social/widgets/send_to_friend_sheet.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -97,6 +103,8 @@ class _UserProfileScreenState extends State<UserProfileScreen>
   @override
   void initState() {
     super.initState();
+    // Menüdeki "Sessize al / Sesi aç" için (oturumda bir kez yüklenir).
+    MutedUsersService.instance.ensureLoaded();
 
     // Önceki verileri temizle - stale data sorununu önlemek için
     // Aynı sayfa tekrar açıldığında eski verilerin gösterilmesini engeller
@@ -1371,7 +1379,13 @@ class _UserProfileScreenState extends State<UserProfileScreen>
           final post = _userPosts[index];
           return Padding(
             padding: const EdgeInsets.only(bottom: 16),
-            child: SocialPostCard(
+            child: ImpressionProbe(
+              id: post.id,
+              onSeen: () => PostImpressionTracker.instance.markSeen(
+                post.id,
+                authorId: post.userId,
+              ),
+              child: SocialPostCard(
               post: post,
               fullName: fullName,
               username: username,
@@ -1393,6 +1407,13 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               onSend: () => sendPostToFriend(context, post),
               onSave: () => _savePost(post),
               onShare: () => _sharePost(post),
+              onViewsTap: isOwnProfile
+                  ? () => showPostInsightsSheet(context, post)
+                  : null,
+              onHashtagTap: (tag) => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HashtagFeedScreen(tag: tag)),
+              ),
               trailing: isOwnProfile
                   ? PopupMenuButton<String>(
                       icon: Icon(
@@ -1405,8 +1426,32 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                       ),
                       onSelected: (value) {
                         if (value == 'delete') _deletePost(post.id);
+                        if (value == 'insights') {
+                          showPostInsightsSheet(context, post);
+                        }
+                        if (value == 'edit') _editPost(post);
                       },
                       itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('Düzenle'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'insights',
+                          child: Row(
+                            children: [
+                              Icon(Icons.insights_rounded, color: Color(0xFF7C3AED), size: 20),
+                              SizedBox(width: 12),
+                              Text('İstatistikler'),
+                            ],
+                          ),
+                        ),
                         PopupMenuItem(
                           value: 'delete',
                           child: Row(
@@ -1420,11 +1465,49 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                       ],
                     )
                   : null,
+              ),
             ),
           );
         }, childCount: _userPosts.length),
       ),
     );
+  }
+
+  Future<void> _toggleMute(bool currentlyMuted) async {
+    final username = _userProfile?['username'] ?? 'kullanıcı';
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (currentlyMuted) {
+        await MutedUsersService.instance.unmute(widget.userId);
+      } else {
+        await MutedUsersService.instance.mute(widget.userId);
+      }
+      if (!mounted) return;
+      setState(() {});
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(currentlyMuted ? '@$username sesi açıldı' : '@$username sessize alındı'),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
+    }
+  }
+
+  Future<void> _editPost(Post post) async {
+    final updated = await showEditPostSheet(context, post);
+    if (updated == null || !mounted) return;
+    setState(() {
+      final i = _userPosts.indexWhere((p) => p.id == post.id);
+      if (i != -1) {
+        _userPosts[i] = _userPosts[i].copyWith(
+          content: updated.content,
+          editedAt: updated.editedAt,
+        );
+      }
+    });
   }
 
   Future<void> _toggleLike(Post post) async {
@@ -1658,6 +1741,36 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                 _toggleBlock();
               },
             ),
+            // Sessize al: gönderi/hikâyeleri akıştan çıkar, karşı taraf fark etmez.
+            if (!_isBlocked)
+              Builder(builder: (context) {
+                final muted = MutedUsersService.instance.isMuted(widget.userId);
+                return ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      muted ? Icons.volume_up_outlined : Icons.volume_off_outlined,
+                      color: Colors.blueGrey.shade400,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    muted ? 'Sesi aç' : 'Sessize al',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: muted
+                      ? null
+                      : const Text('Gönderileri ve hikâyeleri akışında görünmez'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _toggleMute(muted);
+                  },
+                );
+              }),
             const Divider(),
             if (profileUrl.isNotEmpty)
               ListTile(

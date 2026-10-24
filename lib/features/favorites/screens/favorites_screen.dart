@@ -13,6 +13,7 @@ import '../../market/screens/my_price_alerts_screen.dart';
 import '../../market/screens/flash_sales_screen.dart';
 import '../../market/screens/live_sessions_screen.dart';
 import '../../market/widgets/flash_sale_entry_banner.dart';
+import '../../market/widgets/shop_card.dart';
 import '../../profile/screens/user_profile_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../social/services/post_service.dart';
@@ -36,10 +37,12 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     // Favorileri yükle
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<FavoritesProvider>().loadFavorites();
+      final favorites = context.read<FavoritesProvider>();
+      favorites.loadFavorites();
+      favorites.loadShopFavorites(force: true);
     });
   }
 
@@ -80,6 +83,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           controller: _tabController,
           tabs: const [
             Tab(text: 'Ürünler', icon: Icon(Icons.shopping_bag_outlined)),
+            Tab(text: 'Dükkânlar', icon: Icon(Icons.storefront_outlined)),
             Tab(text: 'Gönderiler', icon: Icon(Icons.article_outlined)),
           ],
         ),
@@ -129,7 +133,11 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [_ProductFavoritesTab(), _PostFavoritesTab()],
+              children: const [
+                _ProductFavoritesTab(),
+                _ShopFavoritesTab(),
+                _PostFavoritesTab(),
+              ],
             ),
           ),
         ],
@@ -207,6 +215,73 @@ class _ProductFavoritesTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Favori dükkânlar (dükkân sayfasındaki kalple eklenir).
+class _ShopFavoritesTab extends StatelessWidget {
+  const _ShopFavoritesTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final favorites = context.watch<FavoritesProvider>();
+    final shops = favorites.favoriteShops;
+    if (!favorites.shopsLoaded && shops.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (shops.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () => favorites.loadShopFavorites(force: true),
+        child: ListView(
+          children: [
+            const SizedBox(height: 100),
+            Icon(Icons.storefront_outlined, size: 72, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Center(
+              child: Text(
+                'Henüz favori dükkânın yok',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Dükkân sayfasındaki ♡ ile ekleyebilirsin',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () => favorites.loadShopFavorites(force: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: shops.length,
+        itemBuilder: (context, i) {
+          final shop = shops[i];
+          return Stack(
+            children: [
+              ShopCard(shop: shop, margin: const EdgeInsets.only(bottom: 10)),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Favorilerden çıkar',
+                    icon: const Icon(Icons.favorite, color: Colors.red),
+                    onPressed: () => favorites.toggleShopFavorite(shop),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

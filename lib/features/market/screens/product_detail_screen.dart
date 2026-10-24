@@ -92,6 +92,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _isLoadingReviews = true;
   bool _canReview = false;
   ProductReview? _userReview;
+  // "Yararlı" dediğim yorumlar ve süren oy istekleri (çift dokunuş tek istek).
+  final Set<String> _helpfulIds = {};
+  final Set<String> _helpfulInFlight = {};
   final GlobalKey _reviewsSectionKey = GlobalKey();
 
   @override
@@ -372,6 +375,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           _canReview = canReview;
           _isLoadingReviews = false;
         });
+      }
+      if (userId != null && reviews.isNotEmpty) {
+        final ids = await _reviewService.getMyHelpfulReviewIds(
+          userId,
+          reviews.map((r) => r.id).toList(),
+        );
+        if (mounted) {
+          setState(() => _helpfulIds
+            ..clear()
+            ..addAll(ids));
+        }
       }
     } catch (e) {
       debugPrint('Yorumlar yüklenirken hata: $e');
@@ -2075,17 +2089,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         else
           ...List.generate(_reviews.length, (index) {
             final review = _reviews[index];
+            final uid = Supabase.instance.client.auth.currentUser?.id;
+            final isShopOwner = uid != null && _shop?.ownerId == uid;
             return _ReviewCard(
               review: review,
               product: product,
-              onReply: () async {
-                // Satıcı cevap özelliği (opsiyonel)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Satıcı cevabı yakında eklenecek'),
-                  ),
-                );
-              },
+              isHelpful: _helpfulIds.contains(review.id),
+              // Kendi yorumuna ve misafire oy yok.
+              onHelpful: uid == null || review.userId == uid
+                  ? null
+                  : () => _toggleHelpful(review),
+              onReply: isShopOwner ? () => _showSellerReplyDialog(review) : null,
             );
           }),
 
@@ -2104,6 +2118,117 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           ),
       ],
     );
+  }
+
+  void _replaceReview(String id, ProductReview Function(ProductReview r) f) {
+    final i = _reviews.indexWhere((r) => r.id == id);
+    if (i != -1) _reviews[i] = f(_reviews[i]);
+  }
+
+  /// "Yararlı" oyu: iyimser; hata olursa geri döner (sayaç sunucuda).
+  Future<void> _toggleHelpful(ProductReview review) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null || !_helpfulInFlight.add(review.id)) return;
+    final was = _helpfulIds.contains(review.id);
+    void apply(bool on) {
+      on ? _helpfulIds.add(review.id) : _helpfulIds.remove(review.id);
+      _replaceReview(
+        review.id,
+        (r) => r.copyWith(
+          helpfulCount: (r.helpfulCount + (on ? 1 : -1)).clamp(0, 1 << 31).toInt(),
+        ),
+      );
+    }
+
+    setState(() => apply(!was));
+    try {
+      await _reviewService.setHelpful(review.id, uid, !was);
+    } catch (e) {
+      if (mounted) {
+        setState(() => apply(was));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Oy kaydedilemedi')),
+        );
+      }
+    } finally {
+      _helpfulInFlight.remove(review.id);
+    }
+  }
+
+  /// Dükkân sahibinin yoruma cevabı (yaz / düzenle / sil). Yorum sahibine
+  /// sunucu bildirim gönderir.
+  Future<void> _showSellerReplyDialog(ProductReview review) async {
+    final controller = TextEditingController(text: review.sellerReply ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(review.hasSellerReply ? 'Cevabı düzenle' : 'Yoruma cevap ver'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 6,
+          maxLength: 1000,
+          decoration: const InputDecoration(
+            hintText: 'Müşterine teşekkür et ya da sorununu çöz…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          if (review.hasSellerReply)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Cevabı sil'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) Navigator.pop(ctx, text);
+            },
+            child: const Text('Gönder'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    try {
+      final updated = await _reviewService.addSellerReply(reviewId: review.id, reply: result);
+      if (!mounted) return;
+      setState(() => _replaceReview(
+            review.id,
+            (r) => ProductReview(
+              id: r.id,
+              productId: r.productId,
+              userId: r.userId,
+              rating: r.rating,
+              comment: r.comment,
+              createdAt: r.createdAt,
+              updatedAt: r.updatedAt,
+              userName: r.userName,
+              userAvatar: r.userAvatar,
+              sellerReply: updated.sellerReply,
+              sellerRepliedAt: updated.sellerRepliedAt,
+              orderId: r.orderId,
+              isApproved: r.isApproved,
+              helpfulCount: r.helpfulCount,
+            ),
+          ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.isEmpty ? 'Cevap silindi' : 'Cevabın gönderildi')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppErrorHandler.handleError(e))),
+        );
+      }
+    }
   }
 
   // Yorum Ekle Bottom Sheet
@@ -2251,12 +2376,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 class _ReviewCard extends StatelessWidget {
   final ProductReview review;
   final Product product;
+  // Yalnız dükkân sahibine: cevap yaz / düzenle.
   final VoidCallback? onReply;
+  final bool isHelpful;
+  // Null: oy verilemez (misafir / kendi yorumu); sayı yine gösterilir.
+  final VoidCallback? onHelpful;
 
   const _ReviewCard({
     required this.review,
     required this.product,
     this.onReply,
+    this.isHelpful = false,
+    this.onHelpful,
   });
 
   String _formatTimeAgo(DateTime dateTime) {
@@ -2398,6 +2529,46 @@ class _ReviewCard extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+            ],
+
+            // Yararlı oyu + satıcı cevabı
+            if (onHelpful != null || review.helpfulCount > 0 || onReply != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (onHelpful != null || review.helpfulCount > 0)
+                    TextButton.icon(
+                      onPressed: onHelpful,
+                      style: TextButton.styleFrom(
+                        foregroundColor: isHelpful ? Colors.green.shade700 : Colors.grey.shade700,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: Icon(
+                        isHelpful ? Icons.thumb_up_alt : Icons.thumb_up_alt_outlined,
+                        size: 16,
+                      ),
+                      label: Text(
+                        review.helpfulCount > 0 ? 'Yararlı (${review.helpfulCount})' : 'Yararlı',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                  const Spacer(),
+                  if (onReply != null)
+                    TextButton.icon(
+                      onPressed: onReply,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange.shade800,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.reply_rounded, size: 16),
+                      label: Text(
+                        review.hasSellerReply ? 'Cevabı düzenle' : 'Cevap ver',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                ],
               ),
             ],
           ],

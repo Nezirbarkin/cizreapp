@@ -156,8 +156,7 @@ class ProductReviewService {
           .select()
           .single();
 
-      // Ürün ortalama puanını güncelle
-      await _updateProductRating(productId);
+      // Ürün puanı sunucuda güncellenir (update_product_rating_on_review_change).
 
       debugPrint('✅ Ürün yorumu oluşturuldu');
       return ProductReview.fromJson(response);
@@ -193,8 +192,7 @@ class ProductReviewService {
 
       final review = ProductReview.fromJson(response);
 
-      // Ürün ortalama puanını güncelle
-      await _updateProductRating(review.productId);
+      // Ürün puanı sunucuda güncellenir (update_product_rating_on_review_change).
 
       debugPrint('✅ Ürün yorumu güncellendi');
       return review;
@@ -214,8 +212,7 @@ class ProductReviewService {
           .delete()
           .eq('id', reviewId);
 
-      // Ürün ortalama puanını güncelle
-      await _updateProductRating(productId);
+      // Ürün puanı sunucuda güncellenir (update_product_rating_on_review_change).
 
       debugPrint('✅ Ürün yorumu silindi');
     } catch (e) {
@@ -258,135 +255,54 @@ class ProductReviewService {
     }
   }
 
-  /// Ürün ortalama puanını veritabanında güncelle
-  Future<void> _updateProductRating(String productId) async {
-    try {
-      final stats = await getProductRatingStats(productId);
-      final average = stats['average'] as double;
-      final count = stats['count'] as int;
-
-      await _supabase
-          .from('products')
-          .update({
-            'rating': average,
-            'total_reviews': count,
-          })
-          .eq('id', productId);
-
-      debugPrint('✅ Ürün puanı güncellendi: avg=$average, count=$count');
-    } catch (e) {
-      debugPrint('❌ Ürün puanı güncellenirken hata: $e');
-    }
-  }
-
-  /// Satıcı cevabı ekle veya güncelle
+  /// Satıcı cevabı ekle / güncelle (yalnız dükkân sahibi; sunucu doğrular ve
+  /// yorum sahibine bildirim gönderir). Boş metin cevabı siler.
   Future<ProductReview> addSellerReply({
     required String reviewId,
     required String reply,
   }) async {
-    try {
-      debugPrint('💬 Satıcı cevabı ekleniyor: reviewId=$reviewId');
-
-      if (reply.trim().isEmpty) {
-        throw Exception('Cevap boş olamaz');
-      }
-
-      final response = await _supabase
-          .from('product_reviews')
-          .update({
-            'seller_reply': reply.trim(),
-            'seller_replied_at': DateTime.now().toUtc().toIso8601String(),
-          })
-          .eq('id', reviewId)
-          .select()
-          .single();
-
-      debugPrint('✅ Satıcı cevabı eklendi');
-      return ProductReview.fromJson(response);
-    } catch (e) {
-      debugPrint('❌ Satıcı cevabı eklenirken hata: $e');
-      rethrow;
-    }
+    final res = await _supabase.rpc(
+      'seller_reply_product_review',
+      params: {'p_review_id': reviewId, 'p_reply': reply.trim()},
+    );
+    return ProductReview.fromJson(Map<String, dynamic>.from(res as Map));
   }
 
   /// Satıcı cevabını sil
-  Future<ProductReview> deleteSellerReply(String reviewId) async {
-    try {
-      debugPrint('🗑️ Satıcı cevabı siliniyor: reviewId=$reviewId');
+  Future<ProductReview> deleteSellerReply(String reviewId) =>
+      addSellerReply(reviewId: reviewId, reply: '');
 
-      final response = await _supabase
-          .from('product_reviews')
-          .update({
-            'seller_reply': null,
-            'seller_replied_at': null,
-          })
-          .eq('id', reviewId)
-          .select()
-          .single();
-
-      debugPrint('✅ Satıcı cevabı silindi');
-      return ProductReview.fromJson(response);
-    } catch (e) {
-      debugPrint('❌ Satıcı cevabı silinirken hata: $e');
-      rethrow;
-    }
-  }
-
-  /// Faydalı olarak işaretle / geri al
-  Future<void> toggleHelpful(String reviewId, String userId) async {
-    try {
-      // Kullanıcının bu yorumu zaten oylayıp oylamamadığını kontrol et
-      final existing = await _supabase
-          .from('product_review_helpful')
-          .select('id')
-          .eq('review_id', reviewId)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existing != null) {
-        // Oyu kaldır
-        await _supabase
-            .from('product_review_helpful')
-            .delete()
-            .eq('review_id', reviewId)
-            .eq('user_id', userId);
-        debugPrint('✅ Faydalı oyu kaldırıldı');
-      } else {
-        // Oy ekle
-        await _supabase
-            .from('product_review_helpful')
-            .insert({
-              'review_id': reviewId,
-              'user_id': userId,
-              'created_at': DateTime.now().toUtc().toIso8601String(),
-            });
-        debugPrint('✅ Faydalı oyu eklendi');
-      }
-
-      // Faydalı sayısını güncelle
-      await _updateHelpfulCount(reviewId);
-    } catch (e) {
-      debugPrint('❌ Faydalı oy işleminde hata: $e');
-      rethrow;
-    }
-  }
-
-  /// Faydalı sayısını güncelle
-  Future<void> _updateHelpfulCount(String reviewId) async {
-    try {
-      final countResponse = await _supabase
-          .from('product_review_helpful')
-          .select('id')
-          .eq('review_id', reviewId);
-
-      final count = countResponse.length;
-
+  /// "Yararlı" oyu ver / geri al: tek istek (idempotent); sayaç sunucuda
+  /// (update_helpful_count_on_vote). Kendi yorumuna oy RLS'te reddedilir.
+  Future<void> setHelpful(String reviewId, String userId, bool helpful) async {
+    if (helpful) {
+      await _supabase.from('product_review_helpful').upsert(
+        {'review_id': reviewId, 'user_id': userId},
+        onConflict: 'review_id,user_id',
+        ignoreDuplicates: true,
+      );
+    } else {
       await _supabase
-          .from('product_reviews')
-          .update({'helpful_count': count})
-          .eq('id', reviewId);
+          .from('product_review_helpful')
+          .delete()
+          .eq('review_id', reviewId)
+          .eq('user_id', userId);
+    }
+  }
+
+  /// Kullanıcının "yararlı" dediği yorumlar (liste için tek istek).
+  Future<Set<String>> getMyHelpfulReviewIds(String userId, List<String> reviewIds) async {
+    if (reviewIds.isEmpty) return {};
+    try {
+      final rows = await _supabase
+          .from('product_review_helpful')
+          .select('review_id')
+          .eq('user_id', userId)
+          .inFilter('review_id', reviewIds);
+      return (rows as List).map((r) => r['review_id'] as String).toSet();
     } catch (e) {
-      debugPrint('❌ Faydalı sayısı güncellenirken hata: $e');
+      debugPrint('❌ Yararlı oyları yüklenemedi: $e');
+      return {};
     }
   }
 

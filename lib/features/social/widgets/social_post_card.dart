@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/post_model.dart';
+import '../../../core/widgets/social_rich_text.dart';
 import '../../../core/widgets/text_background.dart';
 import '../../../kullaniciozellikler/widgets/privileged_avatar.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
@@ -25,14 +26,19 @@ Color authorRoleColor(AuthorRole role) {
   }
 }
 
-/// 1.2B / 3,4K gibi kısa sayaç biçimi (dört haneli sayılar kartı taşırıyordu).
+/// 1,2B / 3,4Mn gibi kısa sayaç biçimi (dört haneli sayılar kartı taşırıyordu).
+/// Aşağı yuvarlar (999.950 "1000B" olmaz), ",0" yazmaz, Türkçe ondalık virgül;
+/// 100 ve üstünde ondalık atılır ("125B").
 String formatSocialCount(int count) {
-  if (count >= 1000000) {
-    return '${(count / 1000000).toStringAsFixed(1)}M';
+  String short(int unit, String suffix) {
+    final tenths = count * 10 ~/ unit;
+    final whole = tenths ~/ 10;
+    final frac = tenths % 10;
+    return whole >= 100 || frac == 0 ? '$whole$suffix' : '$whole,$frac$suffix';
   }
-  if (count >= 1000) {
-    return '${(count / 1000).toStringAsFixed(1)}B';
-  }
+
+  if (count >= 1000000) return short(1000000, 'Mn');
+  if (count >= 1000) return short(1000, 'B');
   return '$count';
 }
 
@@ -101,6 +107,11 @@ class SocialPostCard extends StatelessWidget {
   final VoidCallback onSave;
   // Link'li dışa paylaşım (null ise düğme yok). Sayı yalnız 0'dan büyükse.
   final VoidCallback? onShare;
+  // Görüntülenme çipine dokunma (yalnız gönderi sahibine: istatistikler).
+  // Null ve sayı 0 ise çip çizilmez.
+  final VoidCallback? onViewsTap;
+  // Metindeki #etikete dokunma (katlanmış etiketle). Null ise etiket yalnız renkli.
+  final ValueChanged<String>? onHashtagTap;
   final Widget? trailing;
 
   const SocialPostCard({
@@ -122,6 +133,8 @@ class SocialPostCard extends StatelessWidget {
     this.isSaved = false,
     this.showOwnPinBadge = false,
     this.onShare,
+    this.onViewsTap,
+    this.onHashtagTap,
     this.trailing,
   });
 
@@ -251,6 +264,15 @@ class SocialPostCard extends StatelessWidget {
                                           color: Colors.grey.shade500,
                                         ),
                                       ),
+                                      if (post.editedAt != null)
+                                        Text(
+                                          '· düzenlendi',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontStyle: FontStyle.italic,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
                                       if (authorRole.isStaff)
                                         _PostChip(
                                           label: authorRole.displayLabel,
@@ -296,7 +318,8 @@ class SocialPostCard extends StatelessWidget {
                       else if (post.content != null && post.content!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(2, 6, 8, 0),
-                          child: Text(
+                          // #etiketler mavi; dokununca etiket akışı açılır.
+                          child: SocialRichText(
                             post.content!,
                             style: const TextStyle(
                               fontSize: 15,
@@ -305,6 +328,7 @@ class SocialPostCard extends StatelessWidget {
                             ),
                             maxLines: 8,
                             overflow: TextOverflow.ellipsis,
+                            onHashtagTap: onHashtagTap,
                           ),
                         ),
 
@@ -378,39 +402,60 @@ class SocialPostCard extends StatelessWidget {
                       // ------------------------------------------ aksiyon satırı
                       Row(
                         children: [
-                          _ActionButton(
-                            icon: isLiked
-                                ? Icons.favorite
-                                : Icons.favorite_border,
-                            count: post.likesCount,
-                            onTap: onLike,
-                            color: const Color(0xFFE0245E),
-                            isActive: isLiked,
-                          ),
-                          const SizedBox(width: 4),
-                          _ActionButton(
-                            icon: Icons.mode_comment_outlined,
-                            count: post.commentsCount,
-                            onTap: onComment,
-                            color: const Color(0xFF1D9BF0),
-                          ),
-                          const SizedBox(width: 4),
-                          _ActionButton(
-                            icon: Icons.send_outlined,
-                            count: null,
-                            onTap: onSend,
-                            color: const Color(0xFF17BF63),
-                          ),
-                          if (onShare != null) ...[
-                            const SizedBox(width: 4),
-                            _ActionButton(
-                              icon: Icons.ios_share_outlined,
-                              count: post.sharesCount > 0 ? post.sharesCount : null,
-                              onTap: onShare!,
-                              color: const Color(0xFF7C3AED),
+                          // Dar ekranda (≤360 dp) büyük sayılarla taşmasın diye
+                          // sol grup gerektiğinde orantılı küçülür.
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _ActionButton(
+                                    icon: isLiked
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
+                                    count: post.likesCount,
+                                    onTap: onLike,
+                                    color: const Color(0xFFE0245E),
+                                    isActive: isLiked,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  _ActionButton(
+                                    icon: Icons.mode_comment_outlined,
+                                    count: post.commentsCount,
+                                    onTap: onComment,
+                                    color: const Color(0xFF1D9BF0),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  _ActionButton(
+                                    icon: Icons.send_outlined,
+                                    count: null,
+                                    onTap: onSend,
+                                    color: const Color(0xFF17BF63),
+                                  ),
+                                  if (onShare != null) ...[
+                                    const SizedBox(width: 4),
+                                    _ActionButton(
+                                      icon: Icons.ios_share_outlined,
+                                      count: post.sharesCount > 0
+                                          ? post.sharesCount
+                                          : null,
+                                      onTap: onShare!,
+                                      color: const Color(0xFF7C3AED),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
-                          ],
-                          const Spacer(),
+                          ),
+                          // Görüntülenme (kişi başı günde bir). Sahibi
+                          // dokununca gönderi istatistiklerini açar.
+                          if (post.viewsCount > 0 || onViewsTap != null)
+                            _ViewsChip(
+                              count: post.viewsCount,
+                              onTap: onViewsTap,
+                            ),
                           _ActionButton(
                             icon: isSaved
                                 ? Icons.bookmark
@@ -497,6 +542,53 @@ class _PostChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Aksiyon satırının sağındaki görüntülenme sayısı (pilsiz; dokunulabilirse
+/// sahibine istatistikleri açar).
+class _ViewsChip extends StatelessWidget {
+  final int count;
+  final VoidCallback? onTap;
+
+  const _ViewsChip({required this.count, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Colors.grey.shade600;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.visibility_outlined, size: 17, color: color),
+          const SizedBox(width: 3),
+          Text(
+            formatSocialCount(count),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Semantics(
+      label: '$count görüntülenme',
+      button: onTap != null,
+      excludeSemantics: true,
+      child: onTap == null
+          ? content
+          : Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(20),
+                child: content,
+              ),
+            ),
     );
   }
 }

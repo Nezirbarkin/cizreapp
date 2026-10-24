@@ -695,3 +695,66 @@ class AdminNotifSkeleton extends StatelessWidget {
     );
   }
 }
+
+/// Bildirim ikonu seçim kutusu (besteci ve yeni üye serisi düzenleyicisi).
+class AdminNotifIconChoice extends StatelessWidget {
+  const AdminNotifIconChoice({
+    super.key,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AdminNotifIcon icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = icon.color is MaterialColor
+        ? (icon.color as MaterialColor).shade700
+        : icon.color;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: icon.label,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
+          decoration: BoxDecoration(
+            color: selected ? icon.color.withValues(alpha: 0.13) : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? icon.color : AdminUi.line,
+              width: selected ? 1.8 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon.icon, size: 20, color: selected ? fg : AdminUi.muted),
+              const SizedBox(width: 6),
+              Expanded(
+                // "Güncelleme" gibi uzun etiketler dar ekranda kırpılmasın.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    icon.label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      color: selected ? fg : AdminUi.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

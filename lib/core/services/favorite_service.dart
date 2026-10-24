@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/favorite_models.dart';
+import '../models/shop_model.dart';
 
 /// Favori servisi - Hem ürün hem gönderi favorilerini yönetir
 class FavoriteService {
@@ -106,9 +107,12 @@ class FavoriteService {
     // posts(*) tek başına yazar bilgisi taşımaz (posts_with_profiles view'i
     // değil, ham tablo); kart tasarımında avatar/isim gösterebilmek için
     // profiles alt-nesnesi de embed edilir (Post.fromJson bunu okur).
+    // Görüntülenme sayacı ayrı tabloda (post_stats).
     final response = await _supabase
         .from('post_favorites')
-        .select('*, posts(*, profiles(username, full_name, avatar_url))')
+        .select(
+          '*, posts(*, profiles(username, full_name, avatar_url), post_stats(views_count))',
+        )
         .eq('user_id', userId)
         .order('created_at', ascending: false);
 
@@ -184,6 +188,51 @@ class FavoriteService {
   // ==================== GENEL FAVORİLER ====================
 
   /// Kullanıcının tüm favorilerini getirir (ürün ve gönderi)
+  // ==================== DÜKKÂN FAVORİLERİ ====================
+  // Tablo: shop_subscribers (yalnız kendi satırları; unique(shop_id, user_id)).
+
+  /// Favori dükkânlar (en yeni önce), dükkân satırlarıyla tek istekte.
+  Future<List<Shop>> getShopFavorites() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final rows = await _supabase
+        .from('shop_subscribers')
+        .select('shop_id, created_at, shops(*)')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false);
+    final shops = <Shop>[];
+    for (final row in (rows as List)) {
+      final s = row['shops'];
+      if (s is Map) {
+        try {
+          shops.add(Shop.fromJson(Map<String, dynamic>.from(s)));
+        } catch (e) {
+          debugPrint('Favori dükkân okunamadı: $e');
+        }
+      }
+    }
+    return shops;
+  }
+
+  /// Dükkânı favorilere ekle / çıkar (tek idempotent istek).
+  Future<void> setShopFavorite(String shopId, bool favorite) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception('Kullanıcı giriş yapmamış');
+    if (favorite) {
+      await _supabase.from('shop_subscribers').upsert(
+        {'shop_id': shopId, 'user_id': userId},
+        onConflict: 'shop_id,user_id',
+        ignoreDuplicates: true,
+      );
+    } else {
+      await _supabase
+          .from('shop_subscribers')
+          .delete()
+          .eq('shop_id', shopId)
+          .eq('user_id', userId);
+    }
+  }
+
   Future<Map<String, dynamic>> getAllFavorites() async {
     final products = await getProductFavorites();
     final posts = await getPostFavorites();

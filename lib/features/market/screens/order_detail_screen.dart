@@ -8,6 +8,7 @@ import '../../shop/services/cancellation_request_service.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/services/return_request_service.dart';
 import '../widgets/return_request_sheet.dart';
+import '../widgets/reorder_action.dart';
 import 'my_return_requests_screen.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -305,13 +306,34 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       _currentOrder.status == OrderStatus.confirmed;
     final canReturn = _canReturn;
     final returnSummary = _buildReturnSummary();
+    // Tamamlanmış / iptal edilmiş siparişi tek dokunuşla sepete geri koy.
+    final canReorder = (_currentOrder.status == OrderStatus.delivered ||
+            _currentOrder.status == OrderStatus.cancelled) &&
+        _currentOrder.items.any((i) => i.productId.isNotEmpty);
 
-    if (!canCancel && !canReturn && returnSummary == null) {
+    if (!canCancel && !canReturn && returnSummary == null && !canReorder) {
       return const SizedBox.shrink();
     }
 
     return Column(
       children: [
+        if (canReorder) ...[
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => runReorder(context, _currentOrder.items),
+              icon: const Icon(Icons.replay_rounded),
+              label: const Text('Tekrar sipariş ver'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          if (canCancel || canReturn || returnSummary != null) const SizedBox(height: 12),
+        ],
         // İade talep(ler)inin durumu
         if (returnSummary != null) ...[
           returnSummary,

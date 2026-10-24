@@ -30,6 +30,7 @@ import '../../../okey/screens/okey_room_screen.dart';
 import '../../../okey/widgets/okey_module_gate.dart';
 import 'package:intl/intl.dart';
 import '../../../core/utils/image_url.dart';
+import '../../../core/utils/new_member_route.dart';
 import '../../../core/widgets/voice_listen_button.dart';
 
 /// Kişisel bildirim satırı olarak zaten gelmiş admin duyurularının kimlikleri
@@ -468,6 +469,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'comment':
       case 'post_comment':
       case 'comment_reply':
+      case 'comment_like': // Yorumun beğenildi (entity_id = gönderi)
         // Yorum / yanıt bildirimi - gönderi detayına git
         if (notification.entityId != null) {
           try {
@@ -619,6 +621,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'cart_price_drop':
       case 'price_drop':
       case 'stock_back': // Beklenen ürün stoğa girdi
+      case 'product_review_reply': // Satıcı ürün yorumuna cevap verdi
         final productId = notification.entityId;
         if (productId != null && productId.isNotEmpty && mounted) {
           Navigator.push(
@@ -708,6 +711,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       case 'admin_notification':
+      case 'new_member': // Yeni üye karşılama serisi: detay + Dinle + ekran düğmesi
         // Admin'in gönderdiği bildirim: yönlendirme YOK, başlık+içerik DETAY göster.
         if (mounted) {
           _showFullNotificationContent(notification);
@@ -885,6 +889,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     switch (type) {
       case 'like':
       case 'post_like':
+      case 'comment_like':
         return Icons.favorite;
       // Hikaye tepkileri: eşleme yoktu, jenerik zil ikonu görünüyordu.
       case 'story_like':
@@ -929,6 +934,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'shop_review':
         return Icons.rate_review;
       case 'shop_review_reply':
+      case 'product_review_reply':
         return Icons.reply;
       case 'review_request':
       case 'review_pending':
@@ -971,6 +977,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     switch (type) {
       case 'like':
       case 'post_like':
+      case 'comment_like':
         return Colors.red;
       case 'comment':
       case 'post_comment':
@@ -1002,6 +1009,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'shop_review':
         return Colors.orange;
       case 'shop_review_reply':
+      case 'product_review_reply':
         return Colors.teal;
       case 'comment_reply':
         return Colors.teal;
@@ -1504,6 +1512,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notificationMessage = notification.title ?? 'Mağazanıza yeni yorum yapıldı';
         break;
       case 'shop_review_reply':
+      case 'product_review_reply':
         notificationMessage = notification.title ?? 'Yorumunuza cevap verildi';
         break;
       case 'order_update':
@@ -1696,6 +1705,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   void _showFullNotificationContent(model.NotificationModel notification) {
     final icon = _getIconForNotification(notification);
     final color = _getColorForNotification(notification);
+    final welcomeRoute = notification.type == 'new_member'
+        ? NewMemberRoute.tryParse(notification.metadata?['route'])
+        : null;
 
     showDialog(
       context: context,
@@ -1758,8 +1770,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           // Yönetici bildirimi: sesli dinleme (anahtar otomatik okumayla aynı).
           if (notification.entityId?.startsWith('admin_icon:') ?? false)
             VoiceListenButton(
-              listenKey:
-                  'admin:${notification.metadata?['campaign_id'] ?? notification.id}',
+              listenKey: notification.type == 'new_member'
+                  ? 'new_member:${notification.id}'
+                  : 'admin:${notification.metadata?['campaign_id'] ?? notification.id}',
               title: notification.title,
               body: notification.body,
               voiceText: notification.metadata?['voice_text'] as String?,
@@ -1770,6 +1783,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Kapat'),
           ),
+          // Karşılama serisi: adımın ekranına götüren düğme.
+          if (welcomeRoute != null)
+            FilledButton.icon(
+              onPressed: () {
+                final navigator = Navigator.of(this.context);
+                Navigator.pop(context);
+                openNewMemberRoute(navigator, welcomeRoute);
+              },
+              icon: Icon(welcomeRoute.icon, size: 18),
+              label: Text(welcomeRoute.label),
+              style: FilledButton.styleFrom(backgroundColor: color),
+            ),
         ],
       ),
     );

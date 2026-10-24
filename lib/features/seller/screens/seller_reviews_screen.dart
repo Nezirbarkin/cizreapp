@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../market/services/shop_review_service.dart';
+import '../../market/services/product_review_service.dart';
 import '../../../core/models/shop_review_model.dart';
+import '../../../core/models/product_review_model.dart';
 import '../widgets/common/seller_empty_state.dart';
 import '../widgets/common/seller_list_skeleton.dart';
 import '../widgets/common/seller_section_card.dart';
@@ -25,11 +27,18 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
     }
   }
   final _reviewService = ShopReviewService();
-  
+  final _productReviewService = ProductReviewService();
+
   bool _isLoading = true;
   List<ShopReview> _reviews = [];
   Map<String, dynamic>? _shopInfo;
   Map<String, dynamic>? _stats;
+
+  // "Ürün yorumları" sekmesi: ilk açılışta yüklenir.
+  bool _showProductReviews = false;
+  bool _loadingProductReviews = false;
+  List<ProductReview>? _productReviews;
+  final Set<String> _replyBusy = {};
 
   @override
   void initState() {
@@ -153,14 +162,14 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mağaza Yorumları'),
+        title: const Text('Yorumlar'),
       ),
       body: _isLoading
           ? const SellerListSkeleton()
           : _shopInfo == null
               ? _buildNoShopView()
               : RefreshIndicator(
-                  onRefresh: _loadReviews,
+                  onRefresh: () => _showProductReviews ? _loadProductReviews() : _loadReviews(),
                   child: _buildContent(),
                 ),
     );
@@ -173,9 +182,219 @@ class _SellerReviewsScreenState extends State<SellerReviewsScreen> {
     );
   }
 
-  Widget _buildContent() {
+  Future<void> _loadProductReviews() async {
+    final shopId = _shopInfo?['id'] as String?;
+    if (shopId == null) return;
+    setState(() => _loadingProductReviews = true);
+    try {
+      final list = await _productReviewService.getSellerProductReviews(shopId);
+      if (!mounted) return;
+      setState(() {
+        _productReviews = list;
+        _loadingProductReviews = false;
+      });
+    } catch (e) {
+      debugPrint('Ürün yorumları yüklenemedi: $e');
+      if (mounted) setState(() => _loadingProductReviews = false);
+    }
+  }
+
+  Widget _buildModeSwitch() {
+    return SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment(value: false, icon: Icon(Icons.storefront_outlined), label: Text('Mağaza')),
+        ButtonSegment(value: true, icon: Icon(Icons.inventory_2_outlined), label: Text('Ürünler')),
+      ],
+      selected: {_showProductReviews},
+      onSelectionChanged: (s) {
+        setState(() => _showProductReviews = s.first);
+        if (s.first && _productReviews == null) _loadProductReviews();
+      },
+    );
+  }
+
+  /// Ürün yorumuna cevap yaz / düzenle / sil (yorum sahibine bildirim gider).
+  Future<void> _replyToProductReview(ProductReview review) async {
+    final controller = TextEditingController(text: review.sellerReply ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(review.hasSellerReply ? 'Cevabı düzenle' : 'Yoruma cevap ver'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 6,
+          maxLength: 1000,
+          decoration: const InputDecoration(
+            hintText: 'Müşterine teşekkür et ya da sorununu çöz…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          if (review.hasSellerReply)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Cevabı sil'),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) Navigator.pop(ctx, text);
+            },
+            child: const Text('Gönder'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted || !_replyBusy.add(review.id)) return;
+    setState(() {});
+    try {
+      await _productReviewService.addSellerReply(reviewId: review.id, reply: result);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.isEmpty ? 'Cevap silindi' : 'Cevabın gönderildi')),
+      );
+      await _loadProductReviews();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cevap kaydedilemedi: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _replyBusy.remove(review.id));
+    }
+  }
+
+  Widget _buildProductReviewCard(ProductReview review) {
+    return SellerSectionCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if ((review.productName ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.inventory_2_outlined, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      review.productName!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  review.userName ?? 'Müşteri',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Text(review.starDisplay, style: const TextStyle(color: Colors.amber)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _formatFullDate(review.createdAt),
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+          if ((review.comment ?? '').isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(review.comment!),
+          ],
+          if (review.helpfulCount > 0) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(Icons.thumb_up_alt_outlined, size: 14, color: Colors.green.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  '${review.helpfulCount} kişi yararlı buldu',
+                  style: TextStyle(fontSize: 12, color: Colors.green.shade700),
+                ),
+              ],
+            ),
+          ],
+          if (review.hasSellerReply) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(review.sellerReply!, style: const TextStyle(fontSize: 13)),
+            ),
+          ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _replyBusy.contains(review.id) ? null : () => _replyToProductReview(review),
+              icon: const Icon(Icons.reply_rounded, size: 18),
+              label: Text(review.hasSellerReply ? 'Cevabı düzenle' : 'Cevap ver'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductReviewsContent() {
+    final list = _productReviews;
     return CustomScrollView(
       slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _buildModeSwitch(),
+          ),
+        ),
+        if (_loadingProductReviews && list == null)
+          const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
+        else if (list == null || list.isEmpty)
+          const SliverFillRemaining(
+            child: SellerEmptyState(
+              icon: Icons.rate_review_outlined,
+              message: 'Ürünlerine henüz yorum yapılmadı',
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _buildProductReviewCard(list[index]),
+                childCount: list.length,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    if (_showProductReviews) return _buildProductReviewsContent();
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _buildModeSwitch(),
+          ),
+        ),
         // İstatistikler
         SliverToBoxAdapter(
           child: Padding(

@@ -16,6 +16,12 @@ import '../models/post_image_format.dart';
 import '../services/post_service.dart';
 import '../services/post_report_service.dart';
 import '../services/social_share_service.dart';
+import '../services/post_impression_tracker.dart';
+import '../widgets/post_insights_sheet.dart';
+import '../widgets/edit_post_sheet.dart';
+import '../widgets/social_post_card.dart' show formatSocialCount;
+import '../../../core/widgets/social_rich_text.dart';
+import 'hashtag_feed_screen.dart';
 import 'post_likes_screen.dart';
 import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
@@ -45,6 +51,10 @@ class PostDetailResult {
   final bool likeChanged;
   final bool commentsChanged;
 
+  /// Gönderi bu ekranda düzenlendiyse yeni metni ve damgası (yoksa null).
+  final String? editedContent;
+  final DateTime? editedAt;
+
   const PostDetailResult({
     required this.postId,
     required this.isLiked,
@@ -52,12 +62,17 @@ class PostDetailResult {
     required this.commentsCount,
     required this.likeChanged,
     required this.commentsChanged,
+    this.editedContent,
+    this.editedAt,
   });
 
-  /// [post]'un sayaçlarını bu sonuca göre güncellenmiş kopyası.
+  /// [post]'un sayaçlarını (ve düzenlendiyse metnini) bu sonuca göre
+  /// güncellenmiş kopyası.
   Post applyTo(Post post) => post.copyWith(
         likesCount: likesCount,
         commentsCount: commentsCount,
+        content: editedContent,
+        editedAt: editedAt,
       );
 }
 
@@ -174,6 +189,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   // Yorum girişinin üstünde "@X'e yanıt veriliyor" çubuğunu tetikler;
   // null ise yeni yorum ana yorum olarak eklenir.
   PostComment? _replyingTo;
+  // Beğendiğim yorumlar ve süren beğeni istekleri (çift dokunuş tek istek).
+  final Set<String> _likedCommentIds = {};
+  final Set<String> _commentLikeInFlight = {};
+  // Bu ekranda düzenlenen gönderi metni (kapanışta listelere bildirilir).
+  String? _editedContent;
+  DateTime? _editedAt;
 
   @override
   void initState() {
@@ -265,18 +286,101 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  PostDetailResult? get _result => (_likeChanged || _commentsChanged)
-      ? PostDetailResult(
-          postId: widget.post.id,
-          isLiked: _isLiked,
-          likesCount: _likesCount,
-          commentsCount: _commentsCount,
-          likeChanged: _likeChanged,
-          commentsChanged: _commentsChanged,
-        )
-      : null;
+  PostDetailResult? get _result =>
+      (_likeChanged || _commentsChanged || _editedContent != null)
+          ? PostDetailResult(
+              postId: widget.post.id,
+              isLiked: _isLiked,
+              likesCount: _likesCount,
+              commentsCount: _commentsCount,
+              likeChanged: _likeChanged,
+              commentsChanged: _commentsChanged,
+              editedContent: _editedContent,
+              editedAt: _editedAt,
+            )
+          : null;
+
+  /// Ekranda gösterilen metin (bu ekranda düzenlendiyse yenisi).
+  String? get _content => _editedContent ?? widget.post.content;
+
+  bool get _isOwnPost =>
+      widget.post.userId.isNotEmpty &&
+      widget.post.userId == Supabase.instance.client.auth.currentUser?.id;
+
+  Future<void> _editPost() async {
+    final current = widget.post.copyWith(content: _content, editedAt: _editedAt);
+    final updated = await showEditPostSheet(context, current);
+    if (updated == null || !mounted) return;
+    setState(() {
+      _editedContent = updated.content ?? '';
+      _editedAt = updated.editedAt;
+    });
+  }
+
+  void _openHashtag(String tag) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => HashtagFeedScreen(tag: tag)),
+    );
+  }
+
+  Future<void> _loadLikedComments(List<PostComment> comments) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || comments.isEmpty) return;
+    final ids = await _postService.getLikedCommentIds(
+      userId,
+      comments.map((c) => c.id).toList(),
+    );
+    if (!mounted || ids.isEmpty) return;
+    setState(() => _likedCommentIds.addAll(ids));
+  }
+
+  /// Yorum beğen / geri al: iyimser; hata olursa geri döner.
+  Future<void> _toggleCommentLike(PostComment comment) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || !_commentLikeInFlight.add(comment.id)) return;
+    final liked = _likedCommentIds.contains(comment.id);
+    void apply(bool like) {
+      final i = _comments.indexWhere((c) => c.id == comment.id);
+      if (i == -1) return;
+      final c = _comments[i];
+      final next = List<PostComment>.of(_comments);
+      next[i] = c.copyWith(
+        likesCount: (c.likesCount + (like ? 1 : -1)).clamp(0, 1 << 31).toInt(),
+      );
+      _comments = next;
+      _commentsVersion++;
+      if (like) {
+        _likedCommentIds.add(comment.id);
+      } else {
+        _likedCommentIds.remove(comment.id);
+      }
+    }
+
+    setState(() => apply(!liked));
+    try {
+      if (liked) {
+        await _postService.unlikeComment(comment.id, userId);
+      } else {
+        await _postService.likeComment(comment.id, userId);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => apply(liked));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Beğeni kaydedilemedi')),
+        );
+      }
+    } finally {
+      _commentLikeInFlight.remove(comment.id);
+    }
+  }
 
   Future<void> _trackPostView() async {
+    // Detay açılışı da bir görüntülemedir (akış sayacı; günde bir).
+    PostImpressionTracker.instance.markSeen(
+      widget.post.id,
+      authorId: widget.post.userId,
+    );
     // Post görüntülemesini kaydet
     await _postViewService.trackPostView(postId: widget.post.id);
   }
@@ -522,6 +626,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _userProfiles = profiles;
         _isLoading = false;
       });
+      unawaited(_loadLikedComments(comments));
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -693,6 +798,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gönderi Detayı'),
+        actions: [
+          if (_isOwnPost)
+            IconButton(
+              tooltip: 'Düzenle',
+              onPressed: _editPost,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -858,8 +971,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   // Arka plan seçilmiş metin gönderisi, feed ve profil
                   // ızgarasıyla AYNI kompozisyonda çizilir; seçilmemişse
                   // (ve görselli gönderilerde) sade metin.
-                  if (widget.post.content != null &&
-                      widget.post.content!.isNotEmpty &&
+                  if (_content != null &&
+                      _content!.isNotEmpty &&
                       _postBackground != null)
                     Padding(
                       padding: const EdgeInsets.all(16),
@@ -869,17 +982,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           aspectRatio: 4 / 3,
                           child: TextBackgroundCanvas(
                             background: _postBackground!,
-                            text: widget.post.content!,
+                            text: _content!,
                             padding: const EdgeInsets.all(24),
                           ),
                         ),
                       ),
                     )
-                  else if (widget.post.content != null &&
-                      widget.post.content!.isNotEmpty)
+                  else if (_content != null && _content!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.all(16),
-                      child: _buildCommentWithMentions(widget.post.content!),
+                      child: _buildCommentWithMentions(_content!),
+                    ),
+                  if (_editedAt != null || widget.post.editedAt != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: Text(
+                        'Düzenlendi',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
                     ),
 
                   // Images — gönderinin çerçeve oranında, tam genişlikte
@@ -977,6 +1101,30 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         const Icon(Icons.comment, size: 20, color: Colors.grey),
                         const SizedBox(width: 4),
                         Text('$_commentsCount yorum'),
+                        if (widget.post.viewsCount > 0) ...[
+                          const SizedBox(width: 20),
+                          Icon(Icons.visibility_outlined, size: 20, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              '${formatSocialCount(widget.post.viewsCount)} görüntülenme',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        // Yalnız gönderi sahibi: ayrıntılı istatistikler.
+                        if (widget.post.userId ==
+                            Supabase.instance.client.auth.currentUser?.id)
+                          TextButton.icon(
+                            onPressed: () => showPostInsightsSheet(context, widget.post),
+                            icon: const Icon(Icons.insights_rounded, size: 18),
+                            label: const Text('İstatistikler'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF7C3AED),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -1160,6 +1308,43 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                           ),
                                         ),
                                       ),
+                                      const SizedBox(width: 14),
+                                      // Yorum beğenisi (sayaç sunucuda).
+                                      InkWell(
+                                        onTap: () => _toggleCommentLike(comment),
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 2,
+                                            vertical: 2,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                _likedCommentIds.contains(comment.id)
+                                                    ? Icons.favorite
+                                                    : Icons.favorite_border,
+                                                size: 14,
+                                                color: _likedCommentIds.contains(comment.id)
+                                                    ? const Color(0xFFE0245E)
+                                                    : Colors.grey.shade600,
+                                              ),
+                                              if (comment.likesCount > 0) ...[
+                                                const SizedBox(width: 3),
+                                                Text(
+                                                  formatSocialCount(comment.likesCount),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Colors.grey.shade700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ],
@@ -1295,46 +1480,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   /// Yorum içeriğindeki @mention'ları siyah renkli olarak göster
+  /// @mention'lar kalın, #etiketler mavi ve dokunulabilir (etiket akışını açar).
   Widget _buildCommentWithMentions(String content) {
-    final spans = <TextSpan>[];
-    final regex = RegExp(r'@(\w+)');
-    int lastMatchEnd = 0;
-
-    for (final match in regex.allMatches(content)) {
-      // Match'den önceki metni ekle
-      if (match.start > lastMatchEnd) {
-        spans.add(TextSpan(
-          text: content.substring(lastMatchEnd, match.start),
-        ));
-      }
-      // @mention'ı siyah ve bold olarak ekle
-      spans.add(TextSpan(
-        text: '@${match.group(1)}',
-        style: const TextStyle(
-          color: Colors.black,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      lastMatchEnd = match.end;
-    }
-
-    // Kalan metni ekle
-    if (lastMatchEnd < content.length) {
-      spans.add(TextSpan(
-        text: content.substring(lastMatchEnd),
-      ));
-    }
-
-    // Eğer hiç mention yoksa düz metin döndür
-    if (spans.isEmpty) {
-      return Text(content);
-    }
-
-    return Text.rich(
-      TextSpan(
-        children: spans,
-        style: const TextStyle(color: Colors.black87),
-      ),
+    return SocialRichText(
+      content,
+      boldMentions: true,
+      style: const TextStyle(color: Colors.black87),
+      onHashtagTap: _openHashtag,
     );
   }
 }

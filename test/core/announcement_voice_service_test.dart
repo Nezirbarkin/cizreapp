@@ -101,6 +101,8 @@ void main() {
     expect(AnnouncementVoiceService.firstNameOf('Ayşe Nur Kaya', 'ayse'), 'Ayşe');
     expect(AnnouncementVoiceService.firstNameOf('  ', 'kullanici'), 'kullanici');
     expect(AnnouncementVoiceService.firstNameOf(null, null), isNull);
+    // Kayıtta verilen geçici kullanıcı adı okunmaz ("Merhaba misafir_ab12" olmasın).
+    expect(AnnouncementVoiceService.firstNameOf(null, 'misafir_ab12'), isNull);
   });
 
   group('ses seçimi', () {

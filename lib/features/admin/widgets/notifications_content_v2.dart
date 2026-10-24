@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/admin_notification_model.dart';
 import '../../../core/services/admin_notification_service.dart';
+import '../screens/admin_new_member_series_screen.dart';
 import '../screens/admin_notification_composer_screen.dart';
 import 'admin_notification_detail_sheet.dart';
 import 'admin_notification_widgets.dart';
@@ -453,7 +454,15 @@ class _NotificationsContentV2State extends State<NotificationsContentV2> {
             ],
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 6),
+        IconButton.filledTonal(
+          tooltip: 'Yeni üye karşılama serisi',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AdminNewMemberSeriesScreen()),
+          ),
+          icon: const Icon(Icons.waving_hand_rounded),
+        ),
+        const SizedBox(width: 6),
         FilledButton.icon(
           onPressed: _openComposer,
           icon: const Icon(Icons.add_rounded, size: 19),

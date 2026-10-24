@@ -4,6 +4,7 @@ import '../../../core/models/order_model.dart';
 import '../../shop/services/order_service.dart';
 import '../../shop/screens/digital_orders_screen.dart';
 import 'order_detail_screen.dart';
+import '../widgets/reorder_action.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -336,6 +337,19 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with TickerProv
                   ),
                 ],
               ),
+              // Tamamlanmış / iptal edilmiş sipariş: tek dokunuşla sepete.
+              if ((order.status == OrderStatus.delivered ||
+                      order.status == OrderStatus.cancelled) &&
+                  order.items.any((i) => i.productId.isNotEmpty))
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => runReorder(context, order.items),
+                    icon: const Icon(Icons.replay_rounded, size: 18),
+                    label: const Text('Tekrar sipariş ver'),
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  ),
+                ),
               const SizedBox(height: 12),
 
               // Alt Bilgi: Teslimat Adresi ve İleri Ok

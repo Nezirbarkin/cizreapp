@@ -38,6 +38,12 @@ import '../../../core/services/app_about_service.dart';
 import '../widgets/instagram_story_creator.dart';
 import '../widgets/social_balance_badge.dart';
 import '../widgets/social_post_card.dart';
+import '../widgets/impression_probe.dart';
+import '../widgets/post_insights_sheet.dart';
+import '../widgets/edit_post_sheet.dart';
+import '../services/post_impression_tracker.dart';
+import '../services/muted_users_service.dart';
+import 'hashtag_feed_screen.dart';
 import '../../music/music.dart';
 import '../../../kullaniciozellikler/services/profile_feature_service.dart';
 
@@ -60,6 +66,9 @@ class _SocialScreenState extends State<SocialScreen> {
   final ChatService _chatService = ChatService();
   late ScrollController _scrollController;
   StreamSubscription<String>? _blockedSub;
+  StreamSubscription<String>? _mutedSub;
+  // Bu oturumda gizlenen gönderiler: kart yerinde "Gizlendi · Geri al".
+  final Map<String, String> _hiddenPosts = {};
 
   List<Post> _posts = [];
   List<Story> _stories = [];
@@ -118,6 +127,7 @@ class _SocialScreenState extends State<SocialScreen> {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _blockedSub = ProfileService.onUserBlocked.listen(_onUserBlocked);
+    _mutedSub = MutedUsersService.onUserMuted.listen(_onUserBlocked);
     _loadData();
     // Dakikalık yoklama yalnız sekme görünür ve uygulama ön plandayken:
     // eskiden gizli sekmede / arka planda da ağa gidip tüm ekranı çiziyordu.
@@ -137,6 +147,7 @@ class _SocialScreenState extends State<SocialScreen> {
   void dispose() {
     _liveTimer?.cancel();
     _blockedSub?.cancel();
+    _mutedSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -212,6 +223,8 @@ class _SocialScreenState extends State<SocialScreen> {
       // akış geldikten sonra ayrı bir ağ turu bekleniyordu). Hatayı kendi
       // yutar; ilk çizimden önce aşağıda beklenir.
       final savedPostsLoad = _loadSavedPosts();
+      // Sessize alınanlar (oturumda bir kez; hikâye şeridini süzmek için).
+      final mutedLoad = MutedUsersService.instance.ensureLoaded();
 
       // ⚡ iOS PERFORMANCE: Feed, stories ve userStories'yi PARALEL yükle.
       // Hikâyeler akıştan bağımsız: hikâye tarafındaki bir hata (bozuk satır,
@@ -231,7 +244,9 @@ class _SocialScreenState extends State<SocialScreen> {
       if (generation != _feedGeneration) return;
 
       final posts = _dedupeById(results[0] as List<Post>);
-      final allStories = results[1] as List<Story>;
+      await mutedLoad;
+      final allStories = MutedUsersService.instance
+          .filterStories(results[1] as List<Story>, (s) => s.userId);
       final userStories = results[2] as List<Story>;
 
       // HasMore kontrolü - eğer dönen veri pageSize'dan azsa, başka sayfa yok
@@ -667,6 +682,67 @@ class _SocialScreenState extends State<SocialScreen> {
   void _patchPost(String postId, Post Function(Post) update) {
     final index = _posts.indexWhere((p) => p.id == postId);
     if (index != -1) _posts[index] = update(_posts[index]);
+  }
+
+  /// "İlgilenmiyorum": gönderi kart yerinde "Gizlendi · Geri al" olur;
+  /// sunucu sonraki yüklemelerde akıştan süzer.
+  Future<void> _hidePost(Post post) async {
+    if (_blockGuest()) return;
+    setState(() => _hiddenPosts[post.id] = 'not_interested');
+    try {
+      await _postService.hidePost(post.id, reason: 'not_interested');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hiddenPosts.remove(post.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gönderi gizlenemedi')),
+      );
+    }
+  }
+
+  Future<void> _unhidePost(String postId) async {
+    setState(() => _hiddenPosts.remove(postId));
+    try {
+      await _postService.unhidePost(postId);
+    } catch (_) {
+      if (mounted) setState(() => _hiddenPosts[postId] = 'not_interested');
+    }
+  }
+
+  /// Yazarı sessize alır: gönderileri ve hikâyeleri akıştan çıkar (profili,
+  /// mesajları etkilenmez; karşı taraf fark etmez). Geri alınabilir.
+  Future<void> _muteAuthor(Post post, String username) async {
+    if (_blockGuest()) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await MutedUsersService.instance.mute(post.userId);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('@$username sessize alındı'),
+          action: SnackBarAction(
+            label: 'Geri al',
+            onPressed: () async {
+              await MutedUsersService.instance.unmute(post.userId);
+              if (mounted) _loadData(silent: true);
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Sessize alınamadı')),
+      );
+    }
+  }
+
+  /// Kendi gönderisinin metnini düzenler; liste yalnız o gönderiyi yamar.
+  Future<void> _editPost(Post post) async {
+    final updated = await showEditPostSheet(context, post);
+    if (updated == null || !mounted) return;
+    setState(() => _patchPost(
+          post.id,
+          (p) => p.copyWith(content: updated.content, editedAt: updated.editedAt),
+        ));
   }
 
   /// Gönderi Şikayet Dialog - Apple Guideline 1.2
@@ -1386,11 +1462,29 @@ class _SocialScreenState extends State<SocialScreen> {
                                             index,
                                           ) {
                                             final post = _posts[index];
+                                            if (_hiddenPosts.containsKey(post.id)) {
+                                              return Padding(
+                                                padding: const EdgeInsets.only(bottom: 12),
+                                                child: _HiddenPostPlaceholder(
+                                                  onUndo: () => _unhidePost(post.id),
+                                                ),
+                                              );
+                                            }
                                             return Padding(
                                               padding: const EdgeInsets.only(
                                                 bottom: 12,
                                               ),
-                                              child: _buildTwitterPostCard(post),
+                                              // Akışta görülme = görüntülenme
+                                              // (toplu gönderilir, günde bir).
+                                              child: ImpressionProbe(
+                                                id: post.id,
+                                                onSeen: () =>
+                                                    PostImpressionTracker.instance.markSeen(
+                                                      post.id,
+                                                      authorId: post.userId,
+                                                    ),
+                                                child: _buildTwitterPostCard(post),
+                                              ),
                                             );
                                           }, childCount: _posts.length),
                                         ),
@@ -2557,6 +2651,13 @@ class _SocialScreenState extends State<SocialScreen> {
         if (_blockGuest()) return;
         _sharePost(post);
       },
+      onViewsTap: isOwnPost ? () => showPostInsightsSheet(context, post) : null,
+      onHashtagTap: (tag) {
+        if (_blockGuest()) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => HashtagFeedScreen(tag: tag)),
+        );
+      },
       trailing: PopupMenuButton<String>(
         icon: Icon(Icons.more_horiz, color: Colors.grey.shade500, size: 20),
         shape: RoundedRectangleBorder(
@@ -2569,9 +2670,39 @@ class _SocialScreenState extends State<SocialScreen> {
             _showPostReportDialog(post);
           } else if (value == 'share') {
             _sharePost(post);
+          } else if (value == 'insights') {
+            showPostInsightsSheet(context, post);
+          } else if (value == 'edit') {
+            _editPost(post);
+          } else if (value == 'not_interested') {
+            _hidePost(post);
+          } else if (value == 'mute') {
+            _muteAuthor(post, username);
           }
         },
         itemBuilder: (context) => [
+          if (isOwnPost)
+            const PopupMenuItem(
+              value: 'edit',
+              child: Row(
+                children: [
+                  Icon(Icons.edit_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('Düzenle'),
+                ],
+              ),
+            ),
+          if (isOwnPost)
+            const PopupMenuItem(
+              value: 'insights',
+              child: Row(
+                children: [
+                  Icon(Icons.insights_rounded, color: Color(0xFF7C3AED), size: 20),
+                  SizedBox(width: 12),
+                  Text('İstatistikler'),
+                ],
+              ),
+            ),
           const PopupMenuItem(
             value: 'share',
             child: Row(
@@ -2582,6 +2713,33 @@ class _SocialScreenState extends State<SocialScreen> {
               ],
             ),
           ),
+          if (!isOwnPost && !_isGuest)
+            const PopupMenuItem(
+              value: 'not_interested',
+              child: Row(
+                children: [
+                  Icon(Icons.visibility_off_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('İlgilenmiyorum'),
+                ],
+              ),
+            ),
+          if (!isOwnPost && !_isGuest && !isOrphanPost)
+            PopupMenuItem(
+              value: 'mute',
+              child: Row(
+                children: [
+                  const Icon(Icons.volume_off_outlined, size: 20),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      '@$username sessize al',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (!isOwnPost)
             const PopupMenuItem(
               value: 'report',
@@ -2604,6 +2762,38 @@ class _SocialScreenState extends State<SocialScreen> {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "İlgilenmiyorum" denen gönderinin akıştaki yer tutucusu (geri alınabilir).
+class _HiddenPostPlaceholder extends StatelessWidget {
+  const _HiddenPostPlaceholder({required this.onUndo});
+
+  final VoidCallback onUndo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE9EDF1)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.visibility_off_outlined, size: 20, color: Colors.grey.shade500),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Gönderi akışından kaldırıldı.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+          ),
+          TextButton(onPressed: onUndo, child: const Text('Geri al')),
         ],
       ),
     );
