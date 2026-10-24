@@ -520,7 +520,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 CircleAvatar(
                   radius: 45,
                   backgroundColor: _group.isPrivate ? Colors.orange[100] : Colors.green[100],
-                  backgroundImage: _group.avatarUrl != null && _group.avatarUrl!.isNotEmpty ? NetworkImage(_group.avatarUrl!) : null,
+                  backgroundImage: avatarImage(_group.avatarUrl),
                   child: _group.avatarUrl == null || _group.avatarUrl!.isEmpty
                       ? Icon(
                           _group.isPrivate ? Icons.lock : Icons.groups,

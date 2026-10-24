@@ -1,4 +1,3 @@
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -45,8 +44,10 @@ class MapGlassButton extends StatelessWidget {
 
     final button = ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+      // Harita (platform görünümü) üstünde bulanıklık yok: hareket ederken
+      // her karede ek katman + saveLayer demekti; 0.82 alfa dolgu aynı
+      // görünümü verir.
+      child: RepaintBoundary(
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: (isDark ? Colors.black : Colors.white)
@@ -172,8 +173,10 @@ class MapGlassPanel extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      // Harita (platform görünümü) üstünde bulanıklık yok: hareket ederken
+      // her karede ek katman + saveLayer demekti; 0.82 alfa dolgu aynı
+      // görünümü verir.
+      child: RepaintBoundary(
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
@@ -298,8 +301,10 @@ class MapHintBar extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      // Harita (platform görünümü) üstünde bulanıklık yok: hareket ederken
+      // her karede ek katman + saveLayer demekti; 0.82 alfa dolgu aynı
+      // görünümü verir.
+      child: RepaintBoundary(
         child: Container(
           padding: EdgeInsets.fromLTRB(12, 9, onDismiss != null ? 4 : 12, 9),
           decoration: BoxDecoration(

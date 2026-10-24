@@ -62,6 +62,27 @@ class ScheduledOrderService {
     }
   }
 
+  /// Dolu saatler (UTC): dükkânın "aynı saate en fazla" sınırına ulaşmış
+  /// saatler (`get_shop_schedule_slot_status`). Sınır yoksa ya da
+  /// okunamazsa boş küme — son kararı sipariş eklenirken sunucu verir
+  /// ("Seçtiğiniz saat doldu").
+  Future<Set<DateTime>> fullSlots(String shopId) async {
+    try {
+      final res = await _db.rpc('get_shop_schedule_slot_status', params: {'p_shop_id': shopId});
+      if (res is! List) return const {};
+      final out = <DateTime>{};
+      for (final row in res) {
+        if (row is! Map || row['is_full'] != true) continue;
+        final t = DateTime.tryParse('${row['slot_at']}');
+        if (t != null) out.add(t.toUtc());
+      }
+      return out;
+    } catch (e) {
+      debugPrint('⚠️ Dolu randevu saatleri alınamadı: $e');
+      return const {};
+    }
+  }
+
   /// Sipariş öncesi doğrulama. Hata metni ya da null (geçerli). Ağ hatasında
   /// null döner: son kararı sipariş eklenirken sunucu verir.
   Future<String?> validate(String shopId, DateTime at) async {

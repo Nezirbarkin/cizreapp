@@ -69,30 +69,42 @@ class _ProfilePrivilegesOverlayState extends State<ProfilePrivilegesOverlay>
         if (effects.isEmpty || controller == null) return widget.child;
 
         final blink = effects.any((effect) => effect.rendererKey == 'blink');
-        return AnimatedBuilder(
-          animation: controller,
-          child: widget.child,
-          builder: (context, child) {
-            final pulse = blink
-                ? 0.94 + math.sin(controller.value * math.pi * 2) * 0.06
-                : 1.0;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Opacity(opacity: pulse.clamp(0.86, 1.0), child: child),
-                IgnorePointer(
-                  child: RepaintBoundary(
-                    child: CustomPaint(
+        // Sayfa (child) animasyonun DIŞINDA ve sabit kalır; her karede yalnız
+        // üstteki efekt katmanı yeniden boyanır. Eskiden "blink" tüm profil
+        // sayfasını Opacity ile soluyordu: kaydırılan sayfa için her karede
+        // tam ekran saveLayer. Aynı görünüm artık sayfanın üstünde nabız
+        // gibi açılıp kapanan ince beyaz bir örtüyle verilir (Opacity 0.88
+        // açık zemin üzerinde ≈ %12 beyaz örtü).
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            IgnorePointer(
+              child: RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: controller,
+                  builder: (context, _) {
+                    final pulse = blink
+                        ? 0.94 + math.sin(controller.value * math.pi * 2) * 0.06
+                        : 1.0;
+                    return CustomPaint(
                       painter: _ProfileEffectPainter(
                         effects: effects,
                         progress: controller.value,
                       ),
-                    ),
-                  ),
+                      child: blink
+                          ? ColoredBox(
+                              color: Colors.white.withValues(
+                                alpha: (1 - pulse).clamp(0.0, 0.14),
+                              ),
+                            )
+                          : const SizedBox.expand(),
+                    );
+                  },
                 ),
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -101,7 +113,10 @@ class _ProfilePrivilegesOverlayState extends State<ProfilePrivilegesOverlay>
 
 /// İsim yanında renkli tikleri ve hareketli ikonları gösterir. Her simgeye
 /// dokunulduğunda ne anlama geldiğini açıklayan bilgi penceresi açılır.
-class ProfilePrivilegeBadges extends StatelessWidget {
+///
+/// İstek State'te tutulur: eskiden `build` içinde oluşturuluyordu ve önbellek
+/// süresi dolunca her kart yeniden çizimi tekil bir RPC başlatıyordu.
+class ProfilePrivilegeBadges extends StatefulWidget {
   final String userId;
   final int maximum;
 
@@ -112,11 +127,33 @@ class ProfilePrivilegeBadges extends StatelessWidget {
   });
 
   @override
+  State<ProfilePrivilegeBadges> createState() => _ProfilePrivilegeBadgesState();
+}
+
+class _ProfilePrivilegeBadgesState extends State<ProfilePrivilegeBadges> {
+  late Future<List<ProfileFeature>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = ProfileFeatureService().getUserFeatures(widget.userId);
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfilePrivilegeBadges oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) {
+      _future = ProfileFeatureService().getUserFeatures(widget.userId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final maximum = widget.maximum;
     return FutureBuilder<List<ProfileFeature>>(
-      future: ProfileFeatureService().getUserFeatures(userId),
+      future: _future,
       // Önbellek doluysa (akış ön-yüklemesi) ilk karede doğru çizilir.
-      initialData: ProfileFeatureService.peekUserFeatures(userId),
+      initialData: ProfileFeatureService.peekUserFeatures(widget.userId),
       builder: (context, snapshot) {
         final features = (snapshot.data ?? const <ProfileFeature>[])
             .where(

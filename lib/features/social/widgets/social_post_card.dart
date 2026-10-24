@@ -99,6 +99,8 @@ class SocialPostCard extends StatelessWidget {
   final VoidCallback onComment;
   final VoidCallback onSend;
   final VoidCallback onSave;
+  // Link'li dışa paylaşım (null ise düğme yok). Sayı yalnız 0'dan büyükse.
+  final VoidCallback? onShare;
   final Widget? trailing;
 
   const SocialPostCard({
@@ -119,6 +121,7 @@ class SocialPostCard extends StatelessWidget {
     this.isLiked = false,
     this.isSaved = false,
     this.showOwnPinBadge = false,
+    this.onShare,
     this.trailing,
   });
 
@@ -398,6 +401,15 @@ class SocialPostCard extends StatelessWidget {
                             onTap: onSend,
                             color: const Color(0xFF17BF63),
                           ),
+                          if (onShare != null) ...[
+                            const SizedBox(width: 4),
+                            _ActionButton(
+                              icon: Icons.ios_share_outlined,
+                              count: post.sharesCount > 0 ? post.sharesCount : null,
+                              onTap: onShare!,
+                              color: const Color(0xFF7C3AED),
+                            ),
+                          ],
                           const Spacer(),
                           _ActionButton(
                             icon: isSaved

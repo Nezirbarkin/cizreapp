@@ -39,7 +39,12 @@ class PresenceService {
   bool isOnline(String userId) => _onlineSnapshot.contains(userId);
 
   void _publishOnline(List<String> ids) {
-    _onlineSnapshot = ids.toSet();
+    final next = ids.toSet();
+    // Aynı küme tekrar yayınlanmaz: sync + join/leave her olayda 2–3 kez
+    // aynı listeyi yayıyor, dinleyen sohbet ekranları her seferinde baştan
+    // çiziliyordu.
+    if (setEquals(next, _onlineSnapshot)) return;
+    _onlineSnapshot = next;
     if (!_onlineUsersController.isClosed) _onlineUsersController.add(ids);
   }
 

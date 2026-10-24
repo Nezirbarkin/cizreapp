@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
+import '../utils/app_error_handler.dart';
 import '../utils/image_url.dart';
 import 'text_background.dart';
 import '../../features/social/services/story_service.dart';
@@ -357,43 +358,39 @@ class _StoriesSectionState extends State<StoriesSection> {
       return;
     }
 
-    setState(() => _likingStories.add(storyId));
+    final storyIndex = _stories.indexWhere((s) => s.id == storyId);
+    if (storyIndex == -1 || _likingStories.contains(storyId)) return;
+    final before = _stories[storyIndex];
+    // Kalp = "tepkim var mı". Başka bir emojiyle tepki verilmişse kalbe
+    // dokunmak tepkiyi KALDIRIR. Eskiden servis "kalbe çevir" yapıyordu:
+    // sunucuda beğeni sürerken ekran sönük kalp ve bir eksik sayı gösteriyordu.
+    final wasLiked = before.isLikedByCurrentUser || before.myReaction != null;
+
+    setState(() {
+      _likingStories.add(storyId);
+      _stories[storyIndex] = before.copyWith(
+        isLikedByCurrentUser: !wasLiked,
+        myReaction: wasLiked ? null : StoryService.defaultReaction,
+        likesCount: (before.likesCount + (wasLiked ? -1 : 1)).clamp(0, 1 << 30),
+      );
+    });
 
     try {
-      // Optimistik güncelleme - UI'ı hemen güncelle
-      final storyIndex = _stories.indexWhere((s) => s.id == storyId);
-      if (storyIndex != -1) {
-        final story = _stories[storyIndex];
-        final wasLiked = story.isLikedByCurrentUser;
-        
-        setState(() {
-          _stories[storyIndex] = story.copyWith(
-            isLikedByCurrentUser: !wasLiked,
-            likesCount: wasLiked ? story.likesCount - 1 : story.likesCount + 1,
-          );
-        });
+      if (wasLiked) {
+        await _storyService.unlikeStory(storyId);
+      } else {
+        await _storyService.likeStory(storyId);
       }
-
-      // API çağrısı
-      await _storyService.toggleStoryLike(storyId);
     } catch (e) {
-      // Hata durumunda geri al
-      final storyIndex = _stories.indexWhere((s) => s.id == storyId);
-      if (storyIndex != -1 && mounted) {
-        final story = _stories[storyIndex];
-        setState(() {
-          _stories[storyIndex] = story.copyWith(
-            isLikedByCurrentUser: !story.isLikedByCurrentUser,
-            likesCount: story.isLikedByCurrentUser
-                ? story.likesCount - 1
-                : story.likesCount + 1,
-          );
-        });
+      // Hata durumunda dokunuştan önceki hâline dön
+      final index = _stories.indexWhere((s) => s.id == storyId);
+      if (index != -1 && mounted) {
+        setState(() => _stories[index] = before);
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
+          SnackBar(content: Text(AppErrorHandler.handleError(e))),
         );
       }
     } finally {

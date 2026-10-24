@@ -41,6 +41,7 @@ class PostReportService {
   /// - 'duplicate': Bu gönderiyi daha önce şikayet etmişsiniz
   /// - 'error': Genel hata
   /// - 'not_logged_in': Kullanıcı giriş yapmamış
+  /// - 'own_post': Kendi gönderisi (arayüzde zaten gizli)
   Future<String> reportPost({
     required String reportedPostId,
     required String reason,
@@ -68,6 +69,16 @@ class PostReportService {
         return 'duplicate';
       }
 
+      // Kendi gönderini şikâyet etmek anlamsız (moderasyon kuyruğunu doldurur).
+      final post = await _supabase
+          .from('posts')
+          .select('user_id')
+          .eq('id', reportedPostId)
+          .maybeSingle();
+      if (post?['user_id'] == userId) {
+        return 'own_post';
+      }
+
       debugPrint('✅ Yeni gönderi şikayeti oluşturuluyor...');
 
       final Map<String, dynamic> reportData = {
@@ -85,6 +96,12 @@ class PostReportService {
       debugPrint('✅ Gönderi şikayeti başarıyla oluşturuldu: reporter_id=$userId, post_id=$reportedPostId');
 
       return 'success';
+    } on PostgrestException catch (e) {
+      // Aynı anda iki dokunuş: kontrol ile ekleme arasında ikinci kayıt
+      // tekil kısıta çarpar → zaten şikâyet edilmiş say.
+      if (e.code == '23505') return 'duplicate';
+      debugPrint('❌ Gönderi şikayeti oluşturulurken hata: $e');
+      return 'error: ${e.message}';
     } catch (e) {
       debugPrint('❌ Gönderi şikayeti oluşturulurken hata: $e');
       return 'error: $e'; // Hatayı döndür ki UI'da görelim
@@ -170,7 +187,7 @@ class PostReportService {
           .update({
             'status': status,
             'admin_response': adminResponse,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', reportId);
 

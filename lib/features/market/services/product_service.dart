@@ -71,7 +71,11 @@ class ProductService {
           .select()
           .eq('is_available', true)
           .order('is_pinned', ascending: false)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          // Güvenlik üst sınırı. Filtreler/kategori listesi/sponsor sırası
+          // istemcide tüm liste üzerinden kurulur; bugün ~114 ürün (53 kB).
+          // Katalog büyürse bunlar sunucuya taşınıp sayfalanmalı.
+          .limit(1000);
 
       // JSON'u tek geçişte parse et (önceden 3 kez parse ediliyordu)
       final products = (response as List<dynamic>)

@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/models/category_model.dart';
 import 'category_shops_screen.dart';
@@ -67,7 +68,11 @@ class AllCategoriesScreen extends StatelessWidget {
           // Kategorinin kendi görselini kullan, yoksa varsayılan
           image: category.imageUrl != null
               ? DecorationImage(
-                  image: NetworkImage(category.imageUrl!),
+                  // Izgara kutucuğu: küçültülmüş + disk önbellekli.
+                  image: ResizeImage(
+                    CachedNetworkImageProvider(category.imageUrl!),
+                    width: 480,
+                  ),
                   fit: BoxFit.cover,
                   colorFilter: ColorFilter.mode(
                     Colors.black.withOpacity(0.3),

@@ -55,6 +55,9 @@ class ScheduledSlotPickerSheet extends StatefulWidget {
 
 class _ScheduledSlotPickerSheetState extends State<ScheduledSlotPickerSheet> {
   List<DateTime>? _slots;
+  // Dükkânın "aynı saate en fazla" sınırı dolmuş saatler: listede
+  // görünür ama seçilemez ("Dolu").
+  Set<DateTime> _full = const {};
   DateTime? _day;
   DateTime? _selected;
 
@@ -65,14 +68,21 @@ class _ScheduledSlotPickerSheetState extends State<ScheduledSlotPickerSheet> {
     _load();
   }
 
+  bool _isFull(DateTime slot) => _full.any((f) => f.isAtSameMomentAs(slot));
+
   Future<void> _load() async {
-    final slots = await widget.service.slots(widget.shopId);
+    final (slots, full) = await (
+      widget.service.slots(widget.shopId),
+      widget.service.fullSlots(widget.shopId),
+    ).wait;
     if (!mounted) return;
     setState(() {
       _slots = slots;
+      _full = full;
       final sel = _selected;
-      // Önceki seçim artık listede yoksa düşer.
-      if (sel != null && !slots.any((s) => s.isAtSameMomentAs(sel))) {
+      // Önceki seçim artık listede yoksa ya da dolduysa düşer.
+      if (sel != null &&
+          (!slots.any((s) => s.isAtSameMomentAs(sel)) || _isFull(sel))) {
         _selected = null;
       }
       final focus = _selected ?? (slots.isEmpty ? null : slots.first);
@@ -145,11 +155,18 @@ class _ScheduledSlotPickerSheetState extends State<ScheduledSlotPickerSheet> {
             runSpacing: 8,
             children: [
               for (final s in daySlots)
-                ChoiceChip(
-                  label: Text(ScheduleFormat.time(s)),
-                  selected: _selected != null && _selected!.isAtSameMomentAs(s),
-                  onSelected: (_) => setState(() => _selected = s),
-                ),
+                _isFull(s)
+                    ? ChoiceChip(
+                        label: Text('${ScheduleFormat.time(s)} · Dolu'),
+                        selected: false,
+                        // null: seçilemez (gri)
+                        onSelected: null,
+                      )
+                    : ChoiceChip(
+                        label: Text(ScheduleFormat.time(s)),
+                        selected: _selected != null && _selected!.isAtSameMomentAs(s),
+                        onSelected: (_) => setState(() => _selected = s),
+                      ),
             ],
           ),
         ],

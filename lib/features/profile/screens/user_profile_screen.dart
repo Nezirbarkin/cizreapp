@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:async';
 import 'dart:io';
 import '../../../core/models/post_model.dart';
 import '../../../core/models/analytics_model.dart';
@@ -15,7 +16,11 @@ import '../../../core/services/post_view_service.dart';
 import '../../../core/widgets/text_background.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../../social/services/post_service.dart';
+import '../../social/services/social_share_service.dart';
 import '../../social/services/story_service.dart';
+import '../../social/services/follow_service.dart';
+import '../../social/models/follow_suggestion.dart' show FollowStatus;
+import '../../../core/utils/app_error_handler.dart';
 import '../../social/screens/post_likes_screen.dart';
 import '../../social/screens/post_detail_screen.dart';
 import '../../social/screens/story_viewer_screen.dart';
@@ -31,6 +36,8 @@ import '../../chat/widgets/presence_status_line.dart';
 import '../../../kullaniciozellikler/widgets/profile_privileges.dart';
 import '../../../kullaniciozellikler/widgets/cover_effect_frame.dart';
 import '../widgets/profile_post_grid.dart';
+import '../widgets/profile_share_sheet.dart';
+import '../widgets/mutual_followers_line.dart';
 import '../../social/widgets/heart_animation_overlay.dart';
 import '../../social/widgets/social_post_card.dart';
 import '../../social/widgets/send_to_friend_sheet.dart';
@@ -51,6 +58,10 @@ class _UserProfileScreenState extends State<UserProfileScreen>
   bool _isFollowing = false;
   List<Post> _userPosts = [];
   bool _isLoadingPosts = true;
+  // Gönderi ızgarası sayfalı (PostService.userPostsPageSize).
+  bool _postsHasMore = false;
+  bool _loadingMorePosts = false;
+  final ScrollController _profileScroll = ScrollController();
   final _postService = PostService();
   final _storyService = StoryService();
   final _profileService = ProfileService();
@@ -58,6 +69,11 @@ class _UserProfileScreenState extends State<UserProfileScreen>
   final _postViewService = PostViewService();
   final _chatService = ChatService();
   final _followRequestService = FollowRequestService();
+  final _followService = FollowService();
+  // Takip isteği sürerken ikinci dokunuş yok sayılır.
+  bool _followBusy = false;
+  // Sunucudaki etkin gönderi sayısı (gizli hesapta da doğru; null = henüz yok).
+  int? _postsCount;
   int _followersCount = 0;
   int _followingCount = 0;
   int _friendsCount = 0;
@@ -101,6 +117,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     _isLoadingPosts = true;
     _isLoadingAnalytics = true;
 
+    _profileScroll.addListener(_onProfileScroll);
     _statsAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -111,21 +128,22 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     );
 
     // Verileri yükle
+    // Hepsi aynı anda başlar; ilişki durumları (takip, istek, gelen istek,
+    // engel) eskiden dört ayrı istek + dört ayrı setState idi, birbirini
+    // ezebiliyordu — artık tek yüklemede.
     _loadUserProfile();
     _loadUserPosts();
-    _loadFollowCounts(); // Takipçi sayısı için önce yükle
-    _checkIfFollowing(); // Takip durumunu kontrol et
-    _initializeFollowRequestStatus(); // Gizlilik kontrolü sonrası takip isteği kontrolü
+    _loadFollowCounts();
+    _loadRelationship();
     _loadUserStories();
-    _checkIfBlocked();
     _trackProfileView();
     _loadAnalytics();
-    _checkIncomingFollowRequest();
   }
 
   @override
   void dispose() {
     _statsAnimationController.dispose();
+    _profileScroll.dispose();
     super.dispose();
   }
 
@@ -145,14 +163,10 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     try {
       if (mounted) setState(() => _isLoadingAnalytics = true);
 
-      final profileStats = await _profileViewService.getCurrentMonthStats(
-        widget.userId,
-      );
-      if (!mounted) return;
-
-      final postStats = await _postViewService.getCurrentMonthStats(
-        widget.userId,
-      );
+      final (profileStats, postStats) = await (
+        _profileViewService.getCurrentMonthStats(widget.userId),
+        _postViewService.getCurrentMonthStats(widget.userId),
+      ).wait;
       if (!mounted) return;
 
       setState(() {
@@ -165,43 +179,15 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
   }
 
-  Future<void> _checkIfBlocked() async {
-    try {
-      final isBlocked = await _profileService.isUserBlocked(widget.userId);
-      if (!mounted) return;
-      setState(() => _isBlocked = isBlocked);
-    } catch (e) {
-      debugPrint('Engelleme durumu kontrol edilirken hata: $e');
-    }
-  }
-
   Future<void> _loadFollowCounts() async {
     try {
-      final followersResponse = await Supabase.instance.client
-          .from('follows')
-          .select('follower_id')
-          .eq('following_id', widget.userId);
+      final counts = await _profileService.getFollowCounts(widget.userId);
       if (!mounted) return;
-
-      final followingResponse = await Supabase.instance.client
-          .from('follows')
-          .select('following_id')
-          .eq('follower_id', widget.userId);
-      if (!mounted) return;
-
-      // Karşılıklı takip edenler = Arkadaşlar
-      final followers = (followersResponse as List)
-          .map((e) => e['follower_id'] as String)
-          .toSet();
-      final following = (followingResponse as List)
-          .map((e) => e['following_id'] as String)
-          .toSet();
-      final friends = followers.intersection(following);
-
       setState(() {
-        _followersCount = followers.length;
-        _followingCount = following.length;
-        _friendsCount = friends.length;
+        _followersCount = counts.followers;
+        _followingCount = counts.following;
+        _friendsCount = counts.friends;
+        _postsCount = counts.posts;
       });
     } catch (e) {
       debugPrint('Takipçi sayıları yüklenirken hata: $e');
@@ -260,71 +246,44 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
   }
 
-  Future<void> _checkProfilePrivacy() async {
+  /// Benimle bu kişi arasındaki ilişki: takip ediyor muyum, bekleyen isteğim
+  /// var mı, bana gelen bekleyen istek, engelledim mi. Tek doğru kaynak
+  /// `follows`: eski bir "accepted" istek satırı takip anlamına gelmez
+  /// (eskiden iki kontrol yarışıp düğmeyi kilitliyordu).
+  Future<void> _loadRelationship() async {
+    final me = Supabase.instance.client.auth.currentUser?.id;
+    if (me == null || me == widget.userId) return;
     try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null || currentUserId == widget.userId) return;
-
-      // Önce _userProfile'dan kontrol et (zaten yüklenmiş olabilir)
-      if (_userProfile != null) {
-        final isPrivate = _userProfile!['profile_is_public'] == false;
-        if (mounted) setState(() => _isProfilePrivate = isPrivate);
-        return;
-      }
-
-      // Profil henüz yüklenmediyse service kullan
-      final isPrivate = await _followRequestService.isProfilePrivate(
-        widget.userId,
-      );
+      final (follow, requestStatus, incomingId, blocked) = await (
+        Supabase.instance.client
+            .from('follows')
+            .select('id')
+            .eq('follower_id', me)
+            .eq('following_id', widget.userId)
+            .maybeSingle(),
+        _followRequestService.getFollowRequestStatus(widget.userId),
+        _followRequestService.getIncomingFollowRequestId(widget.userId),
+        _profileService.isUserBlocked(widget.userId),
+      ).wait;
       if (!mounted) return;
-
-      setState(() => _isProfilePrivate = isPrivate);
-    } catch (e) {
-      debugPrint('Profil gizliliği kontrol edilirken hata: $e');
-    }
-  }
-
-  /// Gizlilik kontrolü sonrası takip isteği durumunu kontrol et
-  Future<void> _initializeFollowRequestStatus() async {
-    // Önce profil gizliliğini kontrol et
-    await _checkProfilePrivacy();
-    // Sonra takip isteği durumunu kontrol et (eğer gizli profil ise)
-    if (_isProfilePrivate) {
-      await _checkFollowRequestStatus();
-    }
-  }
-
-  Future<void> _checkFollowRequestStatus() async {
-    try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null || currentUserId == widget.userId) return;
-
-      if (!_isProfilePrivate) {
-        if (mounted) setState(() => _followRequestStatus = 'none');
-        return;
-      }
-
-      final status = await _followRequestService.getFollowRequestStatus(
-        widget.userId,
-      );
-      if (!mounted) return;
-
       setState(() {
-        _followRequestStatus = status;
-        // İstek kabul edildiyse, follows tablosuna da eklenmiş demektir (SQL trigger)
-        // Bu yüzden _isFollowing'i de true yapmalıyız
-        if (status == 'accepted') {
-          _isFollowing = true;
-        }
+        _isFollowing = follow != null;
+        _followRequestStatus = !_isFollowing && requestStatus == 'pending'
+            ? 'pending'
+            : 'none';
+        _incomingFollowRequestId = incomingId;
+        _isBlocked = blocked;
       });
     } catch (e) {
-      debugPrint('Takip isteği durumu kontrol edilirken hata: $e');
+      debugPrint('Takip/engel durumu yüklenirken hata: $e');
     }
   }
 
   Future<void> _loadUserPosts() async {
     try {
       if (mounted) setState(() => _isLoadingPosts = true);
+      // Kaydedilenler gönderilerden bağımsız: aynı anda başlar.
+      final savedLoad = _loadSavedPosts();
       final posts = await _postService.getUserPosts(widget.userId);
       if (!mounted) return;
 
@@ -338,13 +297,13 @@ class _UserProfileScreenState extends State<UserProfileScreen>
         if (!mounted) return;
       }
 
-      // Kaydedilen gönderileri yükle
-      await _loadSavedPosts();
+      await savedLoad;
       if (!mounted) return;
 
       setState(() {
         _userPosts = posts;
         _isLoadingPosts = false;
+        _postsHasMore = posts.length >= PostService.userPostsPageSize;
       });
     } catch (e) {
       debugPrint('Kullanıcı gönderileri yüklenirken hata: $e');
@@ -352,43 +311,49 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
   }
 
-  Future<void> _checkIfFollowing() async {
+  /// Izgaranın sonraki sayfası (kaydırma sona yaklaşınca).
+  Future<void> _loadMorePosts() async {
+    if (_loadingMorePosts || !_postsHasMore || _isLoadingPosts) return;
+    final targetUserId = widget.userId;
+    setState(() => _loadingMorePosts = true);
     try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null || currentUserId == widget.userId) return;
-
-      final response = await Supabase.instance.client
-          .from('follows')
-          .select('id')
-          .eq('follower_id', currentUserId)
-          .eq('following_id', widget.userId)
-          .maybeSingle();
+      final more = await _postService.getUserPosts(
+        targetUserId,
+        offset: _userPosts.length,
+      );
+      final me = Supabase.instance.client.auth.currentUser?.id;
+      final liked = me != null && more.isNotEmpty
+          ? await _postService.getLikedPostIds(
+              me,
+              more.map((p) => p.id).toList(),
+            )
+          : <String>{};
       if (!mounted) return;
-
-      setState(() => _isFollowing = response != null);
+      final known = {for (final p in _userPosts) p.id};
+      setState(() {
+        _userPosts = [
+          ..._userPosts,
+          ...more.where((p) => !known.contains(p.id)),
+        ];
+        _likedPostIds = {..._likedPostIds, ...liked};
+        _postsHasMore = more.length >= PostService.userPostsPageSize;
+        _loadingMorePosts = false;
+      });
     } catch (e) {
-      debugPrint('Takip durumu kontrol edilirken hata: $e');
+      debugPrint('Sonraki gönderiler yüklenemedi: $e');
+      if (mounted) setState(() => _loadingMorePosts = false);
     }
   }
 
-  Future<void> _checkIncomingFollowRequest() async {
-    try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null || currentUserId == widget.userId) return;
-
-      final requestId = await _followRequestService.getIncomingFollowRequestId(
-        widget.userId,
-      );
-      if (!mounted) return;
-
-      setState(() => _incomingFollowRequestId = requestId);
-    } catch (e) {
-      debugPrint('Gelen takip isteği kontrol edilirken hata: $e');
-    }
+  void _onProfileScroll() {
+    if (!_profileScroll.hasClients) return;
+    final position = _profileScroll.position;
+    if (position.extentAfter < 600) _loadMorePosts();
   }
 
   Future<void> _acceptFollowRequest() async {
     if (_incomingFollowRequestId == null) return;
+    final messenger = ScaffoldMessenger.of(context);
 
     try {
       await _followRequestService.acceptFollowRequest(
@@ -396,40 +361,32 @@ class _UserProfileScreenState extends State<UserProfileScreen>
       );
       if (!mounted) return;
 
-      // Durumu güncelle - takipçi sayısını hemen artır (optimistic update)
+      // Bu kişi artık BENİ takip ediyor: onun "takip" sayısı artar (onun
+      // takipçi sayısı değil). Benim ona gönderdiğim isteğin durumu
+      // değişmez — eskiden burada "accepted" yazılıyor ve geri takip düğmesi
+      // hiçbir şey yapmıyordu.
       setState(() {
         _incomingFollowRequestId = null;
-        // NOT: _isFollowing burada true yapılMAMALI - bu, mevcut kullanıcının
-        // karşı tarafı takip ettiği anlamına gelir. Ama burada karşı taraf BİZİ
-        // takip etmeye başlıyor. _isFollowing sadece BİZİM onu takip etmemiz durumunda true olmalı.
-        _followersCount += 1; // Optimistic: follows'a eklendi
-        _followRequestStatus = 'accepted';
+        _followingCount += 1;
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Takip isteği kabul edildi'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            backgroundColor: Colors.green,
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Takip isteği kabul edildi'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        );
-      }
+          backgroundColor: Colors.green,
+        ),
+      );
 
-      // follows tablosuna eklendi, veritabanından gerçek sayıları al
-      // Not: followRequestService zaten follows'a ekliyor, gecikmeye gerek yok
-      if (mounted) {
-        await _loadFollowCounts();
-        await _checkIfFollowing();
-      }
+      await _loadFollowCounts();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
-            content: Text('İşlem başarısız: $e'),
+            content: Text(AppErrorHandler.handleError(e)),
             backgroundColor: Colors.red,
           ),
         );
@@ -437,127 +394,71 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     }
   }
 
+  /// Takip et / takibi bırak / isteği geri al — tek RPC (`social_follow`).
+  /// Gizli hesapta sunucu istek açar, açık hesapta takip eder; düğme ve
+  /// takipçi sayısı dönen sonuçtan kurulur. Eskiden tabloya doğrudan
+  /// yazılıyordu: gizlilik bayrağı eskiyse ya da engel varsa RLS reddi ham
+  /// "PostgrestException" olarak görünüyor, her dokunuşta iki tam takip
+  /// listesi yeniden indiriliyordu.
   Future<void> _toggleFollow() async {
-    // Messenger ilk await'ten ONCE yakalanir; asagidaki `if (mounted)`
-    // korumalari deactive-ama-henuz-unmount-olmamis pencereyi kapatmiyor ve
-    // `ScaffoldMessenger.of(context)` orada "Looking up a deactivated widget's
-    // ancestor is unsafe" atiyordu.
+    // Messenger ilk await'ten ONCE yakalanir (deactive pencere tuzağı).
     final messenger = ScaffoldMessenger.of(context);
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null || _followBusy) return;
+
+    final wasActive = _isFollowing || _followRequestStatus == 'pending';
+    final wasFollowing = _isFollowing;
+    setState(() => _followBusy = true);
     try {
-      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-      if (currentUserId == null || !mounted) return;
+      final result = wasActive
+          ? await _followService.unfollow(widget.userId)
+          : await _followService.follow(widget.userId);
+      if (!mounted) return;
 
-      // Gizli profil kontrolü
-      if (_isProfilePrivate && !_isFollowing) {
-        // İstek zaten kabul edildiyse, durumu güncelle ve işlem yapma
-        if (_followRequestStatus == 'accepted') {
-          // Follows tablosuna eklenmiş olmalı, _isFollowing'i güncelle
-          await _checkIfFollowing();
-          await _loadFollowCounts();
-          return;
-        }
-        // Gizli profil için takip isteği gönder
-        if (_followRequestStatus == 'pending') {
-          // Zaten bekleyen istek var, iptal et
-          await _followRequestService.cancelFollowRequest(widget.userId);
-          if (!mounted) return;
-          setState(() => _followRequestStatus = 'none');
+      setState(() {
+        _isFollowing = result.status == FollowStatus.following;
+        _followRequestStatus =
+            result.status == FollowStatus.requested ? 'pending' : 'none';
+        _followersCount = result.followersCount;
+      });
 
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Takip isteği iptal edildi'),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            );
-          }
-        } else {
-          // Takip isteği gönder
-          await _followRequestService.sendFollowRequest(widget.userId);
-          if (!mounted) return;
-          setState(() => _followRequestStatus = 'pending');
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Takip isteği gönderildi'),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            );
-          }
-        }
-        return;
-      }
-
-      // Normal takip/takibi bırak işlemi (public profil veya zaten takip ediyor)
-      if (_isFollowing) {
-        await Supabase.instance.client
-            .from('follows')
-            .delete()
-            .eq('follower_id', currentUserId)
-            .eq('following_id', widget.userId);
-        if (!mounted) return;
-
-        // Gizli profillerde follow_requests kaydını da sil (tekrar istek atılabilsin)
-        if (_isProfilePrivate) {
-          await Supabase.instance.client
-              .from('follow_requests')
-              .delete()
-              .eq('follower_id', currentUserId)
-              .eq('following_id', widget.userId);
-          if (!mounted) return;
-          _followRequestStatus = 'none';
-        }
-      } else {
-        // Önce zaten takip ediliyor mu kontrol et (duplicate key hatası önle)
-        final existingFollow = await Supabase.instance.client
-            .from('follows')
-            .select('id')
-            .eq('follower_id', currentUserId)
-            .eq('following_id', widget.userId)
-            .maybeSingle();
-
-        if (existingFollow == null) {
-          await Supabase.instance.client.from('follows').insert({
-            'follower_id': currentUserId,
-            'following_id': widget.userId,
-          });
-          if (!mounted) return;
-
-          // Takip bildirimi gönder (trigger zaten gönderiyor ama yedek olarak)
-          // NOT: SQL trigger 'notify_new_follower_trigger' zaten bildirim gönderiyor
-        }
-        if (!mounted) return;
-      }
-
-      setState(() => _isFollowing = !_isFollowing);
-      await _loadFollowCounts();
-
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              _isFollowing ? 'Takip edilmeye başlandı' : 'Takip bırakıldı',
-            ),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+      final message = switch (result.status) {
+        FollowStatus.following => 'Takip edilmeye başlandı',
+        FollowStatus.requested => 'Takip isteği gönderildi',
+        FollowStatus.none => wasFollowing
+            ? 'Takip bırakıldı'
+            : 'Takip isteği iptal edildi',
+      };
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        );
+        ),
+      );
+
+      // Gizli hesapta takip başlayınca/bitince gönderi ve hikâyelerin
+      // görünürlüğü değişir (RLS).
+      if (_isProfilePrivate && wasFollowing != _isFollowing) {
+        _loadUserPosts();
+        _loadUserStories();
+      }
+      // Arkadaş (karşılıklı) sayısı da değişebilir.
+      unawaited(_loadFollowCounts());
+    } on FollowException catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(e.message)));
       }
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: $e')),
+          SnackBar(content: Text(AppErrorHandler.handleError(e))),
         );
       }
+    } finally {
+      if (mounted) setState(() => _followBusy = false);
     }
   }
 
@@ -775,6 +676,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
           onRefresh: _refreshAll,
           displacement: 60,
           child: CustomScrollView(
+            controller: _profileScroll,
             slivers: [
               // ===== SLIVER APP BAR - KAPAK FOTOĞRAFI =====
               SliverAppBar(
@@ -807,17 +709,13 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                       color: Colors.white,
                       size: 22,
                     ),
-                    onPressed: () {
-                      final profileUrl = 'https://cizreapp.com/u/@$username';
-                      Clipboard.setData(ClipboardData(text: profileUrl));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Profil linki kopyalandı: $profileUrl'),
-                          behavior: SnackBarBehavior.floating,
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
+                    // QR kodlu paylaşım sayfası (link kopyala / paylaş / QR).
+                    onPressed: () => showProfileShareSheet(
+                      context,
+                      username: username,
+                      fullName: _userProfile?['full_name']?.toString(),
+                      avatarUrl: _userProfile?['avatar_url']?.toString(),
+                    ),
                     tooltip: 'Profili Paylaş',
                   ),
                   if (!isOwnProfile)
@@ -879,7 +777,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                             username: username,
                             avatarUrl: avatarUrl,
                             hasStories: _userStories.isNotEmpty,
-                            postsCount: _userPosts.length,
+                            postsCount: _postsCount ?? _userPosts.length,
                             followersCount: _followersCount,
                             followingCount: _followingCount,
                             friendsCount: _friendsCount,
@@ -914,7 +812,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                         avatarUrl: avatarUrl,
                         bio: bio,
                         hasStories: _userStories.isNotEmpty,
-                        postsCount: _userPosts.length,
+                        postsCount: _postsCount ?? _userPosts.length,
                         followersCount: _followersCount,
                         followingCount: _followingCount,
                         friendsCount: _friendsCount,
@@ -962,6 +860,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                               )
                             : ProfilePrivilegeBadges(userId: widget.userId),
                       ),
+
+                      // "X, Y ve N kişi daha takip ediyor" (ortak kimse yoksa boş).
+                      if (!isOwnProfile) MutualFollowersLine(userId: widget.userId),
 
                       const SizedBox(height: 16),
 
@@ -1091,6 +992,19 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               else
                 _buildListView(isOwnProfile),
 
+              if (_loadingMorePosts)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                ),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ),
@@ -1168,6 +1082,18 @@ class _UserProfileScreenState extends State<UserProfileScreen>
   }
 
   void _navigateToFollowList(FollowListType listType) {
+    final me = Supabase.instance.client.auth.currentUser?.id;
+    // Gizli hesabın takipçi/takip listesi yalnız takipçilerine açık
+    // (Instagram davranışı); sayılar görünmeye devam eder.
+    if (_isProfilePrivate && !_isFollowing && me != widget.userId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu hesap gizli. Listeyi görmek için takip etmelisin.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final username = _userProfile?['username'] ?? 'Kullanıcı';
     Navigator.push(
       context,
@@ -1178,7 +1104,10 @@ class _UserProfileScreenState extends State<UserProfileScreen>
           username: username,
         ),
       ),
-    );
+    ).then((_) {
+      // Listede takip/çıkarma yapılmış olabilir.
+      if (mounted) _loadFollowCounts();
+    });
   }
 
   /// Kendi profilini düzenleme ekranına yönlendir. Dönüşte profil yenilenir.
@@ -1234,7 +1163,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
             child: ProfileActionButton(
               label: followButtonText,
               icon: followButtonIcon,
-              onTap: hasIncomingRequest ? _acceptFollowRequest : _toggleFollow,
+              onTap: hasIncomingRequest
+                  ? _acceptFollowRequest
+                  : (_followBusy ? () {} : _toggleFollow),
               gradientColors: hasIncomingRequest
                   ? const [Color(0xFF16A36A), Color(0xFF0E7C50)]
                   : (showGradient
@@ -1446,7 +1377,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               username: username,
               avatarUrl: avatarUrl,
               authorRole: AuthorRole.unknown,
-              isVerified: false,
+              isVerified: post.authorIsVerified,
               isLiked: _likedPostIds.contains(post.id),
               isSaved: _savedPosts.contains(post.id),
               showOwnPinBadge: true,
@@ -1461,6 +1392,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               onComment: () => _navigateToPostDetail(post),
               onSend: () => sendPostToFriend(context, post),
               onSave: () => _savePost(post),
+              onShare: () => _sharePost(post),
               trailing: isOwnProfile
                   ? PopupMenuButton<String>(
                       icon: Icon(
@@ -1501,13 +1433,15 @@ class _UserProfileScreenState extends State<UserProfileScreen>
 
     final isLiked = _likedPostIds.contains(post.id);
 
-    // Sadece liked durumunu güncelle
+    // İyimser güncelleme; sayı sunucudan yeniden okunmaz (beğeni başına ek
+    // bir istek demekti).
     setState(() {
       if (isLiked) {
         _likedPostIds.remove(post.id);
       } else {
         _likedPostIds.add(post.id);
       }
+      _bumpLikes(post.id, isLiked ? -1 : 1);
     });
 
     try {
@@ -1516,43 +1450,48 @@ class _UserProfileScreenState extends State<UserProfileScreen>
       } else {
         await _postService.likePost(post.id, currentUserId);
       }
-
-      // Başarılıysa post'u yeniden yükle (count trigger'dan güncellenmiş olacak)
-      final updatedPost = await _postService.getPostById(post.id);
-      if (updatedPost != null && mounted) {
-        setState(() {
-          final index = _userPosts.indexWhere((p) => p.id == post.id);
-          if (index != -1) {
-            _userPosts[index] = updatedPost;
-          }
-        });
-      }
     } catch (e) {
-      // Hata olursa liked durumunu geri al
-      if (mounted) {
-        setState(() {
-          if (isLiked) {
-            _likedPostIds.add(post.id);
-          } else {
-            _likedPostIds.remove(post.id);
-          }
-        });
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('İşlem başarısız: $e')));
-      }
+      // Hata olursa geri al
+      if (!mounted) return;
+      setState(() {
+        if (isLiked) {
+          _likedPostIds.add(post.id);
+        } else {
+          _likedPostIds.remove(post.id);
+        }
+        _bumpLikes(post.id, isLiked ? 1 : -1);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
     }
+  }
+
+  void _bumpLikes(String postId, int delta) {
+    final index = _userPosts.indexWhere((p) => p.id == postId);
+    if (index == -1) return;
+    final p = _userPosts[index];
+    _userPosts[index] =
+        p.copyWith(likesCount: (p.likesCount + delta).clamp(0, 1 << 30));
   }
 
   void _navigateToPostDetail(Post post) {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
-    ).then((_) {
-      if (mounted) _loadUserPosts();
+    ).then((result) {
+      // Yalnız değişen gönderiyi yama; eskiden her dönüşte tüm gönderiler
+      // + beğeniler + kaydedilenler yeniden indiriliyordu.
+      if (result is! PostDetailResult || !mounted) return;
+      setState(() {
+        if (result.isLiked) {
+          _likedPostIds.add(result.postId);
+        } else {
+          _likedPostIds.remove(result.postId);
+        }
+        final index = _userPosts.indexWhere((p) => p.id == result.postId);
+        if (index != -1) _userPosts[index] = result.applyTo(_userPosts[index]);
+      });
     });
   }
 
@@ -2196,10 +2135,24 @@ class _UserProfileScreenState extends State<UserProfileScreen>
       );
 
       if (confirm == true && mounted) {
-        final success = await _profileService.blockUser(widget.userId);
+        if (willBeBlocked) {
+          await _profileService.block(widget.userId);
+        } else {
+          await _profileService.unblock(widget.userId);
+        }
         if (!mounted) return;
+        final success = willBeBlocked;
 
-        setState(() => _isBlocked = success);
+        setState(() {
+          _isBlocked = success;
+          // Engelde iki yöndeki takip/istek sunucuda silindi.
+          if (success) {
+            _isFollowing = false;
+            _followRequestStatus = 'none';
+            _incomingFollowRequestId = null;
+          }
+        });
+        unawaited(_loadFollowCounts());
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2219,88 +2172,35 @@ class _UserProfileScreenState extends State<UserProfileScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppErrorHandler.handleError(e))),
+        );
       }
     }
   }
 
-  // Paylaşım özellikleri
+  /// Gönderiyi sistem paylaşım sayfasıyla paylaşır (metin + gönderi linki);
+  /// paylaşıldıysa paylaşım sayısı bir artar. Eskiden yalnız WhatsApp /
+  /// bağlantı kopyalama sunan ve hiç çağrılmayan bir sayfa vardı.
   Future<void> _sharePost(Post post) async {
-    final postUrl = 'https://cizreapp.com/post/${post.id}';
-
-    if (!mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: Text(
-                  'Paylaş',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.chat, color: Colors.green.shade700),
-                ),
-                title: const Text('WhatsApp'),
-                onTap: () {
-                  Navigator.pop(context);
-                  final whatsappUrl =
-                      'https://wa.me/?text=${Uri.encodeComponent(postUrl)}';
-                  launchUrl(
-                    Uri.parse(whatsappUrl),
-                    mode: LaunchMode.externalApplication,
-                  );
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.link, color: Colors.grey.shade700),
-                ),
-                title: const Text('Bağlantıyı Kopyala'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _copyToClipboard(postUrl);
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
+    final name = (post.authorFullName?.trim().isNotEmpty ?? false)
+        ? post.authorFullName!.trim()
+        : (post.authorUsername ?? 'Kullanıcı');
+    try {
+      final count = await SocialShareService().sharePost(post, authorName: name);
+      if (count == null || !mounted) return;
+      setState(() {
+        final index = _userPosts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          _userPosts[index] = _userPosts[index].copyWith(sharesCount: count);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paylaşım yapılamadı')),
+      );
+    }
   }
 
   Future<void> _copyToClipboard(String text) async {
@@ -2323,12 +2223,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
         return;
       }
 
-      final result = await Supabase.instance.client.rpc(
-        'toggle_post_favorite',
-        params: {'p_user_id': userId, 'p_post_id': post.id},
-      );
-
-      final isFavorited = result as bool? ?? false;
+      // Akışla aynı yol: ekranın bildiği durumun tersi istenir (idempotent).
+      final isFavorited = !_savedPosts.contains(post.id);
+      await _postService.setPostSaved(post.id, isFavorited);
 
       if (mounted) {
         setState(() {

@@ -354,4 +354,62 @@ void main() {
       await snapshot(tester, 'live_compact');
     });
   });
+
+  group('Araç animasyonu (performans)', () {
+    testWidgets('kayan araç haritayı her karede değil ~20 fps güncelliyor ve hedefe varıyor',
+        (tester) async {
+      final counting = _CountingMapsPlatform();
+      platform = counting;
+      GoogleMapsFlutterPlatform.instance = counting;
+
+      final start = SehiriciTestData.tripBlue();
+      await pumpMap(tester, trips: [start]);
+
+      // Konum güncellemesi: araç yeni noktaya süzülür (~0,8 sn).
+      final moved = start.copyWithLocation(lat: 37.3290, lng: 42.1940);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.only(top: 20),
+            child: SehiriciLiveMap(
+              lines: [SehiriciTestData.lineBlue(), SehiriciTestData.lineRed()],
+              activeTrips: [moved],
+              center: SehiriciTestData.city,
+              zoomLevel: 16,
+              height: 560,
+              showCouriers: false,
+              borderRadius: 0,
+            ),
+          ),
+        ),
+      ));
+      counting.markerUpdateCalls = 0;
+
+      // 1,2 sn boyunca 60 fps kare (≈72 kare).
+      for (var i = 0; i < 72; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      // Eskiden her karede bir güncelleme (~50); kısılı: en fazla ~20 + son konum.
+      expect(counting.markerUpdateCalls, lessThanOrEqualTo(24));
+      final vehicle = counting.markers[const MarkerId('trip_t1')]!;
+      expect(vehicle.position.latitude, closeTo(37.3290, 1e-6));
+      expect(vehicle.position.longitude, closeTo(42.1940, 1e-6));
+      final label = counting.markers[const MarkerId('trip_t1_label')]!;
+      expect(label.position, vehicle.position);
+    });
+  });
+}
+
+/// Harita platformuna giden marker güncellemelerini sayar.
+class _CountingMapsPlatform extends FakeGoogleMapsPlatform {
+  int markerUpdateCalls = 0;
+
+  @override
+  Future<void> updateMarkers(MarkerUpdates markerUpdates, {required int mapId}) {
+    // Yalnız marker gerçekten değiştiyse (nabız halkası gibi başka yeniden
+    // çizimler de boş güncelleme yollar).
+    if (markerUpdates.markersToChange.isNotEmpty) markerUpdateCalls++;
+    return super.updateMarkers(markerUpdates, mapId: mapId);
+  }
 }

@@ -41,8 +41,43 @@ class StoryService {
   }
   final StorageService _storageService = StorageService();
 
-  // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder
-  Future<List<Story>> getStories() async {
+  /// Ana sayfa (iki yerden) ve Keşfet açılışta aynı hikâye şeridini ayrı ayrı
+  /// istiyordu: her biri üç sorgu (hikâyeler + görüntülemeler + tepkiler).
+  /// Kısa bir pencere içindeki istekler aynı ağ isteğini paylaşır.
+  static Future<List<Story>>? _shared;
+  static DateTime? _sharedAt;
+  static String? _sharedUser;
+  static const Duration _shareWindow = Duration(seconds: 15);
+
+  /// Hikâye eklendi/silindi/izlendi: bir sonraki çağrı ağdan taze okusun.
+  static void invalidateShared() => _shared = null;
+
+  // Tüm aktif hikayeleri getir (son 24 saat) - kullanıcının görüntüleme durumunu ve profil bilgilerini dahil eder.
+  // [forceRefresh]: paylaşılan sonucu atla (aşağı çekip yenileme, izleme dönüşü).
+  Future<List<Story>> getStories({bool forceRefresh = false}) {
+    final userId = _supabase.auth.currentUser?.id;
+    final now = DateTime.now();
+    final shared = _shared;
+    if (!forceRefresh &&
+        shared != null &&
+        _sharedUser == userId &&
+        _sharedAt != null &&
+        now.difference(_sharedAt!) < _shareWindow) {
+      // Kopya: çağıranlar listeyi yerinde değiştirebiliyor.
+      return shared.then((list) => List<Story>.of(list));
+    }
+    final future = _fetchStories();
+    _shared = future;
+    _sharedAt = now;
+    _sharedUser = userId;
+    // Hata paylaşılmaz: sonraki çağrı yeniden dener.
+    future.then<void>((_) {}, onError: (Object _) {
+      if (identical(_shared, future)) _shared = null;
+    });
+    return future.then((list) => List<Story>.of(list));
+  }
+
+  Future<List<Story>> _fetchStories() async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       final now = DateTime.now().toUtc();
@@ -51,13 +86,23 @@ class StoryService {
       // ⚡ AÇILIŞ OPTİMİZASYONU (2026-08-14): Görüntüleme/beğeni listeleri ile
       // aktif stories sorgusu birbirinden bağımsız. Eskiden 3 gidiş-dönüş
       // sırayla bekleniyordu (3× RTT); şimdi üçü paralel (≈ 1× RTT).
-      // Sorguların kendisi ve filtreleri DEĞİŞMEDİ.
+      //
+      // Görüntüleme/tepki satırları yalnız son 25 saatten okunur: aktif bir
+      // hikâye en fazla 24 saatliktir (sunucu tetikleyicisi expires_at'i
+      // oluşturma + 24 saat yapar), ona ait görüntüleme de o süre içinde
+      // olmuştur. Eskiden kullanıcının TÜM geçmişi iniyordu: hem sonsuza dek
+      // büyüyen yük, hem de PostgREST'in 1000 satır tavanında yeni
+      // görüntülemeler kesilip izlenen hikâyeler "izlenmemiş" görünüyordu.
+      final since = now
+          .subtract(const Duration(hours: 25))
+          .toIso8601String();
       final viewsFuture = userId == null
           ? Future.value(<String>[])
           : _supabase
               .from('story_views')
               .select('story_id')
               .eq('viewer_id', userId)
+              .gte('created_at', since)
               .then((r) {
                 final ids = (r as List)
                     .map((row) => row['story_id'] as String)
@@ -76,6 +121,7 @@ class StoryService {
               .from('story_likes')
               .select('story_id, emoji')
               .eq('user_id', userId)
+              .gte('created_at', since)
               .then((r) {
                 final map = <String, String>{};
                 for (final row in (r as List)) {
@@ -392,24 +438,19 @@ class StoryService {
     AttachedMusic? music,
   }) async {
     try {
-      final now = DateTime.now().toUtc(); // UTC'ye çevir
-      final expiresAt = now.add(const Duration(hours: 24));
-
       debugPrint('Story oluşturuluyor - userId: $userId');
       debugPrint('Story oluşturuluyor - mediaType: $mediaType');
       debugPrint('Story oluşturuluyor - thumbnailUrl: $thumbnailUrl');
-      debugPrint('Story oluşturuluyor - isPinned: $isPinned');
-      debugPrint('Story oluşturuluyor - created_at: ${now.toIso8601String()}');
-      debugPrint('Story oluşturuluyor - expires_at: ${expiresAt.toIso8601String()}');
 
+      // created_at / expires_at / sayaçlar / sabitleme SUNUCUDA belirlenir
+      // (a_stories_guard_client_write, 20261023000001): cihaz saati yanlış
+      // telefonda hikâye başkaları için daha baştan "süresi dolmuş"
+      // oluyordu. [isPinned] yalnız admin için anlamlıdır.
       final insertData = {
         'user_id': userId,
         'image_url': imageUrl,
         'media_type': mediaType,
-        'views_count': 0,
-        'is_pinned': isPinned,
-        'created_at': now.toIso8601String(),
-        'expires_at': expiresAt.toIso8601String(),
+        if (isPinned) 'is_pinned': true,
         // Sunucudaki `music_attach_guard` tetikleyicisi admin anahtarı
         // kapalıyken bu alanı sessizce düşürür.
         if (music != null) 'music': music.toJson(),
@@ -425,6 +466,7 @@ class StoryService {
       if (response == null) return null;
 
       debugPrint('Story başarıyla oluşturuldu: ${response['id']}');
+      invalidateShared();
 
       return Story.fromJson(response);
     } catch (e) {
@@ -452,9 +494,7 @@ class StoryService {
     }
 
     try {
-      final now = DateTime.now().toUtc();
-      final expiresAt = now.add(const Duration(hours: 24));
-
+      // Zamanlar ve sayaçlar sunucuda belirlenir (bkz. createStory).
       final response = await _supabase
           .from('stories')
           .insert({
@@ -463,10 +503,7 @@ class StoryService {
             'media_type': 'text',
             'text_content': trimmed,
             'background': background,
-            'views_count': 0,
-            'is_pinned': isPinned,
-            'created_at': now.toIso8601String(),
-            'expires_at': expiresAt.toIso8601String(),
+            if (isPinned) 'is_pinned': true,
             if (music != null) 'music': music.toJson(),
           })
           .select()
@@ -474,6 +511,7 @@ class StoryService {
 
       if (response == null) return null;
       debugPrint('Metin hikayesi oluşturuldu: ${response['id']}');
+      invalidateShared();
       return Story.fromJson(response);
     } catch (e) {
       debugPrint('Metin hikayesi oluşturma HATASI: $e');
@@ -559,20 +597,15 @@ class StoryService {
   // Hikaye görüntüleme ekle
   Future<void> viewStory(String storyId, String viewerId) async {
     try {
-      // Önce kontrol et, daha önce görüntülendi mi
-      final existingView = await _supabase
-          .from('story_views')
-          .select()
-          .eq('story_id', storyId)
-          .eq('viewer_id', viewerId);
-
-      if (existingView.isEmpty) {
-        await _supabase.from('story_views').insert({
-          'story_id': storyId,
-          'viewer_id': viewerId,
-        });
-        debugPrint('📱 Story görüntüleme kaydı oluşturuldu: $storyId');
-      }
+      // Tek istek: zaten görüntülendiyse (story_id, viewer_id tekil)
+      // hiçbir şey yapılmaz, sayaç tetikleyicisi de çalışmaz. Eskiden önce
+      // okunup sonra ekleniyordu (her hikâyede iki tur).
+      await _supabase.from('story_views').upsert(
+        {'story_id': storyId, 'viewer_id': viewerId},
+        onConflict: 'story_id,viewer_id',
+        ignoreDuplicates: true,
+      );
+      invalidateShared();
     } catch (e) {
       debugPrint('❌ Story görüntüleme hatası: $e');
     }
@@ -699,6 +732,7 @@ class StoryService {
   Future<void> deleteStory(String storyId) async {
     try {
       await _supabase.from('stories').delete().eq('id', storyId);
+      invalidateShared();
     } catch (e) {
       throw Exception('Hikaye silinirken hata: $e');
     }
@@ -742,6 +776,7 @@ class StoryService {
       );
 
       debugPrint('Story tepkisi kaydedildi: $storyId -> $emoji');
+      invalidateShared();
     } catch (e) {
       debugPrint('Story tepki hatasi: $e');
       throw Exception('Story begenilirken hata: $e');
@@ -785,20 +820,7 @@ class StoryService {
         throw Exception('Kullanıcı giriş yapmamış');
       }
 
-      // Önce mevcut beğeni var mı kontrol et
-      final existing = await _supabase
-          .from('story_likes')
-          .select('id')
-          .eq('story_id', storyId)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existing == null) {
-        debugPrint('ℹ️ Story beğenisi zaten yok: $storyId');
-        return;
-      }
-
-      // Beğeniyi sil
+      // Beğeniyi sil (yoksa hiçbir şey olmaz; önceden okumaya gerek yok)
       await _supabase
           .from('story_likes')
           .delete()
@@ -807,6 +829,7 @@ class StoryService {
 
       // DELETE trigger otomatik decrement yapar
       debugPrint('💔 Story beğenisi kaldırıldı: $storyId');
+      invalidateShared();
     } catch (e) {
       debugPrint('❌ Story beğeni kaldırma hatası: $e');
       throw Exception('Story beğenisi kaldırılırken hata: $e');

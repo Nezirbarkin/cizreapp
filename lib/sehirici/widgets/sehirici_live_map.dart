@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show Factory;
 import 'package:flutter/gestures.dart'
     show EagerGestureRecognizer, OneSequenceGestureRecognizer;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -210,6 +211,15 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
   final Map<String, LatLng> _previousPositions = {};
   final Map<String, LatLng> _targetPositions = {};
   final Map<String, AnimationController> _positionAnimControllers = {};
+
+  /// Araç konum animasyonlarının biriken kareleri. Her aracın denetleyicisi
+  /// her karede buraya yazar; harita en fazla ~20 kare/sn ve TÜM araçlar için
+  /// tek setState + tek marker geçişiyle güncellenir. Eskiden her araç her
+  /// karede ayrı setState yapıp tüm marker kümesini yeniden kuruyor, platform
+  /// kanalına saniyede araç başına ~60 marker farkı gidiyordu.
+  final Map<String, LatLng> _pendingVehiclePositions = {};
+  Duration? _lastVehicleFlushAt;
+  static const Duration _vehicleFlushInterval = Duration(milliseconds: 50);
   final Map<String, Animation<LatLng>> _positionAnimations = {};
 
   // Pulse animasyonu: TÜM canlı araçlar için TEK shared controller (her araç
@@ -1273,17 +1283,13 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
       curve: Curves.easeOutCubic,
     ));
 
-    animation.addListener(() {
-      if (mounted) {
-        setState(() {
-          _updateVehicleMarkerPosition(tripId, animation.value);
-        });
-      }
-    });
+    animation.addListener(() => _queueVehiclePosition(tripId, animation.value));
 
     controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _previousPositions[tripId] = targetPosition;
+        // Son konum kısmaya takılmadan yerine otursun.
+        _queueVehiclePosition(tripId, targetPosition, force: true);
       }
     });
 
@@ -1295,24 +1301,46 @@ class _SehiriciLiveMapState extends State<SehiriciLiveMap>
     controller.forward();
   }
 
-  /// Animasyonun her karesinde aracı ve üstündeki etiketi taşır; araç
-  /// marker'ının yönünü de gidiş yönüne çevirir.
-  void _updateVehicleMarkerPosition(String tripId, LatLng position) {
-    final vehicleId = 'trip_$tripId';
-    final labelId = 'trip_${tripId}_label';
-    final trip = _currentTripData[tripId];
-    final rotation = trip == null ? null : _rotationFor(tripId, trip);
+  /// Bir aracın animasyon karesini biriktirir; son güncellemeden bu yana
+  /// [_vehicleFlushInterval] geçtiyse (kare zamanına göre) hepsini birden
+  /// haritaya uygular. [force]: kısmayı atla (animasyon sonu).
+  void _queueVehiclePosition(String tripId, LatLng position, {bool force = false}) {
+    if (!mounted) return;
+    _pendingVehiclePositions[tripId] = position;
+    final frameTime = SchedulerBinding.instance.currentFrameTimeStamp;
+    final last = _lastVehicleFlushAt;
+    if (!force && last != null && frameTime - last < _vehicleFlushInterval) {
+      return;
+    }
+    _lastVehicleFlushAt = frameTime;
+    final pending = Map<String, LatLng>.of(_pendingVehiclePositions);
+    _pendingVehiclePositions.clear();
+    setState(() => _applyVehiclePositions(pending));
+  }
+
+  /// Araçları ve üstlerindeki etiketleri taşır (tek geçiş, tüm araçlar);
+  /// araç marker'ının yönünü de gidiş yönüne çevirir.
+  void _applyVehiclePositions(Map<String, LatLng> positions) {
+    if (positions.isEmpty) return;
+    final vehicleUpdates = <String, (LatLng, double?)>{};
+    final labelUpdates = <String, LatLng>{};
+    positions.forEach((tripId, position) {
+      final trip = _currentTripData[tripId];
+      vehicleUpdates['trip_$tripId'] =
+          (position, trip == null ? null : _rotationFor(tripId, trip));
+      labelUpdates['trip_${tripId}_label'] = position;
+    });
     _markers = _markers.map((marker) {
       final id = marker.markerId.value;
-      if (id == vehicleId) {
+      final vehicle = vehicleUpdates[id];
+      if (vehicle != null) {
         return marker.copyWith(
-          positionParam: position,
-          rotationParam: rotation,
+          positionParam: vehicle.$1,
+          rotationParam: vehicle.$2,
         );
       }
-      if (id == labelId) {
-        return marker.copyWith(positionParam: position);
-      }
+      final label = labelUpdates[id];
+      if (label != null) return marker.copyWith(positionParam: label);
       return marker;
     }).toSet();
   }

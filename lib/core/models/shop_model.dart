@@ -62,6 +62,9 @@ class Shop {
   final int scheduledMaxDays;
   final int scheduledMinLeadMinutes;
 
+  /// Aynı saate en fazla kaç sipariş (iptal/teslim edilmemiş); null = sınırsız.
+  final int? scheduledSlotCapacity;
+
   /// Admin bu dükkanda randevulu siparişi kapattı (satıcı değiştiremez).
   final bool scheduledOrdersAdminBlocked;
 
@@ -119,6 +122,7 @@ class Shop {
     this.scheduledSlotMinutes = 60,
     this.scheduledMaxDays = 3,
     this.scheduledMinLeadMinutes = 60,
+    this.scheduledSlotCapacity,
     this.scheduledOrdersAdminBlocked = false,
     this.sponsoredListUntil,
     this.sponsoredCategoryUntil,
@@ -309,6 +313,7 @@ class Shop {
     int? scheduledSlotMinutes,
     int? scheduledMaxDays,
     int? scheduledMinLeadMinutes,
+    int? scheduledSlotCapacity,
     bool? scheduledOrdersAdminBlocked,
     DateTime? sponsoredListUntil,
     DateTime? sponsoredCategoryUntil,
@@ -357,6 +362,7 @@ class Shop {
       scheduledSlotMinutes: scheduledSlotMinutes ?? this.scheduledSlotMinutes,
       scheduledMaxDays: scheduledMaxDays ?? this.scheduledMaxDays,
       scheduledMinLeadMinutes: scheduledMinLeadMinutes ?? this.scheduledMinLeadMinutes,
+      scheduledSlotCapacity: scheduledSlotCapacity ?? this.scheduledSlotCapacity,
       scheduledOrdersAdminBlocked:
           scheduledOrdersAdminBlocked ?? this.scheduledOrdersAdminBlocked,
       sponsoredListUntil: sponsoredListUntil ?? this.sponsoredListUntil,
@@ -409,6 +415,7 @@ class Shop {
       'scheduled_slot_minutes': scheduledSlotMinutes,
       'scheduled_max_days': scheduledMaxDays,
       'scheduled_min_lead_minutes': scheduledMinLeadMinutes,
+      'scheduled_slot_capacity': scheduledSlotCapacity,
       'scheduled_orders_admin_blocked': scheduledOrdersAdminBlocked,
     };
   }
@@ -488,6 +495,7 @@ class Shop {
       scheduledSlotMinutes: (json['scheduled_slot_minutes'] as num?)?.toInt() ?? 60,
       scheduledMaxDays: (json['scheduled_max_days'] as num?)?.toInt() ?? 3,
       scheduledMinLeadMinutes: (json['scheduled_min_lead_minutes'] as num?)?.toInt() ?? 60,
+      scheduledSlotCapacity: (json['scheduled_slot_capacity'] as num?)?.toInt(),
       scheduledOrdersAdminBlocked:
           json['scheduled_orders_admin_blocked'] as bool? ?? false,
       sponsoredListUntil: parseSponsorTime(json['sponsored_list_until']),

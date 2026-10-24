@@ -119,8 +119,11 @@ class CartProvider with ChangeNotifier {
     return _items.fold<int>(0, (sum, item) => sum + item.quantity);
   }
 
-  // Sepeti yükle
-  Future<void> loadCart() async {
+  // Sepeti yükle. [silent]: değişiklik sonrası arka plan tazelemesi —
+  // "yükleniyor" durumuna geçip fazladan bildirim yapılmaz (sepet ekranı
+  // ve ürün kartları her eklemede iki kez yeniden çiziliyor, çark
+  // görünüyordu).
+  Future<void> loadCart({bool silent = false}) async {
     debugPrint('🛒 CartProvider.loadCart() BAŞLADI - userId: $userId');
 
     // userId boşsa sepeti yükleme (giriş yapılmamış)
@@ -135,9 +138,11 @@ class CartProvider with ChangeNotifier {
       return;
     }
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    if (!silent) {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+    }
 
     try {
       _items = await _cartService.getCart(userId);
@@ -258,23 +263,27 @@ class CartProvider with ChangeNotifier {
     try {
       final shopItems = _items.where((it) => it.shopId == shopId).toList();
 
-      for (final item in shopItems) {
-        if (item.flashSaleId != null && item.quantity > 0) {
-          try {
-            await _flashSaleService.releaseFlashSale(
-              saleId: item.flashSaleId!,
-              quantity: item.quantity,
-            );
-          } catch (e) {
-            debugPrint(
-              '⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e',
-            );
-          }
-        }
-        await _cartService.removeFromCart(item.id);
-      }
+      // Flaş stok iadeleri birbirinden bağımsız: aynı anda; satırlar tek
+      // istekte silinir (eskiden ürün başına sırayla iade + silme).
+      await Future.wait([
+        for (final item in shopItems)
+          if (item.flashSaleId != null && item.quantity > 0)
+            _flashSaleService
+                .releaseFlashSale(
+                  saleId: item.flashSaleId!,
+                  quantity: item.quantity,
+                )
+                .then<void>((_) {}, onError: (Object e) {
+                  debugPrint(
+                    '⚠️ release_flash_sale başarısız (${item.flashSaleId}): $e',
+                  );
+                }),
+      ]);
+      await _cartService.removeManyFromCart([
+        for (final item in shopItems) item.id,
+      ]);
 
-      await loadCart();
+      await loadCart(silent: true);
       removeCoupon(shopId);
     } catch (e) {
       _error = e.toString();
@@ -338,7 +347,7 @@ class CartProvider with ChangeNotifier {
       debugPrint(
         '✅ CartProvider.addToCart() BAŞARILI, sepet yeniden yükleniyor...',
       );
-      await loadCart(); // Sepeti yeniden yükle
+      await loadCart(silent: true); // Sepeti yeniden yükle
       _revalidateCoupons();
     } catch (e) {
       _error = e.toString();
@@ -468,19 +477,13 @@ class CartProvider with ChangeNotifier {
   }
 
   // Local'de ürünün sepetteki miktarını al (cache'den)
+  // Her ürün kartı her sepet değişiminde çağırır: bulunamayınca boş bir
+  // CartItem + iki DateTime.now() yaratmak yerine düz döngü.
   int getProductQuantityFromCache(String productId) {
-    final item = _items.firstWhere(
-      (item) => item.productId == productId,
-      orElse: () => CartItem(
-        id: '',
-        userId: userId,
-        productId: productId,
-        quantity: 0,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    );
-    return item.quantity;
+    for (final item in _items) {
+      if (item.productId == productId) return item.quantity;
+    }
+    return 0;
   }
 
   // Dükkan bilgilerini getir (cache'lenmiş)
@@ -493,18 +496,17 @@ class CartProvider with ChangeNotifier {
         .where((id) => id.isNotEmpty)
         .toSet();
 
-    for (final shopId in shopIds) {
-      if (!_shops.containsKey(shopId)) {
-        try {
-          final shop = await _shopService.getShopById(shopId);
-          if (shop != null) {
-            _shops[shopId] = shop;
-          }
-        } catch (e) {
+    // Eksik dükkânlar aynı anda (eskiden dükkân başına sırayla).
+    final missing = shopIds.where((id) => !_shops.containsKey(id)).toList();
+    if (missing.isEmpty) return;
+    await Future.wait([
+      for (final shopId in missing)
+        _shopService.getShopById(shopId).then<void>((shop) {
+          if (shop != null) _shops[shopId] = shop;
+        }, onError: (Object e) {
           debugPrint('Dükkan bilgisi yüklenirken hata ($shopId): $e');
-        }
-      }
-    }
+        }),
+    ]);
     notifyListeners();
   }
 

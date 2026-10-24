@@ -143,16 +143,20 @@ class _WalletTab extends StatelessWidget {
         children: [
           _BalanceCard(points: provider.points),
           const OkeySectionHeader(label: 'Çip kazan'),
-          _ActionCard(
-            icon: Icons.card_giftcard,
-            color: OkeyUI.giftColor,
-            title: 'Saatlik hediye',
-            description: provider.canClaimGift
-                ? '${provider.wallet.hourlyGiftPoints} çip seni bekliyor!'
-                : 'Sonraki hediye: ${provider.giftCountdownText}',
-            buttonText: provider.canClaimGift ? 'HEDİYE AL' : 'BEKLEMEDE',
-            enabled: provider.canClaimGift && !provider.isBusy,
-            onPressed: provider.claimHourlyGift,
+          // Geri sayım yalnız bu kartı her saniye yeniden çizer.
+          ValueListenableBuilder<String>(
+            valueListenable: provider.giftCountdownListenable,
+            builder: (context, countdown, _) => _ActionCard(
+              icon: Icons.card_giftcard,
+              color: OkeyUI.giftColor,
+              title: 'Saatlik hediye',
+              description: provider.canClaimGift
+                  ? '${provider.wallet.hourlyGiftPoints} çip seni bekliyor!'
+                  : 'Sonraki hediye: $countdown',
+              buttonText: provider.canClaimGift ? 'HEDİYE AL' : 'BEKLEMEDE',
+              enabled: provider.canClaimGift && !provider.isBusy,
+              onPressed: provider.claimHourlyGift,
+            ),
           ),
           const SizedBox(height: OkeyUI.gapSm),
           _ActionCard(

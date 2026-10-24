@@ -7,11 +7,11 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/utils/image_url.dart';
 import '../../../core/widgets/settings_sidebar.dart';
 import '../../../core/widgets/skeleton_loader.dart';
 import '../../../core/widgets/text_background.dart';
@@ -19,6 +19,7 @@ import '../../chat/services/chat_service.dart';
 import '../services/post_service.dart';
 import '../services/story_service.dart';
 import '../services/post_report_service.dart';
+import '../services/social_share_service.dart';
 import '../../market/screens/search_screen.dart';
 import '../../market/screens/notifications_screen.dart';
 import '../../../core/models/live_shopping_model.dart';
@@ -31,6 +32,7 @@ import 'post_detail_screen.dart';
 import 'story_viewers_screen.dart';
 import 'story_viewer_screen.dart';
 import '../../profile/screens/user_profile_screen.dart';
+import '../../profile/services/profile_service.dart';
 import '../../../core/widgets/animated_app_title.dart';
 import '../../../core/services/app_about_service.dart';
 import '../widgets/instagram_story_creator.dart';
@@ -57,6 +59,7 @@ class _SocialScreenState extends State<SocialScreen> {
   final NotificationService _notificationService = NotificationService();
   final ChatService _chatService = ChatService();
   late ScrollController _scrollController;
+  StreamSubscription<String>? _blockedSub;
 
   List<Post> _posts = [];
   List<Story> _stories = [];
@@ -67,6 +70,8 @@ class _SocialScreenState extends State<SocialScreen> {
   final LiveShoppingService _liveService = LiveShoppingService();
   List<LiveSession> _liveSessions = [];
   Timer? _liveTimer;
+  // Sekme görünür mü (MainScreen IndexedStack'te arkadaysa TickerMode kapalı).
+  bool _tabActive = true;
   Map<String, bool> _likedPosts = {};
   Map<String, Map<String, dynamic>> _userProfiles = {}; // user_id -> profile
   Map<String, dynamic>? _currentUserProfile; // Mevcut kullanıcı profili
@@ -96,12 +101,31 @@ class _SocialScreenState extends State<SocialScreen> {
   bool _hasMore = true;
   bool _isLoadingMore = false;
 
+  /// Her tam yüklemede (ilk açılış, aşağı çekip yenileme) artar. Uçuştaki bir
+  /// "daha fazla" isteği döndüğünde nesil değişmişse sonucu atılır: eskiden
+  /// yenileme sırasında biten eski sayfa yeni listeye ekleniyor, sayfa sayacı
+  /// karışıp aynı sayfa ikinci kez yükleniyordu.
+  int _feedGeneration = 0;
+
+  /// Sürmekte olan beğeni / kaydetme istekleri (gönderi id'si). Çift dokunuşta
+  /// ikinci istek gitmez; art arda giden ekle/sil istekleri sırasız varıp
+  /// kalbi sunucudan farklı bırakıyordu.
+  final Set<String> _likeInFlight = {};
+  final Set<String> _saveInFlight = {};
+
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
+    _blockedSub = ProfileService.onUserBlocked.listen(_onUserBlocked);
     _loadData();
-    _liveTimer = Timer.periodic(const Duration(minutes: 1), (_) => _loadLive());
+    // Dakikalık yoklama yalnız sekme görünür ve uygulama ön plandayken:
+    // eskiden gizli sekmede / arka planda da ağa gidip tüm ekranı çiziyordu.
+    _liveTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      final resumed = WidgetsBinding.instance.lifecycleState ==
+          AppLifecycleState.resumed;
+      if (_tabActive && resumed) _loadLive();
+    });
 
     // ⚡ iOS PERFORMANCE: Bildirim sayısını paralel yükle
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -112,6 +136,7 @@ class _SocialScreenState extends State<SocialScreen> {
   @override
   void dispose() {
     _liveTimer?.cancel();
+    _blockedSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -123,7 +148,13 @@ class _SocialScreenState extends State<SocialScreen> {
       final feed = await _liveService.fetchFeed(limit: 20);
       if (!mounted) return;
       final me = _liveService.currentUserId;
-      setState(() => _liveSessions = feed.live.where((s) => s.hostUserId != me).toList());
+      final next = feed.live.where((s) => s.hostUserId != me).toList();
+      // Liste aynıysa yeniden çizme (2500 satırlık ekran her dakika çiziliyordu).
+      final same = next.length == _liveSessions.length &&
+          [for (var i = 0; i < next.length; i++) next[i].id == _liveSessions[i].id]
+              .every((x) => x);
+      if (same) return;
+      setState(() => _liveSessions = next);
     } catch (e) {
       debugPrint('Sosyal canlı yayın şeridi: $e');
     }
@@ -155,25 +186,24 @@ class _SocialScreenState extends State<SocialScreen> {
     }
   }
 
-  Future<void> _loadData() async {
+  /// Akışı baştan yükler. [silent] (aşağı çekip yenileme, gönderi paylaşma
+  /// dönüşü): eldeki liste iskelete dönmeden yerinde kalır, yeni sonuç gelince
+  /// değiştirilir — eskiden her yenileme listeyi silip kaydırmayı başa alıyordu.
+  Future<void> _loadData({bool silent = false}) async {
     if (!mounted) return;
+    final generation = ++_feedGeneration;
+    final showSkeleton = !silent || _posts.isEmpty;
     setState(() {
-      _isLoading = true;
+      if (showSkeleton) _isLoading = true;
+      _isLoadingMore = false;
       _loadError = null;
     });
-    _currentPage = 0;
-    _hasMore = true;
     unawaited(_loadLive());
-
-    // Önceki cache'leri temizle - stale data sorununu önlemek için
-    _posts.clear();
-    _userProfiles.clear();
-    _likedPosts.clear();
 
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        await _loadGuestFeed();
+        await _loadGuestFeed(generation: generation);
         return;
       }
       if (_isGuest && mounted) setState(() => _isGuest = false);
@@ -183,20 +213,28 @@ class _SocialScreenState extends State<SocialScreen> {
       // yutar; ilk çizimden önce aşağıda beklenir.
       final savedPostsLoad = _loadSavedPosts();
 
-      // ⚡ iOS PERFORMANCE: Feed, stories ve userStories'yi PARALEL yükle
+      // ⚡ iOS PERFORMANCE: Feed, stories ve userStories'yi PARALEL yükle.
+      // Hikâyeler akıştan bağımsız: hikâye tarafındaki bir hata (bozuk satır,
+      // ağ) artık gönderi akışını da boş/hatalı göstermez, şerit boş kalır.
       final results = await Future.wait([
         _postService.getFeed(limit: _pageSize, offset: 0),
-        _storyService.getStories(),
-        _storyService.getUserStories(userId),
+        // Sessiz yenilemede (aşağı çekme) paylaşılan sonuç atlanır.
+        _storyService.getStories(forceRefresh: silent).catchError((Object e) {
+          debugPrint('Hikayeler yüklenemedi: $e');
+          return <Story>[];
+        }),
+        _storyService.getUserStories(userId).catchError((Object e) {
+          debugPrint('Kendi hikayelerim yüklenemedi: $e');
+          return <Story>[];
+        }),
       ]);
+      if (generation != _feedGeneration) return;
 
-      final posts = results[0] as List<Post>;
+      final posts = _dedupeById(results[0] as List<Post>);
       final allStories = results[1] as List<Story>;
       final userStories = results[2] as List<Story>;
 
       // HasMore kontrolü - eğer dönen veri pageSize'dan azsa, başka sayfa yok
-      _hasMore = posts.length >= _pageSize;
-
       // Diğer kullanıcıların story'leri (kendi hikayeleri hariç)
       final otherStories = allStories.where((s) => s.userId != userId).toList();
 
@@ -277,16 +315,17 @@ class _SocialScreenState extends State<SocialScreen> {
         likedStatus[post.id] = likedPostIds.contains(post.id);
       }
 
-      if (!mounted) return;
+      if (!mounted || generation != _feedGeneration) return;
       setState(() {
         _posts = posts;
         _stories = otherStories;
         _userStories = userStories;
         _userProfiles = profiles;
         _likedPosts = likedStatus;
+        _currentPage = 0;
+        _hasMore = posts.length >= _pageSize;
         _isLoading = false;
         _loadError = null;
-        // _debugBanner zaten atandı (yukarıda) - setState rebuild tetikler
       });
 
       // Animasyon ayarlarını yükle
@@ -308,7 +347,7 @@ class _SocialScreenState extends State<SocialScreen> {
     } catch (e, stackTrace) {
       debugPrint('❌ SocialScreen _loadData hatası: $e');
       debugPrint('Stack trace: $stackTrace');
-      if (mounted) {
+      if (mounted && generation == _feedGeneration) {
         // Hatayı merkezi işleyiciden kullanıcı dostu mesaja çevir:
         // ağ kopması → "İnternet bağlantınızı kontrol edin", izin hatası →
         // "yetkiniz bulunmuyor" vb. Persistent hata durumu olarak gösterilir
@@ -322,23 +361,82 @@ class _SocialScreenState extends State<SocialScreen> {
           _isLoading = false;
           _loadError = friendlyMessage;
         });
+        // Ekranda eski liste duruyorsa (sessiz yenileme) hata durumu
+        // görünmez; kullanıcıya kısa bir uyarı yeter.
+        if (_posts.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(friendlyMessage)),
+          );
+        }
       }
+    }
+  }
+
+  /// Aynı gönderi iki sayfada gelirse (sayfalar arasında yeni gönderi
+  /// paylaşılınca kayan ofset) bir kez gösterilir.
+  List<Post> _dedupeById(Iterable<Post> posts, {Set<String>? existing}) {
+    final seen = <String>{...?existing};
+    return [
+      for (final post in posts)
+        if (seen.add(post.id)) post,
+    ];
+  }
+
+  /// Yalnız hikâye şeridini tazeler (hikâye izleme/paylaşma dönüşü). Eskiden
+  /// bunun için tüm akış iskelete dönüp baştan yükleniyordu.
+  Future<void> _refreshStories() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || _isGuest) return;
+    try {
+      final results = await Future.wait([
+        _storyService.getStories(forceRefresh: true),
+        _storyService.getUserStories(userId),
+      ]);
+      final others = results[0].where((s) => s.userId != userId).toList();
+
+      // Şeride yeni giren yazarların adı/avatarı (halka etiketi bunlardan).
+      final missing = {
+        for (final s in others)
+          if (!_userProfiles.containsKey(s.userId)) s.userId,
+      };
+      final fetched = missing.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : await Supabase.instance.client
+              .from('profiles')
+              .select('id, username, full_name, avatar_url')
+              .inFilter('id', missing.toList());
+
+      if (!mounted) return;
+      setState(() {
+        for (final p in fetched) {
+          _userProfiles[p['id'] as String] = p;
+        }
+        _stories = others;
+        _userStories = results[1];
+      });
+    } catch (e) {
+      debugPrint('Hikaye şeridi tazelenemedi: $e');
     }
   }
 
   /// Misafir akışı. `public_explore_feed()` RPC'si sunucu tarafında
   /// `explore_public_access` ayarını kontrol eder: ayar kapalıysa BOŞ liste
   /// döner. Yani istemciyi kurcalamak kapalı bir Keşfet'i açmaz.
-  Future<void> _loadGuestFeed({int page = 0}) async {
+  Future<void> _loadGuestFeed({int page = 0, required int generation}) async {
     try {
       final rows = await Supabase.instance.client.rpc<List<dynamic>>(
         'public_explore_feed',
         params: {'p_limit': _pageSize, 'p_offset': page * _pageSize},
       );
+      if (generation != _feedGeneration) return;
 
-      final posts = rows
+      final fetched = rows
           .map((e) => Post.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
+      final posts = _dedupeById(
+        fetched,
+        existing: page == 0 ? null : {for (final p in _posts) p.id},
+      );
       unawaited(
         ProfileFeatureService().prefetchUserFeatures(
           posts.map((p) => p.userId),
@@ -371,7 +469,7 @@ class _SocialScreenState extends State<SocialScreen> {
         _userStories = [];
         _likedPosts = {};
         _savedPosts = {};
-        _hasMore = posts.length >= _pageSize;
+        _hasMore = fetched.length >= _pageSize;
         _currentPage = page;
         _isLoading = false;
         _isLoadingMore = false;
@@ -379,7 +477,7 @@ class _SocialScreenState extends State<SocialScreen> {
       });
     } catch (e) {
       debugPrint('❌ Misafir keşfet akışı yüklenemedi: $e');
-      if (!mounted) return;
+      if (!mounted || generation != _feedGeneration) return;
       setState(() {
         _isGuest = true;
         _isLoading = false;
@@ -416,20 +514,26 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _loadMorePosts() async {
     if (_isLoadingMore || !mounted) return;
 
+    final generation = _feedGeneration;
+    final nextPage = _currentPage + 1;
     setState(() => _isLoadingMore = true);
 
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        await _loadGuestFeed(page: _currentPage + 1);
+        await _loadGuestFeed(page: nextPage, generation: generation);
         return;
       }
 
-      _currentPage++;
-      final offset = _currentPage * _pageSize;
-      final newPosts = await _postService.getFeed(
+      final fetched = await _postService.getFeed(
         limit: _pageSize,
-        offset: offset,
+        offset: nextPage * _pageSize,
+      );
+      // Bu arada liste yenilendiyse bu sayfa eski listeye aittir: at.
+      if (generation != _feedGeneration) return;
+      final newPosts = _dedupeById(
+        fetched,
+        existing: {for (final p in _posts) p.id},
       );
 
       // Yeni profilleri yükle
@@ -477,16 +581,17 @@ class _SocialScreenState extends State<SocialScreen> {
         likedStatus[post.id] = likedPostIds.contains(post.id);
       }
 
-      if (!mounted) return;
+      if (!mounted || generation != _feedGeneration) return;
       setState(() {
         _posts.addAll(newPosts);
         _likedPosts.addAll(likedStatus);
-        _hasMore = newPosts.length >= _pageSize;
+        _currentPage = nextPage;
+        // Sayfa dolu geldiyse devamı olabilir (tekilleştirilenler sayılmaz).
+        _hasMore = fetched.length >= _pageSize;
         _isLoadingMore = false;
       });
     } catch (e) {
-      _currentPage--; // Hata olursa sayfayı geri al
-      if (mounted) {
+      if (mounted && generation == _feedGeneration) {
         setState(() => _isLoadingMore = false);
         ScaffoldMessenger.of(
           context,
@@ -539,19 +644,29 @@ class _SocialScreenState extends State<SocialScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        // Feed'i yenile
-        _loadData();
+        // Yalnız bu kartı çıkar; tüm akışı yeniden yüklemek kaydırmayı ve
+        // yüklenmiş sayfaları kaybettiriyordu.
+        setState(() {
+          _posts.removeWhere((p) => p.id == postId);
+          _likedPosts.remove(postId);
+        });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gönderi silinirken hata: $e'),
+            content: Text(AppErrorHandler.handleError(e)),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
+  }
+
+  /// [postId] kartını [update] ile değiştirir (yoksa bir şey yapmaz).
+  void _patchPost(String postId, Post Function(Post) update) {
+    final index = _posts.indexWhere((p) => p.id == postId);
+    if (index != -1) _posts[index] = update(_posts[index]);
   }
 
   /// Gönderi Şikayet Dialog - Apple Guideline 1.2
@@ -823,22 +938,19 @@ class _SocialScreenState extends State<SocialScreen> {
   Future<void> _toggleLike(Post post) async {
     if (_blockGuest()) return;
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null || !_likeInFlight.add(post.id)) return;
 
     final isLiked = _likedPosts[post.id] ?? false;
+    int bump(int count, int delta) => (count + delta).clamp(0, 1 << 30);
 
-    // Optimistic update - UI'ı hemen güncelle
+    // İyimser güncelleme. Sayı sunucudan yeniden okunmaz (beğeni başına ek bir
+    // istek demekti); sayacı tetikleyici tutar.
     setState(() {
       _likedPosts[post.id] = !isLiked;
-      // Post'un like count'unu güncelle
-      final index = _posts.indexWhere((p) => p.id == post.id);
-      if (index != -1) {
-        _posts[index] = _posts[index].copyWith(
-          likesCount: isLiked
-              ? _posts[index].likesCount - 1
-              : _posts[index].likesCount + 1,
-        );
-      }
+      _patchPost(
+        post.id,
+        (p) => p.copyWith(likesCount: bump(p.likesCount, isLiked ? -1 : 1)),
+      );
     });
 
     try {
@@ -847,42 +959,25 @@ class _SocialScreenState extends State<SocialScreen> {
       } else {
         await _postService.likePost(post.id, userId);
       }
-
-      // Başarılıysa gerçek sayıyı sunucudan al (trigger'dan güncellenmiş olacak)
-      final updatedPost = await _postService.getPostById(post.id);
-      if (updatedPost != null && mounted) {
-        setState(() {
-          final index = _posts.indexWhere((p) => p.id == post.id);
-          if (index != -1) {
-            _posts[index] = _posts[index].copyWith(
-              likesCount: updatedPost.likesCount,
-            );
-          }
-        });
-      }
     } catch (e) {
+      if (!mounted) return;
       // Hata olursa geri al
       setState(() {
         _likedPosts[post.id] = isLiked;
-        final index = _posts.indexWhere((p) => p.id == post.id);
-        if (index != -1) {
-          _posts[index] = _posts[index].copyWith(
-            likesCount: isLiked
-                ? _posts[index].likesCount + 1
-                : _posts[index].likesCount - 1,
-          );
-        }
+        _patchPost(
+          post.id,
+          (p) => p.copyWith(likesCount: bump(p.likesCount, isLiked ? 1 : -1)),
+        );
       });
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Beğeni işlemi başarısız: $e')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
+    } finally {
+      _likeInFlight.remove(post.id);
     }
   }
 
-  // Kaydedilen gönderiler artık post_saves tablosunda tutuluyor (eskiden
+  // Kaydedilen gönderiler post_favorites tablosunda tutuluyor (eskiden
   // SharedPreferences'taydı: uygulama silinince / cihaz değişince kayboluyordu).
   Future<void> _loadSavedPosts() async {
     try {
@@ -899,8 +994,10 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Future<void> _savePost(Post post) async {
     if (_blockGuest()) return;
+    if (!_saveInFlight.add(post.id)) return;
     // Optimistik güncelleme; hata olursa geri alınır.
     final wasSaved = _savedPosts.contains(post.id);
+    final isSaved = !wasSaved;
     setState(() {
       if (wasSaved) {
         _savedPosts.remove(post.id);
@@ -910,17 +1007,11 @@ class _SocialScreenState extends State<SocialScreen> {
     });
 
     try {
-      final isSaved = await _postService.toggleSavePost(post.id);
+      // Ekranın bildiği durumun tersini iste (idempotent): "oku sonra
+      // ekle/sil" yarışı ve tekil kısıt hatası olmaz.
+      await _postService.setPostSaved(post.id, isSaved);
 
       if (!mounted) return;
-      setState(() {
-        if (isSaved) {
-          _savedPosts.add(post.id);
-        } else {
-          _savedPosts.remove(post.id);
-        }
-      });
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isSaved ? 'Gönderi kaydedildi' : 'Kayıt kaldırıldı'),
@@ -944,11 +1035,17 @@ class _SocialScreenState extends State<SocialScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppErrorHandler.handleError(e))),
       );
+    } finally {
+      _saveInFlight.remove(post.id);
     }
   }
 
   Future<void> _sendToFriend(Post post) async {
     if (_blockGuest()) return;
+    // Seçim sayfası kapandıktan SONRA da mesaj göstereceğiz: sayfanın kendi
+    // context'i o anda ölü olur (ScaffoldMessenger.of onu kullanınca
+    // "deactivated widget" fırlatıyor, gönderildi onayı hiç görünmüyordu).
+    final messenger = ScaffoldMessenger.of(context);
     try {
       // Arkadaş listesini getir
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
@@ -1046,9 +1143,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage: friendAvatar != null
-                            ? NetworkImage(friendAvatar)
-                            : null,
+                        backgroundImage: avatarImage(friendAvatar),
                         child: friendAvatar == null
                             ? Text(
                                 friendName.isNotEmpty
@@ -1079,8 +1174,8 @@ class _SocialScreenState extends State<SocialScreen> {
                           final conversation = await _chatService
                               .getOrCreateConversation(otherUserId);
                           if (conversation == null) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                            {
+                              messenger.showSnackBar(
                                 const SnackBar(
                                   content: Text(
                                     'Sohbet başlatılamadı (karşı taraf mesajları kapatmış olabilir).',
@@ -1104,8 +1199,14 @@ class _SocialScreenState extends State<SocialScreen> {
                             authorName: null,
                           );
 
-                          if (sent != null && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                          if (sent != null) {
+                            unawaited(
+                              SocialShareService().recordShare(
+                                post.id,
+                                channel: 'chat',
+                              ),
+                            );
+                            messenger.showSnackBar(
                               SnackBar(
                                 content: Text('$friendName\'e gönderildi!'),
                                 behavior: SnackBarBehavior.floating,
@@ -1114,8 +1215,8 @@ class _SocialScreenState extends State<SocialScreen> {
                                 ),
                               ),
                             );
-                          } else if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                          } else {
+                            messenger.showSnackBar(
                               const SnackBar(
                                 content: Text('Gönderilemedi'),
                                 backgroundColor: Colors.red,
@@ -1124,10 +1225,10 @@ class _SocialScreenState extends State<SocialScreen> {
                           }
                         } catch (e) {
                           debugPrint('Mesaj gönderme hatası: $e');
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                          {
+                            messenger.showSnackBar(
                               SnackBar(
-                                content: Text('Bir hata oluştu: $e'),
+                                content: Text(AppErrorHandler.handleError(e)),
                                 backgroundColor: Colors.red,
                               ),
                             );
@@ -1162,21 +1263,24 @@ class _SocialScreenState extends State<SocialScreen> {
       MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
     );
 
-    // ⚡ OPTİMİZE: Sadece post silinmişse veya değişmişse yenile
-    // Yorumlar sadece detail screen'de görünür, ana feed'de değil
-    if (result == 'deleted' || result == 'updated') {
-      _loadData();
+    // Detayda beğeni/yorum değiştiyse yalnız bu kartı yama (eskiden tüm akış
+    // yeniden yükleniyordu; detaydaki beğeni ise akışa hiç yansımıyordu).
+    if (result is PostDetailResult && mounted) {
+      setState(() {
+        _likedPosts[result.postId] = result.isLiked;
+        _patchPost(result.postId, result.applyTo);
+      });
     }
   }
 
   Future<void> _createPost() async {
     if (_blockGuest()) return;
-    await Navigator.push(
+    final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (context) => const CreatePostScreen()),
     );
-    // Gönderi oluşturduktan sonra feed'i yenile
-    _loadData();
+    // Yalnız gerçekten paylaşıldıysa yenile; vazgeçince akış yerinde kalır.
+    if (created == true) unawaited(_loadData(silent: true));
   }
 
   Future<void> _sharePost(Post post) async {
@@ -1193,23 +1297,15 @@ class _SocialScreenState extends State<SocialScreen> {
                 : userProfile['username'].toString())
           : 'Kullanıcı';
 
-      // Paylaşım metni oluştur
-      final StringBuffer shareText = StringBuffer();
-      shareText.writeln('📱 CizreApp\'te $username paylaştı:');
-      shareText.writeln();
-
-      if (post.content != null && post.content!.isNotEmpty) {
-        shareText.writeln(post.content!);
-        shareText.writeln();
+      // Metin + gönderi linki (link uygulamada/web'de gönderiyi açar);
+      // paylaşıldıysa sayaç bir artar (kişi başına bir kez).
+      final count = await SocialShareService().sharePost(
+        post,
+        authorName: username,
+      );
+      if (count != null && mounted) {
+        setState(() => _patchPost(post.id, (p) => p.copyWith(sharesCount: count)));
       }
-
-      if (post.location != null && post.location!.isNotEmpty) {
-        shareText.writeln('📍 ${post.location}');
-      }
-
-      shareText.writeln('CizreApp\'i indir ve sen de katıl! 🎉');
-
-      await SharePlus.instance.share(ShareParams(text: shareText.toString()));
     } catch (e) {
       debugPrint('Paylaşım hatası: $e');
       if (mounted) {
@@ -1222,6 +1318,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _tabActive = TickerMode.of(context);
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
 
@@ -1257,7 +1354,7 @@ class _SocialScreenState extends State<SocialScreen> {
                             ],
                           )
                         : RefreshIndicator(
-                            onRefresh: _loadData,
+                            onRefresh: () => _loadData(silent: true),
                             color: primaryColor,
                             child: CustomScrollView(
                               controller: _scrollController,
@@ -1943,6 +2040,17 @@ class _SocialScreenState extends State<SocialScreen> {
     );
   }
 
+  /// Bir profilde (hangi yoldan açılmış olursa olsun) engellenen kişinin
+  /// ekrandaki eski gönderi/hikâyeleri elle yenilemeyi beklemeden çıkar;
+  /// sunucu sonraki yüklemelerde zaten süzüyor.
+  void _onUserBlocked(String userId) {
+    if (!mounted) return;
+    setState(() {
+      _posts.removeWhere((p) => p.userId == userId);
+      _stories.removeWhere((s) => s.userId == userId);
+    });
+  }
+
   Future<void> _addStory() async {
     if (_blockGuest()) return;
     // Instagram tarzı story oluşturma bottom sheet'i aç
@@ -1992,7 +2100,7 @@ class _SocialScreenState extends State<SocialScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Hikaye paylaşıldı!')),
       );
-      await _loadData();
+      await _refreshStories();
     } catch (e) {
       debugPrint('Metin hikayesi oluşturulamadı: $e');
       if (!mounted) return;
@@ -2007,6 +2115,16 @@ class _SocialScreenState extends State<SocialScreen> {
     String mediaType, [
     AttachedMusic? music,
   ]) async {
+    // Yükleme diyaloğu açık mı? Hata yolunda yalnız AÇIKSA kapatılır: eskiden
+    // diyalog zaten kapandıktan sonra gelen hatada ikinci bir pop altındaki
+    // ekranı (ör. /main ile açılmış ana ekranı) kapatıyordu.
+    var dialogOpen = false;
+    ValueNotifier<double>? progressNotifier;
+    void closeDialog() {
+      if (dialogOpen && mounted) Navigator.of(context).pop();
+      dialogOpen = false;
+    }
+
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) return;
@@ -2017,6 +2135,7 @@ class _SocialScreenState extends State<SocialScreen> {
       if (mediaType == 'image') {
         // Fotoğraf için progress dialog göster
         if (!mounted) return;
+        dialogOpen = true;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -2066,14 +2185,15 @@ class _SocialScreenState extends State<SocialScreen> {
 
         debugPrint('Story fotoğrafı yüklendi: $mediaUrl');
 
-        if (mounted) Navigator.pop(context); // Progress dialog'u kapat
+        closeDialog();
       } else {
         // Video için progress tracking StateNotifier kullan
         if (!mounted) return;
 
         // Video progress dialog'u aç
-        final progressNotifier = ValueNotifier<double>(0.0);
+        final notifier = progressNotifier = ValueNotifier<double>(0.0);
 
+        dialogOpen = true;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -2085,7 +2205,7 @@ class _SocialScreenState extends State<SocialScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ValueListenableBuilder<double>(
-                      valueListenable: progressNotifier,
+                      valueListenable: notifier,
                       builder: (context, value, child) {
                         return Column(
                           mainAxisSize: MainAxisSize.min,
@@ -2116,20 +2236,19 @@ class _SocialScreenState extends State<SocialScreen> {
           videoPath: media.path,
           xFile: media,
           onProgress: (p) {
-            progressNotifier.value = p;
+            notifier.value = p;
           },
         );
 
-        if (mounted) Navigator.pop(context); // Progress dialog'u kapat
+        closeDialog();
 
         if (result == null || result['videoUrl'] == null) {
           throw Exception('Video yüklenirken hata oluştu');
         }
 
         mediaUrl = result['videoUrl']!;
-        thumbnailUrl = result['thumbnailUrl']!.isNotEmpty
-            ? result['thumbnailUrl']!
-            : null;
+        final thumb = result['thumbnailUrl'];
+        thumbnailUrl = (thumb != null && thumb.isNotEmpty) ? thumb : null;
         debugPrint('Video URL: $mediaUrl');
         debugPrint('Thumbnail URL: $thumbnailUrl');
       }
@@ -2162,22 +2281,23 @@ class _SocialScreenState extends State<SocialScreen> {
             ),
           ),
         );
-        // Verileri yeniden yükle
-        await _loadData();
-        debugPrint(
-          'Veriler yenilendi, userStories count: ${_userStories.length}',
-        );
+        // Yalnız hikâye şeridini tazele (akış yerinde kalır)
+        await _refreshStories();
       }
     } catch (e) {
       debugPrint('Story yüklenirken hata: $e');
-      // Eğer progress dialog açıksa kapat
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
+      closeDialog();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Story yüklenirken hata: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppErrorHandler.handleError(e))),
+        );
+      }
+    } finally {
+      // Diyalog kapanış animasyonu bitince bırak (hemen dispose edilirse
+      // kapanırken çizilen ValueListenableBuilder hata verir).
+      final notifier = progressNotifier;
+      if (notifier != null) {
+        Future.delayed(const Duration(seconds: 1), notifier.dispose);
       }
     }
   }
@@ -2248,8 +2368,8 @@ class _SocialScreenState extends State<SocialScreen> {
               StoryViewerScreen(stories: _stories, initialIndex: initialIndex),
         ),
       );
-      // Verileri yenile
-      _loadData();
+      // Görüldü halkaları için yalnız hikâye şeridini tazele
+      unawaited(_refreshStories());
     }
   }
 
@@ -2266,7 +2386,7 @@ class _SocialScreenState extends State<SocialScreen> {
               StoryViewerScreen(stories: _userStories, initialIndex: 0),
         ),
       );
-      _loadData();
+      unawaited(_refreshStories());
     }
   }
 
@@ -2433,6 +2553,10 @@ class _SocialScreenState extends State<SocialScreen> {
       onComment: () => _showComments(post),
       onSend: () => _sendToFriend(post),
       onSave: () => _savePost(post),
+      onShare: () {
+        if (_blockGuest()) return;
+        _sharePost(post);
+      },
       trailing: PopupMenuButton<String>(
         icon: Icon(Icons.more_horiz, color: Colors.grey.shade500, size: 20),
         shape: RoundedRectangleBorder(

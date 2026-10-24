@@ -20,12 +20,13 @@ class SellerScheduledOrdersSection extends StatefulWidget {
   /// `shops` satırı (select *).
   final Map<String, dynamic> shopData;
 
-  /// Kaydet: (açık mı, slot dk, kaç gün, hazırlık dk).
+  /// Kaydet: (açık mı, slot dk, kaç gün, hazırlık dk, saat başına sınır).
   final Future<void> Function({
     required bool enabled,
     required int slotMinutes,
     required int maxDays,
     required int minLeadMinutes,
+    required int? slotCapacity,
   }) onSave;
 
   /// Testlerde admin global anahtarını sahtelemek için.
@@ -34,6 +35,11 @@ class SellerScheduledOrdersSection extends StatefulWidget {
   static const List<int> slotOptions = [15, 30, 60, 120];
   static const List<int> dayOptions = [0, 1, 2, 3, 5, 7, 14];
   static const List<int> leadOptions = [15, 30, 45, 60, 90, 120, 180, 240, 1440];
+
+  /// "Aynı saate en fazla" seçenekleri; null = sınırsız.
+  static const List<int?> capacityOptions = [null, 1, 2, 3, 5, 10, 20, 50];
+
+  static String capacityLabel(int? c) => c == null ? 'Sınırsız' : '$c sipariş';
 
   static String leadLabel(int m) {
     if (m >= 1440) return '${m ~/ 1440} gün';
@@ -53,6 +59,7 @@ class _SellerScheduledOrdersSectionState extends State<SellerScheduledOrdersSect
   late int _slot;
   late int _days;
   late int _lead;
+  int? _capacity;
   bool? _global;
   bool _saving = false;
 
@@ -75,6 +82,9 @@ class _SellerScheduledOrdersSectionState extends State<SellerScheduledOrdersSect
         SellerScheduledOrdersSection.dayOptions);
     _lead = _snap((d['scheduled_min_lead_minutes'] as num?)?.toInt() ?? 60,
         SellerScheduledOrdersSection.leadOptions);
+    final cap = (d['scheduled_slot_capacity'] as num?)?.toInt();
+    // Listede olmayan değer (ör. admin elle 4 yazdı) kaybolmasın: seçeneklere eklenir.
+    _capacity = cap;
     (widget.globalEnabledLoader ?? () => ScheduledOrderService().globallyEnabled())()
         .then((v) {
       if (mounted) setState(() => _global = v);
@@ -89,6 +99,7 @@ class _SellerScheduledOrdersSectionState extends State<SellerScheduledOrdersSect
         slotMinutes: _slot,
         maxDays: _days,
         minLeadMinutes: _lead,
+        slotCapacity: _capacity,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -208,6 +219,29 @@ class _SellerScheduledOrdersSectionState extends State<SellerScheduledOrdersSect
               text: (m) => '${SellerScheduledOrdersSection.leadLabel(m)} sonrası',
               onChanged: (v) => setState(() => _lead = v),
               enabled: editable,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              initialValue: _capacity,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Aynı saate en fazla',
+                helperText: 'Dolan saat müşteriye "Dolu" görünür; iptal olan sipariş yeri açar.',
+                helperMaxLines: 2,
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                for (final c in {
+                  ...SellerScheduledOrdersSection.capacityOptions,
+                  _capacity,
+                })
+                  DropdownMenuItem<int?>(
+                    value: c,
+                    child: Text(SellerScheduledOrdersSection.capacityLabel(c)),
+                  ),
+              ],
+              onChanged: editable ? (v) => setState(() => _capacity = v) : null,
             ),
             const SizedBox(height: 8),
             Text(

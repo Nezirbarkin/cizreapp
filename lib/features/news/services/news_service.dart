@@ -605,70 +605,78 @@ class NewsService {
   // YORUMLAR
   // ============================================
 
-  /// Haber yorumlarını getir
+  /// Haber yorumları (ana yorumlar + her birinin doğrudan yanıtları).
+  ///
+  /// En fazla 3 istek, yorum sayısından bağımsız: yorumlar (yanıtlar dahil)
+  /// tek sorguda gelir ve burada gruplanır; beğeni durumları tek sorguda.
+  /// Eskiden her ana yorum için ayrı beğeni + ayrı yanıt sorgusu SIRAYLA
+  /// bekleniyordu (50 yorumda ~101 istek), yanıtlarda gizlenmiş yorumlar
+  /// süzülmüyor, yanıtların beğeni durumu hiç okunmuyordu.
+  static const int commentsLimit = 500;
+
   Future<List<NewsCommentModel>> getComments(String newsId) async {
     try {
       final userId = _client.auth.currentUser?.id;
 
-      // Ana yorumları getir (parent_id null olanlar - yani üst yorumlar)
-      final response = await _client
+      final commentsLoad = _client
           .from('news_comments')
           .select()
           .eq('news_id', newsId)
           .eq('is_hidden', false)
           .order('is_pinned', ascending: false)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(commentsLimit);
+      // Bu haberdeki beğenilerim — yorum kimliklerini URL'ye dizmeden
+      // (uzun yorum listesinde adres sınırı), yorum tablosu üzerinden süzülür.
+      final likesLoad = userId == null
+          ? Future.value(const <dynamic>[])
+          : _client
+              .from('news_comment_likes')
+              .select('comment_id, news_comments!inner(news_id)')
+              .eq('user_id', userId)
+              .eq('news_comments.news_id', newsId)
+              .then<List<dynamic>>((rows) => rows)
+              .catchError((Object e) {
+                debugPrint('Yorum beğenileri okunamadı: $e');
+                return const <dynamic>[];
+              });
 
-      // Dart'ta parent_id == null olanları filtrele
-      final data = (response as List)
-          .where((c) => c['parent_id'] == null)
-          .toList();
+      final (response, likes) = await (commentsLoad, likesLoad).wait;
+      final liked = {
+        for (final row in likes) (row as Map)['comment_id']?.toString(),
+      };
 
-      // Kullanıcının beğeni durumlarını al
-      final comments = <NewsCommentModel>[];
-      for (final item in data) {
-        final itemMap = Map<String, dynamic>.from(item);
-        final isLiked = userId != null
-            ? await _client
-                      .from('news_comment_likes')
-                      .select()
-                      .eq('comment_id', item['id'])
-                      .eq('user_id', userId)
-                      .maybeSingle() !=
-                  null
-            : false;
-
-        // Alt yorumları getir
-        final replies = await _getReplies(item['id'] as String);
-
-        itemMap['is_liked_by_user'] = isLiked;
-        itemMap['replies'] = replies;
-
-        comments.add(NewsCommentModel.fromJson(itemMap));
+      final rows = [
+        for (final r in response as List) Map<String, dynamic>.from(r as Map),
+      ];
+      final repliesByParent = <String, List<Map<String, dynamic>>>{};
+      for (final row in rows) {
+        final parent = row['parent_id']?.toString();
+        if (parent != null) repliesByParent.putIfAbsent(parent, () => []).add(row);
       }
 
-      return comments;
+      Map<String, dynamic> withLike(Map<String, dynamic> row) => {
+            ...row,
+            'is_liked_by_user': liked.contains(row['id']?.toString()),
+          };
+
+      return [
+        for (final row in rows)
+          if (row['parent_id'] == null)
+            NewsCommentModel.fromJson({
+              ...withLike(row),
+              // Model yanıtları Map listesi olarak ayrıştırır (eskiden model
+              // nesnesi veriliyordu: yanıtlı ilk yorumda tür hatası → liste
+              // tamamen boş dönüyordu). Konuşma sırasıyla (eskiden yeniye).
+              'replies': [
+                for (final r in (repliesByParent[row['id']?.toString()] ?? const [])
+                    .reversed)
+                  withLike(r),
+              ],
+            }),
+      ];
     } catch (e) {
       debugPrint('Yorum getirme hatası: $e');
-      return [];
-    }
-  }
-
-  /// Alt yorumları getir
-  Future<List<NewsCommentModel>> _getReplies(String parentId) async {
-    try {
-      final response = await _client
-          .from('news_comments')
-          .select()
-          .eq('parent_id', parentId)
-          .order('created_at', ascending: true);
-
-      final data = response as List;
-      return data
-          .map((e) => NewsCommentModel.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-    } catch (e) {
-      debugPrint('Alt yorum getirme hatası: $e');
       return [];
     }
   }

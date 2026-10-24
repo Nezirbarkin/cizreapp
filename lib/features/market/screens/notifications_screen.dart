@@ -90,22 +90,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // Admin duyuruları. Sunucu (RLS, admin_audience_includes_me) yalnız bu
       // kullanıcının kitlesine giden duyuruları döndürür: satıcı duyurusu
       // müşteriye, kurye duyurusu satıcıya görünmez.
-      try {
-        final broadcastsResponse = await Supabase.instance.client
-            .from('admin_broadcasts')
-            .select()
-            .eq('is_active', true)
-            .order('created_at', ascending: false)
-            .limit(20);
-        _adminBroadcasts = List<Map<String, dynamic>>.from(broadcastsResponse);
-      } catch (e) {
-        debugPrint('Admin broadcasts yüklenemedi (tablo yok olabilir): $e');
-        _adminBroadcasts = [];
-      }
+      //
+      // Duyurular, bildirimler ve okunmamış sayısı birbirinden bağımsız:
+      // aynı anda istenir (eskiden üçü art arda bekleniyordu).
+      final broadcastsLoad = Supabase.instance.client
+          .from('admin_broadcasts')
+          .select()
+          .eq('is_active', true)
+          .order('created_at', ascending: false)
+          .limit(20)
+          .then<List<Map<String, dynamic>>>(
+            (rows) => List<Map<String, dynamic>>.from(rows),
+          )
+          .catchError((Object e) {
+            debugPrint('Admin broadcasts yüklenemedi (tablo yok olabilir): $e');
+            return <Map<String, dynamic>>[];
+          });
+      final notificationsLoad = userId == null
+          ? null
+          : _notificationService.getNotifications(userId);
+      final unreadLoad =
+          userId == null ? null : _notificationService.getUnreadCount(userId);
+
+      _adminBroadcasts = await broadcastsLoad;
 
       if (userId != null) {
-        final notifications = await _notificationService.getNotifications(userId);
-        final unreadCount = await _notificationService.getUnreadCount(userId);
+        final notifications = await notificationsLoad!;
+        final unreadCount = await unreadLoad!;
 
         // Admin bildirimlerini kontrol et
         final adminNotifs = notifications.where((n) => n.entityId != null && n.entityId!.startsWith('admin_icon:')).toList();
@@ -159,27 +170,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final followRequestNotifs = _notifications.where((n) => n.type == 'follow_request').toList();
     if (followRequestNotifs.isEmpty) return;
 
+    // Durumu henüz bilinmeyen isteklerin hepsi TEK sorguda (eskiden her
+    // bildirim için ayrı sorgu + ayrı setState, sırayla).
+    final unknown = [
+      for (final notif in followRequestNotifs)
+        if (notif.actorId != null && !_followRequestStatuses.containsKey(notif.id))
+          notif,
+    ];
+    if (unknown.isEmpty) return;
+
     try {
-      for (final notif in followRequestNotifs) {
-        if (notif.actorId == null) continue;
-        // Zaten durumu biliyorsak tekrar sorgulamaya gerek yok
-        if (_followRequestStatuses.containsKey(notif.id)) continue;
-
-        final request = await Supabase.instance.client
-            .from('follow_requests')
-            .select('status')
-            .eq('follower_id', notif.actorId!)
-            .eq('following_id', userId)
-            .maybeSingle();
-
-        if (request != null && mounted) {
-          final status = request['status'] as String?;
-          if (status == 'accepted' || status == 'rejected') {
-            setState(() {
-              _followRequestStatuses[notif.id] = status!;
-            });
-          }
+      final rows = await Supabase.instance.client
+          .from('follow_requests')
+          .select('follower_id, status')
+          .eq('following_id', userId)
+          .inFilter('follower_id', {for (final n in unknown) n.actorId!}.toList());
+      final statusByActor = {
+        for (final row in rows) row['follower_id'] as String: row['status'] as String?,
+      };
+      final resolved = <String, String>{};
+      for (final notif in unknown) {
+        final status = statusByActor[notif.actorId];
+        if (status == 'accepted' || status == 'rejected') {
+          resolved[notif.id] = status!;
         }
+      }
+      if (resolved.isNotEmpty && mounted) {
+        setState(() => _followRequestStatuses.addAll(resolved));
       }
     } catch (e) {
       debugPrint('Takip isteği durumları kontrol hatası: $e');
@@ -569,6 +586,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       case 'new_order':
       case 'scheduled_order_reminder':
+      case 'scheduled_slot_overbooked':
         // Satıcıya yeni sipariş / randevu saati yaklaşan sipariş bildirimi -
         // satıcı siparişlerine git
         if (mounted) {
@@ -898,6 +916,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.shopping_bag;
       case 'scheduled_order_reminder':
         return Icons.alarm;
+      case 'scheduled_slot_overbooked':
+        return Icons.event_busy;
       case 'seller_new_digital_order':
         return Icons.inventory_2;
       case 'seller_product_out_of_stock':
@@ -1921,14 +1941,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   if (_notifications.isNotEmpty)
                     SliverPadding(
                       padding: const EdgeInsets.all(16),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) {
-                              final notification = _otherNotifications[index];
-                              return _buildNotificationCard(notification);
-                            },
-                            childCount: _otherNotifications.length,
-                          ),
+                        // Süzülmüş liste çizim başına BİR kez hesaplanır;
+                        // eskiden her öğe için tüm liste yeniden süzülüyordu.
+                        sliver: Builder(
+                          builder: (context) {
+                            final others = _otherNotifications;
+                            return SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) =>
+                                    _buildNotificationCard(others[index]),
+                                childCount: others.length,
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ],

@@ -8,6 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/post_model.dart';
 import '../../../core/utils/app_error_handler.dart';
+import '../../../core/utils/image_url.dart';
 import '../../../core/widgets/text_background.dart';
 import '../services/story_service.dart';
 import 'story_viewers_screen.dart';
@@ -36,6 +37,12 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   late int _currentIndex;
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
+  /// Her video yüklemesinde artar; yükleme sırasında başka hikâyeye geçilir
+  /// ya da ekran kapanırsa geç biten `initialize` sonucunu atmak için.
+  /// Eskiden geç biten video gizli hikâyede sesiyle çalmaya başlıyor, resim
+  /// hikâyesinin süresini durduruyor; ekran kapanırken yaratılan denetleyici
+  /// hiç kapatılmıyordu.
+  int _videoRequest = 0;
   final StoryService _storyService = StoryService();
   final ChatService _chatService = ChatService();
   final TextEditingController _replyController = TextEditingController();
@@ -201,7 +208,10 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     }
   }
 
+  static const Duration _imageStoryDuration = Duration(seconds: 5);
+
   void _startAutoPlay() {
+    _animationController.duration = _imageStoryDuration;
     if (_animationController.isAnimating || _animationController.isCompleted) {
       _animationController.reset();
     }
@@ -263,29 +273,87 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     unawaited(ClipPlayer.instance.play(music));
   }
 
-  Future<void> _initializeVideo(String videoUrl) async {
-    if (_videoController != null) {
-      await _videoController!.dispose();
+  /// Çalan videoyu bırakır ve uçuştaki yüklemeyi geçersiz kılar.
+  void _releaseVideo() {
+    _videoRequest++;
+    final old = _videoController;
+    _videoController = null;
+    _isVideoInitialized = false;
+    if (old != null) {
+      old.removeListener(_onVideoTick);
+      unawaited(old.dispose());
     }
+  }
 
-    _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+  /// Video hikâyesi: ilerleme çubuğu ve geçiş videonun KENDİ süresine göre.
+  /// Eskiden video sonsuz döngüde çalıyor, hikâye hiç ilerlemiyordu;
+  /// duraklat/oynat ise videodan bağımsız 5 saniyelik bir sayaç başlatıyordu.
+  Future<void> _initializeVideo(String videoUrl) async {
+    _releaseVideo();
+    final request = _videoRequest;
+    _animationController
+      ..stop()
+      ..value = 0;
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
     try {
-      await _videoController!.initialize();
-      await _videoController!.setLooping(true);
-      await _videoController!.play();
-      if (mounted) {
-        setState(() {
-          _isVideoInitialized = true;
-        });
+      await controller.initialize();
+      if (!mounted || request != _videoRequest) {
+        await controller.dispose();
+        return;
       }
-      _animationController.stop();
+      await controller.setLooping(false);
+      final total = controller.value.duration;
+      _animationController.duration =
+          total > Duration.zero ? total : _imageStoryDuration;
+      controller.addListener(_onVideoTick);
+      _videoController = controller;
+      setState(() => _isVideoInitialized = true);
+      // Yanıt yazılıyorsa / emoji seçiliyorsa video beklesin.
+      if (!_replyFocusNode.hasFocus && !_showReactionPicker) {
+        await controller.play();
+      }
     } catch (e) {
       debugPrint('Video yüklenirken hata: $e');
-      if (mounted) {
-        setState(() {
-          _isVideoInitialized = false;
-        });
+      if (request != _videoRequest) {
+        unawaited(controller.dispose());
+        return;
       }
+      unawaited(controller.dispose());
+      if (!mounted) return;
+      setState(() => _isVideoInitialized = false);
+      // Oynatılamayan video hikâyede takılı kalmasın: resim gibi süresi işler.
+      _startAutoPlay();
+    }
+  }
+
+  /// Video oynarken ilerleme çubuğunu videoyla aynı hizada tutar; tampona
+  /// alma/duraklatmada çubuk da durur. Bitiş, çubuğun tamamlanmasıyla
+  /// (`_nextStory`) olur.
+  void _onVideoTick() {
+    final v = _videoController?.value;
+    if (v == null || !v.isInitialized || !mounted) return;
+    final totalMs = v.duration.inMilliseconds;
+    if (totalMs <= 0) return;
+    final progress = (v.position.inMilliseconds / totalMs).clamp(0.0, 1.0);
+    final running = v.isPlaying && !v.isBuffering;
+
+    if (!running) {
+      // Video sona erdiyse çubuğu bitir (tamamlanınca sonraki hikâye).
+      if (progress >= 0.999 && !_animationController.isCompleted) {
+        _animationController.value = 1.0;
+      } else if (_animationController.isAnimating) {
+        _animationController.stop();
+      }
+      return;
+    }
+
+    // Sapma varsa (tampon sonrası) hizala, sonra akmaya devam et.
+    if ((progress - _animationController.value).abs() > 0.05) {
+      _animationController.value = progress;
+    }
+    if (!_animationController.isAnimating && !_animationController.isCompleted) {
+      _animationController.forward();
     }
   }
 
@@ -526,8 +594,8 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   @override
   void dispose() {
     _pageController.dispose();
+    _releaseVideo();
     _animationController.dispose();
-    _videoController?.dispose();
     // Ekran kapanınca müzik SUSMALI: hikaye bittiğinde arkada çalmaya devam
     // eden bir kesit, kullanıcının kapattığını sandığı bir sesi sürdürür.
     unawaited(ClipPlayer.instance.stop());
@@ -577,8 +645,8 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                 context,
                 MaterialPageRoute(
                   builder: (context) => StoryViewersScreen(
-                    storyId: widget.stories[_currentIndex].id,
-                    totalViews: widget.stories[_currentIndex].viewsCount,
+                    storyId: _stories[_currentIndex].id,
+                    totalViews: _stories[_currentIndex].viewsCount,
                   ),
                 ),
               );
@@ -610,14 +678,9 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                    setState(() {
                      _currentIndex = index;
                      _animationController.reset();
-                     
-                     if (story.isVideo) {
-                       _isVideoInitialized = false;
-                       _videoController?.pause();
-                     } else {
-                       _videoController?.pause();
-                       _isVideoInitialized = false;
-                     }
+                     // Önceki hikâyenin videosu (ya da hâlâ yüklenen
+                     // videosu) bırakılır.
+                     _releaseVideo();
                    });
                    
                    // Asynchronous işlemleri setState dışında yap
@@ -726,7 +789,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
               top: 48,
               left: 16,
               right: 16,
-              child: Row(
+              // Çubuk denetleyicinin her karesinde yeniden çizilmeli; eskiden
+              // değer yalnız build sırasında okunuyor, çubuk 0'da kalıyordu.
+              child: AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, _) => Row(
                 children: List.generate(
                   _stories.length,
                   (index) => Expanded(
@@ -762,6 +829,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                   ),
                 ),
               ),
+              ),
             ),
             
             // User info
@@ -786,7 +854,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                     child: CircleAvatar(
                       radius: 18,
                       backgroundImage: _hasAuthorAvatar
-                          ? NetworkImage(_stories[_currentIndex].avatarUrl!)
+                          ? avatarImage(_stories[_currentIndex].avatarUrl)
                           : null,
                       backgroundColor: Colors.white24,
                       child: _hasAuthorAvatar
@@ -870,13 +938,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                   if (_stories[_currentIndex].isVideo && _isVideoInitialized)
                     IconButton(
                       onPressed: () {
+                        final video = _videoController;
+                        if (video == null) return;
+                        // Çubuk _onVideoTick ile videoyu izler.
                         setState(() {
-                          if (_videoController!.value.isPlaying) {
-                            _videoController!.pause();
-                            _animationController.stop();
+                          if (video.value.isPlaying) {
+                            video.pause();
                           } else {
-                            _videoController!.play();
-                            _animationController.forward();
+                            video.play();
                           }
                         });
                       },

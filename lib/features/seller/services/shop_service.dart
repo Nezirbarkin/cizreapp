@@ -78,6 +78,8 @@ class ShopService {
     required int slotMinutes,
     required int maxDays,
     required int minLeadMinutes,
+    // Aynı saate en fazla kaç sipariş; null = sınırsız.
+    required int? slotCapacity,
   }) async {
     try {
       final result = await _supabase
@@ -87,6 +89,7 @@ class ShopService {
             'scheduled_slot_minutes': slotMinutes,
             'scheduled_max_days': maxDays,
             'scheduled_min_lead_minutes': minLeadMinutes,
+            'scheduled_slot_capacity': slotCapacity,
           })
           .eq('id', shopId)
           .select('id');

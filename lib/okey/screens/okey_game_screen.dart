@@ -43,6 +43,7 @@ import '../theme/okey_table_theme.dart';
 import '../theme/okey_theme.dart';
 import '../theme/okey_ui.dart';
 import '../../core/services/announcement_voice_service.dart';
+import '../../core/utils/image_url.dart';
 
 /// 101 Okey oyun masası — yatay (landscape) düzen.
 class OkeyGameScreen extends StatefulWidget {
@@ -1160,9 +1161,7 @@ class _OkeyGameViewState extends State<_OkeyGameView>
                                 // Botun fotoğrafı da çizilir ve fotoğrafsız
                                 // bot robot ikonuyla değil, herkesle aynı
                                 // kişi ikonuyla görünür.
-                                backgroundImage: s?.avatarUrl == null
-                                    ? null
-                                    : NetworkImage(s!.avatarUrl!),
+                                backgroundImage: avatarImage(s?.avatarUrl),
                                 child: (s == null)
                                     ? Icon(
                                         Icons.person_off,
@@ -1726,9 +1725,7 @@ class _SpectatorChip extends StatelessWidget {
                 leading: CircleAvatar(
                   radius: 15,
                   backgroundColor: OkeyUI.avatarFill,
-                  backgroundImage: s.avatarUrl == null
-                      ? null
-                      : NetworkImage(s.avatarUrl!),
+                  backgroundImage: avatarImage(s.avatarUrl, decodeWidth: 96),
                   child: s.avatarUrl != null
                       ? null
                       : Icon(
@@ -1804,11 +1801,15 @@ class _TopLeading extends StatelessWidget {
           ),
         ],
         const SizedBox(width: 6),
-        OkeyHudActionButton.bonus(
-          label: points.canClaimGift ? 'BONUS AL' : points.giftCountdownText,
-          height: h,
-          enabled: points.canClaimGift && !points.isBusy,
-          onTap: points.claimHourlyGift,
+        // Geri sayım yalnız bu düğmeyi her saniye yeniden çizer.
+        ValueListenableBuilder<String>(
+          valueListenable: points.giftCountdownListenable,
+          builder: (context, countdown, _) => OkeyHudActionButton.bonus(
+            label: points.canClaimGift ? 'BONUS AL' : countdown,
+            height: h,
+            enabled: points.canClaimGift && !points.isBusy,
+            onTap: points.claimHourlyGift,
+          ),
         ),
       ],
     );

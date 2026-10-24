@@ -204,6 +204,62 @@
                     android:scheme="cizreapp"
                     android:host="login"/>
             </intent-filter>
+            <!-- Paylaşım linkleri: gönderi / profil / dükkân (main.dart
+                 _handleDeepLink → SocialShareService.appRouteFor). Doğrulama
+                 (autoVerify) web/.well-known/assetlinks.json'daki imza
+                 parmak izine bağlı; doğrulanmasa da kullanıcı "Desteklenen
+                 bağlantıları aç" ile seçebilir, yoksa link web sürümünü açar. -->
+            <intent-filter
+                android:autoVerify="true">
+                <action
+                    android:name="android.intent.action.VIEW"/>
+                <category
+                    android:name="android.intent.category.DEFAULT"/>
+                <category
+                    android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="cizreapp.com"
+                    android:pathPrefix="/post/"/>
+                <data
+                    android:scheme="https"
+                    android:host="cizreapp.com"
+                    android:pathPrefix="/u/"/>
+                <data
+                    android:scheme="https"
+                    android:host="cizreapp.com"
+                    android:pathPrefix="/s/"/>
+                <data
+                    android:scheme="https"
+                    android:host="www.cizreapp.com"
+                    android:pathPrefix="/post/"/>
+                <data
+                    android:scheme="https"
+                    android:host="www.cizreapp.com"
+                    android:pathPrefix="/u/"/>
+                <data
+                    android:scheme="https"
+                    android:host="www.cizreapp.com"
+                    android:pathPrefix="/s/"/>
+            </intent-filter>
+            <!-- cizreapp://post/<id> (doğrulama gerektirmeyen yedek biçim) -->
+            <intent-filter>
+                <action
+                    android:name="android.intent.action.VIEW"/>
+                <category
+                    android:name="android.intent.category.DEFAULT"/>
+                <category
+                    android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="cizreapp"
+                    android:host="post"/>
+                <data
+                    android:scheme="cizreapp"
+                    android:host="u"/>
+                <data
+                    android:scheme="cizreapp"
+                    android:host="s"/>
+            </intent-filter>
         </activity>
         <!-- Firebase Cloud Messaging Service -->
         <service

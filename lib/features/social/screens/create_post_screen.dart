@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../../core/utils/image_url.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -558,10 +559,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         CircleAvatar(
           radius: 19,
           backgroundColor: Theme.of(context).colorScheme.primary,
-          backgroundImage:
-              (avatarUrl != null && avatarUrl.isNotEmpty)
-              ? NetworkImage(avatarUrl)
-              : null,
+          backgroundImage: avatarImage(avatarUrl),
           child: (avatarUrl == null || avatarUrl.isEmpty)
               ? Text(
                   username.length >= 2

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/utils/image_url.dart';
+
 import '../models/okey_models.dart';
 import '../services/okey_gift_service.dart';
 import '../theme/okey_theme.dart';
@@ -326,9 +328,7 @@ class _SeatChip extends StatelessWidget {
             CircleAvatar(
               radius: 13,
               backgroundColor: OkeyUI.avatarFill,
-              backgroundImage: seat.avatarUrl == null
-                  ? null
-                  : NetworkImage(seat.avatarUrl!),
+              backgroundImage: avatarImage(seat.avatarUrl, decodeWidth: 96),
               child: seat.avatarUrl != null
                   ? null
                   : Icon(Icons.person, size: 14, color: OkeyUI.avatarIcon),

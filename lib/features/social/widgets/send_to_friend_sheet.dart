@@ -1,21 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/models/post_model.dart';
+import '../../../core/utils/app_error_handler.dart';
+import '../../../core/utils/image_url.dart';
+import '../services/social_share_service.dart';
 
 /// "Arkadaşına Gönder" aksiyonu: takip edilen kullanıcılar arasından seçim
 /// yaptırır ve `share_post_with_user` RPC'siyle sunucu tarafında doğrulanmış
 /// bir bildirim gönderir. Sunucu tarafında gönderen auth.uid() ile belirlenir,
 /// alıcı + post doğrulanır, self-share reddedilir, idempotency (60sn)
-/// uygulanır (bkz. 2026-08-02 push pipeline refaktörü).
+/// uygulanır (bkz. 2026-08-02 push pipeline refaktörü). Başarılı gönderim
+/// gönderinin paylaşım sayısına da işlenir (kişi başına bir kez).
 ///
 /// Gönderi kartlarındaki tüm ekranlarda (favoriler, profil) ortak kullanılır.
 Future<void> sendPostToFriend(BuildContext context, Post post) async {
+  // Seçim sayfası kapandıktan sonra da mesaj gösterilir; o anda çağıranın
+  // context'i ölmüş olabilir.
+  final messenger = ScaffoldMessenger.of(context);
   final currentUserId = Supabase.instance.client.auth.currentUser?.id;
   if (currentUserId == null) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
+    messenger.showSnackBar(const SnackBar(content: Text('Lütfen giriş yapın')));
     return;
   }
 
@@ -31,7 +38,7 @@ Future<void> sendPostToFriend(BuildContext context, Post post) async {
     if (!context.mounted) return;
 
     if ((following as List).isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Takip ettiğiniz kimse yok')),
       );
       return;
@@ -69,13 +76,12 @@ Future<void> sendPostToFriend(BuildContext context, Post post) async {
                       'Kullanıcı';
                   final avatar = profile?['avatar_url'] as String?;
                   final targetUserId = user['following_id'] as String;
+                  final avatarProvider = avatarImage(avatar);
 
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundImage: avatar != null && avatar.isNotEmpty
-                          ? NetworkImage(avatar)
-                          : null,
-                      child: avatar == null || avatar.isEmpty
+                      backgroundImage: avatarProvider,
+                      child: avatarProvider == null
                           ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?')
                           : null,
                     ),
@@ -90,19 +96,18 @@ Future<void> sendPostToFriend(BuildContext context, Post post) async {
                             'p_recipient_id': targetUserId,
                           },
                         );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('$name adlı kullanıcıya gönderildi'),
-                            ),
-                          );
-                        }
+                        unawaited(
+                          SocialShareService().recordShare(post.id, channel: 'chat'),
+                        );
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text('$name adlı kullanıcıya gönderildi'),
+                          ),
+                        );
                       } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Gönderilemedi: $e')),
-                          );
-                        }
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(AppErrorHandler.handleError(e))),
+                        );
                       }
                     },
                   );
@@ -114,10 +119,8 @@ Future<void> sendPostToFriend(BuildContext context, Post post) async {
       ),
     );
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e')));
-    }
+    messenger.showSnackBar(
+      SnackBar(content: Text(AppErrorHandler.handleError(e))),
+    );
   }
 }

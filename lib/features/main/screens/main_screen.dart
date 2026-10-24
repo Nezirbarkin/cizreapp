@@ -872,7 +872,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cartProvider = context.watch<CartProvider>();
+    // Sepet burada İZLENMEZ: her kart kendi adedini Selector ile dinler.
+    // Eskiden sepet her değiştiğinde (sekme gizliyken bile) başlık,
+    // filtreler ve tüm ızgara yeniden kuruluyordu.
+    final cartProvider = context.read<CartProvider>();
 
     return Scaffold(
       body: Column(
@@ -1182,7 +1185,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ),
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final product = _filteredProducts[index];
-                    return _buildProductCard(product, cartProvider);
+                    return Selector<CartProvider, int>(
+                      selector: (_, cart) =>
+                          cart.getProductQuantityFromCache(product.id),
+                      builder: (context, quantity, _) =>
+                          _buildProductCard(product, quantity),
+                    );
                   }, childCount: _filteredProducts.length),
                 ),
         ),
@@ -1190,12 +1198,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
-  Widget _buildProductCard(Product product, CartProvider cartProvider) {
+  Widget _buildProductCard(Product product, int cartQuantity) {
     final theme = Theme.of(context);
     final isAdding = _addingToCart.contains(product.id);
     final isInStock = product.inStock;
-    final inCart = cartProvider.getProductQuantityFromCache(product.id) > 0;
-    final cartQuantity = cartProvider.getProductQuantityFromCache(product.id);
+    final inCart = cartQuantity > 0;
     final isOrderable = _isProductOrderable(product);
     final closedBadge = !isOrderable
         ? ClosedShopBadge(global: !_globalOrdersEnabled)

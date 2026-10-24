@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/group_model.dart';
@@ -94,34 +96,34 @@ class GroupChatService {
     if (_currentUserId == null) return [];
 
     try {
-      // Kullanıcının üyeliklerini al
-      final memberships = await _supabase
-          .from('group_members')
-          .select('group_id, role, unread_count, is_muted')
-          .eq('user_id', _currentUserId!);
+      // Üyelikler, bekleyen istekler ve gruplar birbirinden bağımsız: aynı
+      // anda istenir (eskiden üç sorgu art arda bekleniyordu).
+      final (memberships, pendingRequests, groups) = await (
+        _supabase
+            .from('group_members')
+            .select('group_id, role, unread_count, is_muted')
+            .eq('user_id', _currentUserId!),
+        _supabase
+            .from('group_join_requests')
+            .select('group_id')
+            .eq('user_id', _currentUserId!)
+            .eq('status', 'pending'),
+        _supabase
+            .from('groups')
+            .select()
+            .order('updated_at', ascending: false)
+            .limit(300),
+      ).wait;
 
       final membershipMap = <String, Map<String, dynamic>>{};
       for (final m in (memberships as List)) {
         membershipMap[m['group_id'] as String] = Map<String, dynamic>.from(m);
       }
 
-      // Kullanıcının bekleyen isteklerini al
-      final pendingRequests = await _supabase
-          .from('group_join_requests')
-          .select('group_id')
-          .eq('user_id', _currentUserId!)
-          .eq('status', 'pending');
-
       final pendingRequestGroupIds = <String>{};
       for (final r in (pendingRequests as List)) {
         pendingRequestGroupIds.add(r['group_id'] as String);
       }
-
-      // Tüm grupları getir
-      final groups = await _supabase
-          .from('groups')
-          .select()
-          .order('updated_at', ascending: false);
 
       return (groups as List).where((g) {
         // Üye olmayan ve is_discoverable=false olan grupları gizle
@@ -459,6 +461,14 @@ class GroupChatService {
   /// Profilleri `id → satır` olarak tek seferde (100'lük parçalarla, URL
   /// uzunluğu sınırı için) çeker. Üye / katılma isteği / okundu listeleri
   /// eskiden her satır için ayrı ardışık istek atıyordu (100 üye = 100 istek).
+  /// Profilleri kimlik listesiyle toplu getirir (100'lük parçalar).
+  /// Ekranlar kişi başına ayrı sorgu yerine bunu kullanır.
+  Future<Map<String, Map<String, dynamic>>> profilesById(
+    Iterable<String> ids, {
+    String columns = 'full_name, username, avatar_url',
+  }) =>
+      _profilesById(ids, columns);
+
   Future<Map<String, Map<String, dynamic>>> _profilesById(
     Iterable<String> ids,
     String columns,
@@ -725,11 +735,19 @@ class GroupChatService {
   // ============================================
 
   /// Grup mesajlarını getir (read_by_count ile)
-  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50}) async {
+  static const int messagesPageSize = 200;
+
+  Future<List<GroupMessage>> getGroupMessages(
+    String groupId, {
+    int limit = messagesPageSize,
+  }) async {
     try {
       // Önce RPC ile dene (read_by_count ile)
+      // Son [limit] mesaj (20261023000004); eskiden tüm geçmiş + tüm grupların
+      // okundu kayıtları toplanıyordu.
       final response = await _supabase.rpc('get_group_messages_with_read_count', params: {
         'p_group_id': groupId,
+        'p_limit': limit,
       });
 
       if (response != null) {
@@ -922,17 +940,33 @@ class GroupChatService {
   // ============================================
 
   /// Kullanıcının gruplarındaki değişiklikleri dinle
+  static int _channelSeq = 0;
+
+  /// Art arda gelen realtime olaylarını tek yenilemeye indirir.
+  static void Function() _debounced(Duration delay, void Function() action) {
+    Timer? timer;
+    return () {
+      timer?.cancel();
+      timer = Timer(delay, action);
+    };
+  }
+
   RealtimeChannel subscribeToUserGroups(Function(List<ChatGroup>) onUpdate) {
+    // Toplu değişiklikte (ör. üyelik güncellemeleri) her satır için tüm
+    // grupları yeniden çekmek yerine 500 ms içindekiler birleştirilir. Kanal
+    // adı benzersiz: aynı anda iki dinleyici (sohbet listesi + başka ekran)
+    // sabit adlı tek kanalı paylaşıp birbirini kapatıyordu.
+    final refresh = _debounced(const Duration(milliseconds: 500), () async {
+      final groups = await getAllGroups();
+      onUpdate(groups);
+    });
     return _supabase
-        .channel('user_groups_channel')
+        .channel('user_groups_${_currentUserId ?? 'anon'}_${_channelSeq++}')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'groups',
-          callback: (payload) async {
-            final groups = await getAllGroups();
-            onUpdate(groups);
-          },
+          callback: (_) => refresh(),
         )
         .subscribe();
   }
@@ -942,6 +976,12 @@ class GroupChatService {
     String groupId,
     Function(List<GroupMessage>) onUpdate,
   ) {
+    // Aynı anda gelen olaylar (mesaj + düzenleme + silme) tek yeniden
+    // okumaya indirilir; eskiden her olay tüm listeyi yeniden çekiyordu.
+    final refresh = _debounced(const Duration(milliseconds: 250), () async {
+      final messages = await getGroupMessages(groupId);
+      onUpdate(messages);
+    });
     return _supabase
         .channel('group_messages_$groupId')
         .onPostgresChanges(
@@ -953,10 +993,9 @@ class GroupChatService {
             column: 'group_id',
             value: groupId,
           ),
-          callback: (payload) async {
+          callback: (payload) {
             AppLogger.debug('📨 Realtime group message change: ${payload.eventType}');
-            final messages = await getGroupMessages(groupId);
-            onUpdate(messages);
+            refresh();
           },
         )
         .subscribe();

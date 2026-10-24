@@ -527,6 +527,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                           required int slotMinutes,
                           required int maxDays,
                           required int minLeadMinutes,
+                          required int? slotCapacity,
                         }) =>
                             _shopService.updateScheduledOrderSettings(
                           shopId: _shopData!['id'],
@@ -534,6 +535,7 @@ class _ShopSettingsScreenState extends State<ShopSettingsScreen> {
                           slotMinutes: slotMinutes,
                           maxDays: maxDays,
                           minLeadMinutes: minLeadMinutes,
+                          slotCapacity: slotCapacity,
                         ),
                       ),
                       const SizedBox(height: 40),

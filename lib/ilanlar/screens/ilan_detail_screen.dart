@@ -2,6 +2,7 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../core/utils/image_url.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -264,9 +265,7 @@ class _IlanDetailScreenState extends State<IlanDetailScreen> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
-                        backgroundImage: ilan.ownerAvatarUrl == null
-                            ? null
-                            : NetworkImage(ilan.ownerAvatarUrl!),
+                        backgroundImage: avatarImage(ilan.ownerAvatarUrl),
                         child: ilan.ownerAvatarUrl == null
                             ? const Icon(Icons.person)
                             : null,

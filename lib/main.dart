@@ -34,7 +34,9 @@ import 'features/auth/screens/choose_username_screen.dart';
 import 'features/main/screens/main_screen.dart';
 import 'features/onboarding/widgets/onboarding_gate.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
-import 'features/profile/screens/user_profile_screen.dart';
+import 'features/profile/screens/profile_link_screen.dart';
+import 'features/social/screens/post_link_screen.dart';
+import 'features/social/services/social_share_service.dart';
 import 'features/market/screens/product_detail_screen.dart';
 import 'features/market/screens/live_session_route_screen.dart';
 import 'features/market/services/live_replay_uploader.dart';
@@ -402,7 +404,9 @@ class _CizreAppState extends State<CizreApp> {
   bool get _isWebProfileRoute {
     if (!kIsWeb) return false;
     final path = Uri.base.path;
-    return path.startsWith('/u/@') || path.startsWith('/s/');
+    return path.startsWith('/u/@') ||
+        path.startsWith('/s/') ||
+        path.startsWith('/post/');
   }
   
   @override
@@ -770,6 +774,19 @@ class _CizreAppState extends State<CizreApp> {
       debugPrint('   scheme: ${uri.scheme}, host: ${uri.host}, path: ${uri.path}');
     }
 
+    // Paylaşılan gönderi / profil / dükkân linki (https://cizreapp.com/post/…,
+    // /u/@…, /s/…): mevcut onGenerateRoute rotasına verilir. Eskiden bu
+    // linkler doğrulama linki olmadığı için yok sayılıyor, uygulama yalnızca
+    // açılıyordu.
+    final appRoute = SocialShareService.appRouteFor(uri);
+    if (appRoute != null) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
+        _navigatorKey.currentState?.pushNamed(appRoute);
+      });
+      return;
+    }
+
     // Eski davranış: cizreapp://reset-password?token=xxx linkleri link
     // bazlı akışa yönlendiriyordu. Yeni akış OTP: link geldiğinde
     // kullanıcıyı OTP ekranına yönlendiriyoruz ve (varsa) recovery
@@ -873,13 +890,18 @@ class _CizreAppState extends State<CizreApp> {
     final path = Uri.base.path;
     print('🌐 Web URL path: $path');
     
-    // Kullanıcı profili: /u/@username
-    if (path.startsWith('/u/@')) {
-      final username = path.replaceFirst('/u/@', '');
-      if (username.isNotEmpty) {
-        print('👤 Loading user profile for: @$username');
-        return _UserProfileByUsernameScreen(username: username);
-      }
+    // Kullanıcı profili: /u/@username (Türkçe harfli adlar yüzde kodlu gelir)
+    // Alan adından bağımsız (yerel önizleme, farklı barındırma): yalnız yol.
+    final linkRoute = SocialShareService.appRouteFor(
+      Uri.parse('https://cizreapp.com$path'),
+    );
+    if (linkRoute != null && linkRoute.startsWith('/u/@')) {
+      return ProfileLinkScreen(username: linkRoute.substring(4));
+    }
+
+    // Paylaşılan gönderi: /post/:id
+    if (linkRoute != null && linkRoute.startsWith('/post/')) {
+      return PostLinkScreen(postId: linkRoute.substring(6));
     }
     
     // Satıcı profili: /s/:slug
@@ -980,10 +1002,20 @@ class _CizreAppState extends State<CizreApp> {
             if (routeName.startsWith('/u/@')) {
               final username = routeName.replaceFirst('/u/@', '');
               if (username.isNotEmpty) {
-                print('👤 Kullanıcı profili: @$username');
                 return MaterialPageRoute(
                   settings: settings,
-                  builder: (context) => _UserProfileByUsernameScreen(username: username),
+                  builder: (context) => ProfileLinkScreen(username: username),
+                );
+              }
+            }
+
+            // Paylaşılan gönderi: /post/:id
+            if (routeName.startsWith('/post/')) {
+              final postId = routeName.replaceFirst('/post/', '');
+              if (postId.isNotEmpty) {
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (context) => PostLinkScreen(postId: postId),
                 );
               }
             }
@@ -1111,94 +1143,6 @@ class WebDemoScreen extends StatelessWidget {
 // SplashScreen tamamen kaldırıldı - Uygulama direkt MainScreen'den başlar
 
 // ===== WEB PROFİL ROUTING HELPER SCREENS =====
-
-/// Username'den kullanıcı profilini gösteren ekran
-/// Kullanıcı adını alıp userId'ye çevirir ve UserProfileScreen'e yönlendirir
-class _UserProfileByUsernameScreen extends StatefulWidget {
-  final String username;
-
-  const _UserProfileByUsernameScreen({required this.username});
-
-  @override
-  State<_UserProfileByUsernameScreen> createState() => _UserProfileByUsernameScreenState();
-}
-
-class _UserProfileByUsernameScreenState extends State<_UserProfileByUsernameScreen> {
-  bool _isLoading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUserIdByUsername();
-  }
-
-  Future<void> _loadUserIdByUsername() async {
-    try {
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('id')
-          .eq('username', widget.username)
-          .maybeSingle();
-
-      if (response == null) {
-        setState(() {
-          _isLoading = false;
-          _error = 'Kullanıcı bulunamadı';
-        });
-        return;
-      }
-
-      final userId = response['id'] as String;
-      if (!mounted) return;
-
-      // UserProfileScreen'e yönlendir
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => UserProfileScreen(userId: userId),
-        ),
-      );
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _error = 'Bir hata oluştu: $e';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Yükleniyor...')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Hata')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              const SizedBox(height: 16),
-              Text(_error!),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Geri Dön'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
-  }
-}
 
 /// Slug'dan satıcı profilini gösteren ekran
 /// Slug'ı alıp shopId'ye çevirir ve ShopDetailScreen'e yönlendirir

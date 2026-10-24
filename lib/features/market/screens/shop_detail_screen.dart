@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -88,6 +90,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     ActiveFlashSaleCache.instance.byProduct.removeListener(
       _onFlashPricesChanged,
     );
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -152,17 +155,23 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     }
   }
 
+  Timer? _searchDebounce;
+
+  /// Yazarken her tuşta tüm ürünler süzülüp yeniden sıralanıyordu; artık
+  /// yazma 250 ms durunca bir kez.
   void _onSearchChanged() {
-    setState(() {
-      _applyFilters();
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(_applyFilters);
     });
   }
 
   void _applyFilters() {
+    // Arama metni bir kez küçültülür (eskiden ürün başına).
+    final query = _searchController.text.toLowerCase();
     final filtered = _products.where((product) {
       // Arama filtresi
-      if (_searchController.text.isNotEmpty) {
-        final query = _searchController.text.toLowerCase();
+      if (query.isNotEmpty) {
         if (!product.name.toLowerCase().contains(query) &&
             !(product.description?.toLowerCase().contains(query) ?? false)) {
           return false;
@@ -1020,7 +1029,10 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                             borderRadius: BorderRadius.circular(12),
                             image: _shop!.logoUrl != null
                                 ? DecorationImage(
-                                    image: NetworkImage(_shop!.logoUrl!),
+                                    image: ResizeImage(
+                                      CachedNetworkImageProvider(_shop!.logoUrl!),
+                                      width: 240,
+                                    ),
                                     fit: BoxFit.cover,
                                   )
                                 : null,

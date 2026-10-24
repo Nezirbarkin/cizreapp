@@ -20,6 +20,14 @@ class OkeyPointsProvider with ChangeNotifier {
   bool _notifyScheduled = false;
   bool _disposed = false;
 
+  /// Hediye geri sayımı ("12:34" / "Hazır") — her saniye BURADAN yayınlanır.
+  /// Eskiden sayaç her saniye notifyListeners çağırıyordu ve sağlayıcıyı
+  /// izleyen ~2500 satırlık lobi (oyun ekranı üstteyken bile) saniyede bir
+  /// baştan kuruluyordu. Artık yalnız metni gösteren küçük parça dinler;
+  /// sağlayıcı ancak hediye "hazır" olunca (düğme durumu değişince) haber verir.
+  final ValueNotifier<String> _giftCountdown = ValueNotifier<String>('Hazır');
+  ValueListenable<String> get giftCountdownListenable => _giftCountdown;
+
   OkeyPointsProvider() {
     // Bildirimler asla senkron yapılmaz (bkz. OkeyGameProvider._notify).
     Future.microtask(refresh);
@@ -27,6 +35,8 @@ class OkeyPointsProvider with ChangeNotifier {
   }
 
   void _notify() {
+    // Cüzdan her değiştiğinde geri sayım metni de güncel olsun.
+    if (!_disposed) _giftCountdown.value = giftCountdownText;
     if (_notifyScheduled) return;
     _notifyScheduled = true;
     scheduleMicrotask(() {
@@ -39,6 +49,7 @@ class OkeyPointsProvider with ChangeNotifier {
   void dispose() {
     _disposed = true;
     _countdown?.cancel();
+    _giftCountdown.dispose();
     super.dispose();
   }
 
@@ -81,6 +92,7 @@ class OkeyPointsProvider with ChangeNotifier {
 
   void _tick() {
     if (_wallet.secondsUntilNextGift <= 0) return;
+    final wasClaimable = _wallet.canClaimHourly;
     _wallet = OkeyWallet(
       points: _wallet.points,
       lastHourlyClaimAt: _wallet.lastHourlyClaimAt,
@@ -89,7 +101,10 @@ class OkeyPointsProvider with ChangeNotifier {
       hourlyGiftPoints: _wallet.hourlyGiftPoints,
       adRewardPoints: _wallet.adRewardPoints,
     );
-    _notify();
+    if (_disposed) return;
+    _giftCountdown.value = giftCountdownText;
+    // Tüm dinleyicilere yalnız düğme/rozet durumu değişince.
+    if (_wallet.canClaimHourly != wasClaimable) _notify();
   }
 
   void consumeMessages() {

@@ -540,6 +540,7 @@ class PushNotificationService {
       case 'order_confirmed':
       case 'new_order':
       case 'scheduled_order_reminder':
+      case 'scheduled_slot_overbooked':
       case 'seller_new_digital_order':
       case 'seller_product_out_of_stock':
       case 'digital_order_status':

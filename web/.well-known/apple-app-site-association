@@ -3,7 +3,9 @@
     "apps": [],
     "details": [
       {
-        "appIDs": ["TEAMID.com.cizreapp.app"],
+        "appIDs": [
+          "7RY64FSMUS.com.cizreapp.app"
+        ],
         "components": [
           {
             "/": "/verify/*",
@@ -16,12 +18,26 @@
           {
             "/": "/auth/callback*",
             "comment": "OAuth callback"
+          },
+          {
+            "/": "/post/*",
+            "comment": "Paylaşılan gönderi linkleri"
+          },
+          {
+            "/": "/u/*",
+            "comment": "Profil linkleri"
+          },
+          {
+            "/": "/s/*",
+            "comment": "Dükkân linkleri"
           }
         ]
       }
     ]
   },
   "webcredentials": {
-    "apps": ["TEAMID.com.cizreapp.app"]
+    "apps": [
+      "7RY64FSMUS.com.cizreapp.app"
+    ]
   }
 }

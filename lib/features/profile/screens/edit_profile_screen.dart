@@ -27,6 +27,23 @@ class EditProfileScreen extends StatefulWidget {
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
+
+  /// Web sitesi: boş olabilir; doluysa alan adı olan bir http(s) adresi.
+  /// Şemasız yazılırsa ("ornek.com") kaydederken https:// eklenir.
+  static String? normalizeWebsite(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return '';
+    if (value.contains(' ') || value.length > 200) return null;
+    final withScheme = RegExp(r'^https?://', caseSensitive: false).hasMatch(value)
+        ? value
+        : 'https://$value';
+    final uri = Uri.tryParse(withScheme);
+    if (uri == null || !uri.host.contains('.') || uri.host.startsWith('.') ||
+        uri.host.endsWith('.')) {
+      return null;
+    }
+    return withScheme;
+  }
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
@@ -95,6 +112,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         return;
       }
 
+      if (!mounted) return;
       setState(() {
         _fullNameController.text = response['full_name'] ?? '';
         _bioController.text = response['bio'] ?? '';
@@ -106,7 +124,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       });
     } catch (e) {
       debugPrint('Profil yüklenirken hata: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -693,10 +711,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       }
 
-      // Kullanıcıya anlamlı geri bildirim: yükleme başarısızsa Snackbar göster.
-      // Çözüm: dosya boyutunu düşür, bağlantıyı kontrol et veya tekrar dene.
-      if (uploadError != null) {
-        if (mounted) {
+      // Yükleme hatası: metin bilgileri yine kaydedilir ama ekran KAPANMAZ —
+      // eskiden "Başarılı!" deyip geri dönüyor, "Tekrar Dene" uyarısı da
+      // kapanan ekranla birlikte kayboluyordu.
+      void showUploadError() {
+        if (uploadError != null && mounted) {
           final String message = uploadError == 'both'
               ? 'Profil ve kapak fotoğrafı yüklenemedi. Lütfen tekrar deneyin.'
               : uploadError == 'avatar'
@@ -726,7 +745,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final success = await _profileService.updateProfile(
         fullName: _fullNameController.text.trim(),
         bio: _bioController.text.trim(),
-        website: _websiteController.text.trim(),
+        website: EditProfileScreen.normalizeWebsite(_websiteController.text) ?? '',
         gender: _selectedGender,
       );
 
@@ -735,6 +754,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
 
       debugPrint('✅ Profil başarıyla güncellendi');
+
+      if (uploadError != null) {
+        showUploadError();
+        return;
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -873,9 +897,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               controller: _fullNameController,
               label: 'Ad Soyad',
               icon: Icons.person,
+              maxLength: 50,
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Ad soyad gerekli';
+                }
+                if (value.trim().length > 50) {
+                  return 'En fazla 50 karakter';
                 }
                 return null;
               },
@@ -907,6 +935,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               icon: Icons.language,
               keyboardType: TextInputType.url,
               hintText: 'https://example.com',
+              validator: (value) => EditProfileScreen.normalizeWebsite(value ?? '') == null
+                  ? 'Geçerli bir web adresi girin (ör. ornek.com)'
+                  : null,
             ),
 
             const SizedBox(height: 32),

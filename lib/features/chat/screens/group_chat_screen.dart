@@ -12,7 +12,7 @@ import '../services/typing_channel.dart';
 import '../widgets/chat_message_actions.dart';
 import '../widgets/presence_status_line.dart';
 import 'group_settings_screen.dart';
-import '../../profile/screens/profile_screen.dart';
+import '../../profile/screens/user_profile_screen.dart';
 import '../../../core/widgets/group_avatar_viewer.dart';
 import 'package:intl/intl.dart';
 import '../../../core/utils/image_url.dart';
@@ -157,6 +157,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
     _messageFocusNode.dispose();
     _messagesChannel?.unsubscribe();
     _readReceiptsChannel?.unsubscribe();
+    _receiptsRefresh?.cancel();
     super.dispose();
   }
 
@@ -183,7 +184,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
   void _subscribeToMessages() {
     _messagesChannel = _groupChatService.subscribeToGroupMessages(
       _currentGroup.id,
-      (messages) {
+      _applyMessages,
+    );
+  }
+
+  /// Yeniden okunan mesaj listesini uygular; değişiklik yoksa çizmez.
+  void _applyMessages(List<GroupMessage> messages) {
         if (mounted) {
           // Sadece mesaj listesi gerçekten değiştiyse setState çağır
           // (uzunluk + son id karşılaştırması, listenin ortasındaki bir
@@ -214,15 +220,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
             _groupChatService.markGroupMessagesReadReceipts(_currentGroup.id);
           }
         }
-      },
-    );
   }
 
+  Timer? _receiptsRefresh;
+
+  /// Okundu bilgisi geldi: okundu sayıları için mesajlar kısa bir
+  /// birleştirmeyle (aynı anda gelen onlarca kayıt → tek okuma) tazelenir.
+  /// Eskiden her okundu satırı veri değiştirmeden tüm ekranı yeniden
+  /// çiziyordu ve sayılar zaten güncellenmiyordu.
   void _subscribeToReadReceipts() {
     _readReceiptsChannel = _groupChatService.subscribeToReadReceipts(
       _currentGroup.id,
       () {
-        if (mounted) setState(() {});
+        _receiptsRefresh?.cancel();
+        _receiptsRefresh = Timer(const Duration(milliseconds: 800), () async {
+          if (!mounted) return;
+          final messages =
+              await _groupChatService.getGroupMessages(_currentGroup.id);
+          _applyMessages(messages);
+        });
       },
     );
   }
@@ -337,17 +353,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
 
       final list = List<Map<String, dynamic>>.from(requests);
 
-      for (var i = 0; i < list.length; i++) {
-        try {
-          final profile = await Supabase.instance.client
-              .from('profiles')
-              .select('full_name, avatar_url, username')
-              .eq('id', list[i]['user_id'])
-              .maybeSingle();
-          list[i]['profiles'] = profile ?? {};
-        } catch (_) {
-          list[i]['profiles'] = {};
-        }
+      // İsteyenlerin profilleri TEK sorguda (eskiden kişi başına sırayla).
+      Map<String, Map<String, dynamic>> profiles = const {};
+      try {
+        profiles = await _groupChatService.profilesById(
+          list.map((r) => r['user_id']).whereType<String>(),
+        );
+      } catch (_) {}
+      for (final request in list) {
+        request['profiles'] = profiles[request['user_id']] ?? {};
       }
 
       if (!mounted) return;
@@ -441,7 +455,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> with WidgetsBindingOb
   }
 
   void _showSenderProfile(String senderId) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: senderId)));
+    // Başkasının profili tek ekrandan (takip/engel/gizli hesap mantığı orada).
+    Navigator.push(context, MaterialPageRoute(builder: (_) => UserProfileScreen(userId: senderId)));
   }
 
   void _openGroupSettings() async {

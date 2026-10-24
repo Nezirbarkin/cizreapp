@@ -1511,7 +1511,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             width: _selectedImageIndex == index ? 3 : 1,
                           ),
                           image: DecorationImage(
-                            image: NetworkImage(product.images[index]),
+                            // 80 px küçük resim: tam boy decode yerine küçültülmüş
+                            // ve disk önbellekli (eskiden her biri tam boy).
+                            image: ResizeImage(
+                              CachedNetworkImageProvider(product.images[index]),
+                              width: 240,
+                            ),
                             fit: BoxFit.cover,
                           ),
                         ),
@@ -1683,7 +1688,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 borderRadius: BorderRadius.circular(8),
                 image: _shop!.logoUrl != null
                     ? DecorationImage(
-                        image: NetworkImage(_shop!.logoUrl!),
+                        image: ResizeImage(
+                          CachedNetworkImageProvider(_shop!.logoUrl!),
+                          width: 150,
+                        ),
                         fit: BoxFit.cover,
                       )
                     : null,

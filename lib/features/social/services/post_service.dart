@@ -101,13 +101,26 @@ class PostService {
 
   // Kullanıcının gönderilerini getir
   // ✅ OPTİMİZE: posts_with_profiles view'ını kullanır (yazar bilgisi dahil)
-  Future<List<Post>> getUserPosts(String userId) async {
+  // Sayfalı: profil ızgarası ilk [limit] gönderiyle açılır, kaydırdıkça devamı
+  // gelir (eskiden tüm gönderiler + hepsinin beğeni durumu tek seferde).
+  static const int userPostsPageSize = 24;
+
+  Future<List<Post>> getUserPosts(
+    String userId, {
+    int limit = userPostsPageSize,
+    int offset = 0,
+  }) async {
     try {
       final response = await _supabase
           .from('posts_with_profiles')
           .select()
           .eq('user_id', userId)
-          .order('created_at', ascending: false);
+          // Profilde sabitlenen gönderi başta (eskiden yalnız tarihe göre
+          // sıralanıyordu, sabitleme yalnız bir rozet olarak kalıyordu).
+          .order('is_pinned', ascending: false, nullsFirst: false)
+          .order('created_at', ascending: false)
+          .order('id')
+          .range(offset, offset + limit - 1);
 
       return (response as List).map((json) => Post.fromJson(json)).toList();
     } catch (e) {
@@ -206,15 +219,21 @@ class PostService {
   }
 
   // Beğeni ekle
+  // Zaten beğenilmişse (iki cihaz, eski durum, çift dokunuş) sessizce başarılı
+  // sayılır: düz INSERT tekil kısıta çarpıp hata veriyor, ekran da kalbi geri
+  // söndürüyordu. ON CONFLICT DO NOTHING'de tetikleyici çalışmaz → sayaç ve
+  // bildirim de tekrarlanmaz.
   Future<void> likePost(String postId, String userId) async {
     try {
-      await _supabase.from('post_likes').insert({
-        'post_id': postId,
-        'user_id': userId,
-      });
+      await _supabase.from('post_likes').upsert(
+        {'post_id': postId, 'user_id': userId},
+        onConflict: 'post_id,user_id',
+        ignoreDuplicates: true,
+      );
 
       // NOT: Beğeni bildirimi SQL trigger tarafından otomatik gönderiliyor
-      // notify_post_like_trigger - duplicatesiz single notification
+      // (notify_post_like; aynı kişinin 24 saat içindeki tekrar beğenisi
+      // yeni bildirim üretmez — 20261023000001).
 
       unawaited(_analyticsService.trackPostLike(postId));
     } catch (e) {
@@ -373,7 +392,9 @@ class PostService {
             '*, profiles!post_comments_user_id_fkey(id, username, full_name, avatar_url)',
           )
           .eq('post_id', postId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          // Üst sınır: çok yorumlu gönderide ekran tüm geçmişi indirmesin.
+          .limit(300);
 
       return (response as List)
           .map((json) => PostComment.fromJson(json))
@@ -485,6 +506,31 @@ class PostService {
     }
   }
 
+  /// Gönderinin kayıt durumunu [saved] yapar; ikisi de tekrar edilebilir
+  /// (idempotent). Ekran bildiği durumun tersini ister: "önce oku, sonra
+  /// ekle/sil" yarışı (çift dokunuşta tekil kısıt hatası, ekranın "kaydedilmedi"
+  /// göstermesi) böylece oluşmaz.
+  Future<void> setPostSaved(String postId, bool saved) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('Kaydetmek için giriş yapmalısınız');
+    }
+
+    if (saved) {
+      await _supabase.from('post_favorites').upsert(
+        {'post_id': postId, 'user_id': userId},
+        onConflict: 'user_id,post_id',
+        ignoreDuplicates: true,
+      );
+    } else {
+      await _supabase
+          .from('post_favorites')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', userId);
+    }
+  }
+
   /// Gönderiyi kaydet / kaydı kaldır. Dönen değer: işlem sonrası kayıtlı mı.
   Future<bool> toggleSavePost(String postId) async {
     final userId = _supabase.auth.currentUser?.id;
@@ -499,20 +545,9 @@ class PostService {
         .eq('user_id', userId)
         .maybeSingle();
 
-    if (existing != null) {
-      await _supabase
-          .from('post_favorites')
-          .delete()
-          .eq('post_id', postId)
-          .eq('user_id', userId);
-      return false;
-    }
-
-    await _supabase.from('post_favorites').insert({
-      'post_id': postId,
-      'user_id': userId,
-    });
-    return true;
+    final saved = existing == null;
+    await setPostSaved(postId, saved);
+    return saved;
   }
 
   /// Eski sürümde SharedPreferences'ta tutulan yerel kayıtları bir kereliğine

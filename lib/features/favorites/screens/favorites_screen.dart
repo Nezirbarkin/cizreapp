@@ -262,14 +262,14 @@ class _PostFavoritesTabState extends State<_PostFavoritesTab> {
   }
 
   Future<void> _openPostDetail(Post post) async {
-    // PostDetailScreen yorum sayısı değiştiyse 'updated' ile döner
-    // (bkz. post_detail_screen.dart _commentsChanged); favori listesindeki
-    // önbelleklenmiş yorum sayacını tazelemek için listeyi yeniden yükleriz.
+    // PostDetailScreen bir şey değiştiyse PostDetailResult döner; favori
+    // listesindeki önbelleklenmiş sayaçları tazelemek için listeyi yeniden
+    // yükleriz.
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
     );
-    if (result == 'updated' && mounted) {
+    if (result is PostDetailResult && mounted) {
       context.read<FavoritesProvider>().loadPostFavorites();
     }
   }

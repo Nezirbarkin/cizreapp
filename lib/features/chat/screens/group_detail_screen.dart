@@ -44,35 +44,29 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
       final memberList = List<Map<String, dynamic>>.from(membersResponse);
 
-      // Her üyenin profil bilgisini al
-      for (var i = 0; i < memberList.length; i++) {
-        try {
-          final profile = await Supabase.instance.client
-              .from('profiles')
-              .select('full_name, avatar_url, username')
-              .eq('id', memberList[i]['user_id'])
-              .maybeSingle();
-          if (profile != null) {
-            memberList[i]['full_name'] = profile['full_name'];
-            memberList[i]['avatar_url'] = profile['avatar_url'];
-          }
-        } catch (_) {}
+      // Üyelerin ve kurucunun profilleri TEK sorguda (eskiden üye başına
+      // ayrı sorgu + kurucu için bir tane daha, hepsi sırayla).
+      final ids = <String>{
+        for (final m in memberList) m['user_id'] as String,
+        widget.group.createdBy,
+      };
+      Map<String, Map<String, dynamic>> profiles = const {};
+      try {
+        profiles = await GroupChatService().profilesById(ids);
+      } catch (_) {}
+      for (final member in memberList) {
+        final profile = profiles[member['user_id']];
+        if (profile != null) {
+          member['full_name'] = profile['full_name'];
+          member['avatar_url'] = profile['avatar_url'];
+        }
       }
 
       if (mounted) {
-        setState(() => _members = memberList);
-
-        // Grup kurucusunun profilini getir
-        try {
-          final creator = await Supabase.instance.client
-              .from('profiles')
-              .select('full_name, avatar_url, username')
-              .eq('id', widget.group.createdBy)
-              .maybeSingle();
-          if (mounted && creator != null) {
-            setState(() => _creatorProfile = creator);
-          }
-        } catch (_) {}
+        setState(() {
+          _members = memberList;
+          _creatorProfile = profiles[widget.group.createdBy];
+        });
       }
     } catch (e) {
       // Sessizce devam et
@@ -123,7 +117,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                       child: CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.white.withOpacity(0.2),
-                        backgroundImage: group.avatarUrl != null && group.avatarUrl!.isNotEmpty ? NetworkImage(group.avatarUrl!) : null,
+                        backgroundImage: avatarImage(group.avatarUrl),
                         child: group.avatarUrl == null || group.avatarUrl!.isEmpty
                             ? Icon(
                                 group.isPrivate ? Icons.lock : Icons.groups,

@@ -15,6 +15,7 @@ import '../../../core/utils/app_error_handler.dart';
 import '../models/post_image_format.dart';
 import '../services/post_service.dart';
 import '../services/post_report_service.dart';
+import '../services/social_share_service.dart';
 import 'post_likes_screen.dart';
 import '../../profile/services/profile_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
@@ -29,6 +30,35 @@ class PostDetailScreen extends StatefulWidget {
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
+}
+
+/// Detay ekranı kapanırken, ekranda bir şey değiştiyse döndürülür (değişmediyse
+/// `null`). Listeler yalnız bu gönderiyi yamar; eskiden yalnız yorum
+/// değişikliği 'updated' diye bildiriliyordu ve akış bunun için TÜM listeyi
+/// (iskelet + kaydırma kaybıyla) yeniden yüklüyor, detaydaki beğeni ise hiç
+/// yansımıyordu.
+class PostDetailResult {
+  final String postId;
+  final bool isLiked;
+  final int likesCount;
+  final int commentsCount;
+  final bool likeChanged;
+  final bool commentsChanged;
+
+  const PostDetailResult({
+    required this.postId,
+    required this.isLiked,
+    required this.likesCount,
+    required this.commentsCount,
+    required this.likeChanged,
+    required this.commentsChanged,
+  });
+
+  /// [post]'un sayaçlarını bu sonuca göre güncellenmiş kopyası.
+  Post applyTo(Post post) => post.copyWith(
+        likesCount: likesCount,
+        commentsCount: commentsCount,
+      );
 }
 
 /// Yorum listesindeki tek bir satır: ana yorum ya da bir yanıt.
@@ -112,6 +142,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final Stopwatch _viewStopwatch = Stopwatch();
   final _commentController = TextEditingController();
   List<PostComment> _comments = [];
+  // _comments her değiştiğinde artar; gruplanmış yorum satırları yalnız o
+  // zaman yeniden hesaplanır (eskiden beğeni dahil her setState'te).
+  int _commentsVersion = 0;
+  int _rowsVersion = -1;
+  List<_CommentRow> _rowsCache = const [];
+
+  List<_CommentRow> get _commentRows {
+    if (_rowsVersion != _commentsVersion) {
+      _rowsCache = _buildCommentRows(_comments);
+      _rowsVersion = _commentsVersion;
+    }
+    return _rowsCache;
+  }
   Map<String, Map<String, dynamic>> _userProfiles = {};
   Map<String, dynamic>? _currentUserProfile;
   bool _isLoading = true;
@@ -123,6 +166,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   int _commentsCount = 0;
   // Ekran kapanırken feed'in yenilenmesi gerekiyor mu?
   bool _commentsChanged = false;
+  // Beğeni bu ekranda değiştirildi mi (kapanışta listeye bildirilir)?
+  bool _likeChanged = false;
+  // Beğeni isteği sürerken ikinci dokunuş yok sayılır: art arda giden
+  // ekle/sil istekleri sırasız varıp kalbi sunucudan farklı bırakıyordu.
+  bool _likeInFlight = false;
   // Yorum girişinin üstünde "@X'e yanıt veriliyor" çubuğunu tetikler;
   // null ise yeni yorum ana yorum olarak eklenir.
   PostComment? _replyingTo;
@@ -157,6 +205,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         });
       }
     } else {
+      if (!mounted) return;
       setState(() {
         _likesCount = widget.post.likesCount;
       });
@@ -165,13 +214,17 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _toggleLike() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null || _likeInFlight) return;
+    _likeInFlight = true;
 
     final wasLiked = _isLiked;
-    
-    // Sadece liked durumunu güncelle
+    final previousCount = _likesCount;
+
+    // İyimser güncelleme: kalp ve sayı hemen değişir. Sayı sunucudan yeniden
+    // okunmaz (beğeni başına ek bir istek demekti); tetikleyici sayacı tutar.
     setState(() {
       _isLiked = !wasLiked;
+      _likesCount = (previousCount + (wasLiked ? -1 : 1)).clamp(0, 1 << 30);
     });
 
     try {
@@ -180,27 +233,48 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       } else {
         await _postService.likePost(widget.post.id, userId);
       }
-      
-      // Başarılıysa post'u yeniden yükle (count trigger'dan güncellenmiş olacak)
-      final updatedPost = await _postService.getPostById(widget.post.id);
-      if (updatedPost != null && mounted) {
-        setState(() {
-          _likesCount = updatedPost.likesCount;
-        });
-      }
+      _likeChanged = true;
     } catch (e) {
-      // Hata olursa liked durumunu geri al
+      // Hata olursa geri al
       if (!mounted) return;
       setState(() {
         _isLiked = wasLiked;
+        _likesCount = previousCount;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppErrorHandler.handleError(e))),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppErrorHandler.handleError(e))),
+      );
+    } finally {
+      _likeInFlight = false;
     }
   }
+
+  /// Metin + gönderi linkiyle dışa paylaşım (paylaşıldıysa sayaç artar).
+  Future<void> _sharePost() async {
+    final post = widget.post;
+    final name = (post.authorFullName?.trim().isNotEmpty ?? false)
+        ? post.authorFullName!.trim()
+        : (post.authorUsername ?? 'Kullanıcı');
+    try {
+      await SocialShareService().sharePost(post, authorName: name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paylaşım yapılamadı')),
+      );
+    }
+  }
+
+  PostDetailResult? get _result => (_likeChanged || _commentsChanged)
+      ? PostDetailResult(
+          postId: widget.post.id,
+          isLiked: _isLiked,
+          likesCount: _likesCount,
+          commentsCount: _commentsCount,
+          likeChanged: _likeChanged,
+          commentsChanged: _commentsChanged,
+        )
+      : null;
 
   Future<void> _trackPostView() async {
     // Post görüntülemesini kaydet
@@ -411,27 +485,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       // Yorumlar yazar profilleriyle birlikte TEK sorguda geliyor.
       // Eskiden her yorum için ayrı getUserProfile çağrılıyordu (N+1) ve
       // 20 yorumlu bir gönderide 20 ek istek atılıyordu.
-      final comments = await _postService.getComments(widget.post.id);
-
-      // Gönderi sahibinin profili (başlık için) ayrı yükleniyor.
-      final profiles = <String, Map<String, dynamic>>{};
-      try {
-        profiles[widget.post.userId] =
-            await _profileService.getUserProfile(widget.post.userId);
-      } catch (e) {
-        // Silinmiş kullanıcı / profili olmayan yazar
-        profiles[widget.post.userId] = {
-          'id': widget.post.userId,
-          'username': 'silinmis_kullanici',
-          'full_name': 'Silinmiş Kullanıcı',
-          'avatar_url': null,
-          'bio': null,
-        };
+      //
+      // Başlıktaki yazar bilgisi gönderinin kendisinde (posts_with_profiles)
+      // geliyor; ayrı profil isteği yalnız o alanlar eksikse atılır ve
+      // yorumlarla AYNI ANDA (eskiden yorumlardan sonra sırayla bekleniyordu).
+      final post = widget.post;
+      final needsAuthor = post.authorProfileExists &&
+          (post.authorUsername?.trim().isEmpty ?? true) &&
+          (post.authorFullName?.trim().isEmpty ?? true);
+      Future<Map<String, dynamic>> loadAuthor() async {
+        try {
+          return await _profileService.getUserProfile(post.userId);
+        } catch (e) {
+          // Silinmiş kullanıcı / profili olmayan yazar
+          return {
+            'id': post.userId,
+            'username': 'silinmis_kullanici',
+            'full_name': 'Silinmiş Kullanıcı',
+            'avatar_url': null,
+            'bio': null,
+          };
+        }
       }
+
+      final authorLoad = needsAuthor ? loadAuthor() : null;
+      final comments = await _postService.getComments(post.id);
+      final profiles = <String, Map<String, dynamic>>{
+        if (authorLoad != null) post.userId: await authorLoad,
+      };
 
       if (!mounted) return;
       setState(() {
         _comments = comments;
+        _commentsVersion++;
         _commentsCount = comments.length;
         _userProfiles = profiles;
         _isLoading = false;
@@ -491,6 +577,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (removed.isEmpty) return;
     setState(() {
       _comments.removeWhere((c) => toRemove.contains(c.id));
+      _commentsVersion++;
       _commentsCount = (_commentsCount - removed.length).clamp(0, 1 << 30);
       if (_replyingTo != null && toRemove.contains(_replyingTo!.id)) {
         _replyingTo = null;
@@ -508,6 +595,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       if (!mounted) return;
       setState(() {
         _comments.addAll(removed);
+        _commentsVersion++;
         _commentsCount += removed.length;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -551,6 +639,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         // yeniden hesaplandığı için ekleme konumu (0. index) önemli değil.
         setState(() {
           _comments.insert(0, comment);
+          _commentsVersion++;
           _commentsCount += 1;
           _replyingTo = null;
         });
@@ -588,13 +677,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Yorum eklendi/silindiyse geri dönerken feed'e "yenile" sinyali gönder;
-    // aksi halde ana akıştaki yorum sayacı eski değerde kalıyordu.
+    // Beğeni ya da yorum değiştiyse geri dönerken listeye yeni sayaçları
+    // ver (PostDetailResult); liste yalnız bu gönderiyi yamar.
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        Navigator.pop(context, _commentsChanged ? 'updated' : null);
+        Navigator.pop(context, _result);
       },
       child: _buildScaffold(context),
     );
@@ -913,12 +1002,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         IconButton(
-                          icon: Icon(Icons.flag_outlined, color: Colors.orange.shade400, size: 26),
-                          onPressed: () => _showReportDialog(),
-                          tooltip: 'Şikayet Et',
+                          icon: Icon(Icons.ios_share_outlined, color: Colors.grey.shade700, size: 24),
+                          onPressed: _sharePost,
+                          tooltip: 'Paylaş',
                         ),
+                        const Spacer(),
+                        // Kendi gönderini şikâyet etme seçeneği yok (akıştaki
+                        // menüde de gizli).
+                        if (widget.post.userId !=
+                            Supabase.instance.client.auth.currentUser?.id)
+                          IconButton(
+                            icon: Icon(Icons.flag_outlined, color: Colors.orange.shade400, size: 26),
+                            onPressed: () => _showReportDialog(),
+                            tooltip: 'Şikayet Et',
+                          ),
                       ],
                     ),
                   ),
@@ -961,7 +1060,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       // Düz _comments listesi burada ana yorum + altındaki
                       // yanıtlar şeklinde gruplu bir satır listesine
                       // dönüştürülüyor (bkz. _buildCommentRows).
-                      final rows = _buildCommentRows(_comments);
+                      final rows = _commentRows;
                       return ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -1118,9 +1217,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 children: [
                   CircleAvatar(
                     radius: 16,
-                    backgroundImage: _currentUserProfile?['avatar_url'] != null
-                        ? NetworkImage(_currentUserProfile!['avatar_url'])
-                        : null,
+                    backgroundImage: avatarImage(
+                      _currentUserProfile?['avatar_url'] as String?,
+                    ),
                     child: _currentUserProfile?['avatar_url'] == null
                         ? Text(
                             (_currentUserProfile?['username']?.length ?? 0) >= 2

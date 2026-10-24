@@ -1,9 +1,90 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/utils/image_compression_helper.dart';
 
+/// Profil sayaçları (get_follow_counts RPC'si).
+class FollowCounts {
+  final int followers;
+  final int following;
+  final int friends;
+  final int posts;
+
+  const FollowCounts({
+    this.followers = 0,
+    this.following = 0,
+    this.friends = 0,
+    this.posts = 0,
+  });
+
+  factory FollowCounts.fromJson(Map<String, dynamic> json) {
+    int read(String key) {
+      final v = json[key];
+      return v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+    }
+
+    return FollowCounts(
+      followers: read('followers'),
+      following: read('following'),
+      friends: read('friends'),
+      posts: read('posts'),
+    );
+  }
+}
+
+/// Ortak takipçiler (get_mutual_followers RPC'si): toplam sayı + ilk birkaç kişi.
+class MutualFollowers {
+  final int count;
+  final List<Map<String, dynamic>> users;
+
+  const MutualFollowers({this.count = 0, this.users = const []});
+
+  factory MutualFollowers.fromJson(Map<String, dynamic> json) {
+    final raw = json['count'];
+    final list = json['users'];
+    return MutualFollowers(
+      count: raw is num ? raw.toInt() : int.tryParse('$raw') ?? 0,
+      users: list is List
+          ? [
+              for (final u in list)
+                if (u is Map) Map<String, dynamic>.from(u),
+            ]
+          : const [],
+    );
+  }
+
+  /// Kişinin görünen adı: kullanıcı adı (kısa; satırda yer kaplamasın).
+  static String nameOf(Map<String, dynamic> user) {
+    final username = user['username']?.toString().trim() ?? '';
+    if (username.isNotEmpty) return username;
+    return user['full_name']?.toString().trim() ?? 'kullanıcı';
+  }
+
+  /// "ali takip ediyor" / "ali ve veli takip ediyor" /
+  /// "ali, veli ve 3 kişi daha takip ediyor".
+  String get summary {
+    if (count <= 0 || users.isEmpty) return '';
+    final names = users.take(2).map(nameOf).toList();
+    final rest = count - names.length;
+    if (rest <= 0) {
+      return names.length == 1
+          ? '${names[0]} takip ediyor'
+          : '${names[0]} ve ${names[1]} takip ediyor';
+    }
+    return '${names.join(', ')} ve $rest kişi daha takip ediyor';
+  }
+}
+
 class ProfileService {
+  /// Bu oturumda engellenen kullanıcıların kimlikleri yayınlanır. Açık
+  /// listeler (Keşfet akışı, hikâye şeridi) o kişinin ekrandaki eski
+  /// içeriğini elle yenilemeyi beklemeden çıkarır; sunucu zaten süzüyor.
+  static final StreamController<String> _blockedController =
+      StreamController<String>.broadcast();
+  static Stream<String> get onUserBlocked => _blockedController.stream;
+
   /// Supabase client'ı güvenli şekilde al (lazy) - class-level initializer yerine
   SupabaseClient get _supabase {
     try {
@@ -193,10 +274,16 @@ class ProfileService {
     try {
       if (query.trim().isEmpty) return [];
 
+      // Değer çift tırnakla sarılır: virgül/parantez/nokta içeren arama
+      // (ör. "ali, veli") PostgREST mantık ağacını bozup boş dönüyordu.
+      final safe = query
+          .trim()
+          .replaceAll(r'\', r'\\')
+          .replaceAll('"', r'\"');
       final response = await _supabase
           .from('public_profiles_safe')
           .select('id, username, full_name, avatar_url, bio')
-          .or('username.ilike.%$query%,full_name.ilike.%$query%')
+          .or('username.ilike."%$safe%",full_name.ilike."%$safe%"')
           .limit(20);
 
       return List<Map<String, dynamic>>.from(response);
@@ -271,41 +358,60 @@ class ProfileService {
     }
   }
 
-  // Kullanıcıyı engelle
-  Future<bool> blockUser(String blockedUserId) async {
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return false;
-
-      // Zaten engellenmiş mi kontrol et
-      final existing = await _supabase
-          .from('blocked_users')
-          .select('id')
-          .eq('blocker_id', currentUserId)
-          .eq('blocked_id', blockedUserId)
-          .maybeSingle();
-
-      if (existing != null) {
-        // Zaten engellenmiş, engeli kaldır
-        await _supabase
-            .from('blocked_users')
-            .delete()
-            .eq('blocker_id', currentUserId)
-            .eq('blocked_id', blockedUserId);
-        return false;
-      }
-
-      // Engelle
-      await _supabase.from('blocked_users').insert({
-        'blocker_id': currentUserId,
-        'blocked_id': blockedUserId,
-      });
-
-      return true;
-    } catch (e) {
-      debugPrint('Engelleme işlemi başarısız: $e');
-      return false;
+  // Kullanıcıyı engelle / engeli kaldır. Eskiden tek bir "toggle" vardı ve
+  // hata durumunda false dönüyordu; ekran bunu "engel kaldırıldı" diye
+  // gösteriyordu (ağ hatası = sahte engel kaldırma). Artık niyet açık,
+  // ikisi de tekrar edilebilir ve hata fırlatır.
+  //
+  // Engellemede iki yöndeki takip ve takip istekleri sunucuda silinir
+  // (social_cleanup_follows_on_block, 20261023000001).
+  Future<void> block(String blockedUserId) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) {
+      throw Exception('Engellemek için giriş yapmalısınız');
     }
+    await _supabase.from('blocked_users').upsert(
+      {'blocker_id': currentUserId, 'blocked_id': blockedUserId},
+      onConflict: 'blocker_id,blocked_id',
+      ignoreDuplicates: true,
+    );
+    _blockedController.add(blockedUserId);
+  }
+
+  Future<void> unblock(String blockedUserId) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+    await _supabase
+        .from('blocked_users')
+        .delete()
+        .eq('blocker_id', currentUserId)
+        .eq('blocked_id', blockedUserId);
+  }
+
+  /// "X, Y ve N kişi daha takip ediyor": benim takip ettiklerimden [targetId]'yi
+  /// takip edenler (engelli/hayalet/silinmiş hariç). Misafirde boş.
+  Future<MutualFollowers> getMutualFollowers(
+    String targetId, {
+    int limit = 3,
+  }) async {
+    if (_supabase.auth.currentUser == null) return const MutualFollowers();
+    final data = await _supabase.rpc(
+      'get_mutual_followers',
+      params: {'p_target': targetId, 'p_limit': limit},
+    );
+    if (data is! Map) return const MutualFollowers();
+    return MutualFollowers.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// Takipçi / takip / arkadaş / gönderi sayıları tek istekte. Eskiden tüm
+  /// takip satırları indirilip telefonda sayılıyordu (1000 satır tavanı).
+  Future<FollowCounts> getFollowCounts(String userId) async {
+    final data = await _supabase.rpc(
+      'get_follow_counts',
+      params: {'p_user_id': userId},
+    );
+    if (data is! Map) return const FollowCounts();
+    return FollowCounts.fromJson(Map<String, dynamic>.from(data));
   }
 
   // Kullanıcının engelli olup olmadığını kontrol et

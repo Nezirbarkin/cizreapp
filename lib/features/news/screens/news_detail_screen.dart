@@ -46,25 +46,32 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
     _recordView();
   }
 
+  /// Haber içeriği video beklemeden gösterilir; video arka planda hazırlanıp
+  /// hazır olunca yerine oturur. Eskiden ekran video açılana dek yükleniyor
+  /// görünüyordu ve bu sırada çıkılırsa denetleyici (yerel çözücü) hiç
+  /// kapatılmıyordu.
   Future<void> _loadNewsMedia() async {
     final news = await _newsService.getNewsById(widget.news.id);
     if (!mounted) return;
-    if (news != null) {
-      _updatedNews = news;
-      if (news.videoUrl != null && news.videoUrl!.isNotEmpty) {
-        final controller = VideoPlayerController.networkUrl(
-          Uri.parse(news.videoUrl!),
-        );
-        try {
-          await controller.initialize();
-          await controller.setLooping(false);
-          if (mounted) _videoController = controller;
-        } catch (_) {
-          await controller.dispose();
-        }
+    setState(() {
+      if (news != null) _updatedNews = news;
+      _isLoadingNews = false;
+    });
+
+    final url = news?.videoUrl;
+    if (url == null || url.isEmpty) return;
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+    try {
+      await controller.initialize();
+      await controller.setLooping(false);
+      if (!mounted) {
+        await controller.dispose();
+        return;
       }
+      setState(() => _videoController = controller);
+    } catch (_) {
+      await controller.dispose();
     }
-    if (mounted) setState(() => _isLoadingNews = false);
   }
 
   @override

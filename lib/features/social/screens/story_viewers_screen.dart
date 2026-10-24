@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/image_url.dart';
 import '../services/story_service.dart';
 import '../../profile/screens/user_profile_screen.dart';
 
@@ -155,9 +156,7 @@ class _StoryViewersScreenState extends State<StoryViewersScreen> {
                             ),
                             leading: CircleAvatar(
                               radius: 24,
-                              backgroundImage: avatarUrl != null
-                                  ? NetworkImage(avatarUrl)
-                                  : null,
+                              backgroundImage: avatarImage(avatarUrl),
                               backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                               child: avatarUrl == null
                                   ? Text(

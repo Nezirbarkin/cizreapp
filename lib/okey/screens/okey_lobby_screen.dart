@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -589,6 +590,8 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
     giftSubtitle: points.canClaimGift
         ? '${points.wallet.hourlyGiftPoints} çip hazır'
         : points.giftCountdownText,
+    // Hazır değilken metin her saniye değişir: yalnız o yazı dinler.
+    giftLive: points.canClaimGift ? null : points.giftCountdownListenable,
     giftEnabled: points.canClaimGift && !points.isBusy,
     giftBusy: points.isBusy,
     onGift: points.claimHourlyGift,
@@ -609,6 +612,7 @@ class _OkeyLobbyViewState extends State<_OkeyLobbyView> {
           color: OkeyUI.giftColor,
           title: 'Saatlik hediye',
           subtitle: e.giftSubtitle,
+          liveSubtitle: e.giftLive,
           enabled: e.giftEnabled,
           busy: e.giftBusy,
           onTap: e.onGift,
@@ -1064,6 +1068,8 @@ class _LobbyState {
 /// Kazanç kartlarının verisi — düzenler aynı veriyi farklı biçimde çizer.
 class _EarnData {
   final String giftSubtitle;
+  // Geri sayım akarken [giftSubtitle] yerine bu dinlenir.
+  final ValueListenable<String>? giftLive;
   final bool giftEnabled;
   final bool giftBusy;
   final VoidCallback onGift;
@@ -1074,6 +1080,7 @@ class _EarnData {
 
   const _EarnData({
     required this.giftSubtitle,
+    this.giftLive,
     required this.giftEnabled,
     required this.giftBusy,
     required this.onGift,
@@ -1958,6 +1965,7 @@ class _EarnStrip extends StatelessWidget {
     required Color color,
     required String title,
     required String subtitle,
+    ValueListenable<String>? liveSubtitle,
     required bool enabled,
     required bool busy,
     required VoidCallback onTap,
@@ -1989,10 +1997,9 @@ class _EarnStrip extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: OkeyUI.title.copyWith(fontSize: 12),
                     ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    _LiveSubtitle(
+                      text: subtitle,
+                      live: liveSubtitle,
                       style: OkeyUI.caption.copyWith(
                         color: enabled ? OkeyUI.chipText : OkeyUI.textDim,
                         fontWeight: enabled ? FontWeight.w800 : FontWeight.w500,
@@ -2025,6 +2032,7 @@ class _EarnStrip extends StatelessWidget {
                   color: OkeyUI.giftColor,
                   title: 'Saatlik hediye',
                   subtitle: data.giftSubtitle,
+                  liveSubtitle: data.giftLive,
                   enabled: data.giftEnabled,
                   busy: data.giftBusy,
                   onTap: data.onGift,
@@ -2417,11 +2425,38 @@ class _TableCard extends StatelessWidget {
 /// Kart hazır olmadığında GİZLENMEZ, sönükleşir ve ne zaman hazır olacağını
 /// yazar: kaybolan bir düğme, bir daha ne zaman geleceğini söylemez. Hazır
 /// kart vurgulu çerçeveyle öne çıkar.
+/// Tek satır alt yazı; [live] verilirse yalnız bu yazı onu dinleyip yeniden
+/// çizilir (hediye geri sayımı), kart ve lobi değil.
+class _LiveSubtitle extends StatelessWidget {
+  final String text;
+  final ValueListenable<String>? live;
+  final TextStyle style;
+
+  const _LiveSubtitle({required this.text, required this.live, required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget build(String value) => Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: style,
+        );
+    final listenable = live;
+    if (listenable == null) return build(text);
+    return ValueListenableBuilder<String>(
+      valueListenable: listenable,
+      builder: (context, value, _) => build(value),
+    );
+  }
+}
+
 class _EarnCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String title;
   final String subtitle;
+  final ValueListenable<String>? liveSubtitle;
   final bool enabled;
   final bool busy;
   final VoidCallback onTap;
@@ -2431,6 +2466,7 @@ class _EarnCard extends StatelessWidget {
     required this.color,
     required this.title,
     required this.subtitle,
+    this.liveSubtitle,
     required this.enabled,
     required this.busy,
     required this.onTap,
@@ -2473,10 +2509,9 @@ class _EarnCard extends StatelessWidget {
                   style: OkeyUI.title.copyWith(fontSize: 12.5),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                _LiveSubtitle(
+                  text: subtitle,
+                  live: liveSubtitle,
                   style: OkeyUI.caption.copyWith(
                     color: enabled ? OkeyUI.chipText : OkeyUI.textDim,
                     fontWeight: enabled ? FontWeight.w700 : FontWeight.w500,

@@ -9,12 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeScheduledService extends ScheduledOrderService {
-  _FakeScheduledService(this.items);
+  _FakeScheduledService(this.items, {this.full = const {}});
 
   final List<DateTime> items;
+  final Set<DateTime> full;
 
   @override
   Future<List<DateTime>> slots(String shopId) async => items;
+
+  @override
+  Future<Set<DateTime>> fullSlots(String shopId) async => full;
 
   @override
   Future<bool> globallyEnabled({bool forceRefresh = false}) async => true;
@@ -174,6 +178,46 @@ void main() {
       expect(picked, _trUtc(23, 9));
     });
 
+    testWidgets('dolu saat "Dolu" yazar ve seçilemez', (t) async {
+      DateTime? picked;
+      final slots = [_trUtc(22, 14), _trUtc(22, 15)];
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  picked = await showModalBottomSheet<DateTime>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => ScheduledSlotPickerSheet(
+                      shopId: 's1',
+                      service: _FakeScheduledService(slots, full: {_trUtc(22, 14)}),
+                      now: _now,
+                    ),
+                  );
+                },
+                child: const Text('aç'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('aç'));
+      await t.pumpAndSettle();
+
+      expect(find.text('14:00 · Dolu'), findsOneWidget);
+      await t.tap(find.text('14:00 · Dolu'));
+      await t.pumpAndSettle();
+      expect(find.text('Saat seçin'), findsOneWidget, reason: 'dolu saat seçilmemeli');
+
+      await t.tap(find.text('15:00'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Bugün 15:00 — Onayla'));
+      await t.pumpAndSettle();
+      expect(picked, _trUtc(22, 15));
+    });
+
     testWidgets('uygun saat yoksa bilgi verir', (t) async {
       await openPicker(t, const []);
       expect(find.text('Bu dükkan için şu an uygun randevu saati yok.'), findsOneWidget);
@@ -229,6 +273,7 @@ void main() {
                 required int slotMinutes,
                 required int maxDays,
                 required int minLeadMinutes,
+                required int? slotCapacity,
               }) async {},
             ),
           ),
@@ -257,12 +302,14 @@ void main() {
                 required int slotMinutes,
                 required int maxDays,
                 required int minLeadMinutes,
+                required int? slotCapacity,
               }) async {
                 saved = {
                   'enabled': enabled,
                   'slot': slotMinutes,
                   'days': maxDays,
                   'lead': minLeadMinutes,
+                  'capacity': slotCapacity ?? 'sınırsız',
                 };
               },
             ),
@@ -275,7 +322,51 @@ void main() {
       expect(find.text('Saat aralığı'), findsOneWidget);
       await t.tap(find.text('Randevu Ayarlarını Kaydet'));
       await t.pumpAndSettle();
-      expect(saved, {'enabled': true, 'slot': 30, 'days': 3, 'lead': 60});
+      expect(saved, {
+        'enabled': true,
+        'slot': 30,
+        'days': 3,
+        'lead': 60,
+        'capacity': 'sınırsız',
+      });
+    });
+
+    testWidgets('saat başına sınır seçilip kaydedilir; listede olmayan değer korunur', (t) async {
+      int? savedCapacity = -1;
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SellerScheduledOrdersSection(
+              shopData: const {
+                'id': 's1',
+                'scheduled_orders_enabled': true,
+                'scheduled_slot_capacity': 4, // seçeneklerde yok
+              },
+              globalEnabledLoader: () async => true,
+              onSave: ({
+                required bool enabled,
+                required int slotMinutes,
+                required int maxDays,
+                required int minLeadMinutes,
+                required int? slotCapacity,
+              }) async {
+                savedCapacity = slotCapacity;
+              },
+            ),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('4 sipariş'), findsOneWidget);
+
+      await t.tap(find.text('4 sipariş'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('10 sipariş').last);
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Randevu Ayarlarını Kaydet'));
+      await t.tap(find.text('Randevu Ayarlarını Kaydet'));
+      await t.pumpAndSettle();
+      expect(savedCapacity, 10);
     });
   });
 }

@@ -1,4 +1,13 @@
 import '../../features/music/models/attached_music.dart';
+
+/// Sunucu zaman damgası. Boş/bozuk gelirse [fallback] (yoksa şimdiki an) —
+/// tek bir eksik alan, satırın bulunduğu bütün listenin (akış, yorumlar,
+/// hikâye şeridi) ayrıştırmasını düşürmesin. Görünümde ve eski satırlarda
+/// `updated_at` gibi alanlar null olabiliyor.
+DateTime _parseTimestamp(Object? raw, {DateTime? fallback}) {
+  final parsed = raw is String ? DateTime.tryParse(raw) : null;
+  return parsed ?? fallback ?? DateTime.now().toUtc();
+}
 // Yazar rolü enum'u (profiles.role ile uyumlu)
 enum AuthorRole {
   customer,
@@ -297,8 +306,11 @@ class Post {
       authorIsVerified: isVerified,
       authorRole: role,
       authorProfileExists: profileExists,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: _parseTimestamp(json['created_at']),
+      updatedAt: _parseTimestamp(
+        json['updated_at'],
+        fallback: _parseTimestamp(json['created_at']),
+      ),
     );
   }
 }
@@ -369,12 +381,14 @@ class PostComment {
 
     return PostComment(
       id: json['id'] as String,
-      postId: json['post_id'] as String,
-      userId: json['user_id'] as String,
-      content: json['content'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(
-        (json['updated_at'] ?? json['created_at']) as String,
+      postId: json['post_id'] as String? ?? '',
+      // Hesabı silinmiş yazarın yorumu: user_id NULL gelebilir.
+      userId: json['user_id'] as String? ?? '',
+      content: json['content'] as String? ?? '',
+      createdAt: _parseTimestamp(json['created_at']),
+      updatedAt: _parseTimestamp(
+        json['updated_at'],
+        fallback: _parseTimestamp(json['created_at']),
       ),
       authorUsername:
           (json['author_username'] ?? profileMap['username']) as String?,
@@ -552,7 +566,7 @@ class Story {
     final Map<dynamic, dynamic> author = nested is Map ? nested : const {};
     return Story(
       id: json['id'] as String,
-      userId: json['user_id'] as String,
+      userId: json['user_id'] as String? ?? '',
       // Metin hikayelerinde image_url NULL gelir.
       imageUrl: json['image_url'] as String? ?? '',
       thumbnailUrl: json['thumbnail_url'] as String?,
@@ -562,8 +576,12 @@ class Story {
       music: AttachedMusic.fromJson(json['music']),
       viewsCount: json['views_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      expiresAt: DateTime.parse(json['expires_at'] as String),
+      createdAt: _parseTimestamp(json['created_at']),
+      expiresAt: _parseTimestamp(
+        json['expires_at'],
+        fallback: _parseTimestamp(json['created_at'])
+            .add(const Duration(hours: 24)),
+      ),
       isViewedByCurrentUser: json['is_viewed_by_current_user'] as bool? ?? false,
       isLikedByCurrentUser: json['is_liked_by_current_user'] as bool? ?? false,
       myReaction: json['my_reaction'] as String?,
@@ -605,7 +623,7 @@ class StoryView {
       id: json['id'] as String,
       storyId: json['story_id'] as String,
       viewerId: json['viewer_id'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: _parseTimestamp(json['created_at']),
     );
   }
 }

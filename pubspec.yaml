@@ -105,6 +105,8 @@ dependencies:
   # ============ DEEP LINKING ============
   app_links: ^6.4.1
   share_plus: ^12.0.2
+  # Profil paylaşım sayfasındaki QR kod (saf Dart; yerel eklenti yok)
+  qr_flutter: ^4.1.0
 
   # ============ ADS (Ödüllü Reklam - Bakiye Kazanma) ============
   google_mobile_ads: ^5.3.1

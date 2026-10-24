@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/utils/app_error_handler.dart';
 import '../services/profile_service.dart';
 import '../../../core/providers/theme_provider.dart';
 import 'user_profile_screen.dart';
@@ -27,13 +28,14 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
     setState(() => _isLoading = true);
     try {
       final users = await _profileService.getBlockedUsers();
+      if (!mounted) return;
       setState(() {
         _blockedUsers = users;
         _isLoading = false;
       });
     } catch (e) {
       debugPrint('Engellenen kullanıcılar yüklenemedi: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -59,7 +61,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
 
     if (confirm == true) {
       try {
-        await _profileService.blockUser(userId); // Toggle - engeli kaldır
+        await _profileService.unblock(userId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('@$username engeli kaldırıldı')),
@@ -69,7 +71,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Hata: $e')),
+            SnackBar(content: Text(AppErrorHandler.handleError(e))),
           );
         }
       }

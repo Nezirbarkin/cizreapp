@@ -78,15 +78,25 @@ class CartService {
     }
 
     try {
-      // Stok kontrolü - üründeki mevcut stok miktarını al
-      final productResponse = await _supabase
-          .from('products')
-          .select(
-            'stock_quantity, is_available, product_type, stock_unlimited, '
-            'max_order_quantity',
-          )
-          .eq('id', productId)
-          .single();
+      // Ürünün stok/satış bilgisi ile kullanıcının bu üründeki sepet
+      // satırları birbirinden bağımsız: aynı anda istenir (eskiden sırayla).
+      final (productResponse, cartRows) = await (
+        _supabase
+            .from('products')
+            .select(
+              'stock_quantity, is_available, product_type, stock_unlimited, '
+              'max_order_quantity',
+            )
+            .eq('id', productId)
+            .single(),
+        // Varyant + flash_sale_id: mevcut satırın flaş olup olmadığını bilmek
+        // için (yeni ekleme flaş ise ve satır flaş değilse ayrı satır olur).
+        _supabase
+            .from('cart')
+            .select('id, quantity, variant_data, flash_sale_id, flash_price')
+            .eq('user_id', userId)
+            .eq('product_id', productId),
+      ).wait;
 
       final isAvailable = productResponse['is_available'] as bool? ?? true;
       final stockQuantity = (productResponse['stock_quantity'] as num?)?.toInt();
@@ -112,14 +122,7 @@ class CartService {
       }
 
       // Varyantlı ürünler için varyant bazlı kontrol yap
-      // Aynı zamanda flash_sale_id'yi de seç ki mevcut satırın flaş olup
-      // olmadığını bilelim (yeni ekleme flaş ise ve mevcut satır flaş
-      // değilse, ayrı bir cart satırı olarak eklenmeli).
-      final response = await _supabase
-          .from('cart')
-          .select('id, quantity, variant_data, flash_sale_id, flash_price')
-          .eq('user_id', userId)
-          .eq('product_id', productId);
+      final response = cartRows;
 
       CartItem? existingItem;
       if (variantData != null && variantData.isNotEmpty) {
@@ -154,14 +157,14 @@ class CartService {
         if (stockQuantity != null && newQuantity > stockQuantity) {
           throw FriendlyException('Stokta yeterli ürün yok (kalan: $stockQuantity)');
         }
-        await _supabase
+        // Güncelle ve güncel satırı aynı istekte geri al (eskiden ayrı okuma).
+        final updated = await _supabase
             .from('cart')
             .update({'quantity': newQuantity})
-            .eq('id', existingItem.id);
-
-        // Güncellenmiş sepet öğesini getir
-        final updated = await _getCartItemById(existingItem.id);
-        return updated;
+            .eq('id', existingItem.id)
+            .select(_cartSelectColumns)
+            .single();
+        return _mapToCartItem(updated);
       }
 
       if (maxPerOrder != null && quantity > maxPerOrder) {
@@ -265,6 +268,16 @@ class CartService {
   Future<void> removeFromCart(String cartItemId) async {
     try {
       await _supabase.from('cart').delete().eq('id', cartItemId);
+    } catch (e) {
+      throw Exception('Sepetten silinirken hata: $e');
+    }
+  }
+
+  /// Birden çok sepet satırını tek istekte siler.
+  Future<void> removeManyFromCart(List<String> cartItemIds) async {
+    if (cartItemIds.isEmpty) return;
+    try {
+      await _supabase.from('cart').delete().inFilter('id', cartItemIds);
     } catch (e) {
       throw Exception('Sepetten silinirken hata: $e');
     }

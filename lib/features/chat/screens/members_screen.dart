@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/privacy_service.dart';
@@ -44,7 +45,9 @@ class _MembersScreenState extends State<MembersScreen> {
     _loadUsers();
     _onlineSub = PresenceService.instance.onlineUsersStream.listen((ids) {
       if (!mounted) return;
-      setState(() => _onlineIds = ids.toSet());
+      final next = ids.toSet();
+      if (setEquals(next, _onlineIds)) return;
+      setState(() => _onlineIds = next);
     }, onError: (e) {
       debugPrint('members online presence stream error: $e');
     });
