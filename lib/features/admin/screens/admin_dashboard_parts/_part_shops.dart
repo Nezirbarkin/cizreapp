@@ -712,6 +712,8 @@ extension on _AdminDashboardScreenState {
                 'Bilinmeyen')
             .toString();
     final ownerEmail = (shop['profiles']?['email'] ?? '').toString();
+    // Satıcı telefonu shops.phone'da (profil telefonu yalnız yedek).
+    final contactPhone = AdminShopContact.fromShop(shop).phone;
     final commission = (shop['commission_rate'] as num?)?.toDouble() ?? 10.0;
     final productCount = shop['product_count'] ?? 0;
     final totalEarnings = (shop['total_earnings'] as num?)?.toDouble() ?? 0.0;
@@ -826,6 +828,11 @@ extension on _AdminDashboardScreenState {
                                     ownerEmail,
                                   ),
                                 ],
+                                const SizedBox(height: 2),
+                                _shopMetaLine(
+                                  Icons.phone_outlined,
+                                  contactPhone ?? 'Telefon girilmemiş',
+                                ),
                                 // Görev 4.5: ana kategori (kilitliyse kilit ikonu)
                                 const SizedBox(height: 2),
                                 _shopMetaLine(
@@ -2536,31 +2543,20 @@ extension on _AdminDashboardScreenState {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Sahip Bilgisi
+                // Satıcı bilgileri: sahip + dükkanın telefon/adres/konum/IBAN
+                // alanları (admin_shops_page satırından).
                 const Text(
-                  'Dükkan Sahibi',
+                  'Satıcı Bilgileri',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 Card(
                   color: Colors.grey.shade50,
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        _buildInfoRow(
-                          'İsim',
-                          shop['profiles']?['full_name'] ??
-                              shop['profiles']?['username'] ??
-                              '-',
-                          Colors.grey.shade700,
-                        ),
-                        _buildInfoRow(
-                          'Email',
-                          shop['profiles']?['email'] ?? '-',
-                          Colors.grey.shade700,
-                        ),
-                      ],
+                    padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                    child: AdminShopContactRows(
+                      contact: AdminShopContact.fromShop(shop),
+                      labelWidth: 84,
                     ),
                   ),
                 ),

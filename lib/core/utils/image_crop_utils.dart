@@ -66,6 +66,59 @@ Future<Size?> readImageSize(Uint8List bytes) async {
   }
 }
 
+/// [image]'i önce yatayda aynalayıp ([mirrored]) sonra [quarterTurns] kez
+/// saat yönünün TERSİNE 90° döndürerek yeni bir görsel üretir.
+///
+/// Dönüşüm matrisi tam sayıdır (0/±1): pikseller birebir taşınır, süzme
+/// bulanıklığı olmaz. Dönen görselin sahibi çağırandır (dispose etmeli).
+Future<ui.Image> renderOrientedImage(
+  ui.Image image, {
+  int quarterTurns = 0,
+  bool mirrored = false,
+}) async {
+  final turns = quarterTurns % 4;
+  final w = image.width.toDouble();
+  final h = image.height.toDouble();
+  final outWidth = turns.isOdd ? image.height : image.width;
+  final outHeight = turns.isOdd ? image.width : image.height;
+
+  // x' = a·x + b·y, y' = c·x + d·y
+  var a = mirrored ? -1.0 : 1.0;
+  var b = 0.0;
+  var c = 0.0;
+  var d = 1.0;
+  for (var i = 0; i < turns; i++) {
+    // Ekranda (y aşağı) saat yönünün tersine 90°: (x, y) → (y, −x).
+    final na = c;
+    final nb = d;
+    final nc = -a;
+    final nd = -b;
+    a = na;
+    b = nb;
+    c = nc;
+    d = nd;
+  }
+  // Kaynağın merkezi çıktının merkezine oturur.
+  final tx = outWidth / 2 - (a * w / 2 + b * h / 2);
+  final ty = outHeight / 2 - (c * w / 2 + d * h / 2);
+
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.transform(Float64List.fromList([
+    a, c, 0, 0, //
+    b, d, 0, 0, //
+    0, 0, 1, 0, //
+    tx, ty, 0, 1, //
+  ]));
+  canvas.drawImage(image, ui.Offset.zero, ui.Paint());
+  final picture = recorder.endRecording();
+  try {
+    return await picture.toImage(outWidth, outHeight);
+  } finally {
+    picture.dispose();
+  }
+}
+
 /// [image]'in [source] bölgesini [width]×[height] boyutunda PNG'ye çizer.
 ///
 /// Zemin beyazdır: saydam bir PNG sonradan JPEG'e sıkıştırılırken saydam

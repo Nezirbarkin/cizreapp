@@ -731,15 +731,33 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     _availableCategories = categories..sort();
   }
 
+  /// Üst bar eylem düğmesinin kabı (36×36, 24'lük simge). IconButton'ın
+  /// varsayılan 48'lik dokunma dolgusu simgeler arasında 24 px bırakıyordu,
+  /// sepet ise 32'lik ayrı bir düğmeydi; artık dört eylem de aynı kapta,
+  /// simgeler arası eşit 12 px.
+  static const double _barActionSize = 36;
+
+  /// Son eylemin sağ boşluğu: simge kenardan 16 px içeride durur, soldaki
+  /// geri okuyla simetrik.
+  static const double _barActionsEndPadding = 10;
+
+  static final ButtonStyle _barActionStyle = IconButton.styleFrom(
+    fixedSize: const Size.square(_barActionSize),
+    minimumSize: const Size.square(_barActionSize),
+    padding: EdgeInsets.zero,
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  );
+
   /// Daraltılmış barda sağdaki eylemlerin genişliği (başlık bunun altına
-  /// girmesin): ♡ (üyeye) + paylaş + arama/kapat (IconButton 48'er) + sepet
-  /// (24 ikon + 2×4 iç + 8 sağ boşluk = 40) + 8 nefes payı.
+  /// girmesin): ♡ (üyeye) + paylaş + arama/kapat + sepet (36'şar) + sağ boşluk
+  /// + 8 nefes payı.
   double get _collapsedTitleEndPadding {
     final showFavorite = !_isSearching &&
         _shop != null &&
         Supabase.instance.client.auth.currentUser != null;
     final showShare = !_isSearching && _shop != null;
-    return (showFavorite ? 48.0 : 0) + (showShare ? 48.0 : 0) + 48 + 40 + 8;
+    final actionCount = 2 + (showFavorite ? 1 : 0) + (showShare ? 1 : 0);
+    return actionCount * _barActionSize + _barActionsEndPadding + 8;
   }
 
   @override
@@ -803,6 +821,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                     final favorites = context.watch<FavoritesProvider>();
                     final isFav = favorites.isShopFavorited(_shop!.id);
                     return IconButton(
+                      style: _barActionStyle,
                       tooltip: isFav ? 'Favorilerden çıkar' : 'Favorilere ekle',
                       icon: Icon(
                         isFav ? Icons.favorite : Icons.favorite_border,
@@ -834,6 +853,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 // Mağaza paylaş butonu
                 if (!_isSearching && _shop != null)
                   IconButton(
+                    style: _barActionStyle,
                     icon: const Icon(Icons.share_outlined, color: Colors.white),
                     onPressed: () {
                       final shopUrl = 'https://cizreapp.com/s/${_shop!.slug}';
@@ -851,6 +871,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 // Arama ikonu
                 if (!_isSearching)
                   IconButton(
+                    style: _barActionStyle,
+                    tooltip: 'Ürün ara',
                     icon: const Icon(Icons.search, color: Colors.white),
                     onPressed: () {
                       setState(() {
@@ -860,6 +882,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                   )
                 else
                   IconButton(
+                    style: _barActionStyle,
+                    tooltip: 'Aramayı kapat',
                     icon: const Icon(Icons.close, color: Colors.white),
                     onPressed: () {
                       setState(() {
@@ -926,9 +950,13 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                         .fold<int>(0, (sum, item) => sum + item.quantity);
 
                     return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: GestureDetector(
-                        onTap: () {
+                      padding: const EdgeInsets.only(
+                        right: _barActionsEndPadding,
+                      ),
+                      child: IconButton(
+                        style: _barActionStyle,
+                        tooltip: 'Sepet',
+                        onPressed: () {
                           // Navigator.push yeni bir alt ağaç oluşturur ve
                           // ShopDetailScreen'in yerel CartProvider'ını miras almaz;
                           // bu yüzden aynı örneği açıkça taşıyoruz (böylece burada
@@ -948,45 +976,42 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                             ),
                           );
                         },
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              const Icon(
-                                Icons.shopping_cart_outlined,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                              if (shopCartQuantity > 0)
-                                Positioned(
-                                  top: -2,
-                                  right: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(2),
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFFFF3D00),
-                                      shape: BoxShape.circle,
+                        icon: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Icon(
+                              Icons.shopping_cart_outlined,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                            if (shopCartQuantity > 0)
+                              Positioned(
+                                top: -6,
+                                right: -6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF3D00),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 16,
+                                    minHeight: 16,
+                                  ),
+                                  child: Text(
+                                    shopCartQuantity > 9
+                                        ? '9+'
+                                        : '$shopCartQuantity',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                    constraints: const BoxConstraints(
-                                      minWidth: 16,
-                                      minHeight: 16,
-                                    ),
-                                    child: Text(
-                                      shopCartQuantity > 9
-                                          ? '9+'
-                                          : '$shopCartQuantity',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
+                                    textAlign: TextAlign.center,
                                   ),
                                 ),
-                            ],
-                          ),
+                              ),
+                          ],
                         ),
                       ),
                     );

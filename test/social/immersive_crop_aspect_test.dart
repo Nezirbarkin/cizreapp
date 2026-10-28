@@ -5,8 +5,9 @@ import 'package:cizreapp/features/profile/widgets/immersive_crop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Görev 2.8 — oran seçenekli kırpma editörü (gönderi fotoğrafı) ve eski
-/// sabit çerçeveli editörün (profil/kapak) davranışının korunması.
+/// Görev 2.8 — oran seçenekli kırpma editörü (gönderi fotoğrafı) ve sabit
+/// çerçeveli editör (profil/kapak): büyük çerçeve, fotoğrafın çerçeveyi
+/// kaplaması, yakınlaştırma, döndür / aynala / sıfırla.
 
 const _aspects = [
   ImmersiveCropAspect(label: 'Dikey', ratioLabel: '4:5', ratio: 0.8),
@@ -15,8 +16,9 @@ const _aspects = [
 ];
 
 /// Düz zeminli PNG; [square] verilirse ortasına o kenarda siyah bir kare
-/// çizilir (çıktıda karenin kare kalması = görüntü gerilmedi).
-Future<Uint8List> _png(int width, int height, {double square = 0}) async {
+/// çizilir (çıktıda karenin kare kalması = görüntü gerilmedi). [leftHalfDark]
+/// sol yarıyı siyah boyar (döndürme/aynalama yönünü okumak için).
+Future<Uint8List> _png(int width, int height, {double square = 0, bool leftHalfDark = false}) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   canvas.drawRect(
@@ -26,6 +28,12 @@ Future<Uint8List> _png(int width, int height, {double square = 0}) async {
   if (square > 0) {
     canvas.drawRect(
       Rect.fromCenter(center: Offset(width / 2, height / 2), width: square, height: square),
+      Paint()..color = const Color(0xFF000000),
+    );
+  }
+  if (leftHalfDark) {
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, width / 2, height.toDouble()),
       Paint()..color = const Color(0xFF000000),
     );
   }
@@ -62,6 +70,18 @@ Future<(int, int)> _darkExtent(Uint8List bytes) async {
   return (w, h);
 }
 
+/// Çıktıda (genişliğin [fx], yüksekliğin [fy] oranındaki) piksel koyu mu?
+Future<bool> _darkAt(Uint8List bytes, double fx, double fy) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  final image = (await codec.getNextFrame()).image;
+  final rgba = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+  final x = (image.width * fx).floor().clamp(0, image.width - 1);
+  final y = (image.height * fy).floor().clamp(0, image.height - 1);
+  final dark = rgba.getUint8((y * image.width + x) * 4) < 128;
+  image.dispose();
+  return dark;
+}
+
 /// Gerçek (sahte saat dışı) asenkron işin — görsel çözme/kodlama — bitmesini
 /// bekler, sonra kareyi ilerletir.
 Future<void> _settle(WidgetTester tester, bool Function() done) async {
@@ -76,11 +96,13 @@ void main() {
   late Uint8List landscape; // 400×300
   late Uint8List squareMarked; // 400×300, ortada 60×60 siyah kare
   late Uint8List cover; // 1600×900
+  late Uint8List leftDark; // 300×300, sol yarısı siyah
 
   setUpAll(() async {
     landscape = await _png(400, 300);
     squareMarked = await _png(400, 300, square: 60);
     cover = await _png(1600, 900);
+    leftDark = await _png(300, 300, leftHalfDark: true);
   });
 
   Future<void> host(WidgetTester tester, Future<void> Function(BuildContext) onOpen, {Size size = const Size(390, 844)}) async {
@@ -223,7 +245,7 @@ void main() {
     expect(result, isNull);
   });
 
-  testWidgets('eski API (kapak 16:9) değişmedi: çip yok, 1280×720 PNG baytları döner', (tester) async {
+  testWidgets('kapak 16:9: çip yok, fotoğraf çerçeveyi kaplar, 1280×720 PNG baytları döner', (tester) async {
     Uint8List? bytes;
     var returned = false;
     await host(tester, (context) async {
@@ -238,15 +260,169 @@ void main() {
     });
 
     expect(find.text('Kare'), findsNothing);
-    // Eski editör fotoğrafı ekranı kaplayacak kadar büyütür; oran korunur.
+    // Fotoğraf EKRANI değil çerçeveyi kaplar (eskiden 1500×844 çiziliyor,
+    // 16:9 kapağın ancak dörtte biri çerçeveye giriyordu): çerçeve kenarlarda
+    // 20'şer px pay bırakarak ekran genişliğinde, fotoğrafın tamamı içinde.
     final shown = tester.getSize(find.byType(RawImage));
-    expect(shown.height, closeTo(844, 0.01));
+    expect(shown.width, closeTo(390 - 40, 0.01));
     expect(shown.width / shown.height, closeTo(16 / 9, 0.001));
     await confirm(tester, () => returned);
 
     expect(bytes, isNotNull);
     final size = await tester.runAsync(() => _sizeOf(bytes!));
     expect(size, (1280, 720));
+  });
+
+  group('profil fotoğrafı (daire)', () {
+    Future<void> openProfile(
+      WidgetTester tester,
+      Uint8List imageBytes,
+      void Function(Uint8List?) onResult,
+    ) {
+      return host(tester, (context) async {
+        onResult(await showImmersiveCropEditor(
+          context,
+          imageBytes: imageBytes,
+          shape: ImmersiveCropShape.circle,
+          title: 'Profil Fotoğrafı',
+        ));
+      });
+    }
+
+    RawImage shownImage(WidgetTester tester) => tester.widget<RawImage>(find.byType(RawImage));
+
+    /// Döndür/aynala görseli asenkron yeniden üretir: gösterilen görsel
+    /// değişene dek bekler.
+    Future<void> tapTool(WidgetTester tester, String label) async {
+      final before = shownImage(tester).image;
+      await tester.tap(find.text(label));
+      await tester.pump();
+      await _settle(tester, () => !identical(shownImage(tester).image, before));
+    }
+
+    testWidgets('daire kenardan kenara; en uzakta fotoğrafın kısa kenarının tamamı kırpılır', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, landscape, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      // Eskiden daire ekran genişliğinin %68'iydi ve fotoğraf EKRANI kaplamak
+      // zorundaydı: 400×300 fotoğrafın ancak ~94 px'lik bir parçası seçilebiliyordu.
+      final shown = tester.getSize(find.byType(RawImage));
+      expect(shown.height, closeTo(390 - 40, 0.01));
+      expect(find.byType(Slider), findsOneWidget);
+      for (final label in ['Döndür', 'Aynala', 'Sıfırla']) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+
+      await confirm(tester, () => returned);
+      // Kare çıktı, kaynaktan büyütülmez (eskiden her zaman 1024'e şişirilirdi).
+      expect(await tester.runAsync(() => _sizeOf(bytes!)), (300, 300));
+    });
+
+    testWidgets('döndür: saat yönünün tersine döner (sol yarı alta iner)', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, leftDark, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      await tapTool(tester, 'Döndür');
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.5, 0.85)), isTrue);
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.5, 0.15)), isFalse);
+    });
+
+    testWidgets('aynala: sol yarı sağa geçer', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, leftDark, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      await tapTool(tester, 'Aynala');
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.85, 0.5)), isTrue);
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.15, 0.5)), isFalse);
+    });
+
+    testWidgets('döndürdükten sonra aynala ekrandaki görüntüyü yatayda çevirir', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, leftDark, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      await tapTool(tester, 'Döndür'); // siyah alta indi
+      await tapTool(tester, 'Aynala'); // yatay çevirme altı üste taşımaz
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.5, 0.85)), isTrue);
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.5, 0.15)), isFalse);
+    });
+
+    testWidgets('sıfırla: döndürme ve yakınlaştırma geri alınır', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, leftDark, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      await tapTool(tester, 'Döndür');
+      await tester.tap(find.byTooltip('Yakınlaştır'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Sıfırla'));
+      await tester.pump();
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _sizeOf(bytes!)), (300, 300));
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.15, 0.5)), isTrue);
+      expect(await tester.runAsync(() => _darkAt(bytes!, 0.85, 0.5)), isFalse);
+    });
+
+    testWidgets('yakınlaştır düğmesi bir adımda 1.5 kat yaklaşır', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, landscape, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      await tester.tap(find.byTooltip('Yakınlaştır'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300)); // yakınlaştırma geçişi
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _sizeOf(bytes!)), (200, 200));
+    });
+
+    testWidgets('çift dokunuş dokunulan noktaya 2.5 kat yakınlaştırır', (tester) async {
+      Uint8List? bytes;
+      var returned = false;
+      await openProfile(tester, landscape, (b) {
+        bytes = b;
+        returned = true;
+      });
+
+      final center = tester.getCenter(find.byType(RawImage));
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(center);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await confirm(tester, () => returned);
+
+      expect(await tester.runAsync(() => _sizeOf(bytes!)), (120, 120));
+    });
   });
 }
 

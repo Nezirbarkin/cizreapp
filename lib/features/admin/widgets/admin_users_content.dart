@@ -1391,6 +1391,9 @@ class _UserDetailSheetState extends State<_UserDetailSheet> {
           row(Icons.location_on_outlined, 'Konum', d['location'] as String?),
           if ((d['shop_name'] as String?)?.isNotEmpty == true)
             row(Icons.storefront_outlined, 'Dükkan', d['shop_name'] as String?),
+          // Satıcının telefonu dükkanda tutulur; profil telefonu çoğu zaman boş.
+          if ((d['shop_phone'] as String?)?.trim().isNotEmpty == true)
+            row(Icons.phone_in_talk_outlined, 'Dükkan telefonu', d['shop_phone'] as String?, copy: true),
           if (banned != null)
             row(Icons.block, 'Giriş engeli', 'Süresiz'),
           if ((d['suspicious_reason'] as String?)?.isNotEmpty == true)

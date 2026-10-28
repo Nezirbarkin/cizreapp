@@ -121,6 +121,61 @@ void main() {
     });
   });
 
+  group('renderOrientedImage (gerçek pikseller)', () {
+    // 3×2 görsel: (0,0) kırmızı, (2,0) yeşil, (0,1) mavi, gerisi beyaz.
+    Future<ui.Image> marked() async {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas.drawRect(const Rect.fromLTWH(0, 0, 3, 2), Paint()..color = const Color(0xFFFFFFFF));
+      canvas.drawRect(const Rect.fromLTWH(0, 0, 1, 1), Paint()..color = _red);
+      canvas.drawRect(const Rect.fromLTWH(2, 0, 1, 1), Paint()..color = _green);
+      canvas.drawRect(const Rect.fromLTWH(0, 1, 1, 1), Paint()..color = _blue);
+      return recorder.endRecording().toImage(3, 2);
+    }
+
+    Future<_Decoded> pixelsOf(ui.Image image) async {
+      final rgba = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final decoded = _Decoded(image.width, image.height, rgba!);
+      image.dispose();
+      return decoded;
+    }
+
+    test('saat yönünün tersine 90°: boyut yer değiştirir, sol üst sol alta iner', () async {
+      final source = await marked();
+      final out = await pixelsOf(await renderOrientedImage(source, quarterTurns: 1));
+      source.dispose();
+      expect((out.width, out.height), (2, 3));
+      expect(out.pixel(0, 2), _red);
+      expect(out.pixel(0, 0), _green);
+      expect(out.pixel(1, 2), _blue);
+    });
+
+    test('aynala: soldaki sağa geçer, boyut aynı kalır', () async {
+      final source = await marked();
+      final out = await pixelsOf(await renderOrientedImage(source, mirrored: true));
+      source.dispose();
+      expect((out.width, out.height), (3, 2));
+      expect(out.pixel(2, 0), _red);
+      expect(out.pixel(0, 0), _green);
+      expect(out.pixel(2, 1), _blue);
+    });
+
+    test('önce aynala sonra döndür; 180° ve 360° doğru', () async {
+      final source = await marked();
+      final both = await pixelsOf(await renderOrientedImage(source, quarterTurns: 1, mirrored: true));
+      final half = await pixelsOf(await renderOrientedImage(source, quarterTurns: 2));
+      final full = await pixelsOf(await renderOrientedImage(source, quarterTurns: 4));
+      source.dispose();
+      expect((both.width, both.height), (2, 3));
+      expect(both.pixel(0, 0), _red);
+      expect(both.pixel(0, 2), _green);
+      expect(both.pixel(1, 0), _blue);
+      expect(half.pixel(2, 1), _red);
+      expect(half.pixel(0, 1), _green);
+      expect(full.pixel(0, 0), _red);
+    });
+  });
+
   test('renderImageRegionPng: saydam alan beyaz zemine oturur', () async {
     final recorder = ui.PictureRecorder();
     Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 10, 10), Paint()..color = _blue);

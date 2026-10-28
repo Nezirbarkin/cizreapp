@@ -38,6 +38,7 @@ import '../widgets/seller_announcements_content.dart';
 import '../widgets/admin_sponsorships_content.dart';
 import '../widgets/admin_live_content.dart';
 import '../widgets/admin_shop_category_dialog.dart';
+import '../widgets/admin_shop_contact_rows.dart';
 import '../widgets/admin_moderators_content.dart';
 import '../widgets/notifications_content_v2.dart';
 import '../widgets/groups_management_content.dart';

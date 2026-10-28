@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/services/contact_lookup_service.dart';
+import '../widgets/admin_shop_contact_rows.dart';
+import '../widgets/admin_ui.dart';
 
 /// Admin - Dükkan Detay Ekranı
 /// 
@@ -35,6 +37,8 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
   
   Map<String, dynamic>? _shop;
   Map<String, dynamic>? _shopOwner;
+  // shops'ta "category" sütunu yok; ad category_id'den ayrıca okunur.
+  String? _categoryName;
   bool _isLoading = true;
   
   // Müşteri bilgilerini gizleme durumu (kuryesi olmayan satıcılar için)
@@ -93,6 +97,21 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
         );
         if (ownerResp.isNotEmpty) {
           _shopOwner = Map<String, dynamic>.from(ownerResp.first);
+        }
+      }
+
+      final categoryId = _shop!['category_id'];
+      _categoryName = null;
+      if (categoryId != null) {
+        try {
+          final category = await _supabase
+              .from('categories')
+              .select('name')
+              .eq('id', categoryId)
+              .maybeSingle();
+          _categoryName = category?['name'] as String?;
+        } catch (e) {
+          debugPrint('Dükkan kategorisi yüklenemedi: $e');
         }
       }
 
@@ -481,11 +500,55 @@ class _ShopDetailAdminScreenState extends State<ShopDetailAdminScreen> {
                       ],
                     ),
                     const Divider(),
-                    _buildInfoRow('Sahibi', _shopOwner?['full_name'] ?? '-'),
-                    _buildInfoRow('E-posta', _shopOwner?['email'] ?? '-'),
-                    _buildInfoRow('Telefon', _shopOwner?['phone'] ?? '-'),
-                    _buildInfoRow('Kategori', _shop!['category'] ?? '-'),
+                    // Satıcı telefonu shops.phone'da; sahibin profil
+                    // telefonu yalnız yedek (canlıda satıcıların hepsinde boş).
+                    AdminShopContactRows(
+                      contact: AdminShopContact.fromShop(
+                        _shop!,
+                        owner: _shopOwner,
+                      ),
+                      showPayment: false,
+                    ),
+                    _buildInfoRow('Kategori', _categoryName ?? '-'),
                     _buildInfoRow('Açık/Kapalı', _shop!['is_open'] == true ? 'Açık' : 'Kapalı'),
+                    _buildInfoRow(
+                      'Kayıt',
+                      adminDateTime(adminParseDate(_shop!['created_at'])),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Ödeme (IBAN) Bilgileri
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.account_balance, size: 20, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text(
+                          'Ödeme Bilgileri',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(),
+                    AdminShopContactRows(
+                      contact: AdminShopContact.fromShop(
+                        _shop!,
+                        owner: _shopOwner,
+                      ),
+                      showOwner: false,
+                      showContact: false,
+                    ),
                   ],
                 ),
               ),
